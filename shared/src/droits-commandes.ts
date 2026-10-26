@@ -176,6 +176,7 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'erreur.repondre': 'message:messageId',
   'proposal.decide': 'message:messageId',
   'proposal.config': 'message:messageId',
+  'proposal.integrate': 'message:messageId',
   'comment.add': 'carte:cardId',
   'comment.delete': 'carte:cardId',
 };

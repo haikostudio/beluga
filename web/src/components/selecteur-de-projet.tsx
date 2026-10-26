@@ -88,7 +88,7 @@ export function SelecteurDeProjet({
           type="button"
           className={
             dansLeFil
-              ? '-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-raised data-[state=open]:bg-raised'
+              ? '-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1.5 sm:px-1 py-1.5 sm:py-1 text-left transition-colors hover:bg-raised data-[state=open]:bg-raised'
               : 'flex min-w-0 flex-1 items-center gap-1.5 text-left'
           }
           {...marque('selecteur')}

@@ -20,7 +20,7 @@
  * recouvrirait, quel que soit l'ordre du JSX.
  */
 import * as React from 'react';
-import { AlertCircle, Check, Copy, Info, PlugZap, RefreshCw, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, Check, Copy, Info, PlugZap, TriangleAlert, X } from 'lucide-react';
 import { DUREE_MESSAGE_MS, heureEtDate, pileAvecMessage } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -43,8 +43,6 @@ export interface MessagePassager {
   cle?: string;
   /** Depuis quand l'état dure : le message affiche le temps écoulé. */
   depuis?: number;
-  /** Le geste offert par le message, quand il y en a un. */
-  action?: 'reconnecter';
 }
 
 export function PileDeMessages({
@@ -52,7 +50,6 @@ export function PileDeMessages({
   onFermer,
   onPause,
   onReprendre,
-  onReconnecter,
   onOuvrir,
   attributs,
 }: {
@@ -61,8 +58,6 @@ export function PileDeMessages({
   /** Le survol gèle le compte à rebours de TOUS les messages affichés. */
   onPause?: () => void;
   onReprendre?: () => void;
-  /** Le geste du message persistant « lien coupé » — l'administration seule. */
-  onReconnecter?: () => void;
   /** Un message cliquable : la porte client y mène à la fiche ou à la discussion. */
   onOuvrir?: (message: MessagePassager) => void;
   /** Des repères de contrôle propres à l'appelant, posés sur chaque message. */
@@ -98,7 +93,6 @@ export function PileDeMessages({
           message={message}
           enPause={enPause}
           onFermer={onFermer}
-          onReconnecter={onReconnecter}
           onOuvrir={onOuvrir}
           attributs={attributs}
         />
@@ -155,14 +149,12 @@ function UnMessage({
   message,
   enPause,
   onFermer,
-  onReconnecter,
   onOuvrir,
   attributs,
 }: {
   message: MessagePassager;
   enPause: boolean;
   onFermer: (id: string) => void;
-  onReconnecter?: () => void;
   onOuvrir?: (message: MessagePassager) => void;
   attributs?: (message: MessagePassager) => Record<string, unknown>;
 }) {
@@ -292,24 +284,9 @@ function UnMessage({
               ailleurs, ce bouton n'ajouterait qu'un repère de plus dans une
               pile qui se veut discrète. */}
           {message.level === 'error' ? <BoutonCopier texte={message.text} /> : null}
-          {/* LE GESTE OFFERT PAR UN ÉTAT : reconnecter tout de suite, sans
-              attendre le repli progressif. C'est le bouton que portait
-              l'ancien bandeau. */}
-          {message.action === 'reconnecter' && onReconnecter ? (
-            <button
-              type="button"
-              data-toast-reconnecter
-              onClick={(event) => {
-                event.stopPropagation();
-                onReconnecter();
-              }}
-              title={t('Reconnecter maintenant')}
-              className="my-1 mr-1 flex shrink-0 items-center gap-1 self-center rounded bg-raised/70 px-1.5 py-1 text-[12px] hover:bg-raised"
-            >
-              <RefreshCw className="h-3 w-3" />
-              <span className="hidden sm:inline">{t('Reconnecter maintenant')}</span>
-            </button>
-          ) : null}
+          {/* PLUS DE BOUTON « RECONNECTER » : la reconnexion repart d'elle-même
+              (repli progressif), et le geste ne changeait rien de visible —
+              un bouton qui ne fait rien a été retiré (#add8). */}
           {/* UN ÉTAT NE SE FERME PAS À LA MAIN : il reviendrait à la seconde
               suivante, puisque sa cause, elle, est toujours là. */}
           {persistant ? null : (

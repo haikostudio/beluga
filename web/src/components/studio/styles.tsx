@@ -311,7 +311,7 @@ export function PanneauStyles({ onAppliquer }: { onAppliquer: (s: StyleDeLaGaler
           type="button"
           onClick={() => setChoisies([])}
           aria-pressed={!choisies.length}
-          className={cn('rounded-full px-2.5 py-1 text-[12px]', !choisies.length ? 'bg-accent text-accent-fg' : 'bg-bloc text-muted hover:text-text')}
+          className={cn('rounded-full px-3 sm:px-2.5 py-1.5 sm:py-1 text-[12px]', !choisies.length ? 'bg-accent text-accent-fg' : 'bg-bloc text-muted hover:text-text')}
           data-studio-styles-categorie="toutes"
         >
           {t('Tous')}
@@ -324,7 +324,7 @@ export function PanneauStyles({ onAppliquer }: { onAppliquer: (s: StyleDeLaGaler
               type="button"
               onClick={() => basculer(c.id)}
               aria-pressed={actif}
-              className={cn('rounded-full px-2.5 py-1 text-[12px]', actif ? 'bg-accent text-accent-fg' : 'bg-bloc text-muted hover:text-text')}
+              className={cn('rounded-full px-3 sm:px-2.5 py-1.5 sm:py-1 text-[12px]', actif ? 'bg-accent text-accent-fg' : 'bg-bloc text-muted hover:text-text')}
               data-studio-styles-categorie={c.id}
             >
               {t(c.libelle)} <span className={actif ? 'text-accent-fg/80' : 'text-faint'}>{c.n}</span>

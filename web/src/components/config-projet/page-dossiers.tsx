@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { HardDrive, Loader2, Trash2 } from 'lucide-react';
 import { tailleDesCopies, type CopieMorte } from '@beluga/shared';
-import { BulleInfo, Button, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, ZoneDefilement, CaseACocher } from '@/components/ui';
 import { client } from '@/lib/client';
 import { bytes } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -107,17 +107,17 @@ function CopiesDeTravail({ projectId, open }: { projectId: string; open: boolean
           <ul>
             {copies.map((copie) => (
               <li key={copie.chemin} className="flex items-start gap-2 px-2.5 py-1.5 text-[12.5px]" data-copie-morte={copie.chemin}>
-                <input
-                  type="checkbox"
+                <CaseACocher
                   checked={cochees.has(copie.chemin)}
                   disabled={nettoyage}
-                  onChange={(event) => {
+                  aria-label={copie.nom}
+                  onCheckedChange={(coche) => {
                     const suite = new Set(cochees);
-                    if (event.target.checked) suite.add(copie.chemin);
+                    if (coche) suite.add(copie.chemin);
                     else suite.delete(copie.chemin);
                     setCochees(suite);
                   }}
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                  className="mt-0.5"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-mono text-[12px] text-text" title={copie.chemin}>{copie.nom}</span>

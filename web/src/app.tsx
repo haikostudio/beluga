@@ -565,7 +565,20 @@ export function App() {
         (actif.tagName === 'INPUT' || actif.tagName === 'TEXTAREA' || (actif as HTMLElement).isContentEditable);
       const ecart = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
       const clavierOuvert = saisieActive && ecart > 100;
-      racine.style.setProperty('--clavier', `${clavierOuvert ? Math.round(ecart) : 0}px`);
+      /*
+       * LA PAGE NE GLISSE JAMAIS SOUS LE CLAVIER (#deca). L'application lève
+       * elle-même ce qui doit rester visible (`--clavier`) ; si l'iPhone fait
+       * en plus glisser toute la page (document défilé, `offsetTop` > 0), le
+       * dessin et les touchers ne parlent plus du même endroit : le curseur du
+       * champ d'écriture se posait ailleurs que sous le doigt. On la ramène —
+       * pour CE champ seulement, que `--clavier` lève déjà : les champs des
+       * autres écrans comptent encore sur ce glissement pour rester visibles.
+       */
+      const champDEcriture = !!actif?.closest?.('[data-champ-d-ecriture]');
+      if (champDEcriture && (window.scrollY > 0 || (vue?.offsetTop ?? 0) > 0)) window.scrollTo(0, 0);
+      const ecartRecale = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
+      const clavierRecale = saisieActive && ecartRecale > 100;
+      racine.style.setProperty('--clavier', `${clavierRecale ? Math.round(ecartRecale) : clavierOuvert ? Math.round(ecart) : 0}px`);
     };
 
     appliquer();

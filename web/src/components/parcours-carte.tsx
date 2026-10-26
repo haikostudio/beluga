@@ -65,17 +65,17 @@ import {
   prochaineQuestionDeCarte,
   COLONNES_AVANT_LE_TRAVAIL,
   estVoletDuCahier,
-  estVoletDeRealisation,
-  etatDeLaRealisation,
-  realisationDeLaCarte,
-  typesDeMediaDeLaRealisation,
-  LIBELLES_TYPES_DE_MEDIA_DE_REALISATION,
   carteEnPause,
   MESSAGE_DE_REPRISE,
   questionAMontrer,
+  boutonDuMedia,
+  carteDeMedia,
+  horsDuLotDeDeploiement,
+  type AgentQuestion,
+  type GesteDuMedia,
 } from '@beluga/shared';
-import { BulleInfo, Button, CLASSE_BLOC_DU_PIED, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
-import { CarouselQuestions } from '@/components/carousel-questions';
+import { BulleInfo, Button, CLASSE_BLOC_DU_PIED, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement, ChoixDateEtHeure } from '@/components/ui';
+import { CarouselQuestions, EmplacementDeLaPagination } from '@/components/carousel-questions';
 import { BarrePagination } from '@/components/ui/pagination-fleches';
 import { BulleQuestion, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import {
@@ -93,6 +93,7 @@ import { useApp } from '@/lib/use-app';
 import { cn, dateHeure } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { BoutonLireLeCahier, cahierALire } from '@/components/cahier-des-charges';
+import { useEtapesDuMedia } from '@/lib/production-de-carte';
 
 /**
  * L'ÉCRAN D'UNE CARTE, DE HAUT EN BAS : LA BARRE, LE FLUX EN POINTS, LA
@@ -386,6 +387,8 @@ export function PanneauDeDecision({
   /* Le rang de la question montrée vit ICI : ses flèches sont dans l'entête,
      le carrousel du corps ne fait que suivre (`pilotage`). */
   const [questionChoisie, setQuestionChoisie] = React.useState<number | undefined>(undefined);
+  /* La place des flèches d'un formulaire du brief, quand le panneau n'a qu'une question. */
+  const [emplacementDesFleches, setEmplacementDesFleches] = React.useState<HTMLElement | null>(null);
   const indexQuestion = questionAMontrer({ repondues: questions.map(() => false), choisie: questionChoisie });
   // « Reprendre » heurtant cette décision la déplie (`ouvrirLesDecisions`).
   React.useEffect(() => {
@@ -452,13 +455,15 @@ export function PanneauDeDecision({
                 libellePrecedent="question-precedente"
                 libelleSuivant="question-suivante"
               />
+            ) : !replie && questions.length === 1 ? (
+              <div ref={setEmplacementDesFleches} className="contents" data-emplacement-pagination="" />
             ) : null}
             <button
               type="button"
               onClick={() => setReplie((r) => !r)}
               aria-label={replie ? t('Déplier') : t('Replier')}
               tabIndex={-1}
-              className="shrink-0 rounded-md p-1"
+              className="shrink-0 rounded-md p-1.5 sm:p-1"
             >
               <ChevronDown className={cn('h-4 w-4 text-faint transition-transform', replie && '-rotate-90')} aria-hidden />
             </button>
@@ -474,6 +479,7 @@ export function PanneauDeDecision({
               data-panneau-corps
             >
               {questions.length ? (
+                <EmplacementDeLaPagination.Provider value={questions.length === 1 ? emplacementDesFleches : null}>
                 <CarouselQuestions
                   questions={questions}
                   cle={(item) => item.questionId}
@@ -494,6 +500,7 @@ export function PanneauDeDecision({
                     );
                   }}
                 />
+                </EmplacementDeLaPagination.Provider>
               ) : null}
               {autres.map((decision) => {
                 if (decision.sorte === 'incident') {
@@ -796,25 +803,19 @@ export function BarreDAction(props: {
    * point « Déploiement » du flux (`ResumeDeLAgent`, `chat.tsx`).
    */
   resumeSousLeDeploiement?: boolean;
+  /**
+   * LA QUESTION D'ACCORD DU DIRECTEUR ENCORE OUVERTE (idée, images clés et
+   * prix, film monté), lue dans le fil : le bouton d'une création de média y
+   * répond (`RangeeDuMedia`).
+   */
+  accordEnAttente?: { messageId: string; question: AgentQuestion } | null;
 }) {
-  /* LE VOLET DE RÉALISATION (caméra) n'a qu'UN bouton : « Lancer la
-     fabrication · <types> », pleine largeur, ses réglages collés à droite.
-     Plus de bandeau d'avancement, de pause ni de caméra : la jauge de suivi
-     dit l'avancement, le bouton caméra du champ fait foi, et la lecture du
-     cahier de réalisation est la dernière ligne du fil (`chat.tsx`). */
-  if (estVoletDeRealisation(props.carte)) {
-    const pret = etatDeLaRealisation(realisationDeLaCarte(props.carte)) === 'termine';
-    return (
-      <div data-barre-realisation className="flex items-stretch">
-        <BoutonLancerLaFabrication carte={props.carte} groupe={!!props.menuReglages} />
-        <IconeDesReglages
-          menuReglages={props.menuReglages}
-          modifiables={props.reglagesModifiables}
-          colle={pret ? 'accent' : 'neutre'}
-        />
-      </div>
-    );
-  }
+  /* UNE CRÉATION DE MÉDIA A SON BOUTON À ELLE, DU PREMIER MESSAGE À LA FIN
+     (décision du 25/10/2026) : il suit l'étape — « Valider l'idée », « Valider
+     et lancer la fabrication · prix », « Suspendre », « Valider le film »,
+     « Terminer » — et ne propose JAMAIS « Déployer ». Le lancement reste
+     l'accord de l'arrêt 2 : le bouton RÉPOND à la question du directeur. */
+  if (carteDeMedia(props.carte)) return <RangeeDuMedia {...props} />;
   if (!estVoletDuCahier(props.carte)) return <GestesDuChapitre {...props} />;
   /* LE CAHIER DES CHARGES D'UN NOUVEAU PROJET n'a aucun geste de chapitre :
      ni « Valider et lancer », ni arrêt, ni bandeau. Sa rangée porte « Lire le
@@ -840,52 +841,126 @@ export function BarreDAction(props: {
   );
 }
 
+/** L'icône de chaque geste d'une création de média. */
+function iconeDuGesteDuMedia(geste: GesteDuMedia) {
+  return geste === 'lancer-fabrication' ? Rocket : geste === 'suspendre' ? Pause : Check;
+}
+
+/** Les options cochées d'une question, lues dans son brouillon (celui de la bulle). */
+function useChoixCoches(questionId: string | undefined): string[] {
+  const brut = React.useSyncExternalStore(
+    client.subscribe,
+    () => (questionId ? client.lireEtat().prefs[cleDeBrouillonDeReponse.outil(questionId)] : undefined),
+    () => undefined,
+  ) as { choisis?: unknown } | undefined;
+  const choisis = brut?.choisis;
+  return React.useMemo(() => (Array.isArray(choisis) ? choisis.filter((c): c is string => typeof c === 'string') : []), [JSON.stringify(choisis ?? null)]);
+}
+
 /**
- * « LANCER LA FABRICATION · IMAGE + VIDÉO » — le seul geste du volet de
- * réalisation. Toujours visible, il ne s'allume qu'une fois le cahier de
- * réalisation terminé (`etatDeLaRealisation === 'termine'`) et, éteint, dit
- * pourquoi au survol. Roue pendant la requête (`demanderLeLancement`).
+ * LA RANGÉE D'UNE CRÉATION DE MÉDIA : un seul bouton, qui suit l'étape
+ * (`boutonDuMedia`), et ses réglages COLLÉS À DROITE sur toute la largeur
+ * (MEM-5438). Le clic répond à la question d'accord du directeur par le MÊME
+ * chemin que la bulle (`question.answer`) : la question passe répondue dès le
+ * premier clic, un second ne trouve plus rien à répondre. « Suspendre » est
+ * l'arrêt de l'agent de la carte ; « Terminer » range la carte dans
+ * « Archivé » (`card.finish`). Éteint, le bouton DIT pourquoi ; une direction
+ * à choisir mène à la question.
  */
-function BoutonLancerLaFabrication({ carte, groupe }: { carte: Card; groupe: boolean }) {
-  const realisation = realisationDeLaCarte(carte);
-  const pret = etatDeLaRealisation(realisation) === 'termine';
-  const types = typesDeMediaDeLaRealisation(realisation);
-  const raison = pret ? undefined : RAISON_FABRICATION_PAS_PRETE;
-  const libelle = [
-    t('Lancer la fabrication'),
-    types.length ? types.map((type) => t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[type])).join(' + ') : undefined,
-  ]
+function RangeeDuMedia({
+  carte,
+  agent,
+  menuReglages,
+  reglagesModifiables,
+  accordEnAttente,
+}: {
+  carte: Card;
+  agent: Agent | null;
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  reglagesModifiables?: boolean;
+  accordEnAttente?: { messageId: string; question: AgentQuestion } | null;
+}) {
+  const media = useEtapesDuMedia(carte);
+  const arret = useArretAgent({ agent, cardId: carte.id });
+  const question = accordEnAttente?.question;
+  const choisis = useChoixCoches(question?.id);
+  const brut = media
+    ? boutonDuMedia({
+        carte,
+        etape: media.courante,
+        accord: question?.accord ? { etape: question.accord.etape, prix: question.accord.prix, options: question.options } : null,
+        choisis,
+      })
+    : null;
+  /* « Suspendre » ne s'allume que pour l'agent de la carte (`arretDeCarteAutorise`). */
+  const bouton =
+    brut?.geste === 'suspendre' && brut.possible && !arret.possible ? { ...brut, possible: false, raison: arret.raison ?? undefined } : brut;
+  if (!bouton) {
+    if (!menuReglages) return null;
+    return (
+      <div data-barre-realisation data-barre-action="aucun" className="flex items-stretch justify-end">
+        <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} />
+      </div>
+    );
+  }
+  const refuse = (err: any) => {
+    client.signalerRefus(err?.message ?? t('Geste refusé'), carte.id);
+    throw err;
+  };
+  const agir = (): unknown => {
+    if (bouton.reponse && accordEnAttente) {
+      return client
+        .call({ type: 'question.answer', messageId: accordEnAttente.messageId, questionId: accordEnAttente.question.id, answer: bouton.reponse, attachments: [] })
+        .catch(refuse);
+    }
+    if (bouton.geste === 'suspendre') return arret.demander();
+    if (bouton.geste === 'terminer') return client.call({ type: 'card.finish', id: carte.id }).catch(refuse);
+    return undefined;
+  };
+  const Icone = iconeDuGesteDuMedia(bouton.geste);
+  const arretRouge = bouton.geste === 'suspendre';
+  const libelle = [t(bouton.libelle), typeof bouton.prix === 'number' ? `${bouton.prix.toLocaleString(undefined, { maximumFractionDigits: 2 })} $` : null]
     .filter(Boolean)
     .join(' · ');
+  const ton: TonDesReglages = !bouton.possible ? 'neutre' : arretRouge ? 'arret' : 'accent';
   return (
-    <div className="min-w-[150px] flex-1">
-      <BoutonPrincipal raison={raison}>
-        <Button
-          type="button"
-          variant="default"
-          data-realisation-lancer={pret ? 'pret' : 'eteint'}
-          aria-disabled={!pret}
-          title={raison ? t(raison) : undefined}
-          onClick={() =>
-            pret
-              ? client.demanderLeLancement(carte.id)
-              : client.pushToast('warning', t(RAISON_FABRICATION_PAS_PRETE), carte.id)
-          }
-          className={cn(
-            CLASSES_BOUTON_DU_FIL,
-            groupe && 'rounded-r-none',
-            pret ? 'bg-accent text-accent-fg hover:opacity-90' : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
-          )}
-        >
-          <Rocket className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{libelle}</span>
-        </Button>
-      </BoutonPrincipal>
+    <div
+      data-barre-realisation
+      data-barre-action={bouton.geste}
+      data-geste-possible={bouton.possible ? 'oui' : 'non'}
+      data-groupe-reglages={menuReglages ? '' : undefined}
+      className="flex min-w-[150px] flex-1 items-stretch"
+    >
+      <div className="min-w-0 flex-1">
+        <BoutonPrincipal raison={!bouton.possible ? bouton.raison : undefined}>
+          <Button
+            type="button"
+            variant="default"
+            data-geste-principal={bouton.geste}
+            data-geste-du-media={bouton.geste}
+            data-raison={!bouton.possible ? bouton.raison : undefined}
+            aria-disabled={!bouton.possible}
+            onClick={() => (bouton.possible ? agir() : accordEnAttente ? void ouvrirLesDecisions() : undefined)}
+            title={!bouton.possible && bouton.raison ? t(bouton.raison) : undefined}
+            className={cn(
+              CLASSES_BOUTON_DU_FIL,
+              menuReglages && 'rounded-r-none',
+              bouton.possible
+                ? arretRouge
+                  ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:opacity-90'
+                  : 'bg-accent text-accent-fg hover:opacity-90'
+                : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
+            )}
+          >
+            <Icone className="h-3.5 w-3.5" />
+            <span className="min-w-0 truncate">{libelle}</span>
+          </Button>
+        </BoutonPrincipal>
+      </div>
+      <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} colle={ton} />
     </div>
   );
 }
-
-const RAISON_FABRICATION_PAS_PRETE = 'Le cahier de réalisation n’est pas encore terminé';
 
 /** LE TON DE LA MOITIÉ « RÉGLAGES » : celui du bouton auquel elle est collée. */
 type TonDesReglages = 'accent' | 'arret' | 'neutre';
@@ -929,7 +1004,10 @@ function IconeDesReglages({
           data-reglages-du-lancement
           data-reglages-colles={colle ? '' : undefined}
           className={cn(
-            'h-9 w-9 shrink-0 rounded-lg p-0',
+            HAUTEUR_BOUTON_DU_FIL,
+            /* `p-0 sm:px-0` : la taille « md » du bouton pose `sm:px-3.5`, qui ne
+               laissait que 8 px à l'icône sur ordinateur (capture #a9f8). */
+            'w-[43px] sm:w-9 shrink-0 rounded-lg p-0 sm:px-0',
             colle && 'ml-px rounded-l-none',
             colle === 'arret'
               ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:text-white hover:opacity-90'
@@ -938,7 +1016,8 @@ function IconeDesReglages({
                 : 'bg-raised text-text hover:bg-border',
           )}
         >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
+          {/* À LA TAILLE DES AUTRES ICÔNES DE LA BARRE (capture #a9f8 : à 14 px, elle se perdait). */}
+          <SlidersHorizontal className="h-4 w-4 shrink-0" />
         </Button>,
       )}
     </>
@@ -1286,7 +1365,7 @@ function BoutonDeployerLeLot({
       ),
       publicationEnCours: etat.deploys[projectId]?.state === 'running',
       agents: Object.values(etat.agents).filter((agent) => agent.projectId === projectId),
-      cartesDuLot: colonne.filter((card) => !card.excludedFromDeploy && !card.deployedAt).length,
+      cartesDuLot: colonne.filter((card) => !horsDuLotDeDeploiement(card) && !card.deployedAt).length,
       cartesDansLaColonne: colonne.length,
       horsLigne: !etat.connected,
     });
@@ -1361,10 +1440,18 @@ function AvecReglages({
  * `min-w-0` + libellé `truncate` : un texte trop long se raccourcit, il ne
  * sort plus du bouton ni de l'écran.
  */
+export const HAUTEUR_BOUTON_DU_FIL =
+  /* UNE SEULE HAUTEUR POUR TOUTE LA RANGÉE : 43 px sur téléphone (les boutons y
+     sont agrandis de 20 %), 36 px dès 640 px. Le bouton principal était resté à
+     36 px sur téléphone, collé à des réglages de 43 px : deux marches dans la
+     même rangée (capture du 25.10.2026). Tout bouton collé à un autre de la
+     rangée prend CETTE hauteur, jamais une valeur recopiée. */
+  'h-[43px] sm:h-9';
+
 export const CLASSES_BOUTON_DU_FIL =
   /* Une hauteur FIXE : tous les boutons du fil sont pleins, sans trait, et
      gardent la même hauteur quel que soit leur contenu. */
-  'h-9 w-full min-w-0 justify-center gap-2 rounded-lg px-3 py-0 text-[13px] font-medium';
+  `${HAUTEUR_BOUTON_DU_FIL} w-full min-w-0 justify-center gap-2 rounded-lg px-3 py-0 text-[13px] font-medium`;
 
 /* ------------------------------------------------------------------ */
 /* Valider, c'est lancer                                                */
@@ -1676,14 +1763,8 @@ function TiroirDeProgrammation({ carte, open, onClose }: { carte: Card; open: bo
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={`heure-${carte.id}`}>{t('Date et heure du lancement')}</Label>
-          <Input
-            id={`heure-${carte.id}`}
-            type="datetime-local"
-            value={saisie}
-            data-champ-heure
-            onChange={(event) => setSaisie(event.target.value)}
-          />
+          <Label>{t('Date et heure du lancement')}</Label>
+          <ChoixDateEtHeure valeur={saisie} onChange={setSaisie} data-champ-heure="" />
         </div>
 
       </ZoneDefilement>

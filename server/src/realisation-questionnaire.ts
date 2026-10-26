@@ -25,6 +25,7 @@ import {
   repriseDeRealisationPossible,
   type Card,
   typesDeMediaDeLaRealisation,
+  type TypeDeMediaDeRealisation,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -49,19 +50,20 @@ export function estAgentDuQuestionnaireDeRealisation(agentId: string): boolean {
 }
 
 /**
- * L'INTERRUPTEUR. L'allumer pose l'état (neuf s'il n'existait pas) et ne lance RIEN : le
- * premier message de l'utilisateur démarre le cadrage, qui pose lui-même la question des types de média. Le
- * plan n'est plus forcé : le document de réalisation le remplace. L'éteindre
- * rend la conversation ordinaire SANS effacer l'état — rallumée, la carte
- * reprend où elle en était.
+ * LE MENU DU BOUTON CAMÉRA (décision de l'utilisateur du 25/10/2026) : le type
+ * de média se choisit AVANT l'envoi, dans le menu du bouton — jamais dans la
+ * discussion. Choisir un type allume le mode et l'écrit sur la carte
+ * (`medias` = ce type, en liste d'un élément) ; en choisir un autre le
+ * remplace. Rien ne se lance : le premier message démarre le cadrage. `null`
+ * éteint le mode SANS effacer l'état — rallumée, la carte reprend où elle en était.
  */
-export function basculerLaRealisation(cardId: string, actif: boolean): Card {
+export function basculerLaRealisation(cardId: string, media: TypeDeMediaDeRealisation | null): Card {
   const card = store.getCard(cardId);
   if (!card) throw new Error('carte introuvable');
   const avant = card.parcours ?? { plans: [] };
   const ecrite = store.saveCard(
-    actif
-      ? { ...card, parcours: { ...avant, realisationSouhaitee: true }, realisation: card.realisation ?? realisationNeuve() }
+    media
+      ? { ...card, parcours: { ...avant, realisationSouhaitee: true }, realisation: { ...(card.realisation ?? realisationNeuve()), medias: [media] } }
       : { ...card, parcours: { ...avant, realisationSouhaitee: false } },
   );
   bus.emit({ type: 'card.upsert', card: ecrite });
@@ -107,12 +109,14 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
   const carte = carteDeRealisationDeLAgent(agentId);
   if (!carte) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte dont le mode réalisation est allumé.' };
   const avant = realisationDeLaCarte(carte);
-  const lu = lireAvancementDeRealisation(args, avant, Date.now());
+  /* Le type vient du bouton caméra, jamais de l'agent : un « medias » passé ici est ignoré. */
+  const { medias: _ignore, ...sansMedias } = args;
+  const lu = lireAvancementDeRealisation(sansMedias, avant, Date.now());
   if (!lu.ok) return { ok: false, text: lu.raison };
   if (!typesDeMediaDeLaRealisation(lu.realisation).length) {
     return {
       ok: false,
-      text: '« Quels types de média voulez-vous ? » n’a pas encore de réponse : pose-la avec « ask_user » en choix multiple (image, video, musique, voix, bruitages), puis rappelle l’outil avec « medias » = la liste choisie. N’écris rien avant.',
+      text: 'Le type de média (vidéo, image ou son) n’est pas choisi : l’utilisateur le choisit dans le menu du bouton caméra, sous le champ d’écriture. Ne le demande PAS dans la discussion : termine ton tour en lui disant de le choisir à ce bouton. N’écris rien avant.',
     };
   }
   const document = typeof args.document === 'string' ? args.document : '';
@@ -224,9 +228,10 @@ export async function reprendreLaRealisation(cardId: string): Promise<Card> {
   if (!agent) throw new Error('Aucun agent de cadrage pour reprendre ce questionnaire.');
   if (process.env.NODE_TEST_CONTEXT) return reprise;
   const { sendPrompt } = await moteur();
+  const { resumeDeProductionDeLaCarte } = await import('./responsable-creatif.js');
   void sendPrompt(
     agent.id,
-    demandeDeRepriseDeRealisation(realisation, lireLeDocumentDeRealisation(reprise)?.texte, cheminAbsoluDuDocument(reprise)),
+    demandeDeRepriseDeRealisation(realisation, lireLeDocumentDeRealisation(reprise)?.texte, cheminAbsoluDuDocument(reprise), resumeDeProductionDeLaCarte(reprise)),
     { template: 'none', silent: true },
   ).catch((err) => log.error(`la reprise du questionnaire de réalisation « ${carte.title} » n'a pas pu partir`, err));
   return reprise;

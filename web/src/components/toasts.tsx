@@ -20,7 +20,6 @@ export function Toasts() {
   const fermer = React.useCallback((id: string) => client.dismissToast(id), []);
   const pause = React.useCallback(() => client.pauseToasts(), []);
   const reprendre = React.useCallback(() => client.resumeToasts(), []);
-  const reconnecter = React.useCallback(() => client.reconnecterMaintenant(), []);
 
   return (
     <PileDeMessages
@@ -28,7 +27,6 @@ export function Toasts() {
       onFermer={fermer}
       onPause={pause}
       onReprendre={reprendre}
-      onReconnecter={reconnecter}
     />
   );
 }

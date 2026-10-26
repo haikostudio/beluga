@@ -98,10 +98,14 @@ export function BoutonDesServices({
   /* LE STUDIO N'A DE TUILE QUE POUR SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`). */
   /* LES SERVICES SONT À L'ADMINISTRATEUR : un accès tiers n'a que ses projets,
      plus le coffre-fort si sa grille le lui ouvre. */
+  /* Les services réservés à un seul compte, que ce compte-ci n'a pas. */
+  const reserves = new Set<string>();
   const services = CLES_DES_SERVICES.filter((service) =>
-    state.monRole === 'admin'
-      ? service.cle !== 'studio' || state.studioOuvert
-      : service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun',
+    reserves.has(service.cle)
+      ? false
+      : state.monRole === 'admin'
+        ? service.cle !== 'studio' || state.studioOuvert
+        : service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun',
   );
   const serviceOuvert = services.find((service) => service.cle === vue);
   const surUnService = !!serviceOuvert;
@@ -118,7 +122,7 @@ export function BoutonDesServices({
         <Button
           variant="ghost"
           size="icon"
-          className={cn('relative h-8 w-8 shrink-0 text-muted', ouvert && 'bg-raised text-text', surUnService && 'text-text')}
+          className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', ouvert && 'bg-raised text-text', surUnService && 'text-text')}
           data-service-ouvert={serviceOuvert?.cle}
           aria-label="Services"
           title={t('Services')}

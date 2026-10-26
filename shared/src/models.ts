@@ -6,6 +6,8 @@ import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
 import { CompetenceProposee } from './proposition-competence.js';
 import { CahierDesCharges } from './cahier-des-charges.js';
 import { EtatDeRealisation } from './mode-realisation.js';
+import { BranchementDeLaQuestion, DevisDeLaQuestion } from './production.js';
+import { AccordDEtape, FormulaireDeQuestions } from './responsable-creatif.js';
 import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
 import { EtatDeLAssistant, IdentiteDInstallation } from './installation.js';
 
@@ -1039,7 +1041,28 @@ export const ParcoursDeCarte = z.object({
    * action « fixer_budget », après un « Accepter » de l'utilisateur). Ils
    * priment sur ceux du cahier des charges : c'est la décision la plus récente.
    */
-  realisationBudget: z.object({ budget: z.number(), seuil: z.number(), at: z.number() }).optional(),
+  realisationBudget: z
+    .object({
+      budget: z.number(),
+      seuil: z.number(),
+      at: z.number(),
+      /**
+       * LE PRIX ACCORDÉ À L'ARRÊT 2 du directeur artistique (« images clés et
+       * prix », 25/10/2026) : le budget vaut alors ce prix × (1 + marge de
+       * réparation, `MARGE_DE_REPARATION`). Présent, il dit que la fabrication
+       * a reçu son accord : les lots qui tiennent dans le budget partent d'office.
+       */
+      prixAccorde: z.number().optional(),
+    })
+    .optional(),
+  /**
+   * L'ACCORD DE L'ARRÊT 2 VAUT LE GESTE DE LANCEMENT (25/10/2026) : posé au
+   * clic sur « Valider et lancer la fabrication », il fait partir le tour de
+   * tâche dès que le directeur a fini de parler (`ws.ts`, fin de tour de
+   * cadrage), sans bouton « Lancer ». Il reste posé : une retouche demandée
+   * après la livraison relance la fabrication de la même façon.
+   */
+  fabricationAccordeeA: z.number().optional(),
   /** La DEMANDE de budget en attente de réponse : la question qui la porte et les montants proposés. */
   realisationBudgetDemande: z.object({ questionId: z.string(), budget: z.number(), seuil: z.number(), at: z.number() }).optional(),
   /**
@@ -1134,6 +1157,14 @@ export const SuiviDUneFille = z.object({
   /** La fille s'est close sans modifier son dépôt. */
   sansCode: z.boolean().optional(),
   doneAt: z.number().optional(),
+  /**
+   * LE RANG ET LE TITRE D'UNE ÉTAPE DE SUITE (`shared/src/suite-de-cartes.ts`) :
+   * les filles d'une suite vivent toutes dans le projet de la mère, c'est leur
+   * ordre et leur sujet qui les distinguent, pas un nom de projet. Absents sur
+   * les filles d'un projet réuni.
+   */
+  rang: z.number().int().optional(),
+  titre: z.string().optional(),
 });
 export type SuiviDUneFille = z.infer<typeof SuiviDUneFille>;
 
@@ -1287,6 +1318,24 @@ export const Card = z.object({
    * affiche dans son fil (`avecLeSuiviDesFilles`, `shared/src/regroupements.ts`).
    */
   suiviDesFilles: z.array(SuiviDUneFille).optional(),
+  /**
+   * LA CARTE GLOBALE D'UNE SUITE D'ÉTAPES (`shared/src/suite-de-cartes.ts`) :
+   * ses filles vivent dans SON projet et partent UNE À UNE, chacune quand la
+   * précédente a rendu son travail. Elle ne lance aucun agent ; elle résume la
+   * suite et la tient groupée jusqu'au bout. Absent : une mère de projet réuni
+   * (filles parallèles, une par projet), ou une carte ordinaire.
+   */
+  teteDeSuite: z.boolean().optional(),
+  /** Le rang (1, 2, 3…) d'une étape de suite. Absent hors d'une suite. */
+  rangDansLaSuite: z.number().int().positive().optional(),
+  /**
+   * L'ÉTAPE A RENDU SON TRAVAIL ET ATTEND SES SŒURS : elle reste dans le groupe,
+   * en « En cours », au lieu de passer seule en « À déployer ». Toute la suite y
+   * passe ensemble quand la dernière étape a fini (`suivreLaMere`).
+   */
+  etapeFinieAt: z.number().optional(),
+  /** Le moment où la suite a lancé cette étape : on ne la relance jamais deux fois. */
+  departDeLaSuiteAt: z.number().optional(),
   /**
    * LA DEMANDE CLIENT DONT CETTE CARTE EST NÉE, quand elle vient de la
    * messagerie (`espace.demande.enCarte`). Absent partout ailleurs.
@@ -1556,6 +1605,14 @@ export const Agent = z.object({
    * édition de fichier, et chacun de ses gestes passe par la porte d'accord.
    */
   assistantGlobal: z.boolean().optional(),
+  /**
+   * UN AGENT PORTÉ PAR UN SERVICE DE L'APPLICATION, hors de tout projet (25/10/2026).
+   * Il garde un projet porteur (la base l'exige), mais n'y paraît JAMAIS : ni
+   * sur son tableau, ni dans ses compteurs, ni sous son triangle. Sa carte
+   * violette du tableau de bord porte `nom` à la place du projet, et s'ouvre
+   * sur `adresse` (l'écran du service, « #<adresse> »).
+   */
+  service: z.object({ id: z.string(), nom: z.string(), adresse: z.string() }).optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -1648,6 +1705,20 @@ export type TodoItem = z.infer<typeof TodoItem>;
 /** L'identifiant réservé à l'étape « lecture de la mémoire du projet ». */
 export const MEMORY_STEP_ID = 'memoire';
 
+/**
+ * UNE ÉTAPE D'UNE SUITE PROPOSÉE (`board_create_card`, champ `etapes`) : la
+ * même matière qu'une carte proposée — titre, description jugée, synthèse du
+ * besoin, réglages —, mais elle ne naîtra qu'avec ses sœurs, d'un seul clic.
+ */
+export const EtapeProposee = z.object({
+  title: z.string(),
+  description: z.string().default(''),
+  briefing: z.string().optional(),
+  labels: z.array(z.string()).default([]),
+  run: RunConfig.optional(),
+});
+export type EtapeProposee = z.infer<typeof EtapeProposee>;
+
 export const TaskProposal = z.object({
   id: z.string(),
   title: z.string(),
@@ -1685,13 +1756,21 @@ export const TaskProposal = z.object({
   /**
    * Décision mémorisée. « merged » distingue une proposition réunie dans une
    * autre d'un refus : elle reste dans l'historique, mais ne réclame plus de
-   * clic et n'a créé aucune carte.
+   * clic et n'a créé aucune carte. « integrated » : la suggestion a été
+   * envoyée en message à l'agent de la carte où elle était proposée
+   * (`proposal.integrate`) — aucune carte créée, plus rien à décider.
    */
-  decision: z.enum(['pending', 'accepted', 'refused', 'merged']).default('pending'),
+  decision: z.enum(['pending', 'accepted', 'refused', 'merged', 'integrated']).default('pending'),
   /** Proposition nouvelle dans laquelle cette source a été réunie. */
   mergedInto: z.string().optional(),
   /** Sources directes d'une proposition composée, pour garder toute la trace. */
   sourceProposalIds: z.array(z.string()).default([]),
+  /**
+   * LES ÉTAPES D'UNE SUITE, DANS L'ORDRE. Présentes, la proposition est une
+   * SUITE : le clic de validation pose une carte globale et une carte par
+   * étape, groupées, qui partiront une à une (`shared/src/suite-de-cartes.ts`).
+   */
+  etapes: z.array(EtapeProposee).optional(),
   cardId: z.string().optional(),
   decidedAt: z.number().optional(),
   /**
@@ -1769,6 +1848,47 @@ export const AgentQuestion = z.object({
    * abandonner) est tranchée par le démon, jamais rendue au moteur telle quelle.
    */
   veille: z.string().optional(),
+  /**
+   * LE BLOC « DEVIS » D'UN LOT DE GÉNÉRATIONS PAYANTES (studio créatif,
+   * 24/10/2026, `shared/src/production.ts`) : une ligne par opération, le
+   * total et le budget, rendus au-dessus des choix « Valider le devis » /
+   * « Refuser ». Posé par l'outil « realiser », jamais par l'agent.
+   */
+  devis: DevisDeLaQuestion.optional(),
+  /**
+   * L'ENCADRÉ DE BRANCHEMENT : la question demande un service de création, et
+   * la bulle porte de quoi coller sa clé (fal.ai d'abord, Higgsfield pour la
+   * vidéo). Un service branché répond seul à la question.
+   */
+  branchement: BranchementDeLaQuestion.optional(),
+  /**
+   * LE FORMULAIRE GROUPÉ DU BRIEF (responsable créatif, carte 2 du studio,
+   * 24/10/2026) : trois à cinq questions posées d'un coup, chacune avec ses
+   * choix suggérés et une réponse libre, rendues ENSEMBLE à l'agent en un seul
+   * texte (`reponseDuFormulaire`). Posé par l'outil « production », jamais par
+   * `ask_user` : un seul appel, une seule attente.
+   */
+  formulaire: FormulaireDeQuestions.optional(),
+  /**
+   * UNE DEMANDE D'ACCORD SUR UNE ÉTAPE D'ÉCRITURE (brief, direction, scénario,
+   * storyboard, plans) : la réponse valide ou fait retoucher les pièces
+   * soumises, écrite par le démon dès le clic (`trancherLAccordDEtape`).
+   */
+  accord: AccordDEtape.optional(),
+  /**
+   * LA SPHÈRE DE LUMIÈRE (agent créatif, 24/10/2026) : la bulle montre une
+   * sphère éclairée qu'on oriente à la souris ou au doigt — libre, ou aimantée
+   * sur les directions qu'autorise le modèle choisi — et répond
+   * « Lumière : azimut …°, élévation …° ». Posée par l'outil « realiser »
+   * (action « lumiere »), jamais par l'agent directement.
+   */
+  lumiere: z
+    .object({
+      directions: z.union([z.literal('libre'), z.array(z.object({ azimut: z.number(), elevation: z.number(), libelle: z.string() }))]),
+      image: z.string().optional(),
+      modele: z.string(),
+    })
+    .optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 
@@ -2320,6 +2440,22 @@ export const AccountQuota = z.object({
    * par l'ouverture de l'application.
    */
   derniereAmorce: z.object({ at: z.number(), ok: z.boolean(), error: z.string().optional() }).optional(),
+  /**
+   * LE CRÉNEAU DE RÉVEIL de la fenêtre de cinq heures (règle pure
+   * `creneauxDesComptes`) : les comptes Claude se calent sur le prioritaire, à
+   * parts égales de la fenêtre. Absent pour le repère seul ou sans repère sûr.
+   */
+  creneau: z
+    .object({
+      prochainReveil: z.number().optional(),
+      decalageMs: z.number(),
+      repere: z.string(),
+      rang: z.number(),
+      parts: z.number(),
+      /** La fenêtre en cours a perdu son créneau (rouverte par le travail) : recalage à `prochainReveil`. */
+      horsCreneau: z.object({ finFenetre: z.number(), ecartMs: z.number(), alignee: z.boolean() }).optional(),
+    })
+    .optional(),
   /**
    * L'état RÉEL de la connexion du compte (règle pure `etatDeConnexion`) : un
    * quota intact ne prouve pas qu'un jeton tient encore.

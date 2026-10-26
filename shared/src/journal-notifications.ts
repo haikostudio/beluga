@@ -267,6 +267,7 @@ export function journalDesNotifications(
       cardId: demande.cardId,
       agentId: demande.agentId,
       messageId: demande.messageId,
+      ...(demande.url ? { url: demande.url } : {}),
     },
     demande,
   }));

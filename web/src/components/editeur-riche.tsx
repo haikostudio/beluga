@@ -265,7 +265,7 @@ export function EditeurRiche({
       aria-label={repere}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onAction}
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-raised hover:text-text"
+      className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-raised hover:text-text"
     >
       {children}
     </button>

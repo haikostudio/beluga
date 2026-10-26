@@ -109,7 +109,7 @@ export function AnneauContexte({ agent }: { agent: Agent | undefined }) {
           className={cn(
             /* Même case que les boutons-icônes du champ d'écriture : 28 px de
                haut, 7 px autour d'un glyphe de 14 px (`CLASSE_RANGEE_DE_BOUTONS`). */
-            'flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-md px-[7px] text-[12.5px] tabular-nums hover:bg-raised',
+            'flex h-[34px] sm:h-7 min-w-[34px] sm:min-w-7 shrink-0 items-center justify-center gap-1 rounded-md px-[7px] text-[12.5px] tabular-nums hover:bg-raised',
             COULEUR_TEXTE[niveau],
           )}
         >

@@ -11,7 +11,14 @@ import { estUnRegroupement, membresActifsDuRegroupement, type Project } from '@b
  * cartes des tableaux de bord (`en-route.tsx`), pour qu'un projet ait le même
  * visage partout.
  */
-export function PastilleProjet({ project }: { project: Pick<Project, 'name' | 'favicon'> }) {
+export function PastilleProjet({
+  project,
+  taille = TAILLE_PASTILLE,
+}: {
+  project: Pick<Project, 'name' | 'favicon'>;
+  /** Le côté en px : 15 par défaut (colonne de gauche), 18 en tête des cartes des tableaux. */
+  taille?: number;
+}) {
   // Une image qui ne se charge pas (fichier retiré, session expirée) laisse
   // sinon un carré vide : on revient aux initiales, jamais une image cassée.
   const [cassee, setCassee] = React.useState(false);
@@ -25,7 +32,8 @@ export function PastilleProjet({ project }: { project: Pick<Project, 'name' | 'f
         aria-hidden
         data-favicon-projet
         onError={() => setCassee(true)}
-        className="h-[15px] w-[15px] shrink-0 rounded-sm object-contain"
+        className="shrink-0 rounded-sm object-contain"
+        style={{ width: taille, height: taille }}
       />
     );
   }
@@ -44,13 +52,16 @@ export function PastilleProjet({ project }: { project: Pick<Project, 'name' | 'f
     <span
       aria-hidden
       data-initiales-projet
-      className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full bg-raised text-[9px] font-medium leading-none text-faint"
+      className="flex shrink-0 items-center justify-center rounded-full bg-raised font-medium leading-none text-faint"
+      style={{ width: taille, height: taille, fontSize: Math.round(taille * 0.6) }}
     >
       {initiales}
     </span>
   );
 }
 
+/** Le côté par défaut d'une pastille, en px (colonne de gauche). */
+const TAILLE_PASTILLE = 15;
 /** Pas de la pile : chaque icône suivante se décale de 4 px vers la droite. */
 const DECALAGE_PILE = 4;
 /** Au plus trois icônes : au-delà, la pile ne se lit plus à 15 px. */
@@ -66,15 +77,18 @@ const PILE_MAX = 3;
  * garde `PastilleProjet`.
  */
 /** La largeur, en px, de la pile des favicons de `nombre` membres. */
-export function largeurPile(nombre: number): number {
-  return 15 + DECALAGE_PILE * (Math.min(Math.max(nombre, 1), PILE_MAX) - 1);
+export function largeurPile(nombre: number, taille = TAILLE_PASTILLE): number {
+  return taille + DECALAGE_PILE * (Math.min(Math.max(nombre, 1), PILE_MAX) - 1);
 }
 
 export function PastillesEmpilees({
   projects,
   fond = 'hsl(var(--fond-zone, var(--bg)))',
+  taille = TAILLE_PASTILLE,
 }: {
   projects: Project[];
+  /** Le côté de chaque icône, en px : 15 par défaut. */
+  taille?: number;
   /** La couleur du support de la pile : celle de la zone par défaut, `--raised` sur une carte. */
   fond?: string;
 }) {
@@ -83,8 +97,8 @@ export function PastillesEmpilees({
     <span
       aria-hidden
       data-pile-favicons={pile.length}
-      className="relative inline-block h-[15px] shrink-0"
-      style={{ width: largeurPile(pile.length) }}
+      className="relative inline-block shrink-0"
+      style={{ width: largeurPile(pile.length, taille), height: taille }}
     >
       {pile.map((membre, i) => (
         <span
@@ -99,7 +113,7 @@ export function PastillesEmpilees({
             boxShadow: `0 0 0 1px ${fond}`,
           }}
         >
-          <PastilleProjet project={membre} />
+          <PastilleProjet project={membre} taille={taille} />
         </span>
       ))}
     </span>

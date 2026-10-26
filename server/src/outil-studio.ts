@@ -23,13 +23,16 @@ import {
   voixFinaleDuProjet,
   phraseDansUneAutreVoix,
   tousLesSegments,
+  consigneDuMontageDeCarte,
+  plansDuMontage,
 } from '@beluga/shared';
 import {
   ajouterMedia,
   appliquerOperationStudio,
   assurerEspaceStudio,
   compositionCourante,
-  creationDeLAgent,
+  creationPilotableParLAgent,
+  estMontageDeCarte,
   enregistrerVersion,
   genreDuMime,
   listerDepenses,
@@ -95,8 +98,9 @@ function orientation(largeur: number, hauteur: number): string {
 }
 
 export async function outilStudio(ctx: Contexte, project: Project, args: Record<string, any>): Promise<Resultat> {
-  const creation = creationDeLAgent(ctx.agentId);
-  if (!creation) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio.' };
+  // Sa création, ou le MONTAGE de sa carte (grand volet de montage) : jamais une autre.
+  const creation = creationPilotableParLAgent(ctx.agentId);
+  if (!creation) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio, ou aux agents d’une carte qui a un montage.' };
   const composition = compositionCourante(creation.id);
   if (!composition) return { ok: false, text: 'La création n’a plus de composition.' };
   const action = String(args.action ?? '');
@@ -117,6 +121,7 @@ export async function outilStudio(ctx: Contexte, project: Project, args: Record<
       return {
         ok: true,
         text: [
+          ...(estMontageDeCarte(creation) ? [consigneDuMontageDeCarte(composition)] : []),
           `CRÉATION « ${creation.titre} » — version ${creation.version}, formats ${creation.formats.join(', ')}, contenu ${dureeDeLaComposition(composition).toFixed(1)} s.`,
           composition.dureeVoulue !== undefined
             ? `DURÉE VOULUE (marqueur bleu posé par l’utilisateur) : ${composition.dureeVoulue.toFixed(1)} s — c’est la longueur visée, l’export COUPE là. Ne la change que par « operation » {op: "composition", dureeVoulue} après accord de l’utilisateur.`
@@ -160,6 +165,8 @@ export async function outilStudio(ctx: Contexte, project: Project, args: Record<
     }
 
     case 'composer': {
+      // UN MONTAGE DE CARTE se retouche geste par geste : une composition entière effacerait d'un coup ses plans versés.
+      if (estMontageDeCarte(creation) && plansDuMontage(composition).length) return { ok: false, text: 'Ce montage a déjà ses plans : retouche-le par « operation » (une version par geste), jamais en recomposant tout.' };
       const valide = validerComposition(args.composition);
       if (!valide.ok) return { ok: false, text: `Composition refusée : ${valide.raison}` };
       // LE MARQUEUR BLEU EST CELUI DE L'UTILISATEUR : une composition qui ne le redit pas le garde.

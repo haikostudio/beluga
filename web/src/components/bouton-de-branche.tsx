@@ -419,7 +419,7 @@ export function BoutonDeBranche({ card }: { card: Card }) {
       <DropdownMenuTrigger asChild {...ouvertureAuClic(() => ouvrir(true))}>
         <button
           type="button"
-          className="group/cran ml-0.5 flex min-w-0 shrink items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text"
+          className="group/cran ml-0.5 flex min-w-0 shrink items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text"
           title={courante}
           data-bouton-de-branche={courante}
         >

@@ -109,6 +109,8 @@ import {
   TabsTrigger,
   Textarea,
   ZoneDefilement,
+  ChoixDeDate,
+  ChoixDHeure,
 } from '@/components/ui';
 import { SilhouetteMarketing, SilhouetteProjets } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
@@ -345,7 +347,7 @@ export function PointInfo({ titre, children }: { titre: string; children: React.
         title={t('Explications')}
         data-marketing-info
         onClick={() => setOuvert(true)}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-bloc hover:text-text"
+        className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-bloc hover:text-text"
       >
         <Info className="h-3.5 w-3.5" />
       </button>
@@ -1257,7 +1259,7 @@ function EnteteDeColonne({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-raised hover:text-text', actif ? 'text-accent' : 'text-faint')}
+              className={cn('flex h-6 sm:h-5 w-6 sm:w-5 shrink-0 items-center justify-center rounded hover:bg-raised hover:text-text', actif ? 'text-accent' : 'text-faint')}
               data-marketing-filtrer={colonne}
               data-marketing-filtre-actif={actif ? colonne : undefined}
               aria-label="Filtrer cette colonne"
@@ -1975,7 +1977,7 @@ function AFaireEnsuite({
           ) : actions.length ? (
             <p className="px-2.5 py-1 text-[12.5px] leading-relaxed text-muted">{toutEstFait}</p>
           ) : (
-            <button type="button" onClick={onAgent} className="w-full rounded-lg px-2.5 py-1 text-left text-[12.5px] leading-relaxed text-faint transition-colors hover:text-text">
+            <button type="button" onClick={onAgent} className="w-full rounded-lg px-3 sm:px-2.5 py-1.5 sm:py-1 text-left text-[12.5px] leading-relaxed text-faint transition-colors hover:text-text">
               {aucunPlan}
             </button>
           )}
@@ -1988,7 +1990,7 @@ function AFaireEnsuite({
       <span className="text-[13px] font-medium text-text">{t('À faire ensuite')}</span>
       {aFaire.length ? (
         aFaire.map((a) => (
-          <button key={a.id} type="button" onClick={() => onOuvrir(a.id)} className="flex min-w-0 items-center gap-2 rounded-sm py-1 text-left text-[13px] hover:bg-raised">
+          <button key={a.id} type="button" onClick={() => onOuvrir(a.id)} className="flex min-w-0 items-center gap-2 rounded-sm py-1.5 sm:py-1 text-left text-[13px] hover:bg-raised">
             <Circle className="h-3.5 w-3.5 shrink-0 text-accent" />
             <span className="min-w-0 flex-1 truncate text-text">{a.titre}</span>
             {a.datePrevue ? <span className="shrink-0 text-[12px] text-faint">{dateCourte(a.datePrevue)}</span> : null}
@@ -2676,7 +2678,7 @@ function OngletContenus({
               <Sparkles className="h-3.5 w-3.5" />
               {t('Demander un contenu')}
             </Button>
-            <Button size="icon" variant="subtle" className="h-9 w-9" aria-label="Écrire moi-même" title={t('Écrire moi-même')} onClick={onEcrire} data-marketing-contenu-nouveau>
+            <Button size="icon" variant="subtle" className="h-[43px] sm:h-9 w-[43px] sm:w-9" aria-label="Écrire moi-même" title={t('Écrire moi-même')} onClick={onEcrire} data-marketing-contenu-nouveau>
               <PenLine className="h-3.5 w-3.5" />
             </Button>
           </>
@@ -2708,14 +2710,14 @@ function OngletContenus({
           </DialogDescription>
           <p className="mt-2 truncate text-[13px] font-medium text-text">{demande?.contenu.titre}</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <label className="flex min-w-0 flex-col gap-1 text-[12.5px] text-muted">
+            <div className="flex min-w-0 flex-col gap-1 text-[12.5px] text-muted">
               {t('Date')}
-              <Input type="date" value={dateChoisie} onChange={(e) => setDateChoisie(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-fenetre-jour />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-[12.5px] text-muted">
+              <ChoixDeDate valeur={dateChoisie} onChange={setDateChoisie} aria-label="Date" className="text-[13px]" data-marketing-fenetre-jour="" />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 text-[12.5px] text-muted">
               {t('Heure (facultative)')}
-              <Input type="time" value={heureChoisie} onChange={(e) => setHeureChoisie(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-fenetre-heure />
-            </label>
+              <ChoixDHeure valeur={heureChoisie} onChange={setHeureChoisie} effacable aria-label="Heure (facultative)" className="text-[13px]" data-marketing-fenetre-heure="" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" size="sm" disabled={envoi} onClick={() => setDemande(null)}>
@@ -2898,7 +2900,7 @@ function OngletCalendrier({
       }}
       className={cn(
         'min-w-0 truncate rounded-sm text-left',
-        grand ? 'px-2 py-1.5 text-[13px]' : 'px-1 py-0.5 text-[11.5px]',
+        grand ? 'px-2.5 sm:px-2 py-2 sm:py-1.5 text-[13px]' : 'px-1.5 sm:px-1 py-1 sm:py-0.5 text-[11.5px]',
         classeDuContenu(c),
         dragging?.id === c.id && 'opacity-40',
       )}
@@ -2923,7 +2925,7 @@ function OngletCalendrier({
       }}
       className={cn(
         'flex min-w-0 items-center gap-1 rounded-sm text-left',
-        grand ? 'px-2 py-1.5 text-[13px]' : 'px-1 py-0.5 text-[11.5px]',
+        grand ? 'px-2.5 sm:px-2 py-2 sm:py-1.5 text-[13px]' : 'px-1.5 sm:px-1 py-1 sm:py-0.5 text-[11.5px]',
         a.faitLe ? 'bg-termine/10 text-muted line-through' : 'bg-accent/10 text-text',
         dragging?.id === a.id && 'opacity-40',
       )}
@@ -2972,7 +2974,7 @@ function OngletCalendrier({
           <button
             type="button"
             onClick={() => setDecalage(0)}
-            className="min-w-0 flex-1 truncate rounded-md py-1 text-center text-[13px] text-text hover:bg-bloc"
+            className="min-w-0 flex-1 truncate rounded-md py-1.5 sm:py-1 text-center text-[13px] text-text hover:bg-bloc"
             title={t('Revenir à aujourd’hui')}
           >
             {dateCourte(debut, { day: 'numeric', month: 'short' })} – {dateCourte(fin, { day: 'numeric', month: 'short' })}
@@ -3162,7 +3164,7 @@ function CalendrierContinu({
           <button
             type="button"
             onClick={() => allerA(aujourdhui, true)}
-            className="min-w-0 flex-1 truncate rounded-md py-1 text-left text-[13px] font-medium capitalize text-text hover:bg-bloc"
+            className="min-w-0 flex-1 truncate rounded-md py-1.5 sm:py-1 text-left text-[13px] font-medium capitalize text-text hover:bg-bloc"
             title={t('Revenir à aujourd’hui')}
             data-marketing-calendrier-mois={mois}
           >
@@ -3707,19 +3709,16 @@ function TiroirContenu({
             </div>
             <Input value={titre} disabled={publie} onChange={(e) => setTitre(e.target.value)} className="text-[13px]" data-marketing-tiroir-titre />
             <Textarea rows={10} value={texte} disabled={publie} onChange={(e) => setTexte(e.target.value)} className="text-[13px]" data-marketing-tiroir-texte />
-            {/* LA DATE ET L'HEURE L'UNE SOUS L'AUTRE SUR TÉLÉPHONE : les champs
-                natifs de date et d'heure ont une largeur minimale à eux, qui
-                débordait de la moitié d'écran et faisait chevaucher les deux.
-                `min-w-0` et `appearance-none` les ramènent dans leur case. */}
+            {/* LA DATE ET L'HEURE L'UNE SOUS L'AUTRE SUR TÉLÉPHONE, côte à côte ailleurs : deux choix maison (calendrier, heure). */}
             <div className="grid grid-cols-1 gap-2 text-[12.5px] sm:grid-cols-2" data-marketing-tiroir-quand>
-              <label className="flex min-w-0 flex-col gap-1 text-muted">
+              <div className="flex min-w-0 flex-col gap-1 text-muted">
                 {t('Date prévue')}
-                <Input type="date" value={date} disabled={publie} onChange={(e) => setDate(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-tiroir-date />
-              </label>
-              <label className="flex min-w-0 flex-col gap-1 text-muted">
+                <ChoixDeDate valeur={date} disabled={publie} onChange={setDate} effacable aria-label="Date prévue" className="text-[13px]" data-marketing-tiroir-date="" />
+              </div>
+              <div className="flex min-w-0 flex-col gap-1 text-muted">
                 {t('Heure')}
-                <Input type="time" value={heure} disabled={publie} onChange={(e) => setHeure(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-tiroir-heure />
-              </label>
+                <ChoixDHeure valeur={heure} disabled={publie} onChange={setHeure} effacable aria-label="Heure" className="text-[13px]" data-marketing-tiroir-heure="" />
+              </div>
             </div>
             {!studioOuvert ? null : visuels.length ? (
               <div className="flex flex-col gap-1.5" data-marketing-visuels={visuels.length}>

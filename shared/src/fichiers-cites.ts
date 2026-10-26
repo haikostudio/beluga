@@ -72,3 +72,77 @@ export function typeServiDUnFichierCite(mime: string): { type: string; isole: bo
   if (m.startsWith('text/')) return { type: `${m}; charset=utf-8`, isole: false };
   return { type: m, isole: false };
 }
+
+/* ------------------------------------------------------------------ */
+/* Les documents produits par un tour                                  */
+/* ------------------------------------------------------------------ */
+
+/** Ce qu'il faut d'un appel d'outil pour savoir s'il a produit un document. */
+export interface AppelDOutil {
+  outil?: string;
+  /** Les paramètres en JSON — souvent BORNÉS au journal, donc parfois coupés en route. */
+  params?: string;
+  reussie?: boolean;
+}
+
+/** Les fichiers qu'on vient LIRE : jamais du code, une image a déjà sa pastille. */
+const EXTENSIONS_DE_DOCUMENT = /\.(md|markdown|txt|csv|tsv|html?|pdf|docx?|xlsx?|pptx?|odt|ods|rtf)$/i;
+
+/** Une valeur de chaîne lue dans un JSON peut-être coupé : on la cherche, on ne parse pas le tout. */
+function valeurDe(params: string, cle: string): string | undefined {
+  const trouve = params.match(new RegExp(`"${cle}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+  if (!trouve) return undefined;
+  try {
+    return JSON.parse(`"${trouve[1]}"`) as string;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Un chemin dans la COPIE DE TRAVAIL d'une carte devient relatif au projet :
+ * la copie est refermée après la fusion, le fichier vit alors dans le projet.
+ */
+function cheminDuDocument(chemin: string): string {
+  const copie = chemin.match(/\/\.worktrees\/[^/]+\/(.+)$/);
+  const propre = copie ? copie[1] : chemin;
+  // Un nom nu (« rapport.md ») reste un chemin : la règle de reconnaissance l'exige.
+  return propre.includes('/') ? propre : `./${propre}`;
+}
+
+/**
+ * LES DOCUMENTS QU'UN TOUR A PRODUITS (25/10/2026). Sous la réponse de l'agent,
+ * chacun porte un bouton qui l'ouvre dans la visionneuse : un relevé écrit dans
+ * un fichier (capture #ab206) ne se cherchait plus dans le dépôt. Calculé à
+ * l'affichage depuis les appels d'outils DÉJÀ gardés — d'où le bouton sous les
+ * anciennes réponses aussi, sans rien migrer.
+ *
+ * Retenus : un document écrit (« write_document », hors suppression), un
+ * fichier de document écrit par le moteur (« Write ») ou joint (« attach_file »).
+ * Un appel refusé, un chemin illisible ou du code ne donnent rien. Sans
+ * doublon, dans l'ordre d'écriture.
+ */
+export function documentsDuTour(appels: readonly AppelDOutil[]): string[] {
+  const vus = new Set<string>();
+  const documents: string[] = [];
+  for (const appel of appels) {
+    if (appel.reussie === false || !appel.outil || !appel.params) continue;
+    const outil = appel.outil.replace(/^mcp__[^_]+__/, '');
+    let chemin: string | undefined;
+    if (outil === 'write_document') {
+      if (/"action"\s*:\s*"supprimer"/.test(appel.params)) continue;
+      chemin = valeurDe(appel.params, 'relativePath');
+    } else if (outil === 'Write') {
+      chemin = valeurDe(appel.params, 'file_path');
+      if (chemin && !EXTENSIONS_DE_DOCUMENT.test(chemin)) chemin = undefined;
+    } else if (outil === 'attach_file' || outil === 'attach_screenshot') {
+      chemin = valeurDe(appel.params, 'path');
+      if (chemin && !EXTENSIONS_DE_DOCUMENT.test(chemin)) chemin = undefined;
+    }
+    const reconnu = chemin ? cheminDeFichierCite(cheminDuDocument(chemin)) : null;
+    if (!reconnu || vus.has(reconnu)) continue;
+    vus.add(reconnu);
+    documents.push(reconnu);
+  }
+  return documents;
+}

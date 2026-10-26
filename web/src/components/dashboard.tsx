@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { bornesDeLaPeriode, bornesDeLEchelle, rubriqueDuResume, type RubriqueDuResume } from '@beluga/shared';
-import { ZoneDefilement } from '@/components/ui';
+import { ZoneDefilement, ListeDeroulante } from '@/components/ui';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
 import { SilhouetteRubrique } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
@@ -203,25 +203,16 @@ export function Dashboard() {
           <ZoneDefilement className="px-3 py-2 sm:px-8 sm:pb-20 sm:pt-6" data-fil="tableau-de-bord">
             <div className="mx-auto w-full max-w-[920px] space-y-6">
               {/* SUR TÉLÉPHONE, la colonne devient une liste déroulante en tête. */}
-              <label className="block sm:hidden">
-                <span className="sr-only">{t('Rubrique')}</span>
-                <select
-                  value={rubrique}
-                  onChange={(e) => setRubrique(e.target.value)}
-                  className="h-9 w-full rounded-md bg-surface px-2 text-[14px] text-text"
-                  data-rubrique-choix
-                >
-                  {groupes.map((groupe) => (
-                    <optgroup key={groupe.groupe} label={groupe.groupe}>
-                      {groupe.entrees.map(({ cle, libelle }) => (
-                        <option key={cle} value={cle}>
-                          {libelle}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </label>
+              <div className="block sm:hidden">
+                <ListeDeroulante
+                  titre={t('Rubrique')}
+                  valeur={rubrique}
+                  onChoisir={setRubrique}
+                  className="h-10 bg-surface text-[14px]"
+                  data-rubrique-choix=""
+                  options={groupes.flatMap((groupe) => groupe.entrees.map(({ cle, libelle }) => ({ valeur: cle, libelle, groupe: groupe.groupe })))}
+                />
+              </div>
 
               <div>
                 <h2 className="text-[26px] font-semibold tracking-tight text-text">{ouverte.libelle}</h2>

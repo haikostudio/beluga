@@ -148,7 +148,7 @@ export function Repli({
         aria-expanded={ouvert}
         aria-controls={ouvert ? identifiant : undefined}
         onClick={onBascule}
-        className="flex w-full items-center gap-1.5 rounded-md bg-raised/60 px-2.5 py-1.5 text-left text-[13px] text-text transition-colors hover:bg-raised"
+        className="flex w-full items-center gap-1.5 rounded-md bg-raised/60 px-3 sm:px-2.5 py-2 sm:py-1.5 text-left text-[13px] text-text transition-colors hover:bg-raised"
         {...{ [`data-${repere}`]: '' }}
       >
         <ChevronDown

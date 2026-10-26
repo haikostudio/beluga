@@ -72,7 +72,7 @@ export function InstallationsDeBeluga() {
             data-installations-filtre-choix={choix.id}
             onClick={() => setFiltre(choix.id)}
             className={cn(
-              'flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors',
+              'flex h-[38px] sm:h-8 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors',
               filtre === choix.id ? 'bg-raised text-teinte' : 'text-muted hover:bg-raised',
             )}
           >

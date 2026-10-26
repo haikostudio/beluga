@@ -335,7 +335,7 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
                 type="button"
                 onClick={() => setHistoriqueOuvert((o) => !o)}
                 aria-expanded={historiqueOuvert}
-                className="flex min-h-8 w-full items-center gap-1.5 text-left text-[12.5px] text-muted"
+                className="flex min-h-[38px] sm:min-h-8 w-full items-center gap-1.5 text-left text-[12.5px] text-muted"
                 data-studio-historique-voix-bascule
               >
                 <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', historiqueOuvert && 'rotate-90')} aria-hidden />
@@ -366,7 +366,7 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
 
           <Button
             variant="outline"
-            className="relative h-auto min-h-9 w-full overflow-hidden whitespace-normal py-1.5"
+            className="relative h-auto min-h-[43px] sm:min-h-9 w-full overflow-hidden whitespace-normal py-1.5"
             disabled={!devis || !devis.cle || enCours}
             onClick={() => client.call({ type: 'studio.voix.valider', creationId: donnees.creation.id, plafond: devis?.plafond ?? 0, ...(refaire ? { refaire: true } : {}) })}
             data-studio-valider-voix
@@ -766,7 +766,7 @@ export function EtapeFichiers({ donnees }: { donnees: DonneesCreation }) {
             type="button"
             onClick={() => setAnciensOuverts((o) => !o)}
             aria-expanded={anciensOuverts}
-            className="flex min-h-7 items-center gap-1.5 text-left"
+            className="flex min-h-[34px] sm:min-h-7 items-center gap-1.5 text-left"
             data-studio-anciens-bascule
           >
             <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', anciensOuverts && 'rotate-90')} aria-hidden />

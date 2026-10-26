@@ -36,7 +36,7 @@ export interface ServiceAffiche {
 export function useServicesDeCreation(actif = true) {
   const [services, setServices] = React.useState<ServiceAffiche[] | null>(null);
   const relire = React.useCallback(async () => {
-    const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'studio.services.lister' });
+    const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'services.creation.lister' });
     setServices(data.services ?? []);
   }, []);
   React.useEffect(() => {
@@ -47,6 +47,7 @@ export function useServicesDeCreation(actif = true) {
 
 /* Ce que dit chaque service, traduit ici (le catalogue partagé garde le français). */
 const DESCRIPTIONS: Record<string, () => string> = {
+  kie: () => t('Kling, Seedance, Grok, Nano Banana, voix ElevenLabs, musique Suno et synchronisation labiale, payés en crédits kie.ai.'),
   higgsfield: () => t('Vidéos Kling et Hailuo, payées sur votre solde Higgsfield.'),
   byteplus: () => t('Les vidéos Seedance de ByteDance, avec le son.'),
   magnific: () => t('Veo, Kling et Wan, payés sur votre crédit Freepik (Magnific).'),
@@ -66,7 +67,7 @@ const LIBELLES_CHAMPS: Record<string, () => string> = {
   'Secret de la clé': () => t('Secret de la clé'),
 };
 
-function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChange: (liste: ServiceAffiche[]) => void }) {
+export function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChange: (liste: ServiceAffiche[]) => void }) {
   const [champs, setChamps] = React.useState<Record<string, string>>({});
   const [enCours, setEnCours] = React.useState<'enregistrer' | 'tester' | null>(null);
   const [erreur, setErreur] = React.useState<string | null>(null);
@@ -79,7 +80,7 @@ function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChan
     setEnCours('enregistrer');
     setErreur(null);
     try {
-      const data = await client.call<{ services: ServiceAffiche[]; test: ServiceAffiche['test'] }>({ type: 'studio.services.enregistrer', service: service.id, champs });
+      const data = await client.call<{ services: ServiceAffiche[]; test: ServiceAffiche['test'] }>({ type: 'services.creation.enregistrer', service: service.id, champs });
       onChange(data.services ?? []);
       setChamps({});
       setModifier(false);
@@ -92,7 +93,7 @@ function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChan
   const tester = async () => {
     setEnCours('tester');
     try {
-      const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'studio.services.tester', service: service.id });
+      const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'services.creation.tester', service: service.id });
       onChange(data.services ?? []);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('test impossible'));
@@ -102,7 +103,7 @@ function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChan
   };
   const retirer = async () => {
     try {
-      const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'studio.services.retirer', service: service.id });
+      const data = await client.call<{ services: ServiceAffiche[] }>({ type: 'services.creation.retirer', service: service.id });
       onChange(data.services ?? []);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('retrait impossible'));

@@ -4,6 +4,10 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import {
   compteQuiRecoitLeTravail,
+  CompteACaler,
+  creneauxDesComptes,
+  DUREE_FENETRE_MS,
+  fenetreOuverte,
   echeanceDeLaLimite,
   jumeauxParCompte,
   natureParCompte,
@@ -26,6 +30,7 @@ import {
   etatDeConnexion,
   peutRenouvelerLaSession,
   decisionDeRenouvellement,
+  texteDeConnexionEnAttente,
   enUnSeulVol,
   ligneDeRenouvellement,
   franchissementSemaine,
@@ -118,6 +123,34 @@ const DELAI_RENOUVELLEMENT_MS = 60_000;
 let agentsDuCompte: (accountId: string) => string[] = () => [];
 export function brancherAgentsDuCompte(lire: (accountId: string) => string[]): void {
   agentsDuCompte = lire;
+}
+
+/**
+ * LA FENÊTRE DE CINQ HEURES D'UN COMPTE, ET SON PROCHAIN CRÉNEAU. Branché par
+ * le module d'amorce (`amorce.ts`), qui importe ce module : l'inverse ferait
+ * une boucle. Sans branchement, aucun créneau : le relevé renouvelle comme avant.
+ */
+let fenetreDuCompte: (accountId: string) => { fenetreOuverte: boolean; prochainCreneau?: number } = () => ({
+  fenetreOuverte: false,
+});
+export function brancherFenetreDuCompte(
+  lire: (accountId: string) => { fenetreOuverte: boolean; prochainCreneau?: number },
+): void {
+  fenetreDuCompte = lire;
+}
+
+/**
+ * LES COMPTES DONT LE JETON ATTEND SON CRÉNEAU, avec l'heure de ce créneau.
+ * L'amorce du créneau les renouvelle au lieu d'envoyer une amorce par l'API
+ * (refusée sur un jeton expiré), et leur relevé en attente n'est pas une
+ * « lecture en échec ».
+ */
+const jetonsEnAttenteDuCreneau = new Map<string, number>();
+export function jetonEnAttenteDuCreneau(accountId: string): boolean {
+  return jetonsEnAttenteDuCreneau.has(accountId);
+}
+export function oublierAttenteDuCreneau(accountId: string): void {
+  jetonsEnAttenteDuCreneau.delete(accountId);
 }
 
 function lancerRenouvellement(configDir: string): Promise<{ ok: boolean; raison?: string }> {
@@ -823,15 +856,33 @@ async function fetchClaudeQuota(account: AccountRecord): Promise<AccountQuota> {
        * valide, l'appel au moteur ne peut QUE échouer, et il coûtait trente
        * secondes d'attente à CHAQUE relevé de quota, indéfiniment.
        */
+      const fenetre = fenetreDuCompte(account.id);
       const decision = decisionDeRenouvellement({
         peutRenouveler: peutRenouvelerLaSession(raw?.claudeAiOauth),
         agentsAuTravail: agentsDuCompte(account.id).length,
+        fenetreOuverte: fenetre.fenetreOuverte,
+        prochainCreneau: fenetre.prochainCreneau,
+        renouvellementExpireA: Number(raw?.claudeAiOauth?.refreshTokenExpiresAt) || undefined,
       });
       if (decision === 'laisser-aux-agents') {
         // L'agent au travail renouvelle lui-même : ni moteur de plus, ni échec
         // compté, ni « connexion refusée » à l'écran pour un compte qui marche.
         return { ...base, error: 'jeton en cours de renouvellement par un agent au travail' };
       }
+      if (decision === 'attendre-le-creneau' && fenetre.prochainCreneau) {
+        // Renouveler maintenant ouvrirait la fenêtre hors de son créneau : on
+        // attend l'amorce du créneau, qui renouvelera. Ni échec compté, ni alerte.
+        if (jetonsEnAttenteDuCreneau.get(account.id) !== fenetre.prochainCreneau) {
+          log.info(
+            `jeton de ${account.label} expiré, fenêtre fermée : renouvellement reporté à son créneau ` +
+              `(${new Date(fenetre.prochainCreneau).toISOString()})`,
+          );
+        }
+        jetonsEnAttenteDuCreneau.set(account.id, fenetre.prochainCreneau);
+        echecsRenouvellementJeton.delete(account.id);
+        return { ...base, error: texteDeConnexionEnAttente(fenetre.prochainCreneau) };
+      }
+      jetonsEnAttenteDuCreneau.delete(account.id);
       const renouvele = decision === 'forcer' ? await renouvelerSessionClaude(account, 'le relevé de quota') : false;
       if (renouvele) {
         raw = JSON.parse(fs.readFileSync(credFile, 'utf8'));
@@ -2307,11 +2358,50 @@ function releveComparable(quota: AccountQuota) {
   };
 }
 
+/**
+ * CE QUE LE PARTAGE DES CRÉNEAUX LIT D'UN RELEVÉ (`creneauxDesComptes`). Un
+ * seul endroit, pour que l'amorce et la mention sous la jauge calent les
+ * comptes de la même façon. `signatures` regroupe les comptes jumeaux.
+ */
+export function comptesACaler(list: AccountQuota[], signatures: Map<string, string>): CompteACaler[] {
+  return list.map((quota) => ({
+    id: quota.id,
+    engine: quota.engine,
+    priority: quota.priority,
+    disabled: quota.disabled,
+    jumeauDe: signatures.get(quota.id),
+    sessionPct: quota.session?.usedPct,
+    resetsAt: quota.session?.resetsAt,
+    finAmorce: quota.derniereAmorce?.ok ? quota.derniereAmorce.at + DUREE_FENETRE_MS : undefined,
+    incertain: !!quota.error,
+  }));
+}
+
+/** Le créneau de réveil de chaque compte voyage avec son relevé, pour la mention sous la jauge. */
+function attacherCreneaux(list: AccountQuota[], signatures: Map<string, string>): void {
+  const creneaux = creneauxDesComptes(comptesACaler(list, signatures), Date.now());
+  for (const quota of list) {
+    const creneau = creneaux.get(quota.id);
+    quota.creneau =
+      creneau && creneau.parts > 1
+        ? {
+            prochainReveil: creneau.prochainReveil,
+            decalageMs: creneau.decalageMs,
+            repere: list.find((q) => q.id === creneau.repereId)?.label ?? creneau.repereId,
+            rang: creneau.rang,
+            parts: creneau.parts,
+            horsCreneau: creneau.horsCreneau,
+          }
+        : undefined;
+  }
+}
+
 function markActive(list: AccountQuota[]): void {
   attacherAmorces(list);
   attacherEtatConnexion(list);
   attacherJumeaux(list);
   const signatures = signaturesDeGroupe(list.map(releveComparable));
+  attacherCreneaux(list, signatures);
   for (const engine of idsDesMoteurs()) {
     // Un compte coupé ne peut pas être « celui qui sert » : on l'écarte du choix.
     const candidates = list
@@ -2330,6 +2420,7 @@ function markActive(list: AccountQuota[]): void {
           sessionPct: q.session?.usedPct,
           weeklyPct: q.weekly?.usedPct,
           jumeauDe: signatures.get(q.id),
+          fenetreOuverte: q.engine === 'claude' ? fenetreOuverte({ sessionPct: q.session?.usedPct, derniereAmorce: q.derniereAmorce }, Date.now()) : undefined,
         })),
       ) ??
       aPlace[0] ??
@@ -2472,6 +2563,11 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
       weeklyPct: quota?.weekly?.usedPct,
       disabled: quota?.disabled,
       jumeauDe: signatures.get(account.id),
+      /* LE TRAVAIL VA D'ABORD OÙ LA FENÊTRE TOURNE : réveiller un compte Claude
+         au repos ouvrirait sa fenêtre hors de son créneau et casserait l'écart
+         entre les comptes (`creneauxDesComptes`). Il ne sert qu'en dernier
+         recours — le travail n'attend jamais. Sans relevé : inconnu, neutre. */
+      fenetreOuverte: engine === 'claude' && quota ? fenetreOuverte({ sessionPct: quota.session?.usedPct, derniereAmorce: quota.derniereAmorce }, Date.now()) : undefined,
       account,
     }));
 

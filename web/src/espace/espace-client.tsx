@@ -943,7 +943,7 @@ export function EspaceClient({
                   onClick={() => allerALaColonne(index)}
                   className={cn(
                     'h-1.5 rounded-full transition-all',
-                    index === colonneVue ? 'w-5 bg-accent' : 'w-1.5 bg-faint/60',
+                    index === colonneVue ? 'w-6 sm:w-5 bg-accent' : 'w-1.5 bg-faint/60',
                   )}
                   data-point-rail={colonne}
                   data-point-actif={index === colonneVue ? '' : undefined}

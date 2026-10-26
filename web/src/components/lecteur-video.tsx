@@ -405,7 +405,7 @@ export function LecteurVideo({
             <button
               type="button"
               onClick={basculerLecture}
-              className="rounded p-1 hover:bg-sur-etat/20"
+              className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
               aria-label={lit ? 'Pause' : 'Lire la video'}
               title={lit ? t('Mettre en pause') : t('Lire la vidéo')}
               data-video-lecture={lit ? 'lecture' : 'pause'}
@@ -419,7 +419,7 @@ export function LecteurVideo({
             <button
               type="button"
               onClick={changerLaVitesse}
-              className="rounded px-1.5 py-1 tabular-nums hover:bg-sur-etat/20"
+              className="rounded px-2 sm:px-1.5 py-1.5 sm:py-1 tabular-nums hover:bg-sur-etat/20"
               aria-label="Vitesse de lecture"
               title={t('Vitesse de lecture')}
               data-video-vitesse={vitesse}
@@ -429,7 +429,7 @@ export function LecteurVideo({
             <button
               type="button"
               onClick={() => setMuet((avant) => !avant)}
-              className="rounded p-1 hover:bg-sur-etat/20"
+              className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
               aria-label={muet ? 'Retablir le son' : 'Couper le son'}
               title={muet ? t('Rétablir le son') : t('Couper le son')}
               data-video-muet={muet ? '' : undefined}
@@ -442,7 +442,7 @@ export function LecteurVideo({
               <button
                 type="button"
                 onClick={choisirLImage}
-                className="rounded p-1 hover:bg-sur-etat/20"
+                className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
                 aria-label="Definir comme apercu"
                 title={t('Définir cette image comme aperçu')}
                 data-video-definir-apercu={id}
@@ -454,7 +454,7 @@ export function LecteurVideo({
               <button
                 type="button"
                 onClick={() => apercu.onChoisir?.(null)}
-                className="rounded p-1 hover:bg-sur-etat/20"
+                className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
                 aria-label="Revenir a l apercu automatique"
                 title={t('Revenir à l’aperçu automatique')}
                 data-video-apercu-auto={id}
@@ -466,7 +466,7 @@ export function LecteurVideo({
               <button
                 type="button"
                 onClick={() => setAgrandie(true)}
-                className="rounded p-1 hover:bg-sur-etat/20"
+                className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
                 aria-label="Agrandir"
                 title={t('Agrandir')}
                 data-video-agrandir={id}
@@ -477,7 +477,7 @@ export function LecteurVideo({
             <button
               type="button"
               onClick={pleinEcran}
-              className="rounded p-1 hover:bg-sur-etat/20"
+              className="rounded p-1.5 sm:p-1 hover:bg-sur-etat/20"
               aria-label="Plein ecran"
               title={t('Plein écran')}
               data-video-pleinecran={id}
@@ -522,7 +522,7 @@ function TelechargerLaVideo({ id, nom }: { id: string; nom: string }) {
       type="button"
       onClick={lancer}
       disabled={etat === 'reception'}
-      className={cn('flex items-center gap-1 rounded p-1 hover:bg-sur-etat/20', etat === 'pret' && 'bg-sur-etat/25')}
+      className={cn('flex items-center gap-1 rounded p-1.5 sm:p-1 hover:bg-sur-etat/20', etat === 'pret' && 'bg-sur-etat/25')}
       aria-label="Telecharger"
       title={etat === 'pret' ? t('Le fichier est prêt : touchez pour l’enregistrer') : t('Télécharger')}
       data-video-telecharger={id}

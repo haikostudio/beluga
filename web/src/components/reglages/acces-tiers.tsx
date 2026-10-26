@@ -66,7 +66,7 @@ function Segments<T extends string>({
           data-niveau={v}
           onClick={() => valeur !== v && onChoisir(v)}
           className={cn(
-            'h-7 rounded-md px-2.5 text-[12.5px] transition-colors',
+            'h-[34px] sm:h-7 rounded-md px-2.5 text-[12.5px] transition-colors',
             valeur === v ? 'bg-surface font-medium text-teinte' : 'text-muted hover:text-text',
           )}
         >

@@ -1215,7 +1215,7 @@ export function VoixAssistant() {
               e.stopPropagation();
               setConversationAllumee(!conversationAllumee);
             }}
-            className={`ml-auto flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+            className={`ml-auto flex items-center rounded-md p-1.5 sm:p-1 transition-colors hover:bg-raised ${
               conversation.etat === 'refusee'
                 ? 'text-danger'
                 : conversationAllumee
@@ -1246,7 +1246,7 @@ export function VoixAssistant() {
               e.stopPropagation();
               setEcouteAllumee(!ecouteAllumee);
             }}
-            className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+            className={`flex items-center rounded-md p-1.5 sm:p-1 transition-colors hover:bg-raised ${
               ecoute.etat === 'refusee'
                 ? 'text-danger'
                 : ecouteAllumee
@@ -1279,7 +1279,7 @@ export function VoixAssistant() {
               e.stopPropagation();
               setMuet(!muet);
             }}
-            className={`flex items-center rounded-md p-1 transition-colors hover:bg-raised ${
+            className={`flex items-center rounded-md p-1.5 sm:p-1 transition-colors hover:bg-raised ${
               muet ? 'text-muted' : 'text-success'
             }`}
             title={muet ? t('Rétablir la voix automatique') : t('Couper la voix automatique')}
@@ -1519,7 +1519,7 @@ export function VoixAssistant() {
           aria-label="Déplacer la voix de l’assistant"
           title={t('Tirer pour déplacer')}
           onPointerDown={commencerGlissement}
-          className="fixed bottom-20 z-[56] grid h-6 w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-[calc(18px+var(--hauteur-terminal,0px))]"
+          className="fixed bottom-20 z-[56] grid h-[29px] sm:h-6 w-[29px] sm:w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-[calc(18px+var(--hauteur-terminal,0px))]"
           style={{
             left: `${centreOrigineVoix(fenetre.width, avecRobot)}px`,
             marginBottom: 'env(safe-area-inset-bottom)',

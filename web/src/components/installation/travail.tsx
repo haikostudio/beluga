@@ -181,7 +181,7 @@ export function BarreDuTerminal({ className }: { className?: string }) {
         data-basculer-terminal
         aria-expanded={ouverte}
         onClick={() => setOuverte((avant) => !avant)}
-        className="flex h-10 w-full shrink-0 items-center gap-2 px-3 pt-1 text-left text-[13px] text-muted transition-colors hover:text-text sm:px-5"
+        className="flex h-12 sm:h-10 w-full shrink-0 items-center gap-2 px-3 pt-1 text-left text-[13px] text-muted transition-colors hover:text-text sm:px-5"
       >
         <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{t('Ce qui se passe sur le serveur')}</span>

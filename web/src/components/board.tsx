@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
-import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
+import { Layers, Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
 import {
   serviceDeLaCarte,
   serviceVisible,
@@ -78,6 +78,9 @@ import {
   etatDeLaVignetteDInitialisation,
   procedureEnPlace,
   carteMarketingCachee,
+  estEtapeDeSuite,
+  etapeCouranteDeLaSuite,
+  etapeRetenue,
   titreEnConstruction,
   estUnRegroupement,
   membresActifsDuRegroupement,
@@ -113,6 +116,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { client } from '@/lib/client';
+import { PileDeCartes } from '@/components/pile-de-cartes';
 import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
@@ -265,7 +269,7 @@ function MenuTeteColonne({
         <Button
           size="sm"
           variant="ghost"
-          className="-mr-1 h-6 shrink-0 px-1.5 text-faint"
+          className="-mr-1 h-[29px] sm:h-6 shrink-0 px-1.5 text-faint"
           aria-label="Actions de la colonne"
           title={t('Actions de la colonne')}
           data-menu-colonne={colonne}
@@ -522,6 +526,9 @@ export function Board({
         // (`carteMarketingCachee`) : le démon ne les envoie plus dans les paquets
         // du tableau, et celles qui arrivent en direct sont écartées ici.
         .filter((card) => card.projectId === projectId && !carteMarketingCachee(card))
+        // Les ÉTAPES D'UNE SUITE se lisent dans leur carte globale, dans l'ordre
+        // (`estEtapeDeSuite`) : le démon les écarte déjà des paquets du tableau.
+        .filter((card) => !estEtapeDeSuite(card))
         // Un seul ordre de tri : le plus récent en premier (PLAN §16).
         .sort((a, b) => b.position - a.position),
     [state.cards, projectId],
@@ -1621,7 +1628,7 @@ export function Board({
               ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
-                const tuile = (
+                const tuileDe = (card: Card) => (
                   <div className="w-full shrink-0">
                     <CardTile
                       card={card}
@@ -1643,6 +1650,33 @@ export function Board({
                     />
                   </div>
                 );
+                /*
+                 * UNE SUITE D'ÉTAPES SE POSE EN PILE, comme une demande commune
+                 * sur « Tableaux de bord » (`PileDeCartes`) : la carte globale
+                 * dessus, ses étapes dessous dans l'ordre, et le premier clic la
+                 * déplie. Ses étapes ne sont dans aucune colonne
+                 * (`estEtapeDeSuite`) : elles arrivent avec elle.
+                 */
+                if (card.teteDeSuite && card.cartesFilles?.length) {
+                  const etapes = card.cartesFilles
+                    .map((fille) => state.cards[fille.cardId])
+                    .filter((fille): fille is Card => !!fille)
+                    .sort((a, b) => (a.rangDansLaSuite ?? 0) - (b.rangDansLaSuite ?? 0));
+                  return (
+                    <div key={card.id} className="w-full shrink-0" data-suite-en-pile={card.id}>
+                      <PileDeCartes
+                        pile={{ cle: card.id, cartes: [card, ...etapes] }}
+                        rendre={(une) => <React.Fragment key={une.id}>{tuileDe(une)}</React.Fragment>}
+                        menu={(une) => ({
+                          menuOuvert: menuCarte === une.id,
+                          onMenuChange: (ouvert) => setMenuCarte(ouvert ? une.id : null),
+                          onPointerDown: () => undefined,
+                        })}
+                      />
+                    </div>
+                  );
+                }
+                const tuile = tuileDe(card);
                 /* LE REGROUPEMENT PAR PUBLICATION N'EXISTE PLUS (a826871c) :
                    les archives posent leurs cartes une à une, comme toutes les
                    autres rangées. Le geste de SORTIE n'a pas de bouton posé à
@@ -1838,25 +1872,31 @@ export function CardTile({
   const formeEnRoute = !!enRoute;
   const demande = enRoute?.demande;
   const extraitDescription = React.useMemo(
-    () => (formeEnRoute ? demande || debutDeLaDemande(card.description) : ''),
-    [formeEnRoute, demande, card.description],
+    () =>
+      formeEnRoute
+        ? demande || debutDeLaDemande(card.description)
+        : /* La carte globale d'une suite se lit d'un coup d'œil : son titre, puis sa description. */
+          card.teteDeSuite
+          ? debutDeLaDemande(card.description)
+          : '',
+    [formeEnRoute, demande, card.description, card.teteDeSuite],
   );
-  /* Le titre (une ligne sur « Tableaux de bord ») et la demande (deux lignes)
-     se replient, et le corps d'une carte « En route » a une hauteur fixe : dès
-     que l'un des trois coupe le texte, une pastille « i » le donne en entier. */
+  /* LA DEMANDE NE S'ÉCRIT PLUS SUR LA VIGNETTE (25/10/2026, « aérer les
+     cartes ») : elle se lit dans la pastille « i », toujours là dès qu'il y a
+     un extrait. Le titre (deux lignes au plus) se replie, et le corps d'une
+     carte « En route » a une hauteur fixe : dès que l'un des deux coupe le
+     titre, la pastille le donne aussi en entier. */
   const corpsRef = React.useRef<HTMLDivElement>(null);
   const titreRef = React.useRef<HTMLHeadingElement>(null);
-  const descriptionRef = React.useRef<HTMLParagraphElement>(null);
   /* Titre vide ou éclair : un petit texte tient la place, et la bulle de texte
      coupé ne s'ouvre pas dessus (on ne lui passe pas le titre recopié). */
   const titreEnCours = titreEnConstruction(card);
   const texteCoupe = useTexteCoupe(
-    [titreRef, descriptionRef, corpsRef],
-    [titreEnCours ? '' : card.title, extraitDescription, formeEnRoute],
+    [titreRef, corpsRef],
+    [titreEnCours ? '' : card.title, formeEnRoute],
   );
-  /* Sur « Tableaux de bord » le titre tient sur UNE ligne : coupé, il porte le
-     titre entier en info-bulle au survol. La mesure est celle du titre seul —
-     une demande coupée sous un titre entier ne pose aucune info-bulle dessus. */
+  /* Sur « Tableaux de bord » le titre tient sur DEUX lignes : coupé, il porte
+     le titre entier en info-bulle au survol. La mesure est celle du titre seul. */
   const titreCoupe = useTexteCoupe([titreRef], [titreEnCours ? '' : card.title, formeEnRoute]);
   /*
    * L'appui long est suivi d'un clic que le navigateur envoie quand même : sans
@@ -2261,7 +2301,9 @@ export function CardTile({
              proprement en laissant des lignes de sa liste sur le carreau. La
              carte le dit sans qu'on l'ouvre (`travailRestant`). */
           tachesNonFaites: agent?.todos?.unfinished,
-          filles: filles ?? undefined,
+          filles: filles
+            ? { ...filles, ...(card.teteDeSuite ? { suite: true, etape: etapeCouranteDeLaSuite(card.suiviDesFilles ?? []) } : {}) }
+            : undefined,
         },
         maintenant,
       );
@@ -2311,7 +2353,10 @@ export function CardTile({
   /* LE BADGE DE STATUT du tableau d'un projet (en haut à droite de la carte) :
      la couleur suit l'ÉTAPE de la carte, calculée comme la frise de « Tableaux
      de bord ». Sur ce dernier, le badge est posé par sa tête (`en-route.tsx`). */
-  const etapeBadge = etapeCouranteDeSuivi(
+  /* L'ÉTAPE D'UNE SUITE QUI A FINI attend ses sœurs en « En cours » (`etapeRetenue`) :
+     elle ne se dit pas « Travail », elle est terminée. */
+  const etapeFinie = etapeRetenue(card) && !agentAuTravail;
+  const etapeBadge = etapeFinie ? 'termine' : etapeCouranteDeSuivi(
     carteDeSuivi(card, {
       agentActif: agentAuTravail || fillesAuTravail,
       deploys: state.deploys,
@@ -2405,7 +2450,7 @@ export function CardTile({
           // `data-carte-texte` le repasse en `select-text`.
           /* UNE CARTE N'A PLUS DE CADRE : un fond pâle la détache de la page,
              un cran plus marqué au survol. */
-          'carte-du-tableau relative z-10 min-h-0 flex-1 cursor-pointer touch-manipulation select-none overflow-hidden rounded-xl bg-surface px-3.5 py-3 transition-colors hover:bg-raised',
+          'carte-du-tableau relative z-10 min-h-0 flex-1 cursor-pointer touch-manipulation select-none overflow-hidden rounded-xl bg-surface px-4 py-3.5 transition-colors hover:bg-raised',
           service ? CLASSE_LISERE_SERVICE : null,
           (preparation || travailActuel || restant) && 'rounded-b-none',
           enRoute && 'flex flex-col',
@@ -2417,7 +2462,7 @@ export function CardTile({
          * repères techniques du pied.
          */}
         {enRoute ? (
-          <div className="mb-1 flex h-[18px] min-w-0 items-center gap-1.5 text-[12px]" data-tete-carte-en-route>
+          <div className="mb-1.5 flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 text-[13px]" data-tete-carte-en-route>
             <div className="flex min-w-0 flex-1 items-center gap-1.5" data-tete-gauche>
               {enRoute.gauche}
             </div>
@@ -2428,7 +2473,7 @@ export function CardTile({
             ) : null}
           </div>
         ) : card.deployedAt || service ? (
-          <div className="mb-1 flex gap-1">
+          <div className="mb-1.5 flex gap-1">
             {service ? <BadgeDuService service={service} /> : null}
             {card.deployedAt ? (
               <Tooltip label={t('En ligne depuis le {v0}', { v0: new Date(card.deployedAt).toLocaleString(formatRegional()) })}>
@@ -2443,24 +2488,22 @@ export function CardTile({
         {/* En forme « En route », le corps a une hauteur FIXE et se coupe : la
             frise tombe au même endroit sur toutes les cartes. Au tableau, ce
             cadre n'existe pas (`contents`). */}
-        <div ref={corpsRef} className={enRoute ? cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE) : 'contents'}>
+        <div ref={corpsRef} data-corps-carte={enRoute ? '' : undefined} className={enRoute ? cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE) : 'contents'}>
         <div className="flex items-start gap-1.5">
           {/* Le titre est le texte que l'on cherche à COPIER : au tableau d'un
               projet il revient à la ligne, y compris au milieu d'un mot
               interminable (une adresse, un chemin), plutôt que de sortir du
-              cadre. Sur « Tableaux de bord » il tient sur UNE ligne coupée par
-              « … » — le titre entier se lit au survol, et reste copiable en
-              entier à la souris. L'icône du moteur ouvre son fil, à la taille
+              cadre. Partout, il tient sur DEUX lignes au plus, coupées par
+              « … » — le titre entier se lit au survol et dans la pastille
+              « i », et reste copiable en entier à la souris. L'icône du moteur ouvre son fil, à la taille
               d'une lettre : elle ne prend pas de ligne à elle seule, et ne
               bouge donc rien d'autre sur la carte. */}
           <h3
             ref={titreRef}
             data-carte-texte
-            title={formeEnRoute && titreCoupe && !titreEnCours ? card.title : undefined}
+            title={titreCoupe && !titreEnCours ? card.title : undefined}
             className={cn(
-              'texte-copiable min-w-0 flex-1 break-words text-[14.5px] font-medium leading-snug text-text',
-              /* Sur « Tableaux de bord » : UNE ligne, terminée par « … ». */
-              formeEnRoute ? 'line-clamp-1' : 'line-clamp-2',
+              'texte-copiable line-clamp-2 min-w-0 flex-1 break-words text-[15px] font-medium leading-snug text-text sm:text-[14.5px]',
             )}
           >
             {/* Le moteur de la carte ne se lit plus sur sa vignette : il est dans
@@ -2474,16 +2517,24 @@ export function CardTile({
               card.title
             )}
           </h3>
-          {texteCoupe || mentions.length ? (
+          {texteCoupe || extraitDescription || mentions.length ? (
             <BulleTexteCoupe>
-              {texteCoupe ? (
+              {texteCoupe || extraitDescription ? (
                 <>
                   {titreEnCours ? null : <span className="block font-medium text-text">{card.title}</span>}
-                  {enRoute && extraitDescription ? <span className="mt-1 block">{extraitDescription}</span> : null}
+                  {extraitDescription ? (
+                    <span
+                      className={cn('block', !titreEnCours && 'mt-1')}
+                      data-description-carte={card.id}
+                      data-source-extrait={demande ? 'demande' : 'description'}
+                    >
+                      {extraitDescription}
+                    </span>
+                  ) : null}
                 </>
               ) : null}
               {mentions.length ? (
-                <span className={cn('block space-y-1.5', texteCoupe && 'mt-2')}>
+                <span className={cn('block space-y-1.5', (texteCoupe || extraitDescription) && 'mt-2')}>
                   {mentions.map(({ cle, repere, classe, icone: Icone, texte }) => (
                     <span key={cle} {...repere} className={cn('flex items-start gap-1.5 text-[12px] leading-snug', classe)}>
                       <Icone className="mt-[2px] h-3 w-3 shrink-0" />
@@ -2543,20 +2594,6 @@ export function CardTile({
             <Dot tone={etat === 'echec' ? 'failed' : etat === 'attente' ? 'waiting' : 'done'} />
           ) : null}
         </div>
-
-        {/* Le début de la demande (premier message écrit, sinon la
-            description), en texte simple, sur deux lignes au plus. Rien quand
-            la carte n'a ni l'un ni l'autre. */}
-        {enRoute && extraitDescription ? (
-          <p
-            ref={descriptionRef}
-            data-description-carte={card.id}
-            data-source-extrait={demande ? 'demande' : 'description'}
-            className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted"
-          >
-            {extraitDescription}
-          </p>
-        ) : null}
 
         {/* LE CAHIER DES CHARGES SE LIT SANS OUVRIR LA CARTE : son avancement,
             et « En pause » quand l'utilisateur l'a arrêté. */}
@@ -2623,7 +2660,7 @@ export function CardTile({
             data-lancement-en-cours={card.id}
             data-lancement-etape={preparation}
             className={cn(
-              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none text-muted',
+              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-4 pb-2.5 pt-2 text-[12.5px] leading-none text-muted',
             )}
           >
             <span className="flex items-center gap-1">
@@ -2664,7 +2701,7 @@ export function CardTile({
             data-travail-restant={card.id}
             data-travail-restant-nature={restant.nature}
             className={cn(
-              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none',
+              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-4 pb-2.5 pt-2 text-[12.5px] leading-none',
               /* ORANGE POUR CE QUI ATTEND UN GESTE : une question posée, et
                  un tour resté en plan que rien ne relancera tout seul. */
               restant.nature === 'question' || restant.nature === 'relance'
@@ -2728,6 +2765,7 @@ function IconeEtape({ etape, cardId }: { etape: EtapeDeCarte; cardId: string }) 
  */
 function LienDeRegroupement({ card }: { card: Card }) {
   const state = useApp();
+  if (card.teteDeSuite && card.cartesFilles?.length) return <EtapesDeLaSuite card={card} />;
   if (card.cartesFilles?.length) {
     return (
       <div className="mt-1.5 flex flex-wrap gap-1" data-cartes-filles={card.cartesFilles.length}>
@@ -2767,6 +2805,17 @@ function LienDeRegroupement({ card }: { card: Card }) {
   }
   if (!card.carteMereId) return null;
   const mere = state.cards[card.carteMereId];
+  /* UNE ÉTAPE DE SUITE dit son rang et son état, lus sur le relevé de sa carte globale. */
+  if (estEtapeDeSuite(card)) {
+    const suivi = mere?.suiviDesFilles?.find((f) => f.cardId === card.id);
+    const total = mere?.cartesFilles?.length ?? card.rangDansLaSuite!;
+    return (
+      <p className="mt-1.5 truncate text-[12px] text-faint" data-etape-de-la-suite={card.rangDansLaSuite} data-etape-etat={suivi?.etat ?? ''}>
+        {t('Étape {v0}/{v1}', { v0: card.rangDansLaSuite!, v1: total })}
+        {suivi ? ` · ${t(LIBELLES_DE_LA_FILLE[suivi.etat])}` : ''}
+      </p>
+    );
+  }
   const regroupement = state.projects.find(
     (p) => p.id === (mere?.projectId ?? state.projects.find((q) => q.id === card.projectId)?.regroupementId),
   );
@@ -2774,6 +2823,32 @@ function LienDeRegroupement({ card }: { card: Card }) {
   return (
     <p className="mt-1.5 truncate text-[12px] text-faint" data-carte-mere={card.carteMereId}>
       {phrase}
+    </p>
+  );
+}
+
+/**
+ * LES ÉTAPES D'UNE SUITE, SOUS SA CARTE GLOBALE (`shared/src/suite-de-cartes.ts`).
+ *
+ * Le groupe des projets réunis, repris pour un travail découpé : la carte
+ * globale en tête dit où en est la suite (« Étape 2/3 au travail »), puis une
+ * ligne par étape, dans l'ordre, avec son état. Les étapes ne paraissent pas
+ * seules sur le tableau ; un clic sur l'une l'ouvre. Le relevé porté par la
+ * carte globale fait foi (`suiviDesFilles`), comme pour une mère de projet
+ * réuni : il est réécrit par le démon à chaque mouvement d'une étape.
+ */
+function EtapesDeLaSuite({ card }: { card: Card }) {
+  const suivi = card.suiviDesFilles ?? [];
+  const total = card.cartesFilles?.length ?? suivi.length;
+  const faites = suivi.filter((etape) => etape.etat === 'fait').length;
+  /* « En cours » dit son étape dans la barre du bas (`travailRestant`) : le corps se tait. */
+  if (card.column === 'running') return null;
+  return (
+    <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted" data-etapes-de-la-suite={total}>
+      <Layers className="h-3 w-3 shrink-0" />
+      <span className="min-w-0 truncate">
+        {faites === 0 ? t('{n} étapes, une à une', { n: total }) : t('Étapes {v0}/{v1} terminées', { v0: faites, v1: total })}
+      </span>
     </p>
   );
 }

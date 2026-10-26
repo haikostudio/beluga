@@ -25,6 +25,8 @@ export interface AgentPourActivite {
   status?: string;
   tourVivantDepuis?: number;
   endedAt?: number;
+  /** Un agent porté par un SERVICE de l'application n'est sur aucun projet : jamais compté. */
+  service?: unknown;
 }
 
 /** Ce que la règle lit d'une décision : son projet, son état, sa nature. */
@@ -53,7 +55,7 @@ export function activiteDeProjet(
   decisions: readonly DecisionPourActivite[],
 ): ActiviteDeProjet {
   return {
-    enCours: agents.filter((a) => a.projectId === projectId && agentAuTravailALEcran(a)).length,
+    enCours: agents.filter((a) => a.projectId === projectId && !a.service && agentAuTravailALEcran(a)).length,
     attente: iconeDuLot(decisions.filter((d) => d.projectId === projectId && !d.reglee)),
   };
 }

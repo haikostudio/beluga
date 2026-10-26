@@ -726,7 +726,32 @@ export function listCards(projectId: string): Card[] {
  * en « Archivé » FERME ses questions, cloche comprise. C'est la fin de tour qui
  * retient désormais une carte de volet sur sa question — `questionEnTexteSurLaCarte`.)
  */
-const SANS_MARKETING = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = '${LABEL_MARKETING}'))`;
+const SANS_MARKETING_SEUL = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = '${LABEL_MARKETING}'))`;
+
+/**
+ * LES ÉTAPES D'UNE SUITE NE PARAISSENT PAS SEULES SUR LE TABLEAU DU PROJET : elles
+ * se lisent DANS leur carte globale, dans l'ordre (`estEtapeDeSuite`,
+ * `shared/src/suite-de-cartes.ts`). Écartées ici, en SQL, pour que les paquets
+ * et les compteurs de colonne disent ce que la liste montre ; l'écran applique
+ * la même règle aux cartes arrivées par diffusion. La page « Tableaux de bord »
+ * les garde : elle range les cartes par famille (`cleDeFamille`).
+ */
+const SANS_MARKETING = `(${SANS_MARKETING_SEUL} AND c.rang_dans_la_suite IS NULL)`;
+
+/**
+ * LES ÉTAPES DES SUITES PRÉSENTES DANS UN PAQUET VOYAGENT AVEC LEUR CARTE
+ * GLOBALE : elles ne sont dans aucun paquet de colonne (`SANS_MARKETING`), mais
+ * le tableau les déplie sous elle (`PileDeCartes`). Elles ne comptent dans
+ * aucun total.
+ */
+function avecLesEtapesDesSuites(rows: LigneCarte[]): LigneCarte[] {
+  const tetes = rows.filter((row) => row.tete_de_suite === 1).map((row) => row.id);
+  if (!tetes.length) return rows;
+  const etapes = getDb()
+    .prepare(`SELECT * FROM cards WHERE carte_mere_id IN (SELECT value FROM json_each(?)) AND rang_dans_la_suite IS NOT NULL`)
+    .all(JSON.stringify(tetes)) as LigneCarte[];
+  return [...rows, ...etapes];
+}
 
 /**
  * LA PREMIÈRE TRANCHE DE CHAQUE COLONNE, ET LE TOTAL RÉEL DE CHACUNE
@@ -754,7 +779,7 @@ export function premiereTrancheDeCartes(
     .all(projectId) as { colonne: string; n: number }[];
   const totaux: TotauxParColonne = {};
   for (const compte of comptes) totaux[compte.colonne] = compte.n;
-  return { cards: cartesDepuisLignes(rows, projectId), totaux };
+  return { cards: cartesDepuisLignes(avecLesEtapesDesSuites(rows), projectId), totaux };
 }
 
 /**
@@ -792,7 +817,7 @@ export function trancheDeCartes(
       .prepare(`SELECT COUNT(*) AS n FROM cards c WHERE project_id = ? AND column_key = ? AND ${SANS_MARKETING}`)
       .get(projectId, column) as { n: number }
   ).n;
-  return { cards: cartesDepuisLignes(rows, projectId), total };
+  return { cards: cartesDepuisLignes(avecLesEtapesDesSuites(rows), projectId), total };
 }
 
 /**
@@ -851,7 +876,7 @@ function famillesParDerniereAction(
     WITH cand AS (
       SELECT DISTINCT COALESCE(c.carte_mere_id, c.id) AS fam
         FROM cards c JOIN projects p ON p.id = c.project_id
-       WHERE p.archived = 0 AND ${candidate} AND ${SANS_MARKETING}
+       WHERE p.archived = 0 AND ${candidate} AND ${SANS_MARKETING_SEUL}
     ),
     membres AS (
       SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id, m.rangee_tableau_de_bord_at
@@ -1102,6 +1127,19 @@ export function cartesEnVol(): Card[] {
  * migration 17 : la requête juge, elle ne dégrossit pas.
  *
  */
+/**
+ * LES SUITES D'ÉTAPES ENCORE OUVERTES — leur carte globale en « En cours » ou
+ * en « À déployer » (`shared/src/suite-de-cartes.ts`). Relues au démarrage du
+ * démon : une étape finie pendant qu'il était arrêté doit encore lancer la
+ * suivante. Lecture par l'index partiel `idx_cards_tete_de_suite`.
+ */
+export function tetesDeSuiteOuvertes(): Card[] {
+  const rows = getDb()
+    .prepare("SELECT id FROM cards WHERE tete_de_suite = 1 AND column_key IN ('running', 'to_deploy')")
+    .all() as { id: string }[];
+  return rows.map((row) => getCard(row.id)).filter((carte): carte is Card => !!carte);
+}
+
 export function cartesEnCours(): Card[] {
   const rows = getDb()
     .prepare("SELECT * FROM cards WHERE column_key = 'running'")
@@ -1282,12 +1320,14 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
                           description, origin, agent_id, conversation_agent_id, analyse_demandee,
                           code_deja_enregistre, hors_tache, excluded_from_deploy, done_at, archived_at,
                           rangee_tableau_de_bord_at, last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id,
-                          branche_choisie, branche_de_depart)
+                          branche_choisie, branche_de_depart, tete_de_suite, rang_dans_la_suite, etape_finie_at,
+                          depart_de_la_suite_at)
        VALUES (@id, @project_id, @column_key, @position, @title, @data, @deployed_at, @created_at, @updated_at,
                @description, @origin, @agent_id, @conversation_agent_id, @analyse_demandee,
                @code_deja_enregistre, @hors_tache, @excluded_from_deploy, @done_at, @archived_at,
                @rangee_tableau_de_bord_at, @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id,
-               @branche_choisie, @branche_de_depart)
+               @branche_choisie, @branche_de_depart, @tete_de_suite, @rang_dans_la_suite, @etape_finie_at,
+               @depart_de_la_suite_at)
        ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, column_key = excluded.column_key,
          position = excluded.position, title = excluded.title, data = excluded.data,
          deployed_at = excluded.deployed_at, updated_at = excluded.updated_at,
@@ -1300,7 +1340,9 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
          run_engine = excluded.run_engine, run_model = excluded.run_model,
          run_thinking = excluded.run_thinking, run_mode = excluded.run_mode,
          carte_mere_id = excluded.carte_mere_id,
-         branche_choisie = excluded.branche_choisie, branche_de_depart = excluded.branche_de_depart`,
+         branche_choisie = excluded.branche_choisie, branche_de_depart = excluded.branche_de_depart,
+         tete_de_suite = excluded.tete_de_suite, rang_dans_la_suite = excluded.rang_dans_la_suite,
+         etape_finie_at = excluded.etape_finie_at, depart_de_la_suite_at = excluded.depart_de_la_suite_at`,
     ).run(colonnes);
     ecrireListe('card_labels', 'label', value.id, value.labels);
     ecrireListe('card_attachments', 'path', value.id, value.attachments);
@@ -2691,7 +2733,35 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
    * tranche n'a rien à allumer : on ne saurait ni afficher ses boutons ni y
    * conduire au clic. La règle vit dans `shared/src/issue-de-decision.ts`.
    */
-  return decisionsAvecIssue(sansDecisionsOrphelines(decisions, { cartes, projets, agents }));
+  return decisionsHorsProjet(decisionsAvecIssue(sansDecisionsOrphelines(decisions, { cartes, projets, agents })));
+}
+
+/**
+ * LA DÉCISION D'UN AGENT PORTÉ PAR UN SERVICE (`agent.service`) N'EST SUR AUCUN
+ * PROJET. Posée APRÈS le filtre des orphelines (qui vérifie le projet porteur) :
+ * son projet est vidé — aucun triangle de projet ne s'allume —, le nom du
+ * service le remplace dans la cloche, et le clic mène à l'écran du service.
+ */
+function decisionsHorsProjet(decisions: DecisionAttendue[]): DecisionAttendue[] {
+  const services = new Map<string, { nom: string; adresse: string } | null>();
+  const serviceDe = (agentId: string) => {
+    if (!services.has(agentId)) {
+      let service: { nom: string; adresse: string } | null = null;
+      try {
+        const raw = rawAgent(agentId);
+        const lu = raw ? (JSON.parse(raw).service as { nom?: string; adresse?: string } | undefined) : undefined;
+        if (lu?.nom && lu.adresse) service = { nom: lu.nom, adresse: lu.adresse };
+      } catch {
+        service = null;
+      }
+      services.set(agentId, service);
+    }
+    return services.get(agentId) ?? null;
+  };
+  return decisions.map((decision) => {
+    const service = decision.agentId && !decision.cardId ? serviceDe(decision.agentId) : null;
+    return service ? { ...decision, projectId: '', projectName: service.nom, url: `#${service.adresse}` } : decision;
+  });
 }
 
 /**
@@ -3174,7 +3244,7 @@ export function saveProposal(messageId: string, projectId: string, proposal: Tas
     .run(proposal.id, messageId, projectId, proposal.decision, JSON.stringify(proposal), now());
 }
 
-export function decideProposal(proposalId: string, decision: 'accepted' | 'refused', cardId?: string): TaskProposal | null {
+export function decideProposal(proposalId: string, decision: 'accepted' | 'refused' | 'integrated', cardId?: string): TaskProposal | null {
   const row = getDb().prepare('SELECT data FROM proposals WHERE id = ?').get(proposalId) as
     | { data: string }
     | undefined;
@@ -3355,6 +3425,27 @@ export function findAttachmentBySha(projectId: string, sha: string): Attachment 
 export function getAttachment(id: string): Attachment | null {
   const row = getDb().prepare('SELECT data FROM attachments WHERE id = ?').get(id) as { data: string } | undefined;
   return row ? Attachment.parse(JSON.parse(row.data)) : null;
+}
+
+/**
+ * UNE PIÈCE JOINTE DÉSIGNÉE PAR UN AGENT : son identifiant, ou son ALIAS
+ * (« #8dba », celui qu'affichent l'écran et les tags « [fichier: … #8dba] »).
+ * Cas vécu le 25/10/2026 : le directeur artistique recevait les photos par
+ * leur alias, l'outil n'acceptait que l'identifiant complet, et il finissait
+ * par demander à l'utilisateur de les rejoindre. Le projet de la carte passe
+ * d'abord ; les images du coffre-fort ne se désignent jamais ainsi. Réservé
+ * aux outils des agents : les adresses de téléchargement restent sur l'id.
+ */
+export function pieceJointeDesignee(ref: unknown, projectId?: string): Attachment | null {
+  const brut = typeof ref === 'string' ? ref.trim().replace(/^#/, '') : '';
+  if (!brut || brut.length > 80) return null;
+  const directe = getAttachment(brut);
+  if (directe) return directe.projectId === PROJET_DU_COFFRE ? null : directe;
+  const rows = getDb()
+    .prepare("SELECT data FROM attachments WHERE project_id != ? AND json_extract(data, '$.alias') = ? ORDER BY created_at DESC")
+    .all(PROJET_DU_COFFRE, brut) as { data: string }[];
+  const pieces = rows.map((r) => Attachment.parse(JSON.parse(r.data)));
+  return pieces.find((p) => p.projectId === projectId) ?? pieces[0] ?? null;
 }
 
 export function saveAttachment(attachment: Attachment): Attachment {

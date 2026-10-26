@@ -87,7 +87,7 @@ export const LigneDeConfiguration = React.forwardRef<
       type="button"
       data-ligne-configuration={nom}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+        'flex w-full items-center gap-2 rounded-md bg-surface px-3 sm:px-2.5 py-2 sm:py-1.5 text-left transition-colors hover:bg-raised',
         className,
       )}
       {...props}

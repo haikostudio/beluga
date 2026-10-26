@@ -22,6 +22,10 @@ import {
   Card,
   ColumnKey,
   Estimate,
+  EtapeProposee,
+  ETAPES_DE_SUITE_MAX,
+  ETAPES_DE_SUITE_MIN,
+  estUnRegroupement,
   RunConfig,
   SouhaitReglages,
   TaskProposal,
@@ -116,12 +120,9 @@ import {
   questionDepuisSupposition,
   FORME_DE_LA_COMPREHENSION,
   FORME_DES_RESUMES_DU_FIL,
-  PLAFOND_D_UN_MESSAGE,
   CONSIGNE_DU_CAHIER_VIVANT,
   fusionnerLeCahier,
   lireLesSuites,
-  messageTropLong,
-  refusDeMessageTropLong,
   SIGNES_MINIMUM_EN_CLAIR,
   RUBRIQUES_MINIMUM_DU_CAHIER,
   lirePlanRendu,
@@ -131,6 +132,8 @@ import {
   REGLE_DES_PISTES,
   cahierDeRealisationManquant,
   REFUS_COMPREHENSION_SANS_CAHIER,
+  CHAMPS_DU_BRIEF,
+  tailleLisible,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -154,17 +157,13 @@ import * as store from './store.js';
 
 /** L'image d'une option d'« ask_user » : l'identifiant d'une pièce jointe IMAGE connue, sinon rien. */
 function imageDOption(valeur: unknown): string | undefined {
-  const id = typeof valeur === 'string' ? valeur.trim().replace(/^#/, '') : '';
-  if (!id || id.length > 80) return undefined;
-  const piece = store.getAttachment(id);
+  const piece = store.pieceJointeDesignee(valeur);
   return piece?.mime.startsWith('image/') ? piece.id : undefined;
 }
 
 /** Le son ou la vidéo d'une option d'« ask_user » : une pièce jointe AUDIO ou VIDÉO connue, sinon rien. */
 function mediaDOption(valeur: unknown): string | undefined {
-  const id = typeof valeur === 'string' ? valeur.trim().replace(/^#/, '') : '';
-  if (!id || id.length > 80) return undefined;
-  const piece = store.getAttachment(id);
+  const piece = store.pieceJointeDesignee(valeur);
   return piece && /^(audio|video)\//.test(piece.mime) ? piece.id : undefined;
 }
 import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
@@ -237,7 +236,7 @@ import {
   resultatsDuProjet,
   rythmeDuProjet,
 } from './marketing.js';
-import { estAgentStudio, mediasDuContenuMarketing } from './studio.js';
+import { estAgentDUnMontage, estAgentStudio, mediasDuContenuMarketing } from './studio.js';
 import {
   compterMessagesNonLus,
   ecrireApplication as ecrireApplicationSociale,
@@ -312,6 +311,7 @@ import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
 import { deleguer, evaluer, suggererModele } from './mode-creation.js';
 import { fabriquerUnApercu, realiser } from './realisation.js';
+import { estAgentDeProduction, production } from './responsable-creatif.js';
 import { chercherUnDoublon, proposerUnNiveau } from './jugement-rapide.js';
 import { UNITES_RECUES_PAR_L_AGENT, garderLesUnitesPertinentes } from './recherche-comme-l-agent.js';
 
@@ -496,6 +496,81 @@ function exigenceDuRole(role: ToolContext['role']): ExigenceDescription {
 }
 
 /**
+ * LES ÉTAPES D'UNE SUITE (`shared/src/suite-de-cartes.ts`) : chacune porte la
+ * matière d'une carte proposée, et passe les mêmes juges.
+ */
+const CHAMP_ETAPES = {
+  type: 'array',
+  minItems: ETAPES_DE_SUITE_MIN,
+  maxItems: ETAPES_DE_SUITE_MAX,
+  description:
+    `FACULTATIF. Les étapes d'un travail découpé, DANS L'ORDRE d'exécution (${ETAPES_DE_SUITE_MIN} à ${ETAPES_DE_SUITE_MAX}). ` +
+    "Chaque étape devient une carte ; elles partent une à une, chacune depuis le code de la précédente, et passent ensemble en « À déployer » quand la dernière a fini. Chaque étape se décrit comme une carte entière : l'agent qui l'exécutera ne lira qu'elle.",
+  items: {
+    type: 'object',
+    required: ['title', 'niveau', 'contexte'],
+    properties: {
+      title: CHAMP_TITRE,
+      description: { type: 'string', description: CHAMP_DESCRIPTION },
+      contexte: CHAMP_SYNTHESE,
+      constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
+      attendu: { type: 'string', description: 'Ce que le projet doit faire une fois cette étape terminée' },
+      limites: { type: 'string', description: "Ce que cette étape ne touche pas — notamment le travail des étapes suivantes" },
+      verification: { type: 'string', description: "Comment savoir que cette étape est faite" },
+      niveau: CHAMP_NIVEAU,
+    },
+  },
+};
+
+/**
+ * LES ÉTAPES D'UNE SUITE PROPOSÉE, jugées une par une avec les MÊMES juges
+ * qu'une carte : titre, description, synthèse, réglages. Rend `null` quand
+ * l'appel ne porte aucune étape (une carte ordinaire), sinon les étapes
+ * prêtes ou le premier refus, qui nomme son étape.
+ */
+async function etapesDeProposition(
+  args: any,
+  ctx: ToolContext,
+  projectId: string,
+): Promise<{ etapes: EtapeProposee[] } | { refus: string } | null> {
+  if (args?.etapes === undefined) return null;
+  const brutes = Array.isArray(args.etapes) ? args.etapes : [];
+  if (brutes.length < ETAPES_DE_SUITE_MIN || brutes.length > ETAPES_DE_SUITE_MAX) {
+    return {
+      refus: `Une suite compte de ${ETAPES_DE_SUITE_MIN} à ${ETAPES_DE_SUITE_MAX} étapes (« etapes » en a ${brutes.length}). Une seule étape : propose une carte ordinaire, sans « etapes ». Rien n'a été proposé.`,
+    };
+  }
+  if (estUnRegroupement(store.getProject(projectId))) {
+    return {
+      refus:
+        "Une suite d'étapes vit dans UN projet, et celui-ci réunit plusieurs projets : propose la suite dans le projet membre concerné (champ « projet »), ou une carte ordinaire. Rien n'a été proposé.",
+    };
+  }
+  const etapes: EtapeProposee[] = [];
+  for (const [index, brute] of brutes.entries()) {
+    const nom = `Étape ${index + 1}`;
+    if (!brute || typeof brute !== 'object') return { refus: `${nom} : une étape est un objet (title, description, contexte, niveau). Rien n'a été proposé.` };
+    const verdictTitre = jugerTitre(brute.title);
+    if (!verdictTitre.ok) return { refus: `${nom} : ${verdictTitre.message}` };
+    const texte = descriptionDeProposition(brute, exigenceDuRole(ctx.role));
+    if ('refus' in texte) return { refus: `${nom} : ${texte.refus}` };
+    const synthese = syntheseDeProposition(brute);
+    if ('refus' in synthese) return { refus: `${nom} : ${synthese.refus}` };
+    const reglages = await reglagesProposes(ctx.run, niveauDemande(brute.niveau));
+    etapes.push(
+      EtapeProposee.parse({
+        title: String(brute.title),
+        description: texte.description,
+        briefing: synthese.briefing,
+        labels: [],
+        ...(reglages.run ? { run: reglages.run } : {}),
+      }),
+    );
+  }
+  return { etapes };
+}
+
+/**
  * La date de départ demandée par le chef, s'il y en a une. Ce qui n'est pas une
  * date est ignoré en silence : une proposition ne doit pas être refusée parce
  * qu'un moteur a écrit « mardi prochain » dans un champ facultatif — la carte
@@ -562,11 +637,12 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'board_create_card',
     description:
-      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « Demande » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
+      "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « Demande » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation. DEPUIS UNE CARTE, ce que l'utilisateur y demande se fait DANS cette carte : jamais de carte à part proposée d'office ; seulement pour un gros chantier, et seulement après lui avoir demandé avec « ask_user » et reçu un « oui ». UN TRAVAIL DÉCOUPÉ EN ÉTAPES ORDONNÉES (l'une a besoin du code de la précédente) se propose en UNE SEULE SUITE : un seul appel, le champ « etapes » dans l'ordre ; le titre, la description et le contexte de l'appel décrivent alors l'ensemble. L'utilisateur la valide d'un clic, et les étapes partent une à une, groupées sous une carte globale jusqu'à la dernière. Jamais plusieurs appels pour les étapes d'un même travail ; des cartes INDÉPENDANTES restent des appels séparés.",
     inputSchema: {
       type: 'object',
       required: ['title', 'niveau', 'contexte'],
       properties: {
+        etapes: CHAMP_ETAPES,
         title: CHAMP_TITRE,
         description: { type: 'string', description: CHAMP_DESCRIPTION },
         contexte: CHAMP_SYNTHESE,
@@ -906,7 +982,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'rendre_comprehension',
     description:
-      `CADRAGE — rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est le MESSAGE affiché à l'utilisateur, ${PLAFOND_D_UN_MESSAGE} signes au plus, en mots courants : au premier rendu ce qui sera fait, ensuite seulement ce qui change. Le second (« partieTechnique ») n'est PAS affiché : il part à l'agent qui exécutera, c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé, et il se reprend EN ENTIER à chaque appel. Le démon écrit le tout sur la carte ; ne le recopie pas en texte.`,
+      `CADRAGE — rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est le MESSAGE affiché à l'utilisateur, en mots courants, à la longueur que la situation appelle : au premier rendu ce qui sera fait, ensuite seulement ce qui change. Le second (« partieTechnique ») n'est PAS affiché : il part à l'agent qui exécutera, c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé, et il se reprend EN ENTIER à chaque appel. Le démon écrit le tout sur la carte ; ne le recopie pas en texte.`,
     inputSchema: {
       type: 'object',
       required: ['texte', 'resumeDemande', 'resumeComprehension', 'partieTechnique'],
@@ -1132,12 +1208,7 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['document', 'faites', 'phase'],
       properties: {
         document: { type: 'string', description: 'Le cahier de réalisation ENTIER, en Markdown : il remplace le fichier' },
-        medias: {
-          type: 'array',
-          items: { type: 'string', enum: ['image', 'video', 'musique', 'voix', 'bruitages'] },
-          description: 'Les types de média voulus, réponse à « Quels types de média voulez-vous ? » : OBLIGATOIRE au premier appel, ensuite seulement si la liste change',
-        },
-        faites: { type: 'number', description: 'Questions déjà tranchées, les types de média compris' },
+        faites: { type: 'number', description: 'Questions déjà tranchées' },
         total: { type: 'number', description: 'Questions prévues en tout, ajusté en chemin' },
         phase: { type: 'string', enum: [...PHASES_DE_REALISATION], description: 'La rubrique en cours' },
         restants: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à voir, quelques mots chacun' },
@@ -1166,7 +1237,7 @@ export const TOOL_DEFS: ToolDef[] = [
       type: 'object',
       required: ['consigne', 'phase'],
       properties: {
-        consigne: { type: 'string', description: 'La demande complète au modèle d’image, en anglais, une seule proposition' },
+        consigne: { type: 'string', description: 'La demande complète au modèle d’image, une seule proposition ; écris-la en français, elle est traduite en anglais avant l’envoi' },
         phase: { type: 'string', enum: [...PHASES_DE_REALISATION], description: 'La rubrique que cet aperçu illustre' },
         legende: { type: 'string', description: 'Quelques mots lisibles par l’utilisateur (« Néon nocturne »)' },
         format: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:5'], description: 'Défaut 1:1' },
@@ -1330,17 +1401,18 @@ export const TOOL_DEFS: ToolDef[] = [
       "coffre refuse une fiche qui en regroupe plusieurs. « supprimer » retire une fiche périmée (donne son « id ») : " +
       "elle n'est pas effacée mais ARCHIVÉE six mois, puis effacée pour de bon ; « archives » liste les fiches " +
       "retirées et « restaurer » (avec « id ») en remet une en service. N'archive que ce qui est VRAIMENT périmé, " +
-      "une fiche d'un autre projet sert peut-être encore à quelqu'un. UNE FICHE PEUT PORTER DES IMAGES (capture " +
-      "d'écran, code QR, document scanné, jusqu'à 12) : « lister » en donne le chemin et l'« id » sur une ligne " +
-      "« image : … », et tu les ouvres comme n'importe quel fichier (outil de lecture) quand elles servent ton " +
+      "une fiche d'un autre projet sert peut-être encore à quelqu'un. UNE FICHE PEUT PORTER DES FICHIERS DE TOUT " +
+      "GENRE (photo, capture, code QR, PDF, document scanné, vidéo, son, texte, archive… tout SAUF un programme), " +
+      "sans limite de nombre, 1 Go au total par fiche : « lister » en donne le chemin, le type et l'« id » sur une " +
+      "ligne « fichier : … », et tu les ouvres comme n'importe quel fichier (outil de lecture) quand ils servent ton " +
       "travail. TU PEUX LES JOINDRE ET LES RETIRER TOI-MÊME : « enregistrer » avec le paramètre « images » — la " +
-      "liste COMPLÈTE de ce que la fiche doit porter. Joindre une photo envoyée par l'utilisateur = « enregistrer » " +
-      "avec l'« id » de la fiche (ou sans « id » pour une fiche neuve) et « images » = les images déjà portées " +
+      "liste COMPLÈTE de ce que la fiche doit porter. Joindre un fichier envoyé par l'utilisateur = « enregistrer » " +
+      "avec l'« id » de la fiche (ou sans « id » pour une fiche neuve) et « images » = les fichiers déjà portés " +
       "(leur « id » vu dans « lister ») PLUS l'alias de la pièce jointe de la conversation (« 74ad », la marque " +
-      "« #74ad » d'un tag « [fichier: … #74ad] » ou le chemin d'un fichier). Retirer = redonner la liste sans elle " +
-      "(« [] » vide la fiche). Sans « images », corriger une fiche GARDE ses photos. Si une photo est refusée " +
-      "(introuvable, pas une image, trop lourde, plus de 12), la réponse dit la raison réelle : cite-la. Tu ne " +
-      "réponds JAMAIS que tu n'as pas le droit de joindre une image : tu as l'outil, utilise-le. " +
+      "« #74ad » d'un tag « [fichier: … #74ad] » ou le chemin d'un fichier). Retirer = redonner la liste sans lui " +
+      "(« [] » vide la fiche). Sans « images », corriger une fiche GARDE ses fichiers. Si un fichier est refusé " +
+      "(introuvable, programme, plus d'1 Go au total), la réponse dit la raison réelle : cite-la. Tu ne " +
+      "réponds JAMAIS que tu n'as pas le droit de joindre un fichier : tu as l'outil, utilise-le. " +
       "LES DOSSIERS RANGENT LES FICHES, ET SE CONTIENNENT les uns les autres sur autant de niveaux que tu veux (un " +
       "dossier n'a qu'un nom, un parent et un projet, aucun secret). Un dossier se désigne par son « id » ou par son " +
       "CHEMIN (« Clients/Acme/Prod », le séparateur est « / ») ; un nom simple ne marche que s'il est unique, sinon la " +
@@ -1396,9 +1468,9 @@ export const TOOL_DEFS: ToolDef[] = [
           type: 'array',
           items: { type: 'string' },
           description:
-            "Les images que la fiche doit porter après l'enregistrement (pour « enregistrer »). Chaque élément : l'« id » d'une image " +
-            "déjà portée (vu dans « lister »), l'alias d'une pièce jointe (« 74ad » ou « #74ad »), ou le chemin d'un fichier. " +
-            "Absent = la fiche garde ses images ; une liste, même vide, REMPLACE les images de la fiche.",
+            "Les fichiers que la fiche doit porter après l'enregistrement (pour « enregistrer ») — tout genre sauf un programme, 1 Go au total. " +
+            "Chaque élément : l'« id » d'un fichier déjà porté (vu dans « lister »), l'alias d'une pièce jointe (« 74ad » ou « #74ad »), ou le chemin d'un fichier. " +
+            "Absent = la fiche garde ses fichiers ; une liste, même vide, REMPLACE les fichiers de la fiche.",
         },
       },
     },
@@ -1827,6 +1899,66 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   /*
+   * L'OUTIL DU RESPONSABLE CRÉATIF (studio créatif, carte 2, 24/10/2026) : la
+   * chaîne d'écriture d'une production, EN TEXTE et SANS DÉPENSE. Servi au
+   * cadrage ET à la tâche d'une carte caméra (`estAgentDeProduction`) ;
+   * aucune action n'appelle un service payant (`server/src/responsable-creatif.ts`).
+   */
+  {
+    name: 'production',
+    description:
+      "DIRECTEUR ARTISTIQUE (mode caméra) — écrit la chaîne d'une production dans sa mémoire, en texte et sans dépense : brief → directions → scénario → storyboard → plans, en TROIS ARRÊTS pour accord : « idee » (brief + directions), « images-cles » (scénario, storyboard, plans, images clés et « prix » du film — son accord LANCE la fabrication), « rendu » (le film monté). L'outil REFUSE le scénario, le storyboard et les plans tant que l'idée n'est pas accordée, un plan sans ligne « Capacité : … » branchée, et l'arrêt « images-cles » tant qu'une pièce à fournir manque. Actions : « etat » (relit la production en base : étapes, brief, pièces et prochaine étape), « lire » (« cle » : le texte ENTIER de la version courante d'une pièce, à relire avant de la corriger), « brief » (« champs » : [{ champ, valeur, source : demande | reponse | deduit }], fusionnés dans le brief), « formulaire » (3 à 5 « questions » d'un coup, chacune { champ, question, description, options } ; écarte seul ce que le brief sait déjà ; ATTEND les réponses, rendues ensemble), « concept » (« directions » : 2 ou 3 { titre, contenu }), « script » (« titre », « contenu »), « storyboard » (« scenes » : [{ titre, contenu }]), « plans » (« plans » : [{ titre, contenu, scene }]), « soumettre » (« etape » = idee | images-cles | rendu ; pose la question d'accord et ATTEND la réponse ; idee : « images » = { clé de direction : pièce jointe d'aperçu } ; images-cles : « prix » en dollars et « images » = [identifiants des images clés] ; rendu : « film » = pièce jointe du film monté), « piece_recue » (« nom » tel qu'écrit au champ « pieces » du brief, « piece » = pièce jointe reçue), « modifier » (« cle », « contenu », « titre » facultatif : nouvelle version, l'ancienne gardée), « versions » (« cle »), « revenir_a_version » (« cle », « version » : réécrit l'ancienne version en version courante, rien d'effacé).",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['etat', 'lire', 'brief', 'formulaire', 'concept', 'script', 'storyboard', 'plans', 'soumettre', 'piece_recue', 'modifier', 'versions', 'revenir_a_version'] },
+        champs: {
+          type: 'array',
+          description: 'brief : les valeurs connues',
+          items: {
+            type: 'object',
+            properties: {
+              champ: { type: 'string', enum: [...CHAMPS_DU_BRIEF] },
+              valeur: { type: 'string' },
+              source: { type: 'string', enum: ['demande', 'reponse', 'deduit'] },
+            },
+          },
+        },
+        notes: { type: 'string', description: 'brief : notes libres sous les champs' },
+        questions: {
+          type: 'array',
+          description: 'formulaire : 3 à 5 questions',
+          items: {
+            type: 'object',
+            required: ['question'],
+            properties: {
+              champ: { type: 'string', enum: [...CHAMPS_DU_BRIEF] },
+              question: { type: 'string' },
+              description: { type: 'string' },
+              kind: { type: 'string', enum: ['single', 'multiple'] },
+              options: { type: 'array', items: { type: 'object', required: ['label'], properties: { label: { type: 'string' }, description: { type: 'string' } } } },
+            },
+          },
+        },
+        directions: { type: 'array', description: 'concept : 2 ou 3 directions', items: { type: 'object', properties: { cle: { type: 'string' }, titre: { type: 'string' }, contenu: { type: 'string' } } } },
+        scenes: { type: 'array', description: 'storyboard : une pièce par scène', items: { type: 'object', properties: { cle: { type: 'string' }, titre: { type: 'string' }, contenu: { type: 'string' } } } },
+        plans: { type: 'array', description: 'plans : une pièce par plan', items: { type: 'object', properties: { cle: { type: 'string' }, titre: { type: 'string' }, contenu: { type: 'string' }, scene: { type: 'string' } } } },
+        etape: { type: 'string', enum: ['idee', 'images-cles', 'rendu'], description: 'soumettre : l’arrêt à faire accorder' },
+        resume: { type: 'string', description: 'soumettre : une phrase qui dit ce qu’on valide' },
+        images: { description: 'soumettre — idee : { clé de la direction : identifiant d’un aperçu } ; images-cles : [identifiants des images clés]' },
+        prix: { type: 'number', description: 'soumettre (images-cles) : le prix total du film en dollars, tiré du devis prévisionnel' },
+        film: { type: 'string', description: 'soumettre (rendu) : l’identifiant de la pièce jointe du film monté' },
+        nom: { type: 'string', description: 'piece_recue : la pièce, telle que le brief la nomme' },
+        piece: { type: 'string', description: 'piece_recue : l’identifiant de la pièce jointe reçue' },
+        cle: { type: 'string', description: 'lire, script, modifier, versions, revenir_a_version : la clé stable de la pièce' },
+        titre: { type: 'string' },
+        contenu: { type: 'string' },
+        version: { type: 'number', description: 'revenir_a_version : le numéro de la version à reprendre' },
+      },
+    },
+  },
+  /*
    * L'OUTIL DU MODE « RÉALISATION » (bouton caméra). Servi à l'agent de TÂCHE
    * d'une carte où la caméra est allumée, jamais au cadrage : la fabrication
    * dépense de l'argent, elle part au lancement (`server/src/realisation.ts`).
@@ -1834,17 +1966,39 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'realiser',
     description:
-      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget du cahier des charges. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (AVANT CHAQUE génération : modèle, prix, raison — puis écris l'annonce dans ta réponse), « generer » (lance un devis ; au-delà du seuil ou sans prix publié, pose la question d'accord et ATTEND : rappelle alors « generer » avec le même devis), « suivre » (attend le résultat, qui paraît dans le fil), « lister » (médias produits et total dépensé), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » que l'utilisateur suit), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget et du seuil ; après « Accepter », rappelle avec les mêmes montants).",
+      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget tenu par le serveur. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « brancher » (aucun service ne sait faire une capacité : pose la question avec l'encadré où l'utilisateur colle sa clé, fal.ai d'abord ; ATTEND sa réponse), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (une génération : modèle, prix, raison, étape — puis écris l'annonce dans ta réponse), « lot » (regroupe des devis : validé D'OFFICE s'il tient dans le prix accordé à l'arrêt 2, marge comprise ; sinon UN devis validé d'un clic dans la conversation, qui ATTEND la réponse), « generer » (lance un devis, ou tout un « lot » validé ; un devis hors lot repose la question), « suivre » (attend le résultat, qui paraît dans le fil et le volet de suivi), « lister » (médias, lots et total dépensé), « noter » (range une pièce écrite de la production — brief, concept, script, scène, plan, personnage, référence — en gardant ses versions), « retenir » (« id » : ajoute toi-même au suivi une image réussie, qui peut alors s'animer), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » et verse les plans finis dans le montage de la carte), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget ; après « Accepter », rappelle avec les mêmes montants), « methodes » (méthodes en service et leur note ; « methode » pour en lire une), « proposer_methode » (nouvelle version, activée seulement après l'accord : rappelle avec « version »), « avis » (demande si un média fini est gardé ; rappelle avec le même « id »), « decliner » (plan pour une autre « langue » : quoi réutiliser, refaire, resynchroniser), « media » (le détail complet d'un média : consigne, modèle, réglages, prix — pour le refaire ou le relancer), « lumiere » (APRÈS le choix du modèle de lumière : pose la sphère où l'utilisateur oriente la lumière, libre ou bloquée selon le modèle ; ATTEND sa réponse). UN DEVIS PEUT PORTER 1 À 4 PROPOSITIONS (« variantes »), jamais plus. ANIMER un plan (capacité « animation ») part de son image AJOUTÉE AU SUIVI (« source »), et va jusqu'à une IMAGE DE FIN (« fin ») quand l'utilisateur en choisit une ; le CONTRÔLE DU MOUVEMENT (« mouvement ») fait reprendre au personnage de « source » les gestes d'une vidéo de référence (« mouvement ») ; REFAIRE une image d'après elle-même (« retouche ») part de « source » avec la nouvelle consigne ; « modeles » avec « en_direct » (et « recherche ») lit TOUT le catalogue publié par fal.ai et Higgsfield, chaque modèle avec ses entrées, commandable au devis avec « parametres ». Les RETOUCHES d'une image (« angles », « lumiere », « visage ») partent de « source » avec « angle », « lumiere » ou « photos » + « cible ».",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['modeles', 'voix', 'devis', 'generer', 'suivre', 'lister', 'monter', 'ajouter', 'fixer_budget'] },
-        capacite: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar'], description: '« modeles » : filtrer par capacité' },
+        action: { type: 'string', enum: ['modeles', 'brancher', 'voix', 'devis', 'lot', 'generer', 'suivre', 'lister', 'noter', 'retenir', 'monter', 'ajouter', 'fixer_budget', 'methodes', 'proposer_methode', 'avis', 'decliner', 'media', 'lumiere'] },
+        capacite: {
+          type: 'string',
+          enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'],
+          description: '« modeles » : filtrer par capacité (« synchro » : synchronisation labiale ; « animation » : une image retenue devient le plan vidéo, avec image de fin si le modèle la prend ; « mouvement » : le personnage d’une image reprend les gestes d’une vidéo ; « retouche » : refaire une image d’après elle-même ; « angles », « lumiere », « visage » : les retouches d’une image — la liste donne TOUS les modèles, branchés ou à brancher, avec leur prix) ; « devis » : la capacité voulue quand un même modèle en sert plusieurs',
+        },
+        capacites: {
+          type: 'array',
+          items: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'] },
+          description: '« brancher » : ce qu’il faut pouvoir fabriquer (par défaut : les types de média de la carte)',
+        },
+        etape: {
+          type: 'string',
+          enum: ['brief', 'direction', 'style', 'scenario', 'ecriture', 'storyboard', 'plans', 'creation', 'son', 'creation-sonore', 'montage', 'export', 'livraison'],
+          description: '« devis » / « lot » : l’étape du volet de suivi que la génération sert',
+        },
+        devis_du_lot: { type: 'array', items: { type: 'string' }, description: '« lot » : les identifiants des devis réunis dans ce lot' },
+        lot: { type: 'string', description: '« generer » : l’identifiant d’un lot validé, pour lancer toutes ses générations' },
+        titre: { type: 'string', description: '« lot » : ce que le lot fabrique (« Plans finaux ») ; « noter » : le titre de la pièce' },
+        genre: { type: 'string', enum: ['brief', 'concept', 'script', 'scene', 'plan', 'personnage', 'reference'], description: '« noter » : la sorte de pièce' },
+        cle: { type: 'string', description: '« noter » : la clé stable de la pièce (« plan-2 ») ; la même clé écrit la version suivante' },
+        contenu: { type: 'string', description: '« noter » : le texte de la pièce (Markdown court) ; « proposer_methode » : la méthode, écrite avec tes mots' },
+        etat: { type: 'string', enum: ['propose', 'a-valider'], description: '« noter » : « a-valider » quand tu la soumets à l’utilisateur' },
+        parent: { type: 'string', description: '« noter » : la clé de la pièce dont elle dépend (la scène d’un plan)' },
         service: { type: 'string', description: '« devis » : le service (fal, runway, heygen, elevenlabs, openrouter…) ; « voix » : heygen ou elevenlabs' },
         modele: { type: 'string', description: '« devis » : l’identifiant du modèle lu dans « modeles »' },
         plan: { type: 'string', description: '« devis » / « ajouter » : le nom du plan ou du média (« Plan 3 — arrivée du héros ») ; refaire un plan garde le même nom' },
-        consigne: { type: 'string', description: '« devis » : la demande COMPLÈTE au modèle (sujet, action observable, cadrage, mouvement, lumière, style) ; pour une voix, le texte à dire' },
+        consigne: { type: 'string', description: '« devis » : la demande COMPLÈTE au modèle (sujet, action observable, cadrage, mouvement, lumière, style), en français — image, vidéo, musique et bruitage sont traduits en anglais avant l’envoi ; pour une voix, le texte à dire, jamais traduit' },
         raison: { type: 'string', description: '« devis » / « fixer_budget » : pourquoi, en une phrase' },
         format: { type: 'string', enum: ['16:9', '9:16', '1:1', '4:5'] },
         duree: { type: 'number', description: 'Secondes (vidéo, son, musique)' },
@@ -1856,6 +2010,34 @@ export const TOOL_DEFS: ToolDef[] = [
         chemin: { type: 'string', description: '« ajouter » : chemin absolu du fichier à ranger' },
         budget: { type: 'number', description: '« fixer_budget » : budget total en dollars' },
         seuil: { type: 'number', description: '« fixer_budget » : seuil d’accord par génération en dollars' },
+        methodes: { type: 'string', description: '« devis » : les méthodes suivies, par nom, séparées par des virgules' },
+        methode: { type: 'string', description: '« methodes » / « proposer_methode » : le nom de la méthode' },
+        domaine: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'montage', 'direction'], description: '« proposer_methode »' },
+        source: { type: 'string', description: '« devis » animation ou retouche, « lumiere » : l’identifiant du média IMAGE de départ (« lister ») ; « proposer_methode » : le dépôt évalué qui l’inspire (facultatif)' },
+        variantes: { type: 'number', description: '« devis » : le nombre de propositions à fabriquer, de 1 à 4, CHOISI PAR L’UTILISATEUR (demande-le avant chaque génération)' },
+        angle: {
+          description: '« devis » angles : un angle de la liste (face, trois-quarts-gauche, trois-quarts-droite, profil-gauche, profil-droit, dos, plongee, contre-plongee, gros-plan, plan-large) ou { horizontal (0–360, 90 = côté droit), vertical (caméra basse < 0 < haute), zoom (0 large – 10 serré) }',
+        },
+        lumiere: {
+          description: '« devis » lumiere : la direction rendue par la sphère, { azimut, elevation } en degrés, ou sa réponse recopiée telle quelle (« Lumière : azimut …°, élévation …° »)',
+        },
+        type_de_lumiere: { type: 'string', description: '« devis » lumière avec Fibo Relight : midday, low-angle sunlight, sunrise light, spotlight on subject, soft overcast daylight lighting, harsh studio lighting…' },
+        photos: { type: 'array', items: { type: 'string' }, description: '« devis » visage : les identifiants des photos du visage à poser (pièces jointes ou médias du projet)' },
+        cible: { type: 'string', description: '« devis » visage : qui remplacer dans l’image, tel que l’utilisateur l’a choisi (« la personne n° 2, à gauche »)' },
+        fin: { type: 'string', description: '« devis » animation : l’IMAGE DE FIN du plan choisie par l’utilisateur (média image fini ou image jointe) — seulement avec un modèle qui la reçoit' },
+        mouvement: { type: 'string', description: '« devis » mouvement : la VIDÉO DE RÉFÉRENCE (3 à 30 s) dont le personnage de « source » reprend les gestes — média vidéo fini ou vidéo jointe par l’utilisateur' },
+        orientation: { type: 'string', enum: ['video', 'image'], description: '« devis » mouvement : le personnage s’oriente comme dans la vidéo (défaut) ou comme dans l’image' },
+        en_direct: { type: 'boolean', description: '« modeles » : lire le catalogue COMPLET publié par fal.ai et Higgsfield (avec « service » et « modele » : les entrées exactes d’un modèle)' },
+        recherche: { type: 'string', description: '« modeles » en direct : des mots de l’identifiant ou du nom (« kling », « seedance », « motion »)' },
+        parametres: { type: 'object', description: '« devis » d’un modèle lu en direct : ses autres réglages, { nom: valeur }, vérifiés contre son schéma (jamais les adresses de fichiers, posées par le serveur)' },
+        sans_image: { type: 'boolean', description: '« devis » vidéo : un plan SANS image de départ (texte vers vidéo), seulement avec l’accord écrit de l’utilisateur' },
+        media: { type: 'string', description: '« media » : l’identifiant du média à détailler' },
+        version: { type: 'string', description: '« proposer_methode » : l’identifiant de la version proposée, au rappel' },
+        langue: { type: 'string', description: '« decliner » : la langue visée ; « devis » : la langue parlée (fr, en, de, es, it, pt, nl)' },
+        langue_source: { type: 'string', description: '« decliner » : la langue d’origine (fr par défaut)' },
+        carte: { type: 'string', description: '« decliner » : la carte de la production d’origine (celle-ci par défaut)' },
+        video: { type: 'string', description: '« devis » synchro : le média vidéo fini à resynchroniser' },
+        audio: { type: 'string', description: '« devis » synchro : la voix finie à poser' },
       },
     },
   },
@@ -2021,11 +2203,14 @@ export const TASK_ONLY_TOOLS = new Set([
  */
 export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'marketing') return estAgentMarketing(agentId);
-  if (nom === 'studio') return estAgentStudio(agentId);
+  // …et aux agents d'une carte qui a un MONTAGE (grand volet de montage) : la retouche demandée en mots passe par les mêmes opérations.
+  if (nom === 'studio') return estAgentStudio(agentId) || estAgentDUnMontage(agentId);
   // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
   if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
   // Le cahier de réalisation : le seul cadrage d'une carte dont la caméra est allumée.
   if (nom === 'cahier_de_realisation' || nom === 'apercu_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
+  // Le responsable créatif : le cadrage ET la tâche d'une carte caméra allumée, jamais un autre agent.
+  if (nom === 'production') return estAgentDeProduction(agentId);
   // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
   if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
@@ -2053,6 +2238,9 @@ export function outilServiA(nom: string, agentId: string): boolean {
  * la carte » dans le fil de la carte, rien n'entre sur le tableau sans ce clic.
  * Avant, la « carte à part » n'était qu'un choix d'`ask_user` que rien ne
  * suivait : l'utilisateur la cherchait en vain dans « Planifié ».
+ * Depuis le 25/10/2026, il ne la propose plus d'office : ce qui est demandé
+ * dans une carte s'y fait ; seul un gros chantier, après un « oui » à
+ * `ask_user`, devient une carte à part (`shared/src/cadrage.ts`).
  */
 export const CADRAGE_BLOCKED_TOOLS = new Set([
   ...TASK_ONLY_TOOLS,
@@ -2399,6 +2587,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if ('refus' in accueil) return { ok: false, text: accueil.refus };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
+      /*
+       * UN TRAVAIL DÉCOUPÉ EN ÉTAPES ORDONNÉES EST UNE SEULE PROPOSITION : la
+       * suite naîtra d'un clic, groupée sous une carte globale, et ses étapes
+       * partiront une à une (`shared/src/suite-de-cartes.ts`).
+       */
+      const suite = await etapesDeProposition(args, ctx, accueil.projectId ?? ctx.projectId);
+      if (suite && 'refus' in suite) return { ok: false, text: suite.refus };
 
       const reglages = await reglagesProposes(
         ctx.run,
@@ -2408,6 +2603,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const analyse = analyseDeProposition(args);
       const depart = departDeProposition(args);
       const proposal: TaskProposal = {
+        ...(suite ? { etapes: suite.etapes } : {}),
         id: store.newId(),
         title: String(args.title),
         description: texte.description,
@@ -2424,6 +2620,19 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...(accueil.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
+      if (proposal.etapes?.length) {
+        return {
+          ok: true,
+          text:
+            `Suite « ${proposal.title} » proposée dans la conversation, en ${proposal.etapes.length} étapes : ` +
+            proposal.etapes.map((etape, i) => `${i + 1}. ${etape.title}`).join(' ; ') +
+            `. Rien n'entre au tableau avant la validation de l'utilisateur ; validée d'un clic, elle donnera une carte globale et une carte par étape, ` +
+            `qui partiront une à une après le lancement de la carte globale.` +
+            phraseDuProjetDAccueil(proposal, accueil.accueil.genre === 'site') +
+            resumeDepart(depart),
+          proposal,
+        };
+      }
       return {
         ok: true,
         text:
@@ -2999,6 +3208,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        Une question d'accord suit le chemin d'« ask_user » et ARRÊTE l'agent. */
     case 'realiser':
       return realiser(ctx, args);
+    case 'production':
+      return production(ctx, args);
     case 'evaluer':
       return evaluer(ctx, args);
     case 'suggerer_modele': {
@@ -3162,15 +3373,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
       const lecture = lireComprehensionRendue(args, { questionsPosees });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
-      /*
-       * LE TEXTE AFFICHÉ EST UN MESSAGE DE MESSAGERIE (`shared/src/message-court.ts`) :
-       * au-delà de 600 signes visibles, rien n'est enregistré et l'agent
-       * réécrit — le détail va dans la part technique, qui n'est pas affichée.
-       * Hors d'un tour vivant, on ne refuse rien : l'agent bouclerait.
-       */
-      if (runtimeDuCadrage.liveRun(ctx.agentId) && messageTropLong(lecture.valeur.texte)) {
-        return { ok: false, text: refusDeMessageTropLong('texte', lecture.valeur.texte) };
-      }
+      /* LE TEXTE AFFICHÉ N'EST PLUS REFUSÉ POUR SA LONGUEUR (25/10/2026) : elle
+         suit ce qu'il y a à dire (`shared/src/message-court.ts`). */
       /*
        * PLUS AUCUNE SUPPOSITION, NULLE PART, MÊME TECHNIQUE.
        * Toute ligne de « hypotheses » est refusée à chaque appel
@@ -3281,6 +3485,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
       const carte = store.getCard(ctx.cardId);
       if (!carte || carte.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
+      /* UNE CRÉATION DE MÉDIA N'A PAS DE PLAN (demande du 25/10/2026, capture
+         #d326) : brief, directions, scénario et plans vivent dans le suivi à
+         droite, écrits avec l'outil « production ». */
+      if (carte.parcours?.realisationSouhaitee) {
+        return { ok: false, text: 'Refusé : une création de média n’a pas de plan. Sa chaîne (brief, directions, scénario, storyboard, plans) s’écrit avec l’outil « production » et se lit dans le suivi à droite.' };
+      }
       /* LE PLAN COMPACT REPREND LE CAHIER VIVANT quand il ne redonne pas le sien. */
       const lecture = lirePlanRendu(args, { cahierVivant: carte.parcours?.comprehension?.cahierDesCharges });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
@@ -3726,7 +3936,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return outilStatistiques(ctx, project, args);
 
     case 'studio': {
-      if (!estAgentStudio(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio.' };
+      if (!estAgentStudio(ctx.agentId) && !estAgentDUnMontage(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio, ou aux agents d’une carte qui a un montage.' };
       // Chargé à l'appel : le module tire le rendu et la voix, inutiles à tout autre outil.
       const { outilStudio } = await import('./outil-studio.js');
       return outilStudio({ agentId: ctx.agentId, ...(ctx.cardId ? { cardId: ctx.cardId } : {}) }, project, args);
@@ -4090,7 +4300,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
            * ouvert à tout tour (`dossiersDeDonneesOuverts`).
            */
           const images = imagesDesAcces([a])
-            .map((piece) => `\n  image : ${piece.chemin} (${piece.name}) — id ${piece.id}`)
+            .map((piece) => `\n  fichier : ${piece.chemin} (${piece.name}, ${piece.mime}, ${tailleLisible(piece.size)}) — id ${piece.id}`)
             .join('');
           return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type] ?? a.type}${portee}${dossierDit}${archive}${aCompleter})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
@@ -4120,7 +4330,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         let images: string[] | undefined;
         if (args.images !== undefined && args.images !== null) {
           if (!Array.isArray(args.images)) {
-            return { ok: false, text: "Enregistrement impossible : « images » est une liste d'alias de pièces jointes (ex. [\"74ad\"]), vide pour retirer toutes les images." };
+            return { ok: false, text: "Enregistrement impossible : « images » est une liste d'alias de pièces jointes (ex. [\"74ad\"]), vide pour retirer tous les fichiers." };
           }
           const dejaPortees = existante ? (listerAcces().find((a) => a.id === id)?.images ?? []) : [];
           const jugees = await imagesDemandeesParUnAgent({
@@ -4206,7 +4416,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ok: true,
           text:
             `Accès « ${resultat.acces.nom} » (${LIBELLE_TYPE_ACCES[resultat.acces.type]}) ${id ? 'corrigé' : 'enregistré'} dans le coffre-fort ${ou}.` +
-            (images ? ` Images portées : ${resultat.acces.images?.length ?? 0}.` : '') +
+            (images ? ` Fichiers portés : ${resultat.acces.images?.length ?? 0}.` : '') +
             rangee +
             (manque.length ? ` À compléter : ${manque.map((c) => c.libelle).join(' ou ')} (la fiche est marquée ainsi tant que la case est vide).` : ''),
         };

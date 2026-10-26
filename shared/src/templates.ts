@@ -1,5 +1,5 @@
 import { ColumnKey } from './columns.js';
-import { FORME_D_UN_MESSAGE, PLAFOND_D_UN_MESSAGE, messageTropLong, signesVisibles } from './message-court.js';
+import { FORME_D_UN_MESSAGE } from './message-court.js';
 
 /**
  * Les gabarits de réponse (PLAN §9). Le démon enveloppe chaque instruction
@@ -55,8 +55,9 @@ const REPORT_SECTIONS = [
  * LES GABARITS QUI SONT DES MESSAGES DE MESSAGERIE (décision du 17/10/2026).
  * Le compte rendu de travail en six titres et la réponse libre en sections ne
  * se demandent plus : toute réponse de discussion — en cours de travail, à la
- * fin d'une carte, à l'assistant général — est un message de 600 signes au
- * plus (`shared/src/message-court.ts`), et les suites possibles passent par
+ * fin d'une carte, à l'assistant général — est un message à la longueur de la
+ * demande (`shared/src/message-court.ts`, sans plafond depuis le 25/10/2026),
+ * et les suites possibles passent par
  * l'outil « proposer_suites ». Les six titres restent seulement LISIBLES sur
  * les anciens rapports (`rapport-gabarit.ts`). Le chiffrage d'une proposition
  * (`pre_run`) et les journaux de publication gardent leur forme structurée.
@@ -294,7 +295,7 @@ ${userText}
 
 ---
 FORME DE TA RÉPONSE FINALE (imposée) : ${FORME_D_UN_MESSAGE}.
-- À la fin d'un travail : ce qui a été fait, puis ce qu'on peut constater ; un échec, un point à vérifier ou une décision prise se dit en une phrase, jamais passé sous silence.
+- À la fin d'un travail : la synthèse d'abord, puis ce qui a été fait et ce qu'on peut constater ; si la demande attendait un résultat (une liste, une recherche, une analyse), il est donné EN ENTIER dans le message. Un échec, un point à vérifier ou une décision prise se dit, jamais passé sous silence.
 - Pas de ligne d'en-tête, pas de coût, pas de récapitulatif : le détail technique va aux messages d'enregistrement, à la mémoire et au changelog.
 - ${CONSIGNE_DES_SUITES}
 ${exclusions}${chiffrage ? CONSIGNE_CHIFFRAGE : ''}`;
@@ -471,12 +472,9 @@ export function checkTemplate(
   options: { plancher?: boolean } = {},
 ): { ok: boolean; missing: string[]; dense: string[] } {
   if (kind === 'none') return { ok: true, missing: [], dense: [] };
-  /* UN MESSAGE DE MESSAGERIE n'a qu'une forme à tenir : sa longueur. */
-  if (gabaritEnMessage(kind)) {
-    return messageTropLong(text)
-      ? { ok: false, missing: [`message trop long (${signesVisibles(text)} signes, plafond ${PLAFOND_D_UN_MESSAGE})`], dense: [] }
-      : { ok: true, missing: [], dense: [] };
-  }
+  /* UN MESSAGE DE DISCUSSION n'a plus de forme imposée : sa longueur suit la
+     demande (25/10/2026), aucun plafond ne le fait relancer. */
+  if (gabaritEnMessage(kind)) return { ok: true, missing: [], dense: [] };
   // Une réponse courte n'a plus à servir six sections vides : les titres exigés
   // suivent la longueur réellement rendue — sauf sous le PLANCHER d'un rapport
   // de carte, qui ne tombe jamais à « brève » (`rapportAuPlancher`).

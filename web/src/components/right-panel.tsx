@@ -32,6 +32,7 @@ import {
   Input,
   Tooltip,
   ZoneDefilement,
+  CaseACocher,
 } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
@@ -181,17 +182,17 @@ function FilesTab({ projectId }: { projectId: string }) {
             key={node.path}
             className="group flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-surface"
           >
-            <input
-              type="checkbox"
+            <CaseACocher
               checked={selection.has(node.path)}
-              onChange={(event) =>
+              aria-label={node.path}
+              onCheckedChange={(coche) =>
                 setSelection((current) => {
                   const next = new Set(current);
-                  event.target.checked ? next.add(node.path) : next.delete(node.path);
+                  coche ? next.add(node.path) : next.delete(node.path);
                   return next;
                 })
               }
-              className="h-3 w-3 shrink-0 accent-current opacity-0 transition-opacity group-hover:opacity-100 checked:opacity-100"
+              className={cn('h-3.5 w-3.5 transition-opacity', selection.has(node.path) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
             />
             <button onClick={() => open(node)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
               {node.kind === 'dir' ? (

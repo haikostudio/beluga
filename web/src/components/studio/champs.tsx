@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ArrowLeft, Ban, ChevronRight } from 'lucide-react';
 import { POLICES_STUDIO } from '@beluga/shared';
-import { Button, DialogTitle, EmplacementDuTitreDePage, Input, ListeDeroulante, Switch, Textarea, type OptionSelecteur } from '@/components/ui';
+import { Button, DialogTitle, EmplacementDuTitreDePage, Input, ListeDeroulante, Switch, Textarea, type OptionSelecteur, ChoixDeCouleur, Curseur } from '@/components/ui';
 import { GestesDePage } from '@/components/entete-de-zone';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -126,28 +126,17 @@ export function ChampCurseur({ valeur, onValider, min, max, pas }: { valeur: num
   React.useEffect(() => setV(valeur), [valeur]);
   return (
     <>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={pas}
-        value={v}
-        onChange={(e) => setV(Number(e.target.value))}
-        onPointerUp={() => v !== valeur && onValider(v)}
-        onKeyUp={() => v !== valeur && onValider(v)}
-        onKeyDown={(e) => e.stopPropagation()}
-        className="min-w-0 flex-1 accent-[hsl(var(--accent))]"
-      />
+      <Curseur valeur={v} min={min} max={max} pas={pas} onChange={setV} onValider={(x) => x !== valeur && onValider(x)} />
       <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-muted">{Math.round(v * 100) / 100}</span>
     </>
   );
 }
 
 /**
- * UNE COULEUR. Le sélecteur du navigateur ne fait pas perdre le focus pendant le
- * choix : `onApercu` montre la couleur EN DIRECT (une fois par image), et la
- * valeur ne part (`onValider`, une seule opération, donc une seule annulation)
- * qu'à la fermeture du sélecteur (événement `change`) ou quand le champ perd le focus.
+ * UNE COULEUR, par le choix de couleur MAISON (`ChoixDeCouleur`) : `onApercu`
+ * montre la couleur EN DIRECT (une fois par image), et la valeur ne part
+ * (`onValider`, une seule opération, donc une seule annulation) qu'à la
+ * fermeture du panneau.
  *
  * AVEC `transparence`, LA COULEUR GARDE SON OPACITÉ : un pourcentage à côté de la
  * pastille (posée sur un damier, elle montre la vraie couleur) et un bouton
@@ -184,46 +173,40 @@ export function ChampCouleur({
     validee.current = x;
     onValider(x);
   };
-  const champ = React.useRef<HTMLInputElement | null>(null);
-  React.useEffect(() => {
-    const el = champ.current;
-    if (!el) return;
-    // L'événement NATIF `change` : le sélecteur se referme, le choix est fait (React n'expose que `input`).
-    const fermeture = () => valider.current(ecrireCouleur(el.value, alphaCourant.current > 0 ? alphaCourant.current : 1));
-    el.addEventListener('change', fermeture);
-    return () => el.removeEventListener('change', fermeture);
-  }, []);
-  const image = React.useRef(0);
-  React.useEffect(() => () => cancelAnimationFrame(image.current), []);
   // Choisir une teinte sur une couleur « aucune » la rend visible : sinon le choix ne se verrait jamais.
-  const alphaDuChoix = () => (alpha > 0 ? alpha : 1);
+  const alphaDuChoix = () => (alphaCourant.current > 0 ? alphaCourant.current : 1);
   const pourcent = Math.round(alpha * 100);
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5" data-studio-couleur-alpha={transparence ? pourcent : undefined}>
-      <span
-        className="relative h-7 w-8 shrink-0 overflow-hidden rounded border border-faint/40"
-        style={{ backgroundImage: 'repeating-conic-gradient(#c8c8c8 0% 25%, #ffffff 0% 50%)', backgroundSize: '8px 8px' }}
-      >
-        <span className="pointer-events-none absolute inset-0" style={{ backgroundColor: ecrireCouleur(v, alpha) }} aria-hidden />
-        <input
-          {...reste}
-          ref={champ}
-          type="color"
-          value={v}
-          onChange={(e) => {
-            const x = e.target.value;
-            enChoix.current = true;
-            setV(x);
-            if (alpha <= 0) setAlpha(1);
-            if (!onApercu) return;
-            const a = alphaDuChoix();
-            cancelAnimationFrame(image.current);
-            image.current = requestAnimationFrame(() => onApercu(ecrireCouleur(x, a)));
-          }}
-          onBlur={() => valider.current(ecrireCouleur(v, alpha))}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-      </span>
+      {/* LE CHOIX DE COULEUR MAISON (plus de sélecteur du système) : la pastille sur damier l'ouvre ;
+          l'aperçu suit le choix, la valeur ne part qu'à la fermeture du panneau. */}
+      <ChoixDeCouleur
+        {...(reste as Record<`data-${string}`, string>)}
+        valeur={v}
+        onApercu={(x) => {
+          enChoix.current = true;
+          setV(x);
+          if (alpha <= 0) setAlpha(1);
+          onApercu?.(ecrireCouleur(x, alphaDuChoix()));
+        }}
+        onValider={(x) => {
+          setV(x);
+          const a = alphaDuChoix();
+          setAlpha(a);
+          valider.current(ecrireCouleur(x, a));
+        }}
+        onFermeture={() => {
+          enChoix.current = false;
+        }}
+        declencheur={
+          <span
+            className="relative block h-7 w-8 overflow-hidden rounded border border-faint/40"
+            style={{ backgroundImage: 'repeating-conic-gradient(#c8c8c8 0% 25%, #ffffff 0% 50%)', backgroundSize: '8px 8px' }}
+          >
+            <span className="pointer-events-none absolute inset-0" style={{ backgroundColor: ecrireCouleur(v, alpha) }} aria-hidden />
+          </span>
+        }
+      />
       <span className="min-w-0 truncate text-[12px] uppercase tabular-nums text-faint">{transparence && alpha <= 0 ? t('Aucune') : v.slice(1)}</span>
       {transparence ? (
         <>
@@ -248,7 +231,7 @@ export function ChampCouleur({
             aria-label="Aucune couleur"
             title={alpha <= 0 ? t('Remettre la couleur') : t('Aucune couleur (transparent)')}
             aria-pressed={alpha <= 0}
-            className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded text-faint hover:bg-raised/60 hover:text-text', alpha <= 0 && 'bg-accent/15 text-text')}
+            className={cn('flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded text-faint hover:bg-raised/60 hover:text-text', alpha <= 0 && 'bg-accent/15 text-text')}
             onClick={(e) => {
               e.preventDefault();
               const a = alpha <= 0 ? 1 : 0;
@@ -297,7 +280,7 @@ export function ChampBoutons<T extends string>({
             e.preventDefault();
             onValider(o.valeur);
           }}
-          className={cn('flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-raised/60 hover:text-text', valeur === o.valeur && 'bg-accent/15 text-text')}
+          className={cn('flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded text-muted hover:bg-raised/60 hover:text-text', valeur === o.valeur && 'bg-accent/15 text-text')}
           {...repereDe(repere, o.valeur)}
         >
           <o.Icone className="h-3.5 w-3.5" />
@@ -494,7 +477,7 @@ export function Section({
             type="button"
             onClick={() => accordeon.basculer(cleSection)}
             aria-expanded={ouvert}
-            className="-my-1 flex min-h-9 min-w-0 flex-1 items-center gap-1.5 text-left"
+            className="-my-1 flex min-h-[43px] sm:min-h-9 min-w-0 flex-1 items-center gap-1.5 text-left"
             data-studio-bloc-bascule={cleSection}
           >
             <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />

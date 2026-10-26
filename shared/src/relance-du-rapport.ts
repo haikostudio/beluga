@@ -16,19 +16,19 @@
  *    consigne. Jamais deux : une relance qui rate laisse le message tel
  *    quel, sans nouvel essai.
  *
- * DEPUIS LE 17/10/2026, LE COMPTE RENDU EST UN MESSAGE DE MESSAGERIE
- * (`shared/src/message-court.ts`) : plus de titres à exiger. La relance vise
- * deux cas : un message trop long, qui se RACCOURCIT, et un tour d'exécution
- * qui rend la main avec des tâches de fond encore vivantes, qui ATTEND leur
- * résultat avant d'écrire son message de fin. Elle vaut pour tout tour en forme
- * de message (travail, assistant général), pas seulement pour les cartes.
+ * DEPUIS LE 17/10/2026, LE COMPTE RENDU EST UN MESSAGE DE DISCUSSION
+ * (`shared/src/message-court.ts`) : plus de titres à exiger. Depuis le
+ * 25/10/2026, sa LONGUEUR suit la demande et ne se relance plus. La relance ne
+ * vise donc qu'un cas : un tour d'exécution qui rend la main avec des tâches de
+ * fond encore vivantes, qui ATTEND leur résultat avant d'écrire son message de
+ * fin.
  *
  * Se rejoue seule : `server/src/test/relance-du-rapport.test.ts`.
  * Contrôle navigateur bout-en-bout, avec un faux moteur qui parle le format de
  * Claude Code : `node scripts/verif-relance-du-rapport.mjs`.
  */
 
-import { FORME_D_UN_MESSAGE, consigneDeRaccourci } from './message-court.js';
+import { FORME_D_UN_MESSAGE } from './message-court.js';
 
 /** Une étape d'outil, telle que le démon la garde pendant le tour. */
 export interface EtapeDOutil {
@@ -122,8 +122,6 @@ export interface FinDeTourAJuger {
   plancher: boolean;
   /** Le contrôle de forme est-il tenu ? */
   formeTenue: boolean;
-  /** Le tour répond-il en message de messagerie (`gabaritEnMessage`) ? Un message trop long se raccourcit. */
-  messagerie?: boolean;
   /** Les tâches de fond encore vivantes d'un tour d'exécution : il les attend avant son message de fin. */
   tachesVivantes?: number;
   /** Le tour a-t-il rendu un texte ? */
@@ -139,7 +137,7 @@ export interface FinDeTourAJuger {
 /**
  * FAUT-IL RELANCER LE RAPPORT ? Un tour fini sans panne, sans arrêt ni question
  * ouverte, qui a rendu un texte : relancé UNE fois si sa forme n'est pas tenue
- * (message trop long, ou gabarit structuré d'un tour d'exécution), ou si c'est
+ * (gabarit structuré d'un tour d'exécution), ou si c'est
  * le tour d'exécution d'une carte et qu'il laisse des tâches de fond vivantes.
  * Un tour arrêté à la main, coupé par un quota ou tombé ne se relance JAMAIS :
  * sa propre route (reprise, décision) existe déjà.
@@ -147,7 +145,8 @@ export interface FinDeTourAJuger {
 export function relanceDuRapport(tour: FinDeTourAJuger): boolean {
   if (tour.echec || tour.arrete || tour.questionPosee) return false;
   if (!tour.texte.trim().length) return false;
-  if (!tour.formeTenue) return tour.plancher || !!tour.messagerie;
+  // Un message n'est plus jamais relancé pour sa LONGUEUR (décision du 25/10/2026).
+  if (!tour.formeTenue) return tour.plancher;
   return tour.plancher && (tour.tachesVivantes ?? 0) > 0;
 }
 
@@ -158,16 +157,11 @@ export function nomDeTacheDeFond(tache: TacheDeFond): string {
 
 /**
  * LA CONSIGNE DE LA RELANCE. Elle nomme les tâches de fond encore vivantes et
- * demande d'attendre leur résultat, puis de rendre le message final — raccourci
- * s'il dépassait le plafond. C'est ce texte-là qui fermera la carte.
+ * demande d'attendre leur résultat, puis de rendre le message final. C'est ce
+ * texte-là qui fermera la carte.
  */
-export function consigneDeRelanceDuRapport(input: {
-  /** Le message rendu, quand il est trop long : la consigne demande de le raccourcir. */
-  tropLong?: string;
-  taches: readonly TacheDeFond[];
-}): string {
+export function consigneDeRelanceDuRapport(input: { taches: readonly TacheDeFond[] }): string {
   const lignes: string[] = [];
-  if (input.tropLong) lignes.push(consigneDeRaccourci(input.tropLong));
   if (input.taches.length) {
     lignes.push(
       ...(lignes.length ? [''] : []),

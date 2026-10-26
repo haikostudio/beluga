@@ -35,7 +35,7 @@ export function LienPromptEnvoye({ contexte, className }: { contexte: SentContex
         data-prompt-complet-lien
         aria-expanded={ouvert}
         onClick={() => setOuvert((v) => !v)}
-        className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[12px] text-faint transition-colors hover:text-text"
+        className="inline-flex items-center gap-1 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-[12px] text-faint transition-colors hover:text-text"
       >
         <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', ouvert && 'rotate-90')} aria-hidden="true" />
         <span>{ouvert ? t('Masquer le prompt envoyé') : t('Voir le prompt envoyé')}</span>
@@ -120,7 +120,7 @@ function BoutonCopierLaPartie({ texte }: { texte: string }) {
     <button
       type="button"
       onClick={() => void copier()}
-      className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11.5px] text-faint transition-colors hover:text-text"
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-[11.5px] text-faint transition-colors hover:text-text"
     >
       {copie ? <Check className="h-3 w-3" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
       {copie ? t('Copié') : t('Copier')}

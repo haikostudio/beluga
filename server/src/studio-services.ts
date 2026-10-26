@@ -6,6 +6,12 @@ import {
   type IdServiceGeneration,
   IDS_SERVICES_EN_PLUS,
   SERVICES_DE_GENERATION,
+  type LigneDePrixKie,
+  estServiceCache,
+  modeleKie,
+  prixKie,
+  requeteDesPrixKie,
+  verdictDuSoldeKie,
   requeteDeTestEnPlus,
   serviceDeGeneration,
   type ModeleVideoDeService,
@@ -76,14 +82,18 @@ export function cleDuService(id: IdServiceGeneration): string | undefined {
   }
 }
 
-/** Tous les services branchés, ceux du mode Réalisation compris (HeyGen, ElevenLabs). */
+/**
+ * Tous les services branchés, ceux du mode Réalisation compris (HeyGen,
+ * ElevenLabs). UN SERVICE CACHÉ (Higgsfield, fal.ai depuis le 25/10/2026)
+ * n'y est jamais, même si sa clé reste au coffre : plus rien ne s'en sert.
+ */
 export function servicesDeGenerationBranches(): IdServiceGeneration[] {
-  return SERVICES_DE_GENERATION.filter((s) => !!cleDuService(s.id)).map((s) => s.id);
+  return SERVICES_DE_GENERATION.filter((s) => !estServiceCache(s.id) && !!cleDuService(s.id)).map((s) => s.id);
 }
 
-/** Les services dont une clé est branchée. */
+/** Les services dont une clé est branchée (jamais un service caché). */
 export function servicesBranches(): IdServiceCreation[] {
-  return SERVICES_CREATION.filter((s) => !!cleDuService(s.id)).map((s) => s.id);
+  return SERVICES_CREATION.filter((s) => !estServiceCache(s.id) && !!cleDuService(s.id)).map((s) => s.id);
 }
 
 /** Les services VIDÉO branchés (OpenRouter sert la voix et la musique, pas les extraits). */
@@ -102,7 +112,7 @@ function dernierTest(id: IdServiceGeneration): TestDeService | null {
 
 /** Ce que la rubrique « Services de création » affiche : jamais la clé, seulement ses quatre derniers signes. */
 export function etatDesServices() {
-  return SERVICES_DE_GENERATION.map((s) => {
+  return SERVICES_DE_GENERATION.filter((s) => !estServiceCache(s.id)).map((s) => {
     const cle = cleDuService(s.id);
     const test = cle ? dernierTest(s.id) : null;
     return {
@@ -138,7 +148,9 @@ async function appeler(requete: { methode: string; adresse: string; entetes: Rec
 
 async function testerUneCle(id: IdServiceGeneration, cle: string): Promise<TestDeService> {
   try {
-    const { statut } = await appeler(estEnPlus(id) ? requeteDeTestEnPlus(id, cle) : requeteDeTest(id, cle), 15_000);
+    const { statut, corps } = await appeler(estEnPlus(id) ? requeteDeTestEnPlus(id, cle) : requeteDeTest(id, cle), 15_000);
+    /* kie.ai répond en 200 même à une fausse clé : son champ `code` tranche. */
+    if (id === 'kie') return { ...verdictDuSoldeKie(statut, corps), le: Date.now() };
     // Les services en plus suivent la règle commune (aucune exception façon Higgsfield).
     return { ...verdictDuTest(estEnPlus(id) ? 'openrouter' : id, statut), le: Date.now() };
   } catch (err: any) {
@@ -210,7 +222,8 @@ export function modeleVideoRetenu(creationId: string): ModeleVideoRetenu | null 
     const brut = getMeta(cleDuModeleVideo(creationId));
     if (!brut) return null;
     const m = JSON.parse(brut) as ModeleVideoRetenu;
-    return modeleVideoDeService(m.service, m.modele) ? m : null;
+    /* Un ancien choix chez un service caché se lit sans planter : il est oublié, le choix automatique reprend. */
+    return modeleVideoDeService(m.service, m.modele) && !estServiceCache(m.service) ? m : null;
   } catch {
     return null;
   }
@@ -220,6 +233,7 @@ export function retenirModeleVideo(creationId: string, service: string, modele: 
   const s = serviceDeCreation(service);
   const m = modeleVideoDeService(service, modele);
   if (!s || !m) return { ok: false, raison: 'ce modèle n’est pas au catalogue des services de création' };
+  if (estServiceCache(s.id)) return { ok: false, raison: `${s.nom} n’est plus proposé : choisissez un modèle de kie.ai` };
   if (!cleDuService(s.id)) return { ok: false, raison: `${s.nom} n’est pas branché : ajoutez sa clé dans les paramètres, rubrique « Services de création »` };
   const retenu = { service: s.id, modele: m.id };
   setMeta(cleDuModeleVideo(creationId), JSON.stringify(retenu));
@@ -236,6 +250,10 @@ export function retenirModeleVideo(creationId: string, service: string, modele: 
  * non publié », jamais un chiffre inventé.
  */
 export async function plafondDuClip(service: IdServiceCreation, modele: string, duree: number): Promise<number | null> {
+  if (service === 'kie') {
+    const k = modeleKie(modele, 'video');
+    return k ? prixKie(await tarifsKie(), k, { secondes: duree }) : null;
+  }
   if (service !== 'fal') return null;
   const cle = cleDuService('fal');
   if (!cle) return null;
@@ -246,6 +264,29 @@ export async function plafondDuClip(service: IdServiceCreation, modele: string, 
   } catch {
     return null;
   }
+}
+
+/*
+ * LA LISTE PUBLIQUE DES PRIX DE kie.ai (sans clé, 100 lignes par page, ~600
+ * lignes au 25/10/2026), relue au plus toutes les six heures. Un échec rend la
+ * dernière liste connue, ou rien : le devis dit alors « prix non trouvé ».
+ */
+let tarifsKieLus: { le: number; lignes: LigneDePrixKie[] } | null = null;
+export async function tarifsKie(): Promise<LigneDePrixKie[]> {
+  if (tarifsKieLus && Date.now() - tarifsKieLus.le < 6 * 3_600_000) return tarifsKieLus.lignes;
+  try {
+    const lignes: LigneDePrixKie[] = [];
+    for (let page = 1; page <= 12; page++) {
+      const { statut, corps } = await appeler(requeteDesPrixKie(page), 15_000);
+      const lues = statut === 200 && Number(corps?.code) === 200 && Array.isArray(corps?.data?.records) ? (corps.data.records as LigneDePrixKie[]) : [];
+      lignes.push(...lues);
+      if (lues.length < 100 || page >= Number(corps?.data?.pages ?? page)) break;
+    }
+    if (lignes.length) tarifsKieLus = { le: Date.now(), lignes };
+  } catch (err) {
+    log.warn('studio : liste des prix de kie.ai illisible', String((err as Error)?.message ?? err));
+  }
+  return tarifsKieLus?.lignes ?? [];
 }
 
 /* ------------------------------------------------------------------ */

@@ -194,7 +194,7 @@ export function LecteurSon({
         onClick={basculer}
         className={cn(
           'flex shrink-0 items-center justify-center rounded-full bg-text text-surface transition-opacity hover:opacity-85',
-          compact ? 'h-7 w-7' : 'h-9 w-9',
+          compact ? 'h-[34px] sm:h-7 w-[34px] sm:w-7' : 'h-[43px] sm:h-9 w-[43px] sm:w-9',
         )}
         aria-label={lit ? t('Mettre en pause') : t('Écouter')}
         title={lit ? t('Mettre en pause') : t('Écouter')}
@@ -237,7 +237,7 @@ export function LecteurSon({
         <button
           type="button"
           onClick={onAgrandir}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface hover:text-text"
+          className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface hover:text-text"
           aria-label={t('Ouvrir en grand')}
           title={t('Ouvrir en grand')}
           data-son-agrandir

@@ -324,7 +324,7 @@ export function ProjectSettings({
                 type="button"
                 data-retour-menu-config
                 onClick={() => setRubriqueAuPremierPlan(false)}
-                className="flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
+                className="flex items-center gap-0.5 rounded p-1.5 sm:p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
               >
                 <ChevronLeft className="h-4 w-4" />
                 <span className="text-[13px]">{t('Configuration')}</span>
@@ -360,7 +360,7 @@ export function ProjectSettings({
                         data-actif={ouverte.cle === item.cle ? 'oui' : undefined}
                         onClick={() => ouvrir(item.cle)}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
+                          'flex w-full items-center gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13.5px]',
                           /* SUR TÉLÉPHONE CE MENU EST UNE LISTE DE PAGES : aucune
                              n'est « choisie » tant qu'on ne l'a pas ouverte, et la
                              première ne se colore donc pas d'office. */
@@ -398,7 +398,7 @@ export function ProjectSettings({
                       data-actif={ouverte.cle === item.cle ? 'oui' : undefined}
                       aria-current={ouverte.cle === item.cle ? 'page' : undefined}
                       onClick={() => ouvrir(item.cle)}
-                      className="flex w-full items-center gap-2 rounded-md bg-danger px-2 py-1.5 text-left text-[13.5px] font-medium text-encre-fg transition-opacity hover:opacity-90 dark:bg-danger/70"
+                      className="flex w-full items-center gap-2 rounded-md bg-danger px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13.5px] font-medium text-encre-fg transition-opacity hover:opacity-90 dark:bg-danger/70"
                     >
                       {Icone ? <Icone className="h-3.5 w-3.5 shrink-0" /> : null}
                       <span className="min-w-0 flex-1 truncate">{t(item.titre)}</span>

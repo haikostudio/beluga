@@ -106,7 +106,7 @@ export function ClocheNotifications({ className }: { className?: string } = {}) 
       <Button
         variant="ghost"
         size="icon"
-        className={cn('relative h-8 w-8 text-muted', className)}
+        className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted', className)}
         aria-label={libelle}
         title={libelle}
         data-cloche-notifications

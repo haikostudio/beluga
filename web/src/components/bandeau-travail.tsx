@@ -51,7 +51,7 @@ export function BandeauTravail({
         // place ainsi rendue.
         /* Le pied vivant d'une carte : même fond que sa marche de survol, ses
            coins bas, aucune ombre. */
-        'relative flex shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none',
+        'relative flex shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-b-xl bg-raised px-4 pb-2.5 pt-2 text-[12.5px] leading-none',
         className,
       )}
       {...autres}

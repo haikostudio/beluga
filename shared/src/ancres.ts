@@ -88,7 +88,9 @@ export function ancre(nom: string): string {
  */
 export function tagsEnEspacesOrdinaires(texte: string): string {
   TAG_FICHIER.lastIndex = 0;
-  return texte.replace(TAG_FICHIER, (brut) => brut.replace(/\u00A0/g, ' '));
+  return texte
+    .replace(TAG_FICHIER, (brut) => brut.replace(/\u00A0/g, ' '))
+    .replace(/\[pièce:[^\]\n]*\]/g, (brut) => brut.replace(/\u00A0/g, ' '));
 }
 
 /**
@@ -101,8 +103,15 @@ export function insereAncre(
   nom: string,
   curseur: number | null,
 ): { texte: string; curseur: number } {
-  const marque = ancre(nom);
+  return insereTexte(texte, ancre(nom), curseur);
+}
 
+/** Poser un morceau de texte (une ancre, une étiquette de pièce) au curseur, avec les espaces qui manquent. */
+export function insereTexte(
+  texte: string,
+  marque: string,
+  curseur: number | null,
+): { texte: string; curseur: number } {
   if (curseur === null || curseur < 0 || curseur > texte.length) {
     const separateur = !texte ? '' : /\s$/.test(texte) ? '' : ' ';
     const suite = `${texte}${separateur}${marque}`;

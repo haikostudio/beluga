@@ -218,7 +218,7 @@ function MediasDuProjet({ projectId, onOuvrirCarte }: { projectId: string; onOuv
               onClick={() => setGenre(f.cle)}
               data-medias-filtre={f.cle ?? 'tout'}
               className={cn(
-                'h-8 rounded-full px-3.5 text-[13.5px] transition-colors',
+                'h-[38px] sm:h-8 rounded-full px-3.5 text-[13.5px] transition-colors',
                 actif ? 'bg-raised font-medium text-text' : 'text-muted hover:text-text',
               )}
             >

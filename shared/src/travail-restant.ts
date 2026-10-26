@@ -81,6 +81,10 @@ export interface CarteEnCours {
     enAttente: number;
     faites: number;
     total: number;
+    /** Une SUITE d'étapes (`shared/src/suite-de-cartes.ts`) : ses filles sont des étapes, pas des projets. */
+    suite?: boolean;
+    /** L'étape où en est la suite et le nombre d'étapes (`etapeCouranteDeLaSuite`) : la barre dit « Étape 2/3 ». */
+    etape?: { rang: number; total: number } | null;
   };
 }
 
@@ -198,6 +202,7 @@ export function travailRestant(carte: CarteEnCours, maintenant: number): Travail
    * panne (rien ne repartira sans vous), puis le travail, puis l'attente du
    * départ. Jamais « aucun agent » : ses agents travaillent ailleurs.
    */
+  if (carte.filles?.suite) return restantDUneSuite(carte.filles);
   if (carte.filles) {
     const f = carte.filles;
     const etapes = f.total > 0 ? `${f.faites} étape${f.faites > 1 ? 's' : ''} faite${f.faites > 1 ? 's' : ''} sur ${f.total}` : null;
@@ -290,6 +295,31 @@ export function travailRestant(carte: CarteEnCours, maintenant: number): Travail
  * Les morceaux absents disparaissent avec leur séparateur : une carte dont on
  * ignore l'instant de départ ne dit pas « depuis ».
  */
+/**
+ * UNE SUITE D'ÉTAPES DIT OÙ EN EST SON ÉTAPE : une seule travaille à la fois,
+ * une question ou une panne arrête toute la suite, et l'étape suivante attend
+ * son tour. Même ordre que pour une mère de projets réunis.
+ */
+function restantDUneSuite(f: NonNullable<CarteEnCours['filles']>): TravailRestant {
+  const etapes = f.total > 0 ? `${f.faites} tâche${f.faites > 1 ? 's' : ''} faite${f.faites > 1 ? 's' : ''} sur ${f.total}` : null;
+  const n = f.etape ? `Étape ${f.etape.rang}/${f.etape.total}` : 'Une étape';
+  if (f.enQuestion > 0) {
+    return { nature: 'question', etape: `${n} pose une question`, depuis: null, attente: 'votre réponse, depuis l’étape ; la suite attend' };
+  }
+  if (f.enPanne > 0) {
+    return { nature: 'relance', etape: `${n} s’est arrêtée`, depuis: null, attente: 'votre relance, depuis l’étape ; la suite attend' };
+  }
+  if (f.enTravail > 0) {
+    return { nature: 'travaille', etape: `${n} au travail`, depuis: null, attente: etapes ?? 'la fin de l’étape, puis la suivante' };
+  }
+  return {
+    nature: 'rangement',
+    etape: f.enAttente > 0 ? `${n} en attente de départ` : 'Étapes rendues',
+    depuis: null,
+    attente: f.enAttente > 0 ? 'son départ, dès que la précédente a fini' : 'le passage de toute la suite en « À déployer »',
+  };
+}
+
 export function phraseDuTravailRestant(restant: TravailRestant): string {
   return [restant.etape, restant.depuis, restant.attente].filter(Boolean).join(' · ');
 }

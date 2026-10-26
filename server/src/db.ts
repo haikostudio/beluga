@@ -4390,6 +4390,221 @@ export const MIGRATIONS: {
       CREATE INDEX idx_messages_erreur_ouverte
         ON messages(a_erreur_ouverte) WHERE a_erreur_ouverte = 1;
     `,
+  },  {
+    id: 139,
+    name: 'production-du-studio-creatif',
+    /*
+     * LE SOCLE DU STUDIO CRÉATIF (chantier « Beluga Creative Studio », carte 1
+     * sur 5, `server/src/production.ts`, `shared/src/production.ts`) :
+     *  - `production_elements` : brief, concept, scénario, scènes, plans,
+     *    personnages, références — une ligne par VERSION, clé stable par pièce ;
+     *  - `production_lots` / `production_operations` : le devis par lot, liste
+     *    fermée d'opérations ; chaque opération porte sa clé d'idempotence
+     *    (UNIQUE) et passe prévue → réservée → débitée, ou → libérée ;
+     *  - `production_approbations`, `production_evenements` : les réponses de
+     *    l'utilisateur et le journal qui fait vivre le volet de suivi ;
+     *  - `production_budget_phases` : l'enveloppe par étape (carte 2) ;
+     *  - `methodes_creatives*` : la bibliothèque de méthodes, vide ici,
+     *    remplie et notée par la carte 4 ;
+     *  - `medias_realisation` gagne l'étape du suivi et le lot de son devis.
+     * La dépense d'une carte se lit toujours sur `medias_realisation`.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS production_elements (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        card_id TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        cle TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        titre TEXT NOT NULL DEFAULT '',
+        contenu TEXT NOT NULL DEFAULT '',
+        etat TEXT NOT NULL,
+        parent TEXT,
+        cree_le INTEGER NOT NULL,
+        UNIQUE (card_id, cle, version)
+      );
+      CREATE INDEX IF NOT EXISTS idx_production_elements_carte ON production_elements(card_id, cree_le);
+      CREATE TABLE IF NOT EXISTS production_lots (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        card_id TEXT NOT NULL,
+        titre TEXT NOT NULL,
+        etape TEXT,
+        etat TEXT NOT NULL,
+        question_id TEXT,
+        cree_le INTEGER NOT NULL,
+        decide_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_production_lots_carte ON production_lots(card_id, cree_le);
+      CREATE TABLE IF NOT EXISTS production_operations (
+        id TEXT PRIMARY KEY,
+        lot_id TEXT NOT NULL,
+        card_id TEXT NOT NULL,
+        media_id TEXT NOT NULL,
+        plan TEXT NOT NULL,
+        service TEXT NOT NULL,
+        modele_nom TEXT NOT NULL,
+        capacite TEXT NOT NULL,
+        prix REAL,
+        etat TEXT NOT NULL,
+        montant_reserve REAL NOT NULL DEFAULT 0,
+        montant_debite REAL,
+        cle TEXT NOT NULL UNIQUE,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_production_operations_lot ON production_operations(lot_id);
+      CREATE INDEX IF NOT EXISTS idx_production_operations_media ON production_operations(media_id);
+      CREATE TABLE IF NOT EXISTS production_approbations (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL,
+        sujet TEXT NOT NULL,
+        sujet_id TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        reponse TEXT,
+        at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_production_approbations_carte ON production_approbations(card_id, at);
+      CREATE TABLE IF NOT EXISTS production_evenements (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        details TEXT NOT NULL DEFAULT '{}',
+        at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_production_evenements_carte ON production_evenements(card_id, at);
+      CREATE TABLE IF NOT EXISTS production_budget_phases (
+        card_id TEXT NOT NULL,
+        etape TEXT NOT NULL,
+        alloue REAL NOT NULL,
+        maj_le INTEGER NOT NULL,
+        PRIMARY KEY (card_id, etape)
+      );
+      CREATE TABLE IF NOT EXISTS methodes_creatives (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        version_active TEXT,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS methodes_creatives_versions (
+        id TEXT PRIMARY KEY,
+        methode_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        contenu TEXT NOT NULL,
+        source TEXT,
+        etat TEXT NOT NULL,
+        validee_le INTEGER,
+        cree_le INTEGER NOT NULL,
+        UNIQUE (methode_id, version)
+      );
+      CREATE TABLE IF NOT EXISTS methodes_creatives_evaluations (
+        id TEXT PRIMARY KEY,
+        version_id TEXT NOT NULL,
+        card_id TEXT,
+        verdict TEXT NOT NULL,
+        note REAL,
+        at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_methodes_creatives_evaluations_version ON methodes_creatives_evaluations(version_id, at);
+      ALTER TABLE medias_realisation ADD COLUMN etape TEXT;
+      ALTER TABLE medias_realisation ADD COLUMN lot_id TEXT;
+    `,
+  },
+  {
+    id: 139,
+    name: 'methodes-creatives',
+    /*
+     * LA BIBLIOTHÈQUE DE MÉTHODES DU MODE RÉALISATION (24/10/2026,
+     * `server/src/methodes-creatives.ts`). Une méthode a des VERSIONS ; une
+     * seule est « active », et une proposée ne le devient qu'après la réponse
+     * de l'utilisateur à sa question (`question_id`). Les ÉVALUATIONS viennent
+     * des vraies productions : un média fabriqué selon une version
+     * (`methodes_usages`), puis gardé ou refusé par l'utilisateur
+     * (`medias_avis`), note cette version — une ligne par version et par média.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS methodes_creatives (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL UNIQUE,
+        domaine TEXT NOT NULL,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS methodes_versions (
+        id TEXT PRIMARY KEY,
+        methode_id TEXT NOT NULL REFERENCES methodes_creatives(id) ON DELETE CASCADE,
+        numero INTEGER NOT NULL,
+        contenu TEXT NOT NULL,
+        raison TEXT NOT NULL DEFAULT '',
+        source TEXT,
+        statut TEXT NOT NULL,
+        question_id TEXT,
+        agent_id TEXT,
+        card_id TEXT,
+        proposee_le INTEGER NOT NULL,
+        decidee_le INTEGER,
+        UNIQUE (methode_id, numero)
+      );
+      CREATE INDEX IF NOT EXISTS idx_methodes_versions_statut ON methodes_versions(methode_id, statut);
+      CREATE TABLE IF NOT EXISTS methodes_usages (
+        media_id TEXT NOT NULL,
+        version_id TEXT NOT NULL REFERENCES methodes_versions(id) ON DELETE CASCADE,
+        PRIMARY KEY (media_id, version_id)
+      );
+      CREATE TABLE IF NOT EXISTS medias_avis (
+        media_id TEXT PRIMARY KEY,
+        question_id TEXT NOT NULL,
+        verdict TEXT,
+        decide_le INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS methodes_evaluations (
+        version_id TEXT NOT NULL REFERENCES methodes_versions(id) ON DELETE CASCADE,
+        media_id TEXT NOT NULL,
+        card_id TEXT,
+        verdict TEXT NOT NULL,
+        le INTEGER NOT NULL,
+        PRIMARY KEY (version_id, media_id)
+      );
+    `,
+  },
+  {
+    id: 141,
+    name: 'suites-d-etapes-des-cartes',
+    siTable: 'cards',
+    /*
+     * LES SOUS-CARTES D'UN TRAVAIL DÉCOUPÉ FORMENT UNE SUITE (24/10/2026) : une
+     * carte globale en tête, des étapes qui partent une à une, toutes groupées
+     * jusqu'à la dernière (`shared/src/suite-de-cartes.ts`). Vraies colonnes,
+     * comme tous les champs d'une carte ; NULL partout ailleurs. L'index
+     * partiel sert au relevé des suites ouvertes, au démarrage du démon.
+     */
+    sql: `
+      ALTER TABLE cards ADD COLUMN tete_de_suite INTEGER;
+      ALTER TABLE cards ADD COLUMN rang_dans_la_suite INTEGER;
+      ALTER TABLE cards ADD COLUMN etape_finie_at INTEGER;
+      ALTER TABLE cards ADD COLUMN depart_de_la_suite_at INTEGER;
+      CREATE INDEX IF NOT EXISTS idx_cards_tete_de_suite ON cards(tete_de_suite) WHERE tete_de_suite IS NOT NULL;
+    `,
+  },
+  {
+    id: 142,
+    name: 'medias-retenus-et-mesures',
+    siTable: 'medias_realisation',
+    /*
+     * LE SUIVI NE MONTRE QUE LE RETENU (agent créatif, 24/10/2026) : un média
+     * fabriqué n'entre dans le suivi de la production qu'une fois AJOUTÉ par
+     * l'utilisateur (`retenu_le`) ; retirer remet NULL, le fichier reste dans
+     * le fil. Les médias déjà finis sont marqués retenus : le suivi d'une
+     * production commencée avant ne se vide pas. `source_id` : le média
+     * d'origine d'une retouche ou d'une animation ; `mesure` : ce que ffprobe
+     * a lu du fichier rangé (JSON : dimensions, durée, débit, images/s).
+     */
+    sql: `
+      ALTER TABLE medias_realisation ADD COLUMN retenu_le INTEGER;
+      ALTER TABLE medias_realisation ADD COLUMN source_id TEXT;
+      ALTER TABLE medias_realisation ADD COLUMN mesure TEXT;
+      UPDATE medias_realisation SET retenu_le = modifie_le WHERE etat = 'fini';
+    `,
   },
 ];
 

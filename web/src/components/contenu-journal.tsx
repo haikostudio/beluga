@@ -259,7 +259,7 @@ function VoletDeReference({ reference, titreClair }: { reference: RefMemoire; ti
         onClick={ouvrir}
         aria-expanded={ouvert}
         data-memoire-reference-bascule={reference.id}
-        className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left"
+        className="flex w-full items-start gap-1.5 px-2.5 sm:px-2 py-2 sm:py-1.5 text-left"
       >
         <ChevronRight
           className={cn('mt-[3px] h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')}
@@ -573,6 +573,52 @@ function VueOutil({ vue, libelle }: { vue: Extract<VueDEntree, { sorte: 'outil' 
 }
 
 /**
+ * LE TEXTE D'UNE DEMANDE TEL QU'IL SE LIT : nettoyé de ses débris de collage
+ * (entités HTML, vignettes de sources), même envoyé avant ce nettoyage, et ses
+ * tags lus par l'identifiant court de leur pièce (« #1a0c »), celui que cite le
+ * plan. Le texte enregistré — celui qu'on copie — ne change pas.
+ */
+function useTexteLisibleDeLaDemande(brut: string, pieces: readonly string[], projectId?: string): string {
+  const connues = useApp().attachments[projectId ?? ''] ?? [];
+  return React.useMemo(() => {
+    const jointes = connues.filter((piece) => pieces.includes(piece.id));
+    const propre = nettoyerTexteColle(brut);
+    return texteAvecEtiquettes(propre, jointes, tagsDuTexte(propre));
+  }, [connues, pieces, brut]);
+}
+
+/**
+ * VOTRE MESSAGE DANS SA BULLE : du TEXTE, rien d'autre. Un long message collé
+ * (titres en #, listes, tableau, encadré) se lit nettoyé, ses titres un cran
+ * plus grands, sans sommaire, sans cadre ni case — ni bulle dans la bulle, ni
+ * blanc sur blanc. La couleur est celle de la bulle qui l'entoure
+ * (`.demande-en-texte`, `styles.css`) : noire ou grise sur une carte, grise
+ * claire dans la conversation de l'assistant. Avec ou sans pièce jointe, c'est
+ * le MÊME rendu ; les pièces se posent dessous.
+ */
+export function TexteDeLaDemande({
+  texte: brut,
+  pieces,
+  projectId,
+}: {
+  texte: string;
+  pieces: readonly string[];
+  projectId?: string;
+}) {
+  const texte = useTexteLisibleDeLaDemande(brut, pieces, projectId);
+  return (
+    <div className="demande-en-texte min-w-0" data-contenu-sorte="demande">
+      <Markdown content={texte} enTexte />
+      {pieces.length ? (
+        <div data-contenu-pieces={pieces.length}>
+          <PiecesJointes ids={[...pieces]} projectId={projectId} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * LA DEMANDE REÇUE, AVEC SES PIÈCES JOINTES. Le texte de l'utilisateur garde
  * son gabarit — un intitulé, puis le texte —, et les pièces se posent DESSOUS,
  * en vignettes qui s'ouvrent en grand d'un clic.
@@ -586,14 +632,7 @@ function VueDemande({
 }) {
   /* LES TAGS SE LISENT PAR L'IDENTIFIANT COURT DE LEUR PIÈCE (« #1a0c »), celui
      que cite le plan ; le texte enregistré ne change pas. */
-  const connues = useApp().attachments[projectId ?? ''] ?? [];
-  const texte = React.useMemo(() => {
-    const jointes = connues.filter((piece) => vue.pieces.includes(piece.id));
-    /* UNE DEMANDE COLLÉE D'UN ASSISTANT se lit sans ses débris (entités HTML,
-       vignettes de sources), même envoyée avant le nettoyage du collage. */
-    const propre = nettoyerTexteColle(vue.texte);
-    return texteAvecEtiquettes(propre, jointes, tagsDuTexte(propre));
-  }, [connues, vue.pieces, vue.texte]);
+  const texte = useTexteLisibleDeLaDemande(vue.texte, vue.pieces, projectId);
   return (
     <EncadreEtape
       sorte="demande"

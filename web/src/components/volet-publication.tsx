@@ -845,7 +845,7 @@ export function CorpsDuVolet({
                 type="button"
                 onClick={() => setAgentOuvert(depanneurId)}
                 data-voir-depannage={depanneurId}
-                className="self-center py-0.5 text-[12px] text-muted underline underline-offset-2 hover:text-text"
+                className="self-center py-1 sm:py-0.5 text-[12px] text-muted underline underline-offset-2 hover:text-text"
               >
                 {t('Voir le dernier dépannage')}
               </button>

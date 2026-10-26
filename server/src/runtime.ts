@@ -43,8 +43,6 @@ import {
   checkTemplate,
   gabaritEnMessage,
   cahierEnTexte,
-  messageTropLong,
-  consigneDeRaccourci,
   rapportAuPlancher,
   relanceDuRapport,
   tachesDeFondVivantes,
@@ -2051,7 +2049,7 @@ async function preparerLeTour(
         origine: 'projet',
         content:
           'DERNIÈRE COMPRÉHENSION RENDUE SUR CETTE CARTE — elle reste valable tant que la discussion ne change pas ' +
-          'le travail. Si ce tour la met à jour, son « texte » est le MESSAGE de ce tour (600 signes au plus) et ne ' +
+          'le travail. Si ce tour la met à jour, son « texte » est le MESSAGE de ce tour et ne ' +
           'dit que ce qui change ; c\'est la « partieTechnique » qui se reprend EN ENTIER, avec ce que les nouveaux ' +
           `messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${partieTechniqueEnTexte(precedente.partieTechnique)}${cahierVivantEnTexte(precedente.cahierDesCharges)}${hypotheses}`,
       });
@@ -3462,9 +3460,9 @@ async function startTurn(
    * le dit, sans nouvel essai.
    */
   let formCheck = checkTemplate(template, finalText, ampleur, { plancher });
-  /* UN MESSAGE DE MESSAGERIE (`gabaritEnMessage`) trop long se raccourcit, une
-     fois, quel que soit le rôle ; le tour d'exécution d'une carte attend aussi
-     ses tâches de fond encore vivantes avant son message de fin. */
+  /* UN MESSAGE DE DISCUSSION (`gabaritEnMessage`) n'est plus raccourci
+     (25/10/2026) : sa longueur suit la demande. Le tour d'exécution d'une carte
+     attend encore ses tâches de fond vivantes avant son message de fin. */
   const messagerie = gabaritEnMessage(template);
   const tachesDeFond: TacheDeFond[] = plancher
     ? tachesDeFondVivantes(
@@ -3487,7 +3485,6 @@ async function startTurn(
   if (
     relanceDuRapport({
       plancher,
-      messagerie,
       tachesVivantes: tachesDeFond.length,
       formeTenue: formCheck.ok,
       texte: finalText,
@@ -3517,9 +3514,7 @@ async function startTurn(
       lancement,
       agent,
       sessionId: store.getSessionId(agent.id, cleSession),
-      consigne: messagerie
-        ? consigneDeRelanceDuRapport({ tropLong: formCheck.ok ? undefined : finalText, taches: tachesDeFond })
-        : consigneDeRelanceDuRapport({ taches: tachesDeFond }),
+      consigne: consigneDeRelanceDuRapport({ taches: tachesDeFond }),
       outilsOuverts: messagerie ? ['proposer_suites'] : [],
       outilsNatifsOuverts: tachesDeFond.length ? ['Bash', 'Read'] : [],
       plafondMs,
@@ -3549,8 +3544,7 @@ async function startTurn(
     });
     log.info(`rapport relancé pour l'agent ${agent.id} : ${rapportRelance} (${tachesDeFond.length} tâche(s) de fond)`);
   }
-  /* Un message resté trop long après sa seule relance reste tel quel : la note
-     ne viserait que la forme, et le journal la porte déjà. */
+  /* Un message de discussion n'a pas de forme imposée : aucune note de forme. */
   if (!formCheck.ok && finalText && template !== 'none' && !messagerie) {
     const griefs: string[] = [];
     if (formCheck.missing.length) griefs.push(`sections manquantes (${formCheck.missing.join(', ')})`);
@@ -3873,37 +3867,8 @@ async function startTurn(
         runState.text = texteGarde;
         runState.morceauxDuTexte = [];
       }
-      /*
-       * UNE RÉPONSE LIBRE DU CADRAGE EST UN MESSAGE DE MESSAGERIE
-       * (`shared/src/message-court.ts`) : au-delà de 600 signes, elle est
-       * raccourcie UNE fois, dans la même session, sans outil. Un tour qui a
-       * rendu sa compréhension ou son plan n'affiche qu'eux : son texte n'est
-       * pas jugé.
-       */
-      if (
-        !rendueDansCeTour &&
-        !planRenduCeTour &&
-        !jugement.echec &&
-        !jugement.arretDemande &&
-        !questionPosee &&
-        !texteEcarte &&
-        messageTropLong(finalText)
-      ) {
-        const raccourci = await rendreLePlanEntier({
-          adapter,
-          lancement,
-          agent,
-          sessionId: store.getSessionId(agent.id, cleSession),
-          consigne: consigneDeRaccourci(finalText),
-          runState,
-        }).catch(() => '');
-        log.info(`réponse de cadrage raccourcie pour l'agent ${agent.id} : ${raccourci.trim() ? 'rendue' : 'sans réponse'}`);
-        if (raccourci.trim() && !runState.stopping) {
-          finalText = raccourci.trim();
-          runState.text = finalText;
-          runState.morceauxDuTexte = [finalText];
-        }
-      }
+      /* UNE RÉPONSE LIBRE DU CADRAGE N'EST PLUS RACCOURCIE (25/10/2026) : sa
+         longueur suit la question posée (`shared/src/message-court.ts`). */
       let relance: 'cadrage' | 'reponse' | 'incident' | undefined;
       if (comprehensionManquante(jugement)) {
         runState.steps.set(ETAPE_COMPREHENSION_RECLAMEE_ID, {

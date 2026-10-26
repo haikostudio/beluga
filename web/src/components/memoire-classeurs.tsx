@@ -72,6 +72,7 @@ import {
   Input,
   Textarea,
   ZoneDefilement,
+  CaseACocher,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
@@ -525,7 +526,7 @@ export function MemoireClasseurs({
         {/* Sur téléphone, « Dépréciées » vit dans le menu ⋮ : la liste des sujets ne porte que des sujets. */}
         {telephone ? null : (
           <label className="mt-3 flex items-center gap-2 px-2.5 text-[13px] text-muted">
-            <input type="checkbox" checked={depreciees} onChange={(e) => setDepreciees(e.target.checked)} data-memoire-depreciees />
+            <CaseACocher checked={depreciees} onCheckedChange={setDepreciees} data-memoire-depreciees />
             {t('Dépréciées')}
             {portee?.depreciees ? <span className="text-faint">({portee.depreciees})</span> : null}
           </label>
@@ -598,7 +599,7 @@ export function MemoireClasseurs({
         ) : null}
         <GestesDePage>
           {telephone ? (
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted" aria-label="Liste" title={t('Liste')} onClick={() => setVue('liste')} data-memoire-vers-liste>
+            <Button variant="ghost" size="icon" className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted" aria-label="Liste" title={t('Liste')} onClick={() => setVue('liste')} data-memoire-vers-liste>
               <List className="h-4 w-4" />
             </Button>
           ) : (
@@ -698,7 +699,7 @@ export function MemoireClasseurs({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0 text-muted"
+              className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
               aria-label="Fermer la recherche"
               title={t('Fermer la recherche')}
               data-memoire-fermer-recherche
@@ -713,7 +714,7 @@ export function MemoireClasseurs({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0 text-muted"
+              className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
               aria-label="Chercher"
               title={t('Chercher')}
               data-memoire-ouvrir-recherche
@@ -724,7 +725,7 @@ export function MemoireClasseurs({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-menu>
+              <Button variant="ghost" size="icon" className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-menu>
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -791,7 +792,7 @@ export function MemoireClasseurs({
             <div className="shrink-0 pb-2 pt-1" data-memoire-entete="ordinateur">
               {champDeRecherche}
               <label className="mt-2 flex items-center gap-2 px-2.5 text-[13px] text-muted">
-                <input type="checkbox" checked={partout} onChange={(e) => setPartout(e.target.checked)} data-memoire-partout />
+                <CaseACocher checked={partout} onCheckedChange={setPartout} data-memoire-partout />
                 {t('Partout')}
               </label>
             </div>
@@ -892,7 +893,7 @@ function ListeDesTrouvees({
           type="button"
           onClick={() => onOuvrir(u, ficheDeLUnite(u).id)}
           data-memoire-trouvee={u.id}
-          className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised"
+          className="flex w-full flex-col items-start gap-0.5 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors hover:bg-raised"
         >
           <span className="flex w-full min-w-0 items-center gap-1.5 text-[11.5px] text-faint">
             <span className="font-mono">{u.id}</span>
@@ -1158,7 +1159,7 @@ function FicheOuverte({
                 onClick={() => setFiltre('')}
                 aria-label="Effacer la recherche"
                 title={t('Effacer la recherche')}
-                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
+                className="absolute right-2 top-1/2 flex h-[29px] sm:h-6 w-[29px] sm:w-6 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
                 data-memoire-filtre-effacer
               >
                 <X className="h-3.5 w-3.5" />
@@ -1409,7 +1410,7 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
               relues par le système lui-même (`relecture-memoire.ts`). */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-unite-menu>
+              <Button variant="ghost" size="sm" className="h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 p-0" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-unite-menu>
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -1611,7 +1612,7 @@ function ChangelogDuProjet({ projectId }: { projectId: string }) {
           aria-pressed={seulesGrandes}
           title={t('Grandes nouveautés seulement')}
           className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors',
+            'flex shrink-0 items-center gap-1.5 rounded-full px-3 sm:px-2.5 py-1.5 sm:py-1 text-[12px] font-medium transition-colors',
             seulesGrandes ? 'bg-accent/15 text-accent' : 'bg-raised text-muted hover:text-text',
           )}
           data-memoire-changelog-filtre
@@ -1735,7 +1736,7 @@ function EntreeDepliable({ entree: e, poids, projectId, onCorrigee, menue }: { e
         type="button"
         onClick={() => setOuverte((v) => !v)}
         aria-expanded={ouverte}
-        className={cn('flex w-full min-w-0 items-start gap-2.5 text-left transition-colors hover:bg-raised', menue ? 'rounded px-2 py-1' : 'px-3 py-2')}
+        className={cn('flex w-full min-w-0 items-start gap-2.5 text-left transition-colors hover:bg-raised', menue ? 'rounded px-2.5 sm:px-2 py-1.5 sm:py-1' : 'px-3.5 sm:px-3 py-2')}
       >
         {menue ? null : <span className={cn('mt-px w-[6.5rem] shrink-0 rounded px-1.5 py-0.5 text-center text-[11px] font-medium', TON_DU_POIDS[poids])}>{libelleDuPoids(poids)}</span>}
         <span className={cn('min-w-0 flex-1 break-words', menue ? 'text-[12.5px] leading-snug text-muted' : 'leading-relaxed text-text')}>{titreDeLEntree(e)}</span>
@@ -1772,13 +1773,13 @@ function ActionsDEntree({ entree: e, onCorriger }: { entree: EntreeDuChangelog; 
   return (
     <div className="-ml-2 flex flex-wrap items-center gap-1" data-memoire-changelog-actions>
       {carte ? (
-        <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-[12px]" onClick={() => client.openCard(carte.id)} title={carte.titre} data-memoire-changelog-carte={carte.id}>
+        <Button size="sm" variant="ghost" className="h-[34px] sm:h-7 gap-1.5 px-2 text-[12px]" onClick={() => client.openCard(carte.id)} title={carte.titre} data-memoire-changelog-carte={carte.id}>
           <MessageSquare className="h-3.5 w-3.5" />
           {t('Ouvrir la carte')}
         </Button>
       ) : null}
       {e.id != null ? (
-        <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-[12px]" onClick={onCorriger} data-memoire-changelog-corriger>
+        <Button size="sm" variant="ghost" className="h-[34px] sm:h-7 gap-1.5 px-2 text-[12px]" onClick={onCorriger} data-memoire-changelog-corriger>
           <Pencil className="h-3.5 w-3.5" />
           {t('Corriger')}
         </Button>
@@ -1835,7 +1836,7 @@ function EditeurDEntree({ entree: e, projectId, onFini }: { entree: EntreeDuChan
             role="radio"
             aria-checked={poids === p}
             onClick={() => setPoids(p)}
-            className={cn('rounded px-2 py-1 text-[11.5px] font-medium transition-colors', poids === p ? TON_DU_POIDS[p] : 'text-faint hover:bg-raised hover:text-muted')}
+            className={cn('rounded px-2.5 sm:px-2 py-1.5 sm:py-1 text-[11.5px] font-medium transition-colors', poids === p ? TON_DU_POIDS[p] : 'text-faint hover:bg-raised hover:text-muted')}
             data-memoire-changelog-editeur-poids={p}
           >
             {libelleDuPoids(p)}

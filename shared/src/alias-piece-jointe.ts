@@ -170,6 +170,24 @@ export function etiquetteDePiece(piece: PieceJointeIdentifiee): string {
 }
 
 /**
+ * LE REPÈRE COURT D'UNE IMAGE VUE PAR L'AGENT, retrouvé par son CHEMIN (#ce5d) :
+ * une pièce jointe est rangée sur le disque sous « <alias>-<nom> »
+ * (`nomSurDisque`) ; quand l'agent ouvre ce fichier, la vignette du fil porte
+ * donc le même « #1a0c » que sous la barre d'écriture. Une image qui n'est pas
+ * une pièce jointe connue n'en a aucun : `null`, jamais un repère inventé.
+ */
+export function repereDuChemin(chemin: string, pieces: readonly PieceJointeIdentifiee[] | undefined): string | null {
+  if (!pieces?.length) return null;
+  const nom = chemin.split(/[\\/]/).pop() ?? '';
+  const tiret = nom.indexOf('-');
+  if (tiret < LONGUEUR_ALIAS) return null;
+  const prefixe = nom.slice(0, tiret);
+  const reste = nom.slice(tiret + 1);
+  const piece = pieces.find((p) => p.alias === prefixe && p.name === reste) ?? pieces.find((p) => p.alias === prefixe);
+  return piece?.alias ? `#${piece.alias}` : null;
+}
+
+/**
  * LE TEXTE D'UNE DEMANDE ENVOYÉE, TEL QU'IL SE LIT DANS LE FIL : chaque tag
  * montre la même étiquette que dans la barre d'écriture
  * (« [fichier: #1a0c] »). Le texte enregistré ne change pas ; une pièce sans

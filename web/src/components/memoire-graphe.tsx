@@ -1144,7 +1144,7 @@ export const ToileDuGraphe = React.forwardRef<
               dans le coin. Glisser DANS la carte, lui, continue d'y amener la vue. */}
           <button
             type="button"
-            className="absolute left-1/2 top-0 flex h-4 w-10 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none items-center justify-center rounded-full bg-raised text-faint opacity-0 shadow-sm transition-opacity hover:text-text focus-visible:opacity-100 active:cursor-grabbing group-hover/minicarte:opacity-100"
+            className="absolute left-1/2 top-0 flex h-4 w-12 sm:w-10 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none items-center justify-center rounded-full bg-raised text-faint opacity-0 shadow-sm transition-opacity hover:text-text focus-visible:opacity-100 active:cursor-grabbing group-hover/minicarte:opacity-100"
             onPointerDown={deplacerLaMinicarte}
             onKeyDown={deplacerAuClavier}
             onDoubleClick={(e) => {
@@ -1428,7 +1428,7 @@ export function PageDuGraphe({
           {telephone ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="subtle" size="sm" className="h-10 max-w-[38%] shrink-0 gap-1 rounded-xl px-2.5" data-graphe-choix-focus title={t('Choisir un projet')}>
+                <Button variant="subtle" size="sm" className="h-12 sm:h-10 max-w-[38%] shrink-0 gap-1 rounded-xl px-2.5" data-graphe-choix-focus title={t('Choisir un projet')}>
                   <Layers className="h-4 w-4 shrink-0" />
                   <span className="truncate">{focusNom}</span>
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -1467,7 +1467,7 @@ export function PageDuGraphe({
                 onClick={() => setRecherche('')}
                 aria-label="Effacer la recherche"
                 title={t('Effacer la recherche')}
-                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
+                className="absolute right-2 top-1/2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
                 data-graphe-recherche-effacer
               >
                 <X className="h-4 w-4" />
@@ -1490,7 +1490,7 @@ export function PageDuGraphe({
               type="button"
               onClick={() => setListeOuverte((v) => !v)}
               aria-expanded={listeOuverte}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12.5px] text-muted hover:bg-raised"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 sm:px-2 py-1.5 sm:py-1 text-left text-[12.5px] text-muted hover:bg-raised"
               data-graphe-resultats-bascule
             >
               <span className="min-w-0 flex-1 truncate">
@@ -1513,7 +1513,7 @@ export function PageDuGraphe({
                       // Après le rendu : la fiche ouverte (à droite, en bas sur téléphone) compte dans le cadrage.
                       window.setTimeout(() => toile.current?.cadrer([arbre.index.get(noeud.id)!]), 60);
                     }}
-                    className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-raised', selection === noeud.id && 'bg-raised')}
+                    className={cn('flex w-full min-w-0 items-center gap-2 rounded-lg px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13px] hover:bg-raised', selection === noeud.id && 'bg-raised')}
                     data-graphe-recue={noeud.id}
                   >
                     <Pastille famille={noeud.famille} />
@@ -1568,16 +1568,16 @@ export function PageDuGraphe({
           </ul>
         ) : null}
         <div className="flex items-center gap-1">
-          <Button variant="subtle" size="icon" className="h-8 w-8 rounded-lg" onClick={() => toile.current?.zoomer(1.6)} aria-label="Zoomer" title={t('Zoomer')} data-graphe-zoomer>
+          <Button variant="subtle" size="icon" className="h-[38px] sm:h-8 w-[38px] sm:w-8 rounded-lg" onClick={() => toile.current?.zoomer(1.6)} aria-label="Zoomer" title={t('Zoomer')} data-graphe-zoomer>
             <Plus className="h-4 w-4" />
           </Button>
-          <Button variant="subtle" size="icon" className="h-8 w-8 rounded-lg" onClick={() => toile.current?.zoomer(1 / 1.6)} aria-label="Dézoomer" title={t('Dézoomer')}>
+          <Button variant="subtle" size="icon" className="h-[38px] sm:h-8 w-[38px] sm:w-8 rounded-lg" onClick={() => toile.current?.zoomer(1 / 1.6)} aria-label="Dézoomer" title={t('Dézoomer')}>
             <Minus className="h-4 w-4" />
           </Button>
           <Button
             variant="subtle"
             size="icon"
-            className="h-8 w-8 rounded-lg"
+            className="h-[38px] sm:h-8 w-[38px] sm:w-8 rounded-lg"
             onClick={() => {
               if (allumes?.size) toile.current?.cadrer(allumes);
               else if (focusIndice != null && focusIndice > 0) toile.current?.cadrer([focusIndice], true);
@@ -1592,7 +1592,7 @@ export function PageDuGraphe({
           <button
             type="button"
             onClick={() => setLegende((v) => !v)}
-            className="ml-1 rounded-lg px-2 py-1.5 text-[11.5px] text-faint hover:bg-raised hover:text-muted"
+            className="ml-1 rounded-lg px-2.5 sm:px-2 py-2 sm:py-1.5 text-[11.5px] text-faint hover:bg-raised hover:text-muted"
             aria-expanded={legende}
             data-graphe-legende-bascule
           >
@@ -1650,7 +1650,7 @@ function FicheFlottante({
           onClick={onFermer}
           aria-label="Fermer"
           title={t('Fermer')}
-          className="-mr-1.5 -mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
+          className="-mr-1.5 -mt-1.5 flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
           data-graphe-fiche-fermer
         >
           <X className="h-4 w-4" />
@@ -1696,7 +1696,7 @@ function FicheFlottante({
                   key={v.id}
                   type="button"
                   onClick={() => onChoisir(v.id)}
-                  className="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12.5px] hover:bg-raised"
+                  className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 sm:px-1.5 py-1.5 sm:py-1 text-left text-[12.5px] hover:bg-raised"
                   data-graphe-voisin={v.id}
                 >
                   <Pastille famille={v.famille} />
@@ -1793,9 +1793,9 @@ function TempsDuGraphe({
           <button
             type="button"
             className={cn(
-              'flex h-10 items-center gap-1.5 rounded-xl bg-surface px-3 text-[13px] shadow-sm transition-colors hover:bg-raised',
+              'flex h-12 sm:h-10 items-center gap-1.5 rounded-xl bg-surface px-3 text-[13px] shadow-sm transition-colors hover:bg-raised',
               periode ? 'text-teinte' : 'text-muted hover:text-text',
-              telephone && !periode && 'w-10 justify-center px-0',
+              telephone && !periode && 'w-12 sm:w-10 justify-center px-0',
             )}
             aria-label="Remonter le temps"
             title={t('Remonter le temps')}
@@ -1845,7 +1845,7 @@ function TempsDuGraphe({
                         type="button"
                         onClick={() => choisirLeJour(j.jour)}
                         className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none hover:bg-bloc focus-visible:bg-bloc',
+                          'flex w-full items-center gap-3 rounded-md px-3 sm:px-2.5 py-2 sm:py-1.5 text-left text-[13px] outline-none hover:bg-bloc focus-visible:bg-bloc',
                           actif ? 'text-teinte' : 'text-text',
                         )}
                         aria-current={actif ? 'true' : undefined}
@@ -1888,7 +1888,7 @@ function TempsDuGraphe({
           onClick={() => onPeriode(null)}
           aria-label="Revenir à aujourd’hui"
           title={t('Revenir à aujourd’hui')}
-          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-xl text-faint hover:bg-raised hover:text-muted"
+          className="flex h-12 sm:h-10 w-[38px] sm:w-8 shrink-0 items-center justify-center rounded-xl text-faint hover:bg-raised hover:text-muted"
           data-graphe-temps-aujourdhui
         >
           <X className="h-4 w-4" />

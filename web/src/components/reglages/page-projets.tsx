@@ -12,6 +12,7 @@ import {
   Input,
   PromptDialog,
   ZoneDefilement,
+  CaseACocher,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
@@ -198,13 +199,12 @@ export function PageProjetsReunis() {
                       bloc.titre && 'pl-3',
                     )}
                   >
-                    <input
-                      type="checkbox"
+                    <CaseACocher
                       checked={coches.has(projet.id)}
                       data-cocher-projet={projet.id}
-                      onChange={(event) => {
+                      onCheckedChange={(coche) => {
                         const suivant = new Set(coches);
-                        if (event.target.checked) suivant.add(projet.id);
+                        if (coche) suivant.add(projet.id);
                         else suivant.delete(projet.id);
                         setCoches(suivant);
                       }}

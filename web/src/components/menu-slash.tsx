@@ -88,7 +88,7 @@ export function MenuSlash({
                   }}
                   onMouseEnter={() => onSurvol(rang)}
                   className={cn(
-                    'flex w-full items-baseline gap-2 rounded px-1.5 py-1 text-left',
+                    'flex w-full items-baseline gap-2 rounded px-2 sm:px-1.5 py-1.5 sm:py-1 text-left',
                     rang === index ? 'bg-accent/12' : 'hover:bg-raised',
                   )}
                 >

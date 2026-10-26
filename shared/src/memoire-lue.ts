@@ -179,3 +179,33 @@ export function lireLaMemoire(texte: string | undefined): MemoireLue {
   if (!references.length) return { mode: 'texte', references: [] };
   return { mode: 'recherche', ...(entete ? { entete } : {}), references };
 }
+
+/**
+ * LE SUJET D'UNE LECTURE PAR IDENTIFIANT, EN CLAIR.
+ *
+ * Quand l'agent lit une unité par son code (« DEC-346 »), la phrase du récit
+ * citait le code seul : « J'ouvre la mémoire du projet sur « DEC-346 » ».
+ * L'écran y met le TITRE d'abord, le code entre parenthèses (décision de
+ * l'utilisateur, carte 79083bc5) : le titre clair quand il le connaît, sinon
+ * le titre technique lu dans la réponse, à défaut le code seul. Le texte
+ * servi à l'agent ne change pas : c'est l'écran qui reformule.
+ */
+export function estUnIdentifiantDUnite(texte: string | undefined): texte is string {
+  return typeof texte === 'string' && IDENTIFIANT.test(texte.trim());
+}
+
+/** Le titre technique d'une unité lue entière : sa ligne de tête « ## DEC-346 — titre ». */
+export function titreTechniqueLu(texte: string | undefined, id: string): string | undefined {
+  if (!texte) return undefined;
+  const cible = id.trim().toUpperCase();
+  for (const ligne of texte.split('\n')) {
+    const tete = /^#{1,6}\s+([A-Z]{2,4}-\d{2,})\s+[—-]\s+(.+?)\s*$/.exec(ligne);
+    if (tete && tete[1] === cible && tete[2]) return tete[2];
+  }
+  return undefined;
+}
+
+/** Le titre à montrer devant le code, ou rien quand on ne connaît que le code. */
+export function titreDuSujetLu(titreClair: string | undefined, titreTechnique: string | undefined): string | undefined {
+  return titreClair?.trim() || titreTechnique?.trim() || undefined;
+}

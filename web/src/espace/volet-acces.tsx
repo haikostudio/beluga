@@ -26,7 +26,7 @@ import {
   type EntreeJournalAcces,
   type EtatDeLAcces,
 } from '@beluga/shared';
-import { Button, Textarea, ZoneDefilement } from '@/components/ui';
+import { Button, Textarea, ZoneDefilement, CaseACocher } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { canalEspace } from './canal-espace';
@@ -170,13 +170,7 @@ export function VoletAcces({
                   ))}
                 </ul>
                 <label className="flex cursor-pointer items-start gap-2 rounded-md bg-raised px-2.5 py-2 text-[13px] text-text">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-[hsl(var(--danger))]"
-                    checked={coche}
-                    onChange={(event) => setCoche(event.target.checked)}
-                    data-acces-confirmation
-                  />
+                  <CaseACocher className="mt-0.5" checked={coche} onCheckedChange={setCoche} data-acces-confirmation="" />
                   <span>{t(CONFIRMATION_ACCES)}</span>
                 </label>
                 <Button

@@ -30,7 +30,7 @@
  * silhouette (`lib/gabarit-tableau.ts`).
  */
 import * as React from 'react';
-import { Archive, Bot, CheckCircle2, Layers, Loader2, Microscope, Power, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, Loader2, Microscope, Power, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
 import {
   agentCompteCommeTravail,
   agentAuTravailALEcran,
@@ -60,7 +60,6 @@ import {
   estEnRoute,
   nombreEnCoursEnRoute,
   pilesEnRoute,
-  type PileEnRoute,
   CARTES_EN_ROUTE_PAR_PAQUET,
   ONGLETS_EN_ROUTE,
   type Agent,
@@ -87,6 +86,7 @@ import { useAttendUnQuota } from '@/lib/attente-de-quota';
 import { Badge, Button, ConfirmDialog, Dot, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
+import { PileDeCartes, type GesteDuMenu } from '@/components/pile-de-cartes';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { BadgeDuService } from '@/components/badge-du-service';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
@@ -123,14 +123,6 @@ const resoudreColonne = (element: Element): DropTarget | null => {
   const onglet = element.closest('[data-colonne-en-route]')?.getAttribute('data-colonne-en-route');
   return onglet === 'terminer' || onglet === 'archive' ? { id: onglet, kind: 'colonne-en-route', position: 'inside' } : null;
 };
-
-/** Ce que chaque carte reçoit pour ouvrir son menu (`gesteDuMenu`). */
-interface GesteDuMenu {
-  menuOuvert: boolean;
-  onMenuChange: (ouvert: boolean) => void;
-  onPointerDown: (event: React.PointerEvent) => void;
-}
-
 
 export function EnRoute({
   onOpenCard,
@@ -287,7 +279,7 @@ export function EnRoute({
       .filter((agent) => enService.has(agent.projectId))
       .map((agent) => ({ finiA: agent.endedAt ?? 0, element: { genre: 'depannage' as const, agent } })),
     ...agentsTerminesDeLaBande(agents, maintenant)
-      .filter((agent) => enService.has(agent.projectId))
+      .filter((agent) => !!agent.service || enService.has(agent.projectId))
       .map((agent) => ({ finiA: agent.endedAt ?? 0, element: { genre: 'agent' as const, agent } })),
   ];
 
@@ -397,6 +389,12 @@ export function EnRoute({
   }, [nombreActif, state.agents, enService, state.enRoute, state.enRouteTerminer, state.enRouteArchive, state.cards]);
 
   const ouvrirAgent = (agent: Agent) => {
+    /* L'AGENT D'UN SERVICE (sans projet) s'ouvre sur l'écran de son service, jamais sur un tableau. */
+    if (agent.service) {
+      window.history.pushState(null, '', `#${agent.service.adresse}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
     const carte = agent.cardId
       ? (state.enRoute?.cartes[agent.cardId] ??
         state.enRouteTerminer?.cartes[agent.cardId] ??
@@ -557,7 +555,7 @@ export function EnRoute({
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto h-7 shrink-0 gap-1 px-2 text-[12px]"
+            className="ml-auto h-[34px] sm:h-7 shrink-0 gap-1 px-2 text-[12px]"
             data-tout-archiver-en-route
             disabled={archivageEnCours || !aTerminer?.charge || !nombreARanger}
             title={
@@ -826,173 +824,6 @@ function CarteArchivee({
   );
 }
 
-/** La durée du dépliage et du rempilage d'une pile. */
-const DUREE_PILE_MS = 260;
-
-/**
- * UNE PILE : les cartes d'une demande commune, la mère au-dessus (demande de
- * l'utilisateur, 25.09.2026). Une pile d'UNE carte est rendue telle quelle.
- *
- * REPLIÉE, seule la carte du dessus se voit, deux bords décalés derrière elle
- * et le nombre de cartes en pied. Un VOILE transparent la couvre : le premier
- * clic (ou Entrée) DÉPLIE la pile au lieu d'ouvrir la tâche du dessus. Le clic
- * droit et l'appui long passent au travers vers le menu de la carte du dessus.
- *
- * DÉPLIÉE, les cartes se posent l'une sous l'autre (hauteur et glissement
- * animés, coupés quand le système demande moins d'animations) et chacune ouvre
- * sa tâche. Un appui HORS de la pile, ou Échap, la rempile. L'état vit dans le
- * composant : un rechargement repart toujours replié.
- */
-function PileDeCartes({
-  pile,
-  rendre,
-  menu,
-}: {
-  pile: PileEnRoute<Card>;
-  rendre: (card: Card) => React.ReactNode;
-  menu: (card: Card) => GesteDuMenu;
-}) {
-  const [ouverte, setOuverte] = React.useState(false);
-  // Les cartes du dessous restent montées le temps du rempilage animé.
-  const [montees, setMontees] = React.useState(false);
-  const [etalee, setEtalee] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-  const seule = pile.cartes.length < 2;
-
-  React.useEffect(() => {
-    if (ouverte) {
-      setMontees(true);
-      // Une image plus tard : la hauteur part de zéro, la transition joue.
-      const image = requestAnimationFrame(() => requestAnimationFrame(() => setEtalee(true)));
-      return () => cancelAnimationFrame(image);
-    }
-    setEtalee(false);
-    const minuteur = window.setTimeout(() => setMontees(false), DUREE_PILE_MS);
-    return () => window.clearTimeout(minuteur);
-  }, [ouverte]);
-
-  React.useEffect(() => {
-    if (!ouverte) return;
-    const dehors = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOuverte(false);
-    };
-    const echap = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOuverte(false);
-    };
-    document.addEventListener('pointerdown', dehors, true);
-    document.addEventListener('keydown', echap);
-    return () => {
-      document.removeEventListener('pointerdown', dehors, true);
-      document.removeEventListener('keydown', echap);
-    };
-  }, [ouverte]);
-
-  if (seule) return <>{pile.cartes.map(rendre)}</>;
-
-  const [dessus, ...dessous] = pile.cartes;
-  const menuDuDessus = menu(dessus);
-  return (
-    <div
-      ref={ref}
-      className={cn('relative flex min-w-0 flex-col', !ouverte && 'mb-1.5')}
-      data-pile-en-route={pile.cle}
-      data-pile-ouverte={ouverte ? 'true' : 'false'}
-      data-nombre-pile={pile.cartes.length}
-    >
-      <div className="relative isolate flex min-w-0 flex-col">
-        {/* Les bords des cartes du dessous, décalés derrière celle du dessus. */}
-        <div
-          aria-hidden
-          className={cn(
-            'pointer-events-none absolute inset-0 -z-10 transition-opacity duration-200 motion-reduce:transition-none',
-            ouverte ? 'opacity-0' : 'opacity-100',
-          )}
-        >
-          <div className="absolute inset-x-4 -bottom-2.5 top-3 rounded-md border border-border bg-raised opacity-60" />
-          <div className="absolute inset-x-2 -bottom-[5px] top-1.5 rounded-md border border-border bg-raised" />
-        </div>
-        {rendre(dessus)}
-        {/* Le nombre de cartes, en pied de la carte du dessus, sur les bords du dessous. */}
-        <span
-          className={cn(
-            'pointer-events-none absolute -bottom-2.5 right-3 z-40 flex items-center gap-1 rounded-full border border-border bg-raised px-1.5 py-px text-[11px] tabular-nums text-muted transition-opacity duration-200 motion-reduce:transition-none',
-            ouverte ? 'opacity-0' : 'opacity-100',
-          )}
-          data-compte-pile={pile.cle}
-        >
-          <Layers className="h-3 w-3" />
-          {pile.cartes.length}
-        </span>
-      </div>
-
-      {!ouverte ? (
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label={`Deplier les ${pile.cartes.length} cartes de cette demande`}
-          title={t('Déplier les {n} cartes de cette demande', { n: pile.cartes.length })}
-          data-masque-pile={pile.cle}
-          className="absolute inset-0 z-30 cursor-pointer rounded-md"
-          onClick={(event) => {
-            event.stopPropagation();
-            setOuverte(true);
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            setOuverte(true);
-          }}
-          // Le menu de la carte du dessus reste à portée : appui long au doigt…
-          onPointerDown={menuDuDessus.onPointerDown}
-          // … et clic droit à la souris, son relâchement avalé comme sur la carte.
-          onContextMenu={(event) => {
-            event.preventDefault();
-            const avaler = (relache: PointerEvent) => {
-              if (relache.button === 2) relache.stopPropagation();
-            };
-            document.addEventListener('pointerup', avaler, { capture: true, once: true });
-            menuDuDessus.onMenuChange(true);
-          }}
-        />
-      ) : null}
-
-      {montees ? (
-        <div
-          className={cn(
-            'grid transition-[grid-template-rows] ease-out motion-reduce:transition-none',
-            etalee ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-          )}
-          style={{ transitionDuration: `${DUREE_PILE_MS}ms` }}
-          data-dessous-pile={pile.cle}
-        >
-          <div className="min-h-0 overflow-hidden">
-            {/* L'ÉCART SOUS LA MÈRE EST COURT (8 px en tout) : 4 px au-dessus
-                du bloc, 4 px de marge haute dedans. Deux marges de 12 px s'y
-                additionnaient, et les filles semblaient détachées de leur mère.
-                Les côtés, le bas et l'écart entre filles gardent 12 px. */}
-            <div className="pt-1">
-              <div className="bloc-sous-cartes flex flex-col gap-3 rounded-lg px-3 pb-3 pt-1" data-bloc-sous-cartes={pile.cle}>
-                {dessous.map((card, i) => (
-                  <div
-                    key={card.id}
-                    className={cn(
-                      'flex min-w-0 flex-col transition-[transform,opacity] ease-out motion-reduce:transition-none',
-                      etalee ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0',
-                    )}
-                    style={{ transitionDuration: `${DUREE_PILE_MS}ms`, transitionDelay: etalee ? `${i * 40}ms` : '0ms' }}
-                  >
-                    {rendre(card)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * Le projet d'une carte, en haut à gauche : son avatar (favicon ou initiales,
  * comme dans la colonne de gauche), puis son nom. Un PROJET RÉUNI montre, comme
@@ -1004,7 +835,7 @@ function NomDuProjet({ projet }: { projet?: Project }) {
   const membres = projet && estUnRegroupement(projet) ? membresActifsDuRegroupement(state.projects, projet.id) : [];
   return (
     <>
-      {projet && (membres.length ? <PastillesEmpilees projects={membres} fond="hsl(var(--raised))" /> : <PastilleProjet project={projet} />)}
+      {projet && (membres.length ? <PastillesEmpilees projects={membres} fond="hsl(var(--raised))" taille={18} /> : <PastilleProjet project={projet} taille={18} />)}
       <span className="min-w-0 truncate text-muted" data-projet-carte>
         {projet?.name ?? t('Projet inconnu')}
       </span>
@@ -1162,6 +993,11 @@ function descriptionDuRole(role: Agent['role']): string {
   return t('Agent au travail sans carte.');
 }
 
+/** Ce que fait l'agent d'un service, sur sa carte : il ne travaille pour aucun projet. */
+function descriptionDeLAgent(agent: Agent): string {
+  return agent.service ? t('Travaille pour le service {nom}, hors de tout projet.', { nom: agent.service.nom }) : descriptionDuRole(agent.role);
+}
+
 /**
  * UN AGENT DE LA BANDE, EN CARTE SYSTÈME COMPACTE (06/10/2026) : la même tête
  * qu'une carte de la liste (projet · rôle à gauche, état à droite), le titre
@@ -1201,12 +1037,23 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
         }}
         className={cn(
           CLASSE_CADRE_SYSTEME,
+          /* L'AGENT D'UN SERVICE porte un CADRE VIOLET (demande du 25/10/2026) : il ne relève d'aucun
+             projet, et se distingue ainsi d'un coup d'œil des cartes des projets. */
+          agent.service && 'ring-1 ring-inset ring-teinte/70',
           auTravail && 'rounded-b-none',
         )}
+        data-cadre-service={agent.service ? agent.service.id : undefined}
       >
-        <div className="mb-1 flex h-[18px] min-w-0 items-center gap-1.5 text-[12px]" data-tete-carte-en-route>
+        <div className="mb-1.5 flex h-[22px] min-w-0 items-center gap-1.5 text-[13px]" data-tete-carte-en-route>
           <div className="flex min-w-0 flex-1 items-center gap-1.5" data-tete-gauche>
-            <NomDuProjet projet={projet} />
+            {/* L'AGENT D'UN SERVICE porte le nom du service à la place du projet : il n'en a aucun. */}
+            {agent.service ? (
+              <span className="min-w-0 truncate font-medium text-teinte" data-service-agent-en-route={agent.service.id}>
+                {agent.service.nom}
+              </span>
+            ) : (
+              <NomDuProjet projet={projet} />
+            )}
             <span className="shrink-0 text-faint">·</span>
             <span className="shrink-0 text-muted" data-role-agent-en-route>
               {libelleDuRole(agent.role)}
@@ -1273,7 +1120,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             {titreCoupe ? <BulleTexteCoupe>{agent.title}</BulleTexteCoupe> : null}
           </div>
           <p data-description-carte className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted">
-            {descriptionDuRole(agent.role)}
+            {descriptionDeLAgent(agent)}
           </p>
         </div>
       </div>
@@ -1319,7 +1166,7 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
           auTravail && 'rounded-b-none',
         )}
       >
-        <div className="mb-1 flex h-[18px] min-w-0 items-center gap-1.5 text-[12px]" data-tete-carte-en-route>
+        <div className="mb-1.5 flex h-[22px] min-w-0 items-center gap-1.5 text-[13px]" data-tete-carte-en-route>
           <div className="flex min-w-0 flex-1 items-center gap-1.5" data-tete-gauche>
             <NomDuProjet projet={projet} />
             <span className="shrink-0 text-faint">·</span>

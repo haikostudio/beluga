@@ -13,7 +13,7 @@ import {
   trouverSegment,
   vitesseDe,
 } from '@beluga/shared';
-import { BulleInfo, Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, Drawer, ZoneDefilement, Curseur } from '@/components/ui';
 import { usePointerDrag } from '@/lib/dnd';
 import { useTelephone } from '@/lib/telephone';
 import { client } from '@/lib/client';
@@ -348,17 +348,7 @@ function EditeurVisuel({
         >
           {lecture ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
         </Button>
-        <input
-          type="range"
-          min={segment.debut}
-          max={fin}
-          step={1 / 30}
-          value={local}
-          onChange={(e) => aller(Number(e.target.value))}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="min-w-0 flex-1 accent-[hsl(var(--accent))]"
-          aria-label="Instant dans le segment"
-        />
+        <Curseur valeur={local} min={segment.debut} max={fin} pas={1 / 30} onChange={aller} aria-label="Instant dans le segment" data-studio-instant-segment="" />
         <span className="w-24 shrink-0 text-right text-[12px] tabular-nums text-muted">
           {t('{t} s / {d} s', { t: local.toFixed(2), d: fin.toFixed(1) })}
         </span>

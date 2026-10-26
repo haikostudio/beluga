@@ -9,12 +9,14 @@ import {
   heureExacte,
   type Attachment,
   type CaptureDuFlux,
+  etiquetteDePiece,
+  repereDuChemin,
   type RunStep,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { LecteurSon } from '@/components/lecteur-son';
 import { VignetteVideo } from '@/components/lecteur-video';
-import { LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
+import { EtiquetteDeVignette, LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
 import { ZoneDefilement } from '@/components/ui';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
@@ -86,6 +88,10 @@ export interface GalerieDesCaptures {
   ouvrir: (c: CaptureDuFlux) => void;
   /** Ouvre en grand l'image d'un chemin vu dans le fil ; faux si la bande ne la connaît pas. */
   ouvrirLeChemin: (chemin: string) => boolean;
+  /** Le repère court (« #1a0c ») d'une capture qui est une pièce jointe, sinon null. */
+  repere: (c: CaptureDuFlux) => string | null;
+  /** Le même, pour une image vue dans le fil par son seul chemin. */
+  repereDuChemin: (chemin: string) => string | null;
   fermer: () => void;
   naviguer: (p: Attachment) => void;
 }
@@ -98,8 +104,9 @@ export interface GalerieDesCaptures {
 export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], projectId?: string): GalerieDesCaptures {
   const state = useApp();
   const connues = projectId ? state.attachments[projectId] : undefined;
-  // La liste du projet peut ne pas être encore chargée : on la demande.
-  const manquante = idsJointes.length > 0 && !!projectId && !connues;
+  // La liste du projet peut ne pas être encore chargée : on la demande — aussi
+  // pour une image d'étape, dont le chemin peut désigner une pièce (son repère).
+  const manquante = (idsJointes.length > 0 || steps.length > 0) && !!projectId && !connues;
   React.useEffect(() => {
     if (manquante && projectId) client.send({ type: 'attachments.list', projectId });
   }, [manquante, projectId]);
@@ -196,7 +203,21 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
   const naviguer = React.useCallback((p: Attachment) => montrer(captureDePiece(p), p), [captureDePiece, montrer]);
   const perdre = React.useCallback((c: CaptureDuFlux) => setPerdues((courant) => new Set(courant).add(c.cle)), []);
   const fermer = React.useCallback(() => setApercu(null), []);
+  /* LE REPÈRE COURT, LE MÊME QUE SOUS LA BARRE D'ÉCRITURE (#ce5d). */
+  const repereParChemin = React.useCallback((chemin: string) => repereDuChemin(chemin, connues), [connues]);
+  const repere = React.useCallback(
+    (c: CaptureDuFlux) => {
+      if (c.genre === 'jointe') {
+        const piece = connues?.find((p) => p.id === c.id);
+        if (piece?.alias) return etiquetteDePiece(piece);
+      }
+      return c.chemin ? repereParChemin(c.chemin) : null;
+    },
+    [connues, repereParChemin],
+  );
   return {
+    repere,
+    repereDuChemin: repereParChemin,
     captures,
     source,
     perdre,
@@ -231,6 +252,8 @@ const CLE_BANDE_REPLIEE_DEPUIS = 'captures.replieeDepuis';
 
 /** Ouvre en grand, dans la galerie de la carte, l'image d'un chemin vu dans le fil. Absent hors d'un flux de carte. */
 export const OuvrirUneCapture = React.createContext<((chemin: string) => boolean) | null>(null);
+/** Le repère court (« #1a0c ») de l'image d'un chemin vu dans le fil, quand c'est une pièce jointe (#ce5d). */
+export const RepereDUneCapture = React.createContext<((chemin: string) => string | null) | null>(null);
 
 /** L'aperçu en grand d'une galerie, feuilletable. */
 export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures }) {
@@ -446,6 +469,7 @@ export function BandeDesCaptures({
       >
         {affichees.map((c) => {
           const vue = g.dejaVue(c);
+          const repere = g.repere(c);
           // L'étiquette du coin ne reçoit pas le pointeur : son détail se lit ici.
           const ouvrirEnGrand = c.genre === 'jointe' && c.media ? t('Ouvrir en grand') : t('Voir la capture en grand');
           const infobulle = [ouvrirEnGrand, c.quand ? heureExacte(c.quand) : '', vue ? t('Déjà vue') : '']
@@ -479,7 +503,7 @@ export function BandeDesCaptures({
                 title={infobulle}
                 className="relative flex h-20 w-64 shrink-0 flex-col justify-between overflow-hidden rounded bg-raised p-1"
               >
-                <span className="min-w-0 truncate px-1 pr-14 text-[11px] leading-4 text-muted">{c.libelle}</span>
+                <span className="min-w-0 truncate px-1 pr-14 text-[11px] leading-4 text-muted">{repere ? `${repere} · ${c.libelle}` : c.libelle}</span>
                 <LecteurSon id={c.id} nom={c.libelle} compact className="bg-surface" onAgrandir={() => g.ouvrir(c)} />
                 {etiquette ? <span className="pointer-events-none absolute right-0 top-0.5">{etiquette}</span> : null}
               </div>
@@ -493,7 +517,7 @@ export function BandeDesCaptures({
               data-capture-media={c.genre === 'jointe' && (c.media === 'video' || c.media === 'pdf') ? c.media : 'image'}
               onClick={() => g.ouvrir(c)}
               title={infobulle}
-              className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1`}
+              className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1.5 sm:p-1`}
             >
               {c.genre === 'jointe' && c.media === 'video' ? (
                 /* UNE VIDÉO : son image d'aperçu (la même règle que le lecteur)
@@ -516,6 +540,7 @@ export function BandeDesCaptures({
                   onPerdue={() => g.perdre(c)}
                 />
               )}
+              {repere ? <EtiquetteDeVignette texte={repere} className="inset-x-auto left-0.5 bottom-0.5 max-w-[50%] rounded-sm px-1 text-left text-[10.5px]" /> : null}
               {etiquette}
             </button>
           );

@@ -19,7 +19,7 @@ import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent } from './carte-d-agent-demon.js';
-import { lireCreation, lireSelection, marquerAgentStudio } from './studio.js';
+import { estMontageDeCarte, lireCreation, lireSelection, marquerAgentStudio } from './studio.js';
 import { log } from './logger.js';
 
 export interface DepartStudio {
@@ -61,6 +61,9 @@ export async function lancerAgentStudio(entree: { creationId: string; demande: s
   const projet = store.getProject(creation.projectId);
   if (!projet) throw new Error('projet introuvable');
   const selection = lireSelection(creation.id);
+  /* LE MONTAGE D'UNE CARTE n'ouvre aucun agent du Studio : la retouche en mots s'écrit dans la conversation de SA carte,
+     dont les agents tiennent l'outil « studio » (`creationPilotableParLAgent`). */
+  if (estMontageDeCarte(creation)) throw new Error('Ce montage appartient à une carte : écris ta retouche dans la conversation de la carte.');
 
   const existant = creation.agentId ? store.getAgent(creation.agentId) : null;
   if (existant && creation.cardId && store.getCard(creation.cardId)) {

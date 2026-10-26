@@ -11,6 +11,8 @@ import { t } from '@/lib/langue';
  * sur la fenêtre (la conversation se règle à la souris, le menu se replie).
  */
 const LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS = 560;
+/** Les six étapes d'une création de média (« Images clés et prix ») demandent plus de place. */
+const LARGEUR_DE_LA_BARRE_POUR_SIX_NOMS = 720;
 
 /** Ce que montre un rond d'étape : fait, ici (une roue tant qu'on y travaille, « ! » tombé), à venir. */
 export type FormeDuRondDEtape = 'faite' | 'travail' | 'erreur' | 'ici' | 'avenir';
@@ -88,12 +90,13 @@ export function BarreDEtapes({
   const [compacte, setCompacte] = React.useState(false);
   React.useEffect(() => {
     if (!liste) return;
-    const mesurer = () => setCompacte(liste.clientWidth < LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS);
+    const seuil = segments.length > 5 ? LARGEUR_DE_LA_BARRE_POUR_SIX_NOMS : LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS;
+    const mesurer = () => setCompacte(liste.clientWidth < seuil);
     mesurer();
     const observateur = new ResizeObserver(mesurer);
     observateur.observe(liste);
     return () => observateur.disconnect();
-  }, [liste]);
+  }, [liste, segments.length]);
 
   return (
     <ol
@@ -134,7 +137,7 @@ export function BarreDEtapes({
                   ? t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])
                   : `${t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])} · ${t('à venir')}`
               }
-              className={cn('group flex min-w-0 items-center gap-2 py-1', !compacte && 'sm:shrink-0')}
+              className={cn('group flex min-w-0 items-center gap-2 py-1.5 sm:py-1', !compacte && 'sm:shrink-0')}
             >
               <RondDEtape
                 forme={faite ? 'faite' : segment.etat === 'encours' ? 'travail' : segment.etat === 'erreur' ? 'erreur' : ici && atteinte ? 'ici' : 'avenir'}

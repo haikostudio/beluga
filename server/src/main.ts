@@ -28,7 +28,7 @@ import {
 import { brancherLesCompetencesSurLaMemoire } from './competences-memoire.js';
 import { bus } from './bus.js';
 import { sampleCapacity } from './capacity.js';
-import { startScheduler, startVeille, tick } from './scheduler.js';
+import { startCard, startScheduler, startVeille, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
 import { archiverLesCartesEnLigneRestees } from './archive.js';
@@ -527,7 +527,8 @@ async function main(): Promise<void> {
    * projets à dépôts annexes deviennent des regroupements, une fois
    * (`server/src/regroupements.ts`).
    */
-  const arreterLesMeres = veillerSurLesMeres();
+  /* Les suites d'étapes lancent chaque étape par le chemin ordinaire (`startCard`). */
+  const arreterLesMeres = veillerSurLesMeres(startCard);
   try {
     convertirLesDepotsAnnexes();
   } catch (err) {

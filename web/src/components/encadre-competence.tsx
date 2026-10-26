@@ -119,7 +119,7 @@ export function EncadreCompetence({
             onClick={() => void ecarter()}
             disabled={parti !== null}
             title={t('Écarter')}
-            className="-mr-1 shrink-0 rounded p-0.5 text-faint transition-colors hover:bg-raised hover:text-text disabled:opacity-60"
+            className="-mr-1 shrink-0 rounded p-1 sm:p-0.5 text-faint transition-colors hover:bg-raised hover:text-text disabled:opacity-60"
             data-competence-ecarter
           >
             {parti === 'ecarter' ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
@@ -155,7 +155,7 @@ export function EncadreCompetence({
           type="button"
           onClick={() => void trancher('utiliser')}
           disabled={parti !== null}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-competence px-3 text-[13.5px] font-medium text-competence-fg transition-opacity hover:opacity-90 disabled:opacity-60"
+          className="inline-flex h-[38px] sm:h-8 items-center gap-1.5 rounded-md bg-competence px-3 text-[13.5px] font-medium text-competence-fg transition-opacity hover:opacity-90 disabled:opacity-60"
           data-competence-utiliser
         >
           {parti === 'utiliser' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}

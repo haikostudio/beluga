@@ -290,7 +290,7 @@ export function MicButton({
        * la variante « outline » des boutons (`bg-controle`, un voile), et
        * comme eux AUCUN trait.
        */
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-40"
+      className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-40"
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
     </button>
@@ -339,7 +339,7 @@ export function RecordingBar({
           type="button"
           onClick={onValidate}
           title={t('Valider et transcrire')}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-record-fg/15 transition-colors hover:bg-record-fg/30"
+          className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md bg-record-fg/15 transition-colors hover:bg-record-fg/30"
         >
           <Check className="h-3.5 w-3.5" />
         </button>
@@ -347,7 +347,7 @@ export function RecordingBar({
           type="button"
           onClick={onDiscard}
           title={t('Jeter l\'enregistrement')}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-record-fg/20"
+          className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md transition-colors hover:bg-record-fg/20"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -379,7 +379,7 @@ export function RecorderErrorBar({
           type="button"
           onClick={onRetry}
           title={t('Réessayer l\'envoi')}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-danger/10 px-2 text-[12.5px] transition-colors hover:bg-danger/20"
+          className="inline-flex h-[34px] sm:h-7 items-center gap-1 rounded-md bg-danger/10 px-2 text-[12.5px] transition-colors hover:bg-danger/20"
         >
           <RotateCw className="h-3.5 w-3.5" />
           
@@ -389,7 +389,7 @@ export function RecorderErrorBar({
           type="button"
           onClick={onDiscard}
           title={t('Jeter l\'enregistrement')}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10"
+          className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

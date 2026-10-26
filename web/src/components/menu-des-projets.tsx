@@ -190,7 +190,7 @@ export function MenuDesProjets({
           setEpingles(basculerEpingle(epingles, id));
         }}
         className={cn(
-          'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-raised hover:text-text',
+          'flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-raised hover:text-text',
           posee ? 'opacity-100 text-teinte' : 'survol:opacity-0 group-hover/ligne:survol:opacity-100',
         )}
       >

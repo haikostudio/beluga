@@ -84,7 +84,7 @@ export class Filet extends React.Component<
 
           <button
             onClick={this.reprendre}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-raised px-3 py-1.5 text-[13.5px] text-text transition-colors hover:bg-border"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-raised px-3.5 sm:px-3 py-2 sm:py-1.5 text-[13.5px] text-text transition-colors hover:bg-border"
           >
             <RotateCw className="h-3.5 w-3.5" />  {t('Réessayer')}
 </button>

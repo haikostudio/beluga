@@ -219,7 +219,7 @@ export function AssistantGlobal() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 shrink-0 text-muted"
+              className="h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 text-muted"
               onClick={() => setBrut({ ...retenu, ouvert: false })}
               aria-label="Fermer l’assistant"
               title={t('Fermer l’assistant')}
@@ -285,7 +285,7 @@ export function BoutonAssistantEntete() {
       <Button
         variant="ghost"
         size="icon"
-        className={cn('relative h-8 w-8 shrink-0 text-muted', retenu.ouvert && 'text-text')}
+        className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', retenu.ouvert && 'text-text')}
         onClick={basculer}
         data-assistant-entete
         data-ouvert={retenu.ouvert ? 'oui' : 'non'}

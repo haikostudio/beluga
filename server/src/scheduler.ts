@@ -84,7 +84,7 @@ import {
 import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
 import { passageDeLaPublicationDeLaMiseAJour } from './publication-de-la-mise-a-jour.js';
 import { balayerLesPublicationsSansPorteur, publicationEnCours } from './deploy.js';
-import { lancerLaCarteMere } from './regroupements.js';
+import { lancerLaCarteMere, lancerLaSuite } from './regroupements.js';
 import { appliquerRedemarrageEnAttente } from './demon.js';
 import { canStartAgent, etatCapacite } from './capacity.js';
 import { quotasDuMoteur } from './accounts.js';
@@ -962,6 +962,12 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
    * (`server/src/regroupements.ts`).
    */
   if (estUnRegroupement(project)) return lancerLaCarteMere(card, project, startCard);
+  /*
+   * LA CARTE GLOBALE D'UNE SUITE NE LANCE AUCUN AGENT NON PLUS : elle lance sa
+   * première étape, et chaque étape suivante partira quand la précédente aura
+   * fini (`lancerLaSuite`, `shared/src/suite-de-cartes.ts`).
+   */
+  if (card.teteDeSuite) return lancerLaSuite(card, startCard);
 
   /*
    * LA CARTE PASSE EN « EN COURS » AU CLIC, PAS À LA FIN DE LA PRÉPARATION.

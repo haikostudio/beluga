@@ -25,7 +25,7 @@
  */
 import * as React from 'react';
 import { Calendar, Clock, Tag, X } from 'lucide-react';
-import { Accordeon, Button, Input, type SectionAccordeon } from '@/components/ui';
+import { Accordeon, Button, Input, type SectionAccordeon, ChoixDeDate } from '@/components/ui';
 import { t } from '@/lib/langue';
 import {
   IMPORTANCES,
@@ -52,7 +52,7 @@ export interface PatchDOptions {
   etiquettes?: string[];
 }
 
-/** La date d'un champ `<input type="date">`, et l'inverse. */
+/** La date d’un choix de date (« AAAA-MM-JJ »), et l’inverse. */
 export function enChampDate(at: number | null | undefined): string {
   if (!at) return '';
   const d = new Date(at);
@@ -138,20 +138,21 @@ export function OptionsDemande({
       icone: <Calendar className="h-3.5 w-3.5" />,
       contenu: (
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-[11px] text-faint">
+          <div className="flex flex-col gap-1 text-[11px] text-faint">
             <span className="inline-flex items-center gap-1">
               <Calendar className="h-3 w-3" />
               {t('Échéance souhaitée')}
             </span>
-            <Input
-              type="date"
-              value={enChampDate(valeurs.echeance)}
+            <ChoixDeDate
+              valeur={enChampDate(valeurs.echeance)}
               disabled={!peut.echeance}
-              onChange={(event) => onChanger({ echeance: depuisChampDate(event.target.value) })}
-              className={enRetard ? 'h-8 border-danger/60 text-danger' : 'h-8'}
-              data-champ-echeance
+              effacable
+              aria-label="Échéance souhaitée"
+              onChange={(jour) => onChanger({ echeance: depuisChampDate(jour) })}
+              className={enRetard ? 'h-8 sm:h-8 text-[13px] text-danger' : 'h-8 sm:h-8 text-[13px]'}
+              data-champ-echeance=""
             />
-          </label>
+          </div>
           {/*
            * LA DATE ANNONCÉE PAR HAIKO EST UN ENGAGEMENT : elle ne s'affiche
            * pour un client qu'en LECTURE. Le serveur la refuse de toute façon
@@ -159,25 +160,26 @@ export function OptionsDemande({
            * l'enregistrement est un mensonge d'écran.
            */}
           {avecLivraison ? (
-            <label className="flex flex-col gap-1 text-[11px] text-faint">
+            <div className="flex flex-col gap-1 text-[11px] text-faint">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {t('Livraison annoncée')}
               </span>
               {estAdmin ? (
-                <Input
-                  type="date"
-                  value={enChampDate(valeurs.livraisonAnnoncee)}
-                  onChange={(event) => onChanger({ livraisonAnnoncee: depuisChampDate(event.target.value) })}
-                  className="h-8"
-                  data-champ-livraison
+                <ChoixDeDate
+                  valeur={enChampDate(valeurs.livraisonAnnoncee)}
+                  effacable
+                  aria-label="Livraison annoncée"
+                  onChange={(jour) => onChanger({ livraisonAnnoncee: depuisChampDate(jour) })}
+                  className="h-8 sm:h-8 text-[13px]"
+                  data-champ-livraison=""
                 />
               ) : (
                 <span className="flex h-8 items-center text-[13px] text-text" data-livraison-lecture>
                   {valeurs.livraisonAnnoncee ? jourDe(valeurs.livraisonAnnoncee) : t('Pas encore annoncée')}
                 </span>
               )}
-            </label>
+            </div>
           ) : null}
         </div>
       ),

@@ -3,6 +3,14 @@ import { questionAMontrer } from '@beluga/shared';
 import { BarrePagination } from '@/components/ui/pagination-fleches';
 
 /**
+ * LA PLACE DES FLÈCHES DANS L'ENTÊTE DU PANNEAU DES DÉCISIONS, offerte à une
+ * question qui se feuillette elle-même (le formulaire groupé du brief) quand le
+ * panneau n'a pas déjà sa propre barre. `null` : la question pose ses flèches
+ * au-dessus d'elle.
+ */
+export const EmplacementDeLaPagination = React.createContext<HTMLElement | null>(null);
+
+/**
  * PLUSIEURS QUESTIONS NE S'EMPILENT PLUS : ELLES SE FEUILLETTENT.
  *
  * L'agent de cadrage peut poser jusqu'à trois questions dans un même tour.

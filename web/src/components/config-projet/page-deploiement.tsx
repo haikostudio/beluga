@@ -67,7 +67,7 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
               disabled={ctx.faviconEnCours}
               title={t('Aller rechercher l\'icône du site : sur cette adresse, ou dans le dépôt du projet')}
               onClick={ctx.relancerFavicon}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-raised px-2 py-1.5 text-[12.5px] text-text hover:bg-border disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-raised px-2.5 sm:px-2 py-2 sm:py-1.5 text-[12.5px] text-text hover:bg-border disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${ctx.faviconEnCours ? 'animate-spin' : ''}`} />
               {t('Icône')}

@@ -115,7 +115,7 @@ export function PastillesDeProjets({
             type="button"
             title={t('Retirer {nom}', { nom: projet.name })}
             onClick={() => onRetirer(projet.id)}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-bloc hover:text-text"
+            className="flex h-6 sm:h-5 w-6 sm:w-5 shrink-0 items-center justify-center rounded text-faint transition-colors hover:bg-bloc hover:text-text"
             data-retirer-projet={projet.id}
           >
             <X className="h-3 w-3" />
@@ -496,7 +496,7 @@ export function LigneCompteClient({
           repere={`portee-${compte.id}`}
           empile
           declencheur={(ouvrir) => (
-            <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[12px] text-muted" onClick={ouvrir} data-modifier-portee={compte.id}>
+            <Button size="sm" variant="ghost" className="h-[29px] sm:h-6 px-1.5 text-[12px] text-muted" onClick={ouvrir} data-modifier-portee={compte.id}>
               <Plus className="h-3 w-3" />
               {t('Projets')}
             </Button>

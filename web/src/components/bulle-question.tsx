@@ -1,6 +1,12 @@
 import * as React from 'react';
 import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from 'lucide-react';
-import { Attachment, genreDeMedia, mediaDeLOption, repereDuLibelle, reponsePrete, texteDeReponse } from '@beluga/shared';
+import { createPortal } from 'react-dom';
+import { Attachment, genreDeMedia, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
+import { EmplacementDeLaPagination } from '@/components/carousel-questions';
+import { BarrePagination } from '@/components/ui/pagination-fleches';
+import { BranchementDeService } from '@/components/branchement-de-service';
+import { DevisDuLot } from '@/components/devis-du-lot';
+import { SphereDeLumiere } from '@/components/sphere-de-lumiere';
 import { Button, Drawer, EnteteDeFeuille, Textarea, ZoneDefilement } from '@/components/ui';
 import { useTelephone } from '@/lib/telephone';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
@@ -121,6 +127,14 @@ export interface QuestionAAfficher {
    * sous la question.
    */
   recommandee?: string;
+  /** Le bloc « Devis » d'un lot de générations payantes (outil « realiser », action « lot »). */
+  devis?: DevisDeLaQuestion;
+  /** L'encadré de branchement d'un service de création (outil « realiser », action « brancher »). */
+  branchement?: { capacites: string[] };
+  /** Le formulaire groupé du brief (outil « production », action « formulaire ») : 3 à 5 questions d'un coup. */
+  formulaire?: Formulaire;
+  /** La sphère de lumière (outil « realiser », action « lumiere ») : la direction se choisit à la souris ou au doigt. */
+  lumiere?: SphereDeLaQuestion;
 }
 
 /**
@@ -145,11 +159,130 @@ export interface QuestionAAfficher {
  * ordinaire, dont les options sont relues dans la phrase
  * (`choixDeQuestionEnTexte`, `shared/src/question-en-texte.ts`).
  */
+
 export function BulleQuestion(props: ProprietesDeLaBulle) {
   const telephone = useTelephone();
-  const reponsePossible = props.question.options.length > 0 || !!props.question.allowFreeText;
-  if (!telephone || !reponsePossible) return <BulleQuestionComplete {...props} />;
+  const formulaire = props.question.formulaire?.questions.length ? props.question.formulaire : undefined;
+  const reponsePossible = !!formulaire || props.question.options.length > 0 || !!props.question.allowFreeText;
+  if (!telephone || !reponsePossible) return formulaire ? <BulleFormulaire {...props} formulaire={formulaire} /> : <BulleQuestionComplete {...props} />;
   return <BulleQuestionCompacte {...props} />;
+}
+
+/**
+ * LE FORMULAIRE GROUPÉ DU BRIEF (responsable créatif) SE LIT COMME LES AUTRES
+ * QUESTIONS (demande du 25/10/2026, capture #0035 : tout empilé, choix sur une
+ * ligne, illisible). UNE question à la fois, dessinée par la bulle ordinaire
+ * (`BulleQuestionComplete` : choix en liste, description, « Conseillé », champ
+ * libre) — jamais un second dessin. Les flèches se posent dans l'entête du
+ * panneau des décisions quand il en offre la place (`EmplacementDeLaPagination`),
+ * sinon au-dessus de la question. Répondre à une sous-question la garde ICI et
+ * passe seule à la suivante ; rien ne part avant la dernière : alors UN SEUL
+ * envoi porte toutes les réponses (`reponseDuFormulaire`, format inchangé pour
+ * l'agent). « Passer » laisse une question vide, qui part « (sans réponse) ».
+ * Le brouillon de chaque sous-question vit côté serveur (`.<id>` ajouté à la clé).
+ */
+function BulleFormulaire(props: ProprietesDeLaBulle & { formulaire: Formulaire }) {
+  const { formulaire, onRepondre, onAnnuler, cleDeBrouillon } = props;
+  const questions = formulaire.questions;
+  const [reponses, setReponses] = React.useState<Record<string, { texte: string; images: string[] }>>({});
+  const [traitees, setTraitees] = React.useState<Record<string, boolean>>({});
+  const [choisie, setChoisie] = React.useState<number | undefined>(undefined);
+  const [envoi, setEnvoi] = React.useState(false);
+  const emplacement = React.useContext(EmplacementDeLaPagination);
+  const index = questionAMontrer({ repondues: questions.map((q) => !!traitees[q.id]), choisie });
+  const courante = questions[index];
+  const cleDe = (id: string) => (cleDeBrouillon ? `${cleDeBrouillon}.${id}` : undefined);
+
+  const trancher = async (id: string, reponse: { texte: string; images: string[] } | null) => {
+    const nouvelles = { ...reponses };
+    if (reponse) nouvelles[id] = reponse;
+    else delete nouvelles[id];
+    const faites = { ...traitees, [id]: true };
+    setReponses(nouvelles);
+    setTraitees(faites);
+    setChoisie(undefined);
+    if (!questions.every((q) => faites[q.id])) return;
+    /* TOUT EST TRANCHÉ : le seul envoi, comme l'ancien bouton « Envoyer les réponses ». */
+    setEnvoi(true);
+    try {
+      const texte = reponseDuFormulaire(
+        questions,
+        Object.fromEntries(Object.entries(nouvelles).map(([cle, r]) => [cle, { choix: [], texte: r.texte }])),
+      );
+      await onRepondre(texte, [...new Set(Object.values(nouvelles).flatMap((r) => r.images))]);
+      for (const q of questions) {
+        const cle = cleDe(q.id);
+        if (cle) writePref(cle, null);
+      }
+    } catch (err) {
+      /* Refusé : la dernière question redevient ouverte, rien n'est perdu. */
+      setTraitees((avant) => ({ ...avant, [id]: false }));
+      throw err;
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  const pagination =
+    questions.length > 1 ? (
+      <BarrePagination
+        index={index}
+        total={questions.length}
+        aller={setChoisie}
+        repere="pagination-formulaire"
+        libellePrecedent="question-precedente"
+        libelleSuivant="question-suivante"
+      />
+    ) : null;
+  const derniere = questions.filter((q) => !traitees[q.id]).length <= 1 && !traitees[courante.id];
+
+  return (
+    <div data-bulle-formulaire="" data-formulaire-questions={questions.length} data-formulaire-rang={index + 1}>
+      {pagination && emplacement ? createPortal(pagination, emplacement) : pagination ? <div className="mb-1">{pagination}</div> : null}
+      <BulleQuestionComplete
+        key={courante.id}
+        {...props}
+        question={{
+          question: courante.question,
+          description: courante.description,
+          kind: courante.kind,
+          allowFreeText: true,
+          options: courante.options.map((o) => ({ id: o.label, label: o.label, description: o.description })),
+        }}
+        entete={
+          index === 0 && props.question.question ? (
+            <>
+              {props.entete}
+              <p className="text-[12.5px] leading-snug text-faint" data-intitule-formulaire>
+                {props.question.question}
+              </p>
+            </>
+          ) : (
+            props.entete
+          )
+        }
+        repere={{ ...(props.repere ?? {}), 'data-question-formulaire': courante.id, ...(courante.champ ? { 'data-champ-formulaire': courante.champ } : {}) }}
+        cleDeBrouillon={cleDe(courante.id)}
+        garderLeBrouillon
+        sansPlusDeChoix
+        libelleRepondre={derniere ? t('Envoyer les réponses') : t('Suivant')}
+        onRepondre={(texte, images) => trancher(courante.id, { texte, images })}
+        onAnnuler={onAnnuler}
+        actionsEnPlus={
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={envoi}
+            title={t('Laisser cette question sans réponse')}
+            onClick={() => void trancher(courante.id, null)}
+            data-passer-question-formulaire=""
+          >
+            {t('Passer')}
+          </Button>
+        }
+      />
+    </div>
+  );
 }
 
 /**
@@ -176,35 +309,39 @@ function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
     : undefined;
   return (
     <div
-      className={cn('rounded-lg px-3 py-2.5', variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised')}
+      className={cn('cadre-de-question rounded-lg px-3 py-2.5', variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised')}
       data-bulle-question={variante}
       data-question-compacte=""
       {...(repere ?? {})}
     >
       {entete}
-      {/* L'intitulé reste un TEXTE (copiable), jamais posé dans le bouton. */}
-      {question.question ? (
-        <p
-          data-intitule-question
-          className={cn('line-clamp-3 text-[15px] font-medium leading-snug text-text', entete ? 'mt-1.5' : undefined)}
-        >
-          {question.question}
-        </p>
-      ) : null}
-      <div className="mt-2 flex justify-end">
-        <Button size="sm" onClick={() => setOuverte(true)} data-repondre-question="">
+      {/* LE TEXTE À GAUCHE, QUI PASSE À LA LIGNE, ET « RÉPONDRE » À SA DROITE
+          (demande du 25/10/2026, capture #1640) : le bouton posé sous
+          l'intitulé laissait un grand vide à gauche. L'intitulé reste un TEXTE
+          (copiable), jamais posé dans le bouton. */}
+      <div className={cn('flex items-center gap-3', entete ? 'mt-1.5' : undefined)} data-rangee-question="">
+        {question.question ? (
+          <p data-intitule-question className="line-clamp-3 min-w-0 flex-1 text-[15px] font-medium leading-snug text-text">
+            {question.question}
+          </p>
+        ) : (
+          <span className="flex-1" />
+        )}
+        <Button size="sm" className="shrink-0" onClick={() => setOuverte(true)} data-repondre-question="">
           {t('Répondre')}
         </Button>
       </div>
       <Drawer open={ouverte} onClose={() => setOuverte(false)} feuille>
         <EnteteDeFeuille titre={t('Une question vous attend')} data-entete-feuille-question="" />
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-4">
-          <BulleQuestionComplete
-            {...props}
-            repere={{ 'data-feuille-question': '' }}
-            onRepondre={repondre}
-            onAnnuler={annuler}
-          />
+          {/* Dans la feuille, les flèches d'un formulaire restent au-dessus de sa question. */}
+          <EmplacementDeLaPagination.Provider value={null}>
+            {props.question.formulaire?.questions.length ? (
+              <BulleFormulaire {...props} formulaire={props.question.formulaire} repere={{ 'data-feuille-question': '' }} onRepondre={repondre} onAnnuler={annuler} />
+            ) : (
+              <BulleQuestionComplete {...props} repere={{ 'data-feuille-question': '' }} onRepondre={repondre} onAnnuler={annuler} />
+            )}
+          </EmplacementDeLaPagination.Provider>
         </ZoneDefilement>
       </Drawer>
     </div>
@@ -242,6 +379,70 @@ interface ProprietesDeLaBulle {
    * cherche d'abord le son ou la vidéo d'un choix (`mediaDeLOption`).
    */
   piecesDuMessage?: string[];
+  /** Le libellé du bouton qui valide (« Répondre » par défaut ; « Suivant » dans un formulaire). */
+  libelleRepondre?: string;
+  /** Sans « Plus de choix » : une sous-question du formulaire ne relance pas l'agent. */
+  sansPlusDeChoix?: boolean;
+  /** Le brouillon reste après la réponse : on peut revenir sur une sous-question du formulaire. */
+  garderLeBrouillon?: boolean;
+  /** Un geste de plus dans la rangée des issues (« Passer » d'un formulaire). */
+  actionsEnPlus?: React.ReactNode;
+}
+
+/**
+ * LE CHAMP DE RÉPONSE RESTE AU-DESSUS DE LA BARRE COLLÉE EN BAS (capture
+ * iPhone du 25/10/2026). Au focus, iOS ramène le champ juste au-dessus du
+ * clavier, sans rien savoir de la barre « Répondre / Joindre / Annuler »
+ * collée au bas de la zone qui défile (`sticky bottom-0`) : le champ finissait
+ * dessous. La place du clavier est déjà réservée par la racine (`--clavier`,
+ * app.tsx) ; ici, une fois le clavier monté (~350 ms, puis à chaque
+ * `visualViewport` resize tant que le champ a le curseur), on ne fait défiler
+ * la zone QUE si le bas du champ passe sous la barre ou sous la zone visible —
+ * jamais de second saut quand iOS a déjà bien placé le champ. `scroll-mb-20`
+ * sur le champ donne la même marge au défilement natif.
+ */
+function zoneQuiDefile(element: HTMLElement): HTMLElement | null {
+  for (let noeud = element.parentElement; noeud; noeud = noeud.parentElement) {
+    const { overflowY } = getComputedStyle(noeud);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && noeud.scrollHeight > noeud.clientHeight) return noeud;
+  }
+  return null;
+}
+
+function useChampAuDessusDeLaBarre(barreRef: React.RefObject<HTMLDivElement | null>) {
+  return React.useCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      const champ = event.currentTarget;
+      const vue = window.visualViewport;
+      const recaler = () => {
+        const barre = barreRef.current;
+        if (!barre || document.activeElement !== champ) return;
+        const boite = champ.getBoundingClientRect();
+        const hautBarre = barre.getBoundingClientRect().top;
+        const basVisible = vue ? vue.offsetTop + vue.height : window.innerHeight;
+        // La barre vient APRÈS le champ dans le flux : à sa place, son haut est
+        // déjà 8 px sous lui (mt-2) ; collée par-dessus, il remonte sur lui.
+        const limite = Math.min(hautBarre, basVisible) - 8;
+        const ecart = boite.bottom - limite;
+        if (ecart <= 1) return;
+        const zone = zoneQuiDefile(champ);
+        if (zone) zone.scrollTop += ecart;
+        else window.scrollBy(0, ecart);
+      };
+      const minuteurs = [120, 380].map((delai) => window.setTimeout(recaler, delai));
+      const surRedimension = () => window.requestAnimationFrame(recaler);
+      vue?.addEventListener('resize', surRedimension);
+      champ.addEventListener(
+        'blur',
+        () => {
+          minuteurs.forEach((m) => window.clearTimeout(m));
+          vue?.removeEventListener('resize', surRedimension);
+        },
+        { once: true },
+      );
+    },
+    [barreRef],
+  );
 }
 
 function BulleQuestionComplete({
@@ -255,6 +456,10 @@ function BulleQuestionComplete({
   repere,
   cleDeBrouillon,
   piecesDuMessage,
+  libelleRepondre,
+  sansPlusDeChoix,
+  garderLeBrouillon,
+  actionsEnPlus,
 }: ProprietesDeLaBulle) {
   /* Le brouillon tel que le serveur le tient : la bulle en part, et le suit. */
   const brut = React.useSyncExternalStore(
@@ -310,6 +515,8 @@ function BulleQuestionComplete({
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
   const [envoi, setEnvoi] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const barreRef = React.useRef<HTMLDivElement>(null);
+  const suivreLeClavier = useChampAuDessusDeLaBarre(barreRef);
   // Une question sans choix ni réponse libre n'offre aucune façon de répondre.
   // Elle doit alors donner une sortie nette, plutôt que laisser une zone vide
   // qui ressemble à un blocage.
@@ -363,7 +570,8 @@ function BulleQuestionComplete({
     try {
       await onRepondre(reponse, images.map((a) => a.id));
       // La réponse est partie : son brouillon n'a plus lieu d'être, nulle part.
-      ecrireLeBrouillon(BROUILLON_VIDE);
+      if (garderLeBrouillon) ecrireLeBrouillon({ choisis, texte: texteLibre, images });
+      else ecrireLeBrouillon(BROUILLON_VIDE);
     } finally {
       setEnvoi(false);
     }
@@ -416,21 +624,17 @@ function BulleQuestionComplete({
 
   return (
     <div
-      /* UI MINIMALISTE : plus de cadre d'alerte jaune autour d'une simple
-         question. C'est le MÊME fond neutre que les autres blocs du fil
-         (`bg-bloc-fil`) — une question de cadrage n'est pas une erreur. */
-      /* LA VARIANTE « ATTENTION » DOIT SE DÉTACHER DU BLOC QUI LA PORTE. Elle
-         posait un voile orange à 5 % sur le fond du cadrage : deux surfaces
-         quasi identiques, et la question se fondait dans l'encart foncé. Elle
-         prend donc un ÉTAGE de fond différent (`--raised`) et un liseré orange
-         franc — la convention EN COURS, lisible dans les douze palettes. */
+      /* UN CADRE JAUNE AUTOUR DE CHAQUE QUESTION, PARTOUT (demande du
+         25/10/2026) : panneau « Une décision attend », fil, feuille du bas,
+         question en texte, questions préparées de la carte. La question doit
+         se distinguer d'un coup d'œil du reste — c'est le seul trait jaune de
+         l'interface avec le badge « Compréhension » (`.cadre-de-question`,
+         styles.css). Le fond reste celui des autres blocs du fil. */
+      /* Les variantes « attention » et « contraste » se détachent du bloc qui
+         les porte par un ÉTAGE de fond différent (`--raised`). */
       className={cn(
-        'rounded-lg px-3 py-2.5',
-        variante === 'attention'
-          ? 'border border-transparent bg-raised'
-          : variante === 'contraste'
-            ? 'bg-raised'
-            : 'bg-bloc-fil',
+        'cadre-de-question rounded-lg px-3 py-2.5',
+        variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised',
       )}
       /* UN REPÈRE STABLE POUR LES CONTRÔLES : la bulle se retrouvait par sa
          classe de liseré, qui n'existe plus dans le panneau de décision. Un
@@ -487,6 +691,14 @@ function BulleQuestionComplete({
         </p>
       ) : null}
 
+      {/* 1 bis bis. CE QUE LA QUESTION AUTORISE OU DEMANDE DE BRANCHER (studio
+          créatif) : le détail d'un devis, ou l'encadré où coller une clé. */}
+      {question.devis ? <DevisDuLot devis={question.devis} /> : null}
+      {question.branchement ? (
+        <BranchementDeService capacites={question.branchement.capacites} onBranche={(reponse) => onRepondre(reponse, [])} />
+      ) : null}
+      {question.lumiere ? <SphereDeLumiere sphere={question.lumiere} onRepondre={onRepondre} /> : null}
+
       {/* 1 ter. LA RÉPONSE CONSEILLÉE QUI N'EST PAS UN CHOIX DE LA LISTE. */}
       {question.recommandee && !question.options.some((option) => option.label === question.recommandee) ? (
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted" data-reponse-conseillee>
@@ -533,7 +745,7 @@ function BulleQuestionComplete({
                 data-option-question={option.id}
                 data-option-retenue={actif ? '' : undefined}
                 className={cn(
-                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors',
                   /* LE CHOIX RETENU DOIT RESTER VISIBLE : sur ces variantes,
                      le bloc est DÉJÀ posé sur `--raised` — une pastille du
                      même fond n'aurait plus rien montré. */
@@ -572,14 +784,14 @@ function BulleQuestionComplete({
           })}
           </div>
           )}
-          {reponsePossible ? (
+          {reponsePossible && !sansPlusDeChoix ? (
             <button
               type="button"
               onClick={() => void demanderPlusDeChoix()}
               disabled={autresChoix || envoi}
               data-plus-de-choix
               title={t('Aucun choix ne convient : demander d’autres possibilités à l’agent')}
-              className="mt-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-muted transition-colors hover:bg-text/5 hover:text-text disabled:opacity-60"
+              className="mt-1 flex items-center gap-1.5 rounded-md px-2.5 sm:px-2 py-1.5 sm:py-1 text-[13px] text-muted transition-colors hover:bg-text/5 hover:text-text disabled:opacity-60"
             >
               {autresChoix ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               {t('Plus de choix')}
@@ -610,7 +822,8 @@ function BulleQuestionComplete({
               : t('Écrivez votre réponse…')
           }
           rows={2}
-          className="text-[13.5px]"
+          onFocus={suivreLeClavier}
+          className="scroll-mb-20 text-[13.5px]"
           data-champ-reponse-question
         />
         </div>
@@ -628,7 +841,7 @@ function BulleQuestionComplete({
                 title={t('Retirer cette pièce jointe')}
                 aria-label={`Retirer la pièce ${image.name}`}
                 onClick={() => setImages((liste) => liste.filter((a) => a.id !== image.id))}
-                className="absolute -right-1 -top-1 rounded-full bg-raised p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
+                className="absolute -right-1 -top-1 rounded-full bg-raised p-1 sm:p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -649,6 +862,7 @@ function BulleQuestionComplete({
           'sticky bottom-0 z-10 -mx-3 -mb-2.5 mt-2 flex flex-wrap items-center gap-1.5 border-t border-faint/15 px-3 py-2 backdrop-blur-sm',
           surFondRaised ? 'bg-raised/95' : 'bg-bloc-fil-voile',
         )}
+        ref={barreRef}
         data-actions-question
         data-question-sans-reponse={reponsePossible ? undefined : ''}
       >
@@ -663,7 +877,7 @@ function BulleQuestionComplete({
                 data-repondre-question
               >
                 {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                {t('Répondre')}</Button>
+                {libelleRepondre ?? t('Répondre')}</Button>
             ) : null}
             <input
               ref={fileRef}
@@ -693,6 +907,7 @@ function BulleQuestionComplete({
 </Button>
           </>
         ) : null}
+        {actionsEnPlus}
         {/* Sans aucune façon de répondre, « Annuler » est la SEULE issue : il
             prend toute la largeur de la bulle, en bouton PLEIN (rouge au
             survol), au lieu de se faire passer pour un lien discret posé dans
@@ -842,7 +1057,7 @@ function BoutonLecture({ piece, onVideo }: { piece: Attachment; onVideo: (piece:
       data-lecture-option={piece.id}
       data-lecture-etat={estVideo ? 'video' : etat}
       className={cn(
-        'mt-0.5 shrink-0 rounded-md p-1.5 transition-colors hover:bg-raised/60',
+        'mt-0.5 shrink-0 rounded-md p-2 sm:p-1.5 transition-colors hover:bg-raised/60',
         etat === 'arret' ? 'text-muted hover:text-text' : 'text-teinte',
       )}
     >

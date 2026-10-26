@@ -81,7 +81,7 @@ export function agentEnAttente(agentId: string): boolean {
 }
 
 /** Les outils dont le résultat est une QUESTION posée à l'utilisateur. */
-const OUTILS_QUI_QUESTIONNENT = new Set(['ask_user', 'suggerer_modele', 'realiser']);
+const OUTILS_QUI_QUESTIONNENT = new Set(['ask_user', 'suggerer_modele', 'realiser', 'production']);
 
 /**
  * UNE SEULE QUESTION À LA FOIS, PAR AGENT. Rend le texte de refus quand l'outil
@@ -117,14 +117,15 @@ export function poserLAttente(
  * ailleurs : on les traduit ici en CHEMINS de fichiers, seule forme qu'un
  * moteur en ligne de commande sache ouvrir.
  */
-export function repondreALAttente(questionId: string, reponse: string, jointes: string[] = []): boolean {
+export function repondreALAttente(questionId: string, reponse: string, jointes: string[] = [], consigne = ''): boolean {
   const fichiers = jointes
     .map((id) => store.getAttachment(id))
     .filter(Boolean)
     .map((piece) => `#${aliasDe(piece!)} — ${cheminDePieceJointe(piece!)}`);
   const attente = attentes.get(questionId);
   if (attente && !attente.issue) attente.reponseBrute = reponse;
-  return poserLIssue(questionId, { etat: 'repondu', text: texteDeReponseALaQuestion(reponse, fichiers) });
+  const texte = texteDeReponseALaQuestion(reponse, fichiers);
+  return poserLIssue(questionId, { etat: 'repondu', text: consigne ? `${texte}\n${consigne}` : texte });
 }
 
 /** La question a été retirée sans réponse. Un texte personnalisé peut être fourni. */

@@ -189,7 +189,7 @@ export function OngletDiscussion({
             /* L'ONGLET PORTE UN LIBELLÉ SUR GRAND ÉCRAN : il prend donc l'arrondi
                maison. Sur téléphone il se réduit à une icône dans un carré —
                une forme réellement ronde, qui garde `rounded-full`. */
-            telephone ? 'h-10 rounded-full' : 'rounded-lg px-3 py-1.5',
+            telephone ? 'h-12 sm:h-10 rounded-full' : 'rounded-lg px-3 py-1.5',
             ouverte ? 'bg-accent text-accent-fg' : 'bg-raised text-text hover:bg-raised/80',
             dragging ? 'cursor-grabbing' : 'cursor-grab',
           )}

@@ -15,6 +15,7 @@ import {
 import type { ParcoursDeCarte, SuiviDUneFille } from './models.js';
 import type { CompetenceProposee } from './proposition-competence.js';
 import { PHRASES_DU_SUIVI, etatsDesPointsDeLaMere } from './regroupements.js';
+import { PHRASES_DE_LA_SUITE, suiviDUneSuite } from './suite-de-cartes.js';
 import {
   comprehensionApresLePlan,
   comprehensionPourLePlan,
@@ -751,6 +752,7 @@ export interface ContexteDesPoints {
     | 'cadrageRouvertA'
     | 'iterationOuverteA'
     | 'competencesProposees'
+    | 'realisationSouhaitee'
   > | null;
   /**
    * LES QUESTIONS ENCORE OUVERTES DANS LE FIL (`questionsOuvertesDuFil`),
@@ -1631,6 +1633,10 @@ function avecLeSuiviDesFilles(
 ): PointDuParcours[] {
   if (!suivi?.length) return points;
   const etats = etatsDesPointsDeLaMere(suivi);
+  /* UNE SUITE PARLE D'ÉTAPES, DANS L'ORDRE ; un projet réuni, de projets touchés. */
+  const suite = suiviDUneSuite(suivi);
+  const phrases = suite ? PHRASES_DE_LA_SUITE : PHRASES_DU_SUIVI;
+  const filles = suite ? [...suivi].sort((a, b) => (a.rang ?? 0) - (b.rang ?? 0)) : [...suivi];
   return points.map((point) => {
     if (point.annonce || point.rang !== point.total) return point;
     if (point.etape === 'travail') {
@@ -1638,8 +1644,8 @@ function avecLeSuiviDesFilles(
         ...point,
         etat: etats.travail,
         sautee: undefined,
-        phrase: PHRASES_DU_SUIVI.travail[etats.travail],
-        filles: [...suivi],
+        phrase: phrases.travail[etats.travail],
+        filles,
       };
     }
     if (point.etape === 'rapport') {
@@ -1647,8 +1653,8 @@ function avecLeSuiviDesFilles(
         ...point,
         etat: etats.rapport,
         sautee: undefined,
-        phrase: PHRASES_DU_SUIVI.rapport[etats.rapport],
-        filles: suivi.filter((fille) => fille.etat === 'fait'),
+        phrase: phrases.rapport[etats.rapport],
+        filles: filles.filter((fille) => fille.etat === 'fait'),
       };
     }
     return point;
@@ -1679,6 +1685,10 @@ function avecLeSuiviDesFilles(
  * fait.
  */
 export function laCarteAUnPlan(points: readonly PointDuParcours[], ctx: ContexteDesPoints): boolean {
+  /* UNE CRÉATION DE MÉDIA N'A JAMAIS DE POINT « PLAN » (demande du 25/10/2026,
+     capture #d326) : sa chaîne se lit dans le suivi à droite, même si un plan
+     a été rendu avant ce garde-fou. */
+  if (ctx.parcours?.realisationSouhaitee) return false;
   if ((ctx.parcours?.plans?.length ?? 0) > 0) return true;
   if (ctx.parcours?.planDemandeA) return true;
   if (ctx.chapitre === 'plan') return true;

@@ -154,7 +154,7 @@ export function PastilleDeFichier({ id, nom, nomDuFichier, mime, poids, compact,
           onClick={onApercu}
           title={`${t('Ouvrir en grand')} — ${nomAffiche}${poids ? ` — ${bytes(poids)}` : ''}`}
           data-apercu-pdf={id}
-          className={cn('inline-flex min-w-0 items-center gap-1.5 py-1.5 pl-2 pr-1 hover:text-text', compact && 'h-full py-0')}
+          className={cn('inline-flex min-w-0 items-center gap-1.5 py-2 sm:py-1.5 pl-2 pr-1 hover:text-text', compact && 'h-full py-0')}
         >
           <IconeDeGenre genre={genreDuFichier(mime ?? '')} className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 truncate">{nomAffiche}</span>
@@ -194,6 +194,27 @@ export function PastilleDeFichier({ id, nom, nomDuFichier, mime, poids, compact,
 }
 
 /**
+ * LE REPÈRE COURT D'UNE PIÈCE (« #1a0c »), POSÉ EN BANDE AU BAS DE SA VIGNETTE.
+ * Le même partout (#ce5d, #699c5) : sous la barre d'écriture, dans les messages
+ * du fil, sur les captures de l'agent. C'est lui qui relie une image au tag
+ * « [fichier: #1a0c] » que l'utilisateur et l'agent se citent. Il ne capte
+ * pas le clic : la vignette reste un seul geste.
+ */
+export function EtiquetteDeVignette({ texte, className }: { texte: string; className?: string }) {
+  return (
+    <span
+      data-etiquette-de-vignette={texte}
+      className={cn(
+        'pointer-events-none absolute inset-x-0 bottom-0 truncate bg-surface/85 px-1 text-center text-[10px] leading-4 text-muted',
+        className,
+      )}
+    >
+      {texte}
+    </span>
+  );
+}
+
+/**
  * UNE IMAGE : la vignette, qu'on AGRANDIT au clic. Le téléchargement reste à un
  * seul clic, par le bouton du coin — posé au-dessus du bouton d'agrandissement,
  * et donc atteignable au clavier comme à la souris.
@@ -206,10 +227,13 @@ export function VignetteDImage({
   compact,
   grande,
   vue,
+  etiquette,
   className,
 }: {
   id: string;
   nom?: string;
+  /** Le repère court (« #1a0c »), montré en bande au bas de la vignette. */
+  etiquette?: string;
   /** Le vrai nom du fichier, sous lequel l'image se télécharge. */
   nomDuFichier?: string;
   onApercu: () => void;
@@ -234,6 +258,7 @@ export function VignetteDImage({
         )}
       >
         <ImageDePiece id={id} alt={libelle} className="h-full w-full object-cover" />
+        {etiquette ? <EtiquetteDeVignette texte={etiquette} /> : null}
         {/* L'ŒIL « DÉJÀ VUE » : dans le coin haut, à l'opposé du téléchargement.
             Sur son propre fond de thème, il ne capte pas le clic. */}
         {vue ? (
@@ -252,7 +277,11 @@ export function VignetteDImage({
         title={t('Télécharger')}
         aria-label="Telecharger"
         data-lien-piece={id}
-        className="absolute bottom-0.5 right-0.5 grid h-5 w-5 place-items-center rounded-lg bg-surface/85 text-faint transition-colors hover:bg-surface hover:text-text"
+        className={cn(
+          'absolute right-0.5 grid h-5 w-5 place-items-center rounded-lg bg-surface/85 text-faint transition-colors hover:bg-surface hover:text-text',
+          // Le repère tient la bande du bas : le téléchargement monte au coin haut.
+          etiquette ? 'top-0.5' : 'bottom-0.5',
+        )}
       >
         <Download className="h-3 w-3" />
       </a>

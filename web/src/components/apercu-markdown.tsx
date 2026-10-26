@@ -40,7 +40,7 @@ export function BasculeApercu({
           onClick={() => onChange(item.cle)}
           aria-pressed={format === item.cle}
           className={cn(
-            'inline-flex h-6 items-center gap-1 rounded px-2 text-[12.5px] font-medium transition-colors',
+            'inline-flex h-[29px] sm:h-6 items-center gap-1 rounded px-2 text-[12.5px] font-medium transition-colors',
             format === item.cle ? 'bg-raised text-teinte' : 'text-muted hover:text-text',
           )}
         >

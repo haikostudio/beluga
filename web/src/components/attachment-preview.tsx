@@ -38,6 +38,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
+import { BoutonCopierDocument } from '@/components/bouton-copier-document';
 import { PastilleDeFichier, VignetteDImage, adresseDePiece, estUnPdf } from '@/components/pastille-de-fichier';
 import { LecteurVideo, type ApercuDeVideo } from '@/components/lecteur-video';
 import { LecteurSon } from '@/components/lecteur-son';
@@ -407,7 +408,7 @@ function FlecheDeFeuilletage({ sens, onClick }: { sens: 'precedente' | 'suivante
       {...{ [sens === 'precedente' ? 'data-feuilletage-precedente' : 'data-feuilletage-suivante']: '' }}
       {...{ [sens === 'precedente' ? 'data-image-precedente' : 'data-image-suivante']: '' }}
       className={cn(
-        'absolute top-1/2 z-10 flex h-12 w-10 -translate-y-1/2 items-center justify-center rounded-md bg-surface/75 text-text shadow-md backdrop-blur-sm transition-opacity sm:h-14 sm:w-11',
+        'absolute top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-md bg-surface/75 text-text shadow-md backdrop-blur-sm transition-opacity sm:h-14 sm:w-11',
         'opacity-90 hover:bg-surface hover:opacity-100 focus-visible:opacity-100',
         sens === 'precedente' ? 'left-2 sm:left-4' : 'right-2 sm:right-4',
       )}
@@ -492,7 +493,7 @@ function TelechargementDeLaVisionneuse({
   /* LE SYSTÈME RÉCLAME UN NOUVEAU TOUCHER : le bouton le dit, et ce toucher enregistre. */
   if (pret) {
     return (
-      <Button variant="ghost" size="sm" onClick={pret.lancer} className="h-8 shrink-0 bg-sur-etat/20 px-2" data-telecharger-image={piece.id} data-etat="pret">
+      <Button variant="ghost" size="sm" onClick={pret.lancer} className="h-[38px] sm:h-8 shrink-0 bg-sur-etat/20 px-2" data-telecharger-image={piece.id} data-etat="pret">
         <Download className="h-3.5 w-3.5" />
         <span className="text-[12px]">{t('Enregistrer')}</span>
       </Button>
@@ -720,6 +721,9 @@ export function AttachmentPreview({
           droite={
             <>
               {markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
+              {/* UN TEXTE SE COPIE EN ENTIER, d'un clic (25/10/2026) : un document
+                  produit par l'agent se lit, se copie et se télécharge ici. */}
+              {lisible && texte !== null && !erreur ? <BoutonCopierDocument texte={texte} repere="data-visionneuse-copier" /> : null}
               {erreur ? null : (
                 <TelechargementDeLaVisionneuse
                   piece={courante}
@@ -739,7 +743,7 @@ export function AttachmentPreview({
           {/* LE NOM, ET SOUS LUI LA DATE : le nom garde sa place dans la rangée
               (32 px, comme le rang et les boutons), la date se glisse dessous. */}
           <div className="flex min-w-0 flex-col items-center">
-            <div className="flex h-8 max-w-full items-center">
+            <div className="flex h-[38px] sm:h-8 max-w-full items-center">
               <DialogTitle className="min-w-0 truncate text-[14.5px]">{etiquetteDePiece(courante)}</DialogTitle>
             </div>
             {quand || vue ? (
@@ -879,6 +883,7 @@ export function AttachmentThumb({
       <VignetteDImage
         id={item.id}
         nom={etiquetteDePiece(item)}
+        etiquette={item.alias ? etiquetteDePiece(item) : undefined}
         nomDuFichier={item.name}
         onApercu={onOpen}
         compact={compact}

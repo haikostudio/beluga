@@ -15,14 +15,16 @@ import { t } from '@/lib/langue';
  *    tant qu'un agent y travaille, et vire au rouge si elle est tombée ;
  *  - une étape À VENIR : un point vide et pâle.
  * Le trait entre deux points est plein jusqu'où l'on est arrivé, pâle au-delà.
- * Le nom de chaque étape se lit au survol et à la lecture d'écran. La règle est
- * partagée (`shared/src/frise-de-suivi.ts`) ; ici, seulement le dessin.
+ * Le nom de chaque étape se lit au survol et à la lecture d'écran. FINE ET
+ * DISCRÈTE (25/10/2026, « aérer les cartes ») : des points de 8 px, l'étape
+ * faite et son trait adoucis ; seule l'étape où l'on est garde le plein
+ * contraste. La règle est partagée (`shared/src/frise-de-suivi.ts`) ; ici, seulement le dessin.
  */
 export function FriseDeSuivi({ frise, cardId }: { frise: Frise; cardId: string }) {
   const courante = t(LIBELLE_ETAPE_DE_SUIVI[frise.courante]);
   return (
     <div
-      className="mt-3 flex h-3.5 shrink-0 items-center"
+      className="mt-2.5 flex h-2.5 shrink-0 items-center"
       role="img"
       aria-label={`Etape : ${frise.courante}`}
       title={t('Étape : {v0}', { v0: courante })}
@@ -39,7 +41,7 @@ export function FriseDeSuivi({ frise, cardId }: { frise: Frise; cardId: string }
           <React.Fragment key={etape}>
             {i > 0 ? (
               /* Un trait qui porte une information : `--faint`, jamais `--border`. */
-              <span aria-hidden className={cn('mx-1 h-px min-w-0 flex-1', faite || ici ? 'bg-text/45' : 'bg-faint/30')} />
+              <span aria-hidden className={cn('mx-1 h-px min-w-0 flex-1', faite || ici ? 'bg-text/30' : 'bg-faint/25')} />
             ) : null}
             <Tooltip label={libelle}>
               <span
@@ -47,15 +49,15 @@ export function FriseDeSuivi({ frise, cardId }: { frise: Frise; cardId: string }
                 data-etat-suivi={etat}
                 data-ton-suivi={ton}
                 className={cn(
-                  'block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px]',
+                  'block h-2 w-2 shrink-0 rounded-full border-[1.5px]',
                   faite
-                    ? 'border-text bg-text'
+                    ? 'border-text/55 bg-text/55'
                     : ici
                       ? cn(
                           ton === 'erreur' ? 'border-danger' : 'border-text',
                           (ton === 'travail' || ton === 'a_voir') && 'animate-pulse-soft motion-reduce:animate-none',
                         )
-                      : 'border-faint/50',
+                      : 'border-faint/40',
                 )}
               />
             </Tooltip>

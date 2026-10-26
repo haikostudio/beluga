@@ -210,7 +210,7 @@ export function TableauDeDonnees<L>({
                                   aria-expanded={ouverte}
                                   aria-label={ouverte ? 'Replier le detail' : 'Deplier le detail'}
                                   title={ouverte ? t('Replier le détail') : t('Déplier le détail')}
-                                  className="-ml-1 shrink-0 rounded p-0.5 text-faint hover:bg-raised hover:text-text"
+                                  className="-ml-1 shrink-0 rounded p-1 sm:p-0.5 text-faint hover:bg-raised hover:text-text"
                                   data-deplier-ligne
                                 >
                                   <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', ouverte && 'rotate-90')} />
@@ -264,7 +264,7 @@ export function TableauDeDonnees<L>({
                     onClick={() => changerTaille(n)}
                     aria-pressed={taille === n}
                     className={cn(
-                      'h-5 rounded-[4px] px-1.5 font-mono text-[11px] tabular-nums transition-colors',
+                      'h-6 sm:h-5 rounded-[4px] px-1.5 font-mono text-[11px] tabular-nums transition-colors',
                       taille === n ? 'bg-raised text-teinte shadow-sm' : 'text-muted hover:text-text',
                     )}
                     data-taille-page={n}

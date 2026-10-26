@@ -3,7 +3,7 @@ import { ChevronDown, LayoutGrid, X } from 'lucide-react';
 import type { GroupeDeSuggestions, Message } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
-import { VignetteProposition } from '@/components/propositions';
+import { BarreDeFusion, BoutonFusionner, VignetteProposition, useFusionDePropositions } from '@/components/propositions';
 import { ProposalChip } from '@/components/message-view';
 import { t } from '@/lib/langue';
 import {
@@ -26,7 +26,8 @@ interface Suggestion {
 /**
  * LES CARTES QUE L'AGENT DE CETTE CARTE PROPOSE : celles qui attendent un clic
  * et celles déjà acceptées. Les refusées et les réunies n'ont plus rien à
- * montrer. Une même proposition portée par deux messages (le tour en direct,
+ * montrer, pas plus que celles intégrées à la carte (envoyées en message à son
+ * agent). Une même proposition portée par deux messages (le tour en direct,
  * puis son enregistrement) ne compte qu'une fois.
  */
 export function suggestionsDeLaCarte(messages: Message[]): Suggestion[] {
@@ -34,7 +35,7 @@ export function suggestionsDeLaCarte(messages: Message[]): Suggestion[] {
   const entrees: Suggestion[] = [];
   for (const message of messages) {
     for (const proposal of message.proposals ?? []) {
-      if (proposal.decision === 'refused' || proposal.decision === 'merged' || vues.has(proposal.id)) continue;
+      if (proposal.decision === 'refused' || proposal.decision === 'merged' || proposal.decision === 'integrated' || vues.has(proposal.id)) continue;
       vues.add(proposal.id);
       entrees.push({ message, proposal });
     }
@@ -103,6 +104,11 @@ export function SuggestionsDeCarte({
   onDeplie?: () => void;
 }) {
   const suggestions = suggestionsDeLaCarte(messages);
+  /* « FUSIONNER » (demande du 24/10/2026) : la même sélection que le bandeau
+     des conversations sans carte, sur les seules suggestions en attente. */
+  const fusion = useFusionDePropositions(
+    suggestions.filter(({ proposal }) => proposal.decision === 'pending').map(({ message, proposal }) => ({ messageId: message.id, proposal })),
+  );
   const [replieeChoisie, setReplieeChoisie] = React.useState(false);
   const [deplieeMalgre, setDeplieeMalgre] = React.useState(false);
   React.useEffect(() => setDeplieeMalgre(false), [replieeDOffice]);
@@ -166,16 +172,19 @@ export function SuggestionsDeCarte({
           <span className="whitespace-nowrap">{t('Suggestion de carte')}</span>
           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', repliee && 'rotate-180')} aria-hidden />
         </button>
-        <button
-          type="button"
-          onClick={() => fermerLesSuggestions(cardId)}
-          title={t('Fermer les suggestions')}
-          aria-label={t('Fermer les suggestions')}
-          className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted hover:text-text"
-          data-suggestions-fermer=""
-        >
-          <X className="h-3.5 w-3.5" aria-hidden />
-        </button>
+        <span className="ml-auto flex items-center gap-2">
+          {repliee ? null : <BoutonFusionner fusion={fusion} />}
+          <button
+            type="button"
+            onClick={() => fermerLesSuggestions(cardId)}
+            title={t('Fermer les suggestions')}
+            aria-label={t('Fermer les suggestions')}
+            className="flex h-6 sm:h-5 w-6 sm:w-5 shrink-0 items-center justify-center rounded text-muted hover:text-text"
+            data-suggestions-fermer=""
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </span>
       </EnTeteDePanneau>
       <Panneau className={cn('px-2 py-1.5', repliee && 'hidden')} data-suggestions-panneau="">
         {/* LA MÊME HAUTEUR POUR TOUTES : la rangée étire ses cartes
@@ -197,9 +206,10 @@ export function SuggestionsDeCarte({
                   messageId={message.id}
                   agentId={message.agentId}
                   proposal={proposal}
-                  selectionActive={false}
-                  selectionnee={false}
-                  onSelection={() => {}}
+                  selectionActive={fusion.selectionActive}
+                  selectionnee={fusion.selection.includes(proposal.id)}
+                  onSelection={() => fusion.basculer(proposal.id)}
+                  integrable
                   className="flex-1"
                 />
               ) : (
@@ -208,6 +218,7 @@ export function SuggestionsDeCarte({
             </div>
           ))}
         </ZoneDefilement>
+        <BarreDeFusion fusion={fusion} className="mt-1" />
       </Panneau>
     </div>
   );

@@ -16,12 +16,24 @@ import * as React from 'react';
  * (`ContexteEmplacementDuDocument`) : le plan garde ainsi tout ce que son
  * passage lui donne (version, agent, tour en cours) sans le recopier ici.
  */
-export interface DocumentDeCarte {
-  cardId: string;
-  genre: 'plan';
-  /** Le numéro de la version du plan ouverte. */
-  numero: number;
-}
+export type DocumentDeCarte =
+  | {
+      cardId: string;
+      genre: 'plan';
+      /** Le numéro de la version du plan ouverte. */
+      numero: number;
+    }
+  /**
+   * LE VOLET DE SUIVI d'une production du studio créatif (mode caméra,
+   * `volet-de-suivi.tsx`).
+   */
+  | { cardId: string; genre: 'suivi'; numero: number }
+  /**
+   * LE GRAND VOLET DE MONTAGE (24/10/2026) : l'éditeur du Studio sur la création
+   * liée à la carte, nourrie des plans qu'elle a fabriqués. Rendu par la page de
+   * la carte elle-même (pas par un portail du fil), dans le même volet, élargi.
+   */
+  | { cardId: string; genre: 'montage' };
 
 let ouvert: DocumentDeCarte | null = null;
 const abonnes = new Set<() => void>();
@@ -33,6 +45,18 @@ function prevenir() {
 export function ouvrirLeDocument(document: DocumentDeCarte): void {
   ouvert = document;
   prevenir();
+}
+
+/**
+ * LE SUIVI D'UNE PRODUCTION EST TOUJOURS OUVERT SUR ORDINATEUR (décision du
+ * 25/10/2026, qui remplace « une fois par session ») : dès que le chemin du
+ * tournage paraît, et à chaque affichage, rechargement compris. Il ne chasse
+ * jamais un document déjà ouvert pour la carte (le plan, le montage) et revient
+ * dès que celui-ci se referme (`card-panel.tsx`).
+ */
+export function ouvrirLeSuiviSiRienNestOuvert(cardId: string): void {
+  if (ouvert?.cardId === cardId) return;
+  ouvrirLeDocument({ cardId, genre: 'suivi', numero: 0 });
 }
 
 export function fermerLeDocument(): void {

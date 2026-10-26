@@ -231,7 +231,10 @@ function CorpsDesReglages({
               item.cle === 'mon-compte' ||
               (GROUPES_DES_REGLAGES.includes(groupe.cle) && niveauDeMonService(state, 'reglages') !== 'aucun') ||
               (groupe.cle === 'moteurs' && niveauDeMonService(state, 'moteurs') !== 'aucun')) &&
-            (item.cle !== 'services-creation' || state.studioOuvert),
+            /* LES SERVICES DE CRÉATION servent aussi le mode caméra des cartes
+               (studio créatif, 24/10/2026) : l'administrateur les voit, Studio
+               ouvert ou non ; un collaborateur, jamais. */
+            (item.cle !== 'services-creation' || state.studioOuvert || state.monRole === 'admin'),
         ),
       })).filter((groupe) => groupe.pages.length > 0),
     [state.studioOuvert, state.monRole, state.mesDroits],
@@ -313,7 +316,7 @@ function CorpsDesReglages({
               type="button"
               data-retour-menu-reglages
               onClick={() => setPageAuPremierPlan(false)}
-              className="flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
+              className="flex items-center gap-0.5 rounded p-1.5 sm:p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
             >
               <ChevronLeft className="h-4 w-4" />
               <span className="text-[13px]">{t('Réglages')}</span>
@@ -445,7 +448,7 @@ function MenuDesReglages({
                   data-actif={pageOuverte === fiche.cle ? 'oui' : undefined}
                   onClick={() => onOuvrir(fiche.cle)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
+                    'flex w-full items-center gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13.5px]',
                     /* Sur téléphone, ce menu est une liste de pages : aucune n'est
                        « choisie » tant qu'on ne l'a pas ouverte. */
                     pageOuverte === fiche.cle && !enRecherche

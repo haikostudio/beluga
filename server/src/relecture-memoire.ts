@@ -6,6 +6,7 @@ import {
   PORTEE_GLOBALE,
   SEUIL_DE_CONFIANCE,
   cheminsCites,
+  estUniteDeCompetence,
   verdictMecanique,
   type Unite,
   type VerdictDeRelecture,
@@ -95,6 +96,12 @@ export function relireLaMemoire(options: { maxLots?: number; lot?: number; essai
         if (!unites.length) break;
         rapport.lots += 1;
         for (const u of unites) {
+          // Le pool de compétences est seul propriétaire de la confiance d'une fiche : la relever ici
+          // fait réécrire l'unité à la synchro suivante, qui la remet à zéro, et la boucle ne finit pas.
+          if (estUniteDeCompetence(u)) {
+            vues.add(u.id);
+            continue;
+          }
           const { verdict, chemins } = jugerUneUnite(u);
           rapport.verdicts?.push({ id: u.id, verdict, chemins });
           if (options.essai || verdict === 'indecidable') {

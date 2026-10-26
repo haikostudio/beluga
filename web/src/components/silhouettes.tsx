@@ -151,8 +151,7 @@ export const GRILLE_EN_ROUTE = 'grid grid-cols-1 gap-4';
  * LES CARTES D'UNE COLONNE EN ATTENTE. Chaque carte a la hauteur FIXE de la
  * carte en route (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), exactement comme la vraie,
  * et la même forme : le projet et l'état DANS la carte, en haut, le titre sur
- * une ligne, le début de la description, puis la frise des étapes — aucune
- * ancienneté en bas. Posée par la page dans une colonne dont la liste n'est
+ * deux lignes, puis la frise des étapes — ni description ni ancienneté. Posée par la page dans une colonne dont la liste n'est
  * pas arrivée.
  */
 export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
@@ -160,23 +159,21 @@ export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
     <Bloc zone="en-route" className={GRILLE_EN_ROUTE}>
       {Array.from({ length: nombre }, (_, index) => (
         <div key={index} className={cn('flex flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)}>
-          <div className="flex h-full flex-col rounded-md border border-border bg-raised px-2.5 py-2">
-            <div className="mb-1 flex h-[18px] items-center gap-1.5">
+          <div className="flex h-full flex-col rounded-md border border-border bg-raised px-4 py-3.5">
+            <div className="mb-1.5 flex h-[22px] items-center gap-1.5">
               <Silhouette className="h-2.5 w-24" />
               <Silhouette className="ml-auto h-2.5 w-16" />
             </div>
             <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
               <div className="flex items-start gap-1.5">
-                <Silhouette className="mt-[2px] h-3 w-3 shrink-0 rounded-sm" />
                 <div className="min-w-0 flex-1">
-                  <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
+                  <Silhouette className="mt-1 h-3.5 w-[88%]" />
+                  <Silhouette className={cn('mt-2 h-3.5', LARGEURS[index % LARGEURS.length])} />
                 </div>
               </div>
-              <Silhouette className="mt-2 h-2.5 w-[88%]" />
-              <Silhouette className="mt-1.5 h-2.5 w-[60%]" />
             </div>
             {/* La frise des étapes, au même endroit que sur la vraie carte. */}
-            <div className="mt-3 flex h-3.5 shrink-0 items-center">
+            <div className="mt-2.5 flex h-2.5 shrink-0 items-center">
               <Silhouette className="h-1.5 w-full" />
             </div>
           </div>

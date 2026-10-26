@@ -87,7 +87,7 @@ export function CopieDeTest({ projectId }: { projectId: string }) {
       <Button
         size="sm"
         variant={arme ? 'default' : 'outline'}
-        className="h-8 self-start text-[12.5px]"
+        className="h-[38px] sm:h-8 self-start text-[12.5px]"
         disabled={!!raison || envoi}
         onClick={() => void lancer()}
         onBlur={() => setArme(false)}

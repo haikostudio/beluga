@@ -136,11 +136,14 @@
     /* LE BADGE DE STATUT D'UNE CARTE (demande du 18/10/2026) : JAUNE à la
        Compréhension (`--comprehension`), VIOLET au Travail (`--teinte`), chacun
        avec un léger fond et un trait de la même teinte. L'alpha vit DANS le
-       jeton : on n'écrit jamais `bg-comprehension-fond/50`. Le jaune ne sert
-       qu'à ce badge (`badge-etape.tsx`). */
+       jeton : on n'écrit jamais `bg-comprehension-fond/50`. Le jaune sert à
+       ce badge (`badge-etape.tsx`) et au CADRE DE CHAQUE QUESTION
+       (`.cadre-de-question`, demande du 25/10/2026) — à rien d'autre. */
     --comprehension: 48 92% 62%;
     --comprehension-fond: 48 92% 62% / 0.14;
     --comprehension-trait: 48 92% 62% / 0.5;
+    /* Le cadre d'une question (`.cadre-de-question`) : un jaune franc. */
+    --cadre-question: 48 92% 62%;
     --teinte-fond: 262 85% 78% / 0.14;
     --teinte-trait: 262 85% 78% / 0.5;
     /* LE VIOLET PLEIN, sous un texte BLANC : les boutons d'action de
@@ -266,6 +269,8 @@
     --comprehension: 40 95% 26%;
     --comprehension-fond: 45 95% 48% / 0.16;
     --comprehension-trait: 40 90% 36% / 0.55;
+    /* En clair, le jaune du texte (26 %) tire au brun : le cadre garde un jaune vif. */
+    --cadre-question: 45 95% 48%;
     --teinte-fond: 262 68% 50% / 0.1;
     --teinte-trait: 262 68% 50% / 0.5;
     --teinte-plein: 262 68% 50%;
@@ -332,6 +337,20 @@
 
   * {
     @apply border-border;
+  }
+
+  /* AUCUN ÉLÉMENT NATIF (25/10/2026) : les petites flèches du système d'un champ
+     de nombre disparaissent — le champ se tape, comme tous les autres. Cases,
+     choix, listes, dates, curseurs et couleurs ont leurs éléments maison
+     (`web/src/components/ui/elements-maison.tsx`). */
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 
   /* LA HAUTEUR DE L'APPLICATION — recette éprouvée sur ProjetE et ProjetA.
@@ -428,6 +447,18 @@
   textarea,
   button {
     font: inherit;
+  }
+
+  /* SUR TÉLÉPHONE, LES BOUTONS ONT GRANDI DE 20 % (25/10/2026, « trop petits,
+     on clique à côté »), LEUR ICÔNE AUSSI — pas leur texte. Sur ordinateur
+     (à partir de `sm`, 640 px), tout garde sa taille d'avant : chaque classe
+     agrandie porte son `sm:` d'origine. L'icône posée directement dans un
+     bouton grandit sans déplacer la mise en page ; une icône plus profonde
+     (une carte entière faite bouton) garde sa taille. */
+  @media (width < 640px) {
+    button > svg {
+      scale: 1.2;
+    }
   }
 }
 
@@ -776,6 +807,113 @@
     @apply mt-0;
   }
 
+  /* VOTRE MESSAGE DANS SA BULLE (`TexteDeLaDemande`) : du TEXTE, à la couleur
+     de la bulle qui l'entoure — `--encre-fg` sur une carte, `--text` dans la
+     conversation de l'assistant. Tout hérite (`inherit`, `currentColor`) : rien
+     ne peut sortir blanc sur blanc, dans aucune des douze palettes. Les titres
+     d'un long message collé se détachent d'un cran de taille et du gras, sans
+     trait ni fond ; un encadré `> [!NOTE]` perd son aplat (il sortait blanc
+     dans la bulle noire) et garde un simple filet ; un tableau large défile
+     au lieu d'élargir la bulle. Corps à 14,5 px (MEM-3218). */
+  .demande-en-texte .prose-hd {
+    @apply text-[14.5px] leading-relaxed;
+    color: inherit;
+  }
+  .demande-en-texte .prose-hd :is(p, li, strong, em, a, h1, h2, h3, h4, th, td, blockquote, code, pre) {
+    color: inherit;
+  }
+  .demande-en-texte .prose-hd p {
+    @apply mb-2;
+  }
+  .demande-en-texte .prose-hd ul {
+    @apply mb-2 space-y-1;
+  }
+  .demande-en-texte .prose-hd li::before {
+    color: inherit;
+    opacity: 0.6;
+  }
+  .demande-en-texte .prose-hd :is(h1, h2, h3) {
+    @apply mb-1.5 mt-4 flex items-center gap-2 border-t-0 pt-0 font-semibold leading-snug tracking-normal;
+  }
+  .demande-en-texte .prose-hd h1 {
+    @apply text-[18px] leading-tight;
+  }
+  .demande-en-texte .prose-hd h2 {
+    @apply text-[16.5px];
+  }
+  .demande-en-texte .prose-hd h3 {
+    @apply mt-3 text-[15.5px];
+  }
+  .demande-en-texte .prose-hd > :is(h1, h2, h3):first-child {
+    @apply mt-0;
+  }
+  .demande-en-texte .prose-hd :is(code, pre) {
+    background-color: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .demande-en-texte .prose-hd pre code {
+    background-color: transparent;
+  }
+  .demande-en-texte .prose-hd table {
+    @apply block max-w-full overflow-x-auto;
+  }
+  .demande-en-texte .prose-hd :is(th, td) {
+    border-color: color-mix(in srgb, currentColor 20%, transparent);
+  }
+  .demande-en-texte .prose-hd [data-callout] {
+    @apply my-2 rounded-lg bg-transparent;
+    color: inherit;
+    border-color: color-mix(in srgb, currentColor 25%, transparent);
+  }
+  .demande-en-texte .prose-hd > *:last-child {
+    @apply mb-0;
+  }
+
+  /* UNE PIÈCE ÉCRITE DU SUIVI DE PRODUCTION (brief, direction, scénario, plan) :
+     le Markdown à la taille du volet — 12,5 px, interligne serré —, chaque
+     intitulé en titre au-dessus de son contenu (`blocsDePiece`, l'écart entre
+     deux blocs vient de la colonne), un tableau qui défile CHEZ LUI au lieu
+     d'élargir la carte sur téléphone. Classe LOCALE : `.prose-hd` ne bouge pas. */
+  .piece-du-suivi .prose-hd {
+    @apply text-[12.5px] leading-snug text-muted;
+  }
+  .piece-du-suivi .prose-hd p {
+    @apply mb-1.5;
+  }
+  .piece-du-suivi .prose-hd ul {
+    @apply mb-1.5 space-y-1 pl-0;
+  }
+  .piece-du-suivi .prose-hd li {
+    @apply gap-1.5;
+  }
+  .piece-du-suivi .prose-hd :is(h1, h2, h3, h4) {
+    @apply mb-1 mt-2.5 border-t-0 pt-0 text-[13px] font-semibold leading-snug tracking-normal text-text;
+  }
+  .piece-du-suivi .prose-hd > :is(h1, h2, h3, h4):first-child {
+    @apply mt-0;
+  }
+  .piece-du-suivi .prose-hd code {
+    @apply text-[12px];
+  }
+  .piece-du-suivi .prose-hd table {
+    @apply my-2 text-[12px];
+  }
+  .piece-du-suivi .prose-hd :is(th, td) {
+    @apply min-w-[7rem] px-2 py-1 align-top first:pl-0;
+    border-color: hsl(var(--faint) / 0.35);
+  }
+  .piece-du-suivi .prose-hd th {
+    @apply font-semibold;
+  }
+  .piece-du-suivi .prose-hd td:first-child {
+    @apply min-w-[4.5rem] whitespace-nowrap;
+  }
+  .piece-du-suivi .prose-hd > *:last-child {
+    @apply mb-0;
+  }
+  .piece-du-suivi .prose-hd > [data-tableau-markdown]:last-child table {
+    @apply mb-0;
+  }
+
   /* LA ZONE D'ÉCRITURE D'UNE NOTE.
      Ce qu'on tape s'affiche déjà comme il se relira : les titres ont leur
      taille, les listes leurs puces, les citations leur trait. Rien n'est écrit
@@ -1093,6 +1231,16 @@ html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau:hover {
   background-color: color-mix(in srgb, hsl(var(--text)) 15%, hsl(var(--fond-plan)));
 }
 
+/* LA BANDE DE TITRE D'UNE PIÈCE ÉCRITE DU SUIVI DE PRODUCTION (brief,
+   direction, scénario, scène, plan) : le titre se pose sur une bande pleine
+   largeur, en haut du bloc, pour que l'œil sépare les pièces d'un coup. Même
+   recette que `.en-tete-de-panneau` : le fond de la pièce (`--surface`)
+   POUSSÉ VERS LE TEXTE, donc plus clair en sombre et plus foncé en clair, dans
+   les douze palettes, sans jeton nouveau, sans trait ni couleur d'accent. */
+.bande-de-titre-de-piece {
+  background-color: color-mix(in srgb, hsl(var(--text)) 10%, hsl(var(--surface)));
+}
+
 /* LE BLOC DES SOUS-CARTES D'UNE PILE DÉPLIÉE (page « En route »). Il pose un
    fond entre la zone et les cartes, pour distinguer les filles de la mère.
    Sombre : la moitié de l'écart entre `--fond-zone` et `--raised` (les cartes
@@ -1203,4 +1351,64 @@ html.en-veille *::after {
   100% {
     background-color: transparent;
   }
+}
+
+/*
+ * LA JAUGE À DEUX POIGNÉES : deux curseurs natifs superposés sur la même
+ * piste. Leur piste est transparente et ne capte rien ; seules les poignées
+ * reçoivent le doigt, la souris et le clavier. Une poignée ronde, au fond de
+ * la surface, sans bordure — l'ombre la détache (monochrome).
+ */
+.jauge-double input[type='range'] {
+  position: absolute;
+  inset: 0 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: none;
+}
+.jauge-double input[type='range']::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 100%;
+}
+.jauge-double input[type='range']::-moz-range-track {
+  background: transparent;
+}
+.jauge-double input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 3px;
+  border-radius: 9999px;
+  background: hsl(var(--surface));
+  box-shadow: 0 0 0 1px hsl(var(--faint) / 0.5), 0 2px 6px rgb(0 0 0 / 0.25);
+  cursor: grab;
+}
+.jauge-double input[type='range']::-moz-range-thumb {
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 9999px;
+  background: hsl(var(--surface));
+  box-shadow: 0 0 0 1px hsl(var(--faint) / 0.5), 0 2px 6px rgb(0 0 0 / 0.25);
+  cursor: grab;
+}
+.jauge-double input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px hsl(var(--text) / 0.6), 0 2px 6px rgb(0 0 0 / 0.25);
+}
+
+/* LE CADRE D'UNE QUESTION (demande du 25/10/2026, capture #1640) : partout où
+   une question attend une réponse — panneau « Une décision attend », fil,
+   feuille du bas, question en texte, questions préparées de la carte —, une
+   bordure jaune la distingue du reste. Son jeton (`--cadre-question`) est
+   déclaré en sombre comme en clair : aucune couleur en dur. */
+.cadre-de-question {
+  border: 1px solid hsl(var(--cadre-question));
 }

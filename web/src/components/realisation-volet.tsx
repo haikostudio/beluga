@@ -20,22 +20,25 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * « LIRE LE CAHIER DE RÉALISATION », DERNIÈRE LIGNE DU FIL du volet de
- * réalisation (`chat.tsx`), sous le plan et les médias en fabrication. Elle
- * remplace l'ancien bandeau (types, phase, compteur, jauge, pause, caméra) :
- * l'avancement se lit sur la jauge de suivi, le lancement est le bouton de la
- * rangée d'action (`BarreDAction`). Rien tant que le document n'existe pas.
+ * « LIRE LE CAHIER DE RÉALISATION », PIED FIXE DU VOLET « SUIVI DE LA
+ * PRODUCTION » (`volet-de-suivi.tsx`), SUR TOUTE LA LARGEUR DU VOLET : il reste
+ * visible pendant que les étapes défilent au-dessus (demande du 25/10/2026,
+ * capture #0249 — il vivait en dernière ligne du fil de la conversation ; puis
+ * capture #5f84 — calé à droite sur ordinateur, il paraissait minuscule). Rien
+ * tant que le document n'existe pas.
  */
 export function LectureDuCahierDeRealisation({ carte }: { carte: Card }) {
   const [lecture, setLecture] = React.useState(false);
   const realisation = realisationDeLaCarte(carte);
   if (!realisation.majA && !realisation.faites) return null;
   return (
-    <div className="px-4 pb-3 pt-1" data-lecture-du-cahier="realisation">
+    <div className="flex shrink-0 px-4 pb-3 pt-2" data-lecture-du-cahier="realisation">
+      {/* PLEINE LARGEUR, SUR TÉLÉPHONE (#d91d, #626f) COMME SUR ORDINATEUR (#5f84) :
+          en pied de la feuille du suivi, sous la liste des étapes, jamais posé par-dessus. */}
       <Button
         type="button"
         variant="ghost"
-        className="h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 text-[13px] font-medium text-text hover:bg-border"
+        className="h-[43px] w-full sm:h-9 min-w-0 max-w-full justify-center gap-2 rounded-lg bg-raised px-3.5 text-[13px] font-medium text-text hover:bg-border"
         onClick={() => setLecture(true)}
         data-realisation-lire
       >

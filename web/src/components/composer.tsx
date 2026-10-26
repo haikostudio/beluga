@@ -1,9 +1,13 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, Loader2, MessageSquareText, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { EVENEMENT_JOINDRE_AU_CHAMP, type DetailJoindreAuChamp } from '@/lib/joindre-au-champ';
+import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, Image as ImageIcon, Loader2, MessageSquareText, Music, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
 import {
   Agent,
   COLONNES_AVANT_LE_TRAVAIL,
+  CHOIX_DE_DEPART,
+  DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION,
+  LIBELLES_TYPES_DE_MEDIA_DE_REALISATION,
   Attachment,
   EngineInfo,
   QueuedPrompt,
@@ -37,6 +41,7 @@ import {
   effacementDeTag,
   indexDeLAncre,
   insereAncre,
+  insereTexte,
   jointesApresFrappe,
   jointesDesTags,
   jointesDuMessage,
@@ -63,6 +68,7 @@ import {
 } from '@beluga/shared';
 import { EVENEMENT_FILE_RENDUE, type DetailFileRendue, useArretAgent, useChampMonte } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { EtiquetteDeVignette } from '@/components/pastille-de-fichier';
 import {
   Button,
   type ButtonProps,
@@ -70,6 +76,12 @@ import {
   CLASSE_RANGEE_DE_BOUTONS,
   Dialog,
   DialogContent,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Drawer,
   EnteteDeFeuille,
   DialogDescription,
@@ -79,6 +91,7 @@ import {
   Textarea,
   Tooltip,
   ZoneDefilement,
+  ouvertureAuClic,
 } from '@/components/ui';
 import { type DragItem, type DropTarget, usePointerDrag } from '@/lib/dnd';
 import { IndicateurComprehension } from '@/components/indicateur-comprehension';
@@ -241,7 +254,7 @@ const BoutonInterrupteur = React.forwardRef<
         // de 7 px autour du glyphe) : le vide jusqu'au voisin est le même.
         // ICÔNE SEULE (demande du 14/10/2026) : le nom se lit au survol, dans
         // l'infobulle — deux glyphes bien distincts suffisent à les séparer.
-        'relative h-7 w-7 shrink-0 touch-manipulation px-0 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
+        'relative h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 touch-manipulation px-0 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
         CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
         // Le survol GARDE la couleur de l'état : le `hover:text-text` du bouton
         // fantôme le blanchissait, et au doigt le survol reste collé après le
@@ -278,6 +291,8 @@ function InterrupteurDePlan({ cardId, agent }: { cardId?: string; agent?: Agent 
   const [enVol, setEnVol] = React.useState(false);
   if (!carte || agent?.role !== 'cadrage') return null;
   if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
+  /* Une création de média n'a ni cahier ni plan : le suivi à droite les tient. */
+  if (carte.parcours?.realisationSouhaitee) return null;
   const actif = !!carte.parcours?.planSouhaite;
   const automatique = actif && !!carte.parcours?.planAutomatique;
   return (
@@ -378,46 +393,84 @@ function InterrupteurDeCreation({ cardId, agent }: { cardId?: string; agent?: Ag
 }
 
 /**
- * L'INTERRUPTEUR « RÉALISATION » (caméra), TROISIÈME DE LA RANGÉE.
+ * LE MENU « RÉALISATION » (caméra), TROISIÈME DE LA RANGÉE.
  *
- * Allumé, la carte devient un projet audiovisuel : le cadrage pose d'abord
- * « image ou vidéo ? » puis un questionnaire de réalisation, et l'agent de
- * tâche reçoit l'outil « realiser » qui fabrique les médias sous budget, en
- * annonçant modèle et prix avant chaque génération
- * (`shared/src/mode-realisation.ts`). L'allumer allume aussi le cahier des
- * charges. Même rangement que « Création » : sur la carte, choisi avant le
- * travail, et toujours valable à l'exécution.
+ * Le type de média se choisit ICI, AVANT l'envoi (décision de l'utilisateur
+ * du 25/10/2026) : jamais dans la discussion, où la demande est déjà partie et
+ * le choix devient ambigu. Le bouton ouvre un menu ancré à lui (MEM-4716) :
+ * Vidéo, Image, Son, puis « Désactiver » quand le mode est allumé. Choisir un
+ * type allume le mode et l'écrit sur la carte ; le bouton allumé passe en
+ * violet (l'élément choisi) et prend le glyphe du type, sans libellé. Rien ne s'ouvre à droite tant que le
+ * type n'est pas choisi (`estVoletDeRealisation`, `shared/src/mode-realisation.ts`).
  */
 function InterrupteurDeRealisation({ cardId, agent }: { cardId?: string; agent?: Agent | null }) {
   const state = useApp();
   const carte = cardId ? state.cards[cardId] : undefined;
   const [enVol, setEnVol] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(false);
   if (!carte || agent?.role !== 'cadrage') return null;
   if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
   const actif = !!carte.parcours?.realisationSouhaitee;
+  const choisi = actif ? CHOIX_DE_DEPART.find((m) => carte.realisation?.medias?.includes(m)) : undefined;
+  const choisir = (media: (typeof CHOIX_DE_DEPART)[number] | null) => {
+    setEnVol(true);
+    void client
+      .call({ type: 'card.realisation.souhaitee', cardId: carte.id, media })
+      .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
+      .finally(() => setEnVol(false));
+  };
   return (
-    <Tooltip
-      label={`${t('Réalisation')} — ${
-        actif
-          ? t('Mode réalisation : le cadrage bâtit le cahier de l’image ou de la vidéo, puis l’agent la fabrique sous votre budget.')
-          : t('Faire réaliser une image ou une vidéo : questionnaire de réalisation, puis fabrication avec modèle et prix annoncés.')
-      }`}
-    >
-      <BoutonInterrupteur
-        actif={actif}
-        enVol={enVol}
-        data-interrupteur-realisation={actif ? 'allume' : 'eteint'}
-        icone={<Video className="h-4 w-4" />}
-        libelle={t('Réalisation')}
-        onClick={() => {
-          setEnVol(true);
-          void client
-            .call({ type: 'card.realisation.souhaitee', cardId: carte.id, actif: !actif })
-            .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
-            .finally(() => setEnVol(false));
-        }}
-      />
-    </Tooltip>
+    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
+      <Tooltip
+        label={`${t('Réalisation')} — ${
+          choisi
+            ? `${t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[choisi])}. ${t('Changer de type ou désactiver la réalisation.')}`
+            : t('Faire réaliser une vidéo, une image ou un son : choisissez le type avant d’envoyer votre demande.')
+        }`}
+      >
+        <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
+          <BoutonInterrupteur
+            actif={!!choisi}
+            enVol={enVol}
+            data-interrupteur-realisation={choisi ? 'allume' : 'eteint'}
+            data-type-de-realisation={choisi ?? ''}
+            /* ICÔNE SEULE, ALLUMÉ COMME ÉTEINT (demande du 25/10/2026, capture
+               #c92f) : le mot « Vidéo » posé à côté élargissait la rangée. Le
+               type choisi se lit à son GLYPHE — caméra, image ou note —, puis
+               en toutes lettres dans l'infobulle et le menu. */
+            icone={choisi === 'image' ? <ImageIcon className="h-4 w-4" /> : choisi === 'son' ? <Music className="h-4 w-4" /> : <Video className="h-4 w-4" />}
+            libelle={choisi ? `${t('Réalisation')} — ${t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[choisi])}` : t('Réalisation')}
+          />
+        </DropdownMenuTrigger>
+      </Tooltip>
+      <DropdownMenuContent align="start" side="top" collisionPadding={8} className="w-[min(320px,calc(100vw-16px))]" data-menu-realisation="">
+        <DropdownMenuLabel>{t('Que voulez-vous obtenir ?')}</DropdownMenuLabel>
+        {CHOIX_DE_DEPART.map((media) => (
+          <DropdownMenuItem
+            key={media}
+            data-choix-realisation={media}
+            data-actif={media === choisi ? '' : undefined}
+            aria-current={media === choisi ? 'true' : undefined}
+            onSelect={() => media !== choisi && choisir(media)}
+            className={cn('items-start gap-2 rounded-md px-2 py-1.5', media === choisi ? 'text-teinte' : 'text-muted data-[highlighted]:text-text')}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px]">{t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[media])}</span>
+              <span className="block text-[12px] leading-snug text-faint">{t(DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION[media])}</span>
+            </span>
+            <Check className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 text-teinte', media !== choisi && 'invisible')} aria-hidden />
+          </DropdownMenuItem>
+        ))}
+        {actif ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem data-choix-realisation="desactiver" onSelect={() => choisir(null)} className="rounded-md px-2 py-1.5 text-[13px] text-muted data-[highlighted]:text-text">
+              {t('Désactiver la réalisation')}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -484,6 +537,16 @@ interface EditionDeMessage {
   /** Celles que la page ne sait pas encore nommer : elles restent au message, quoi qu'il arrive ici. */
   inconnues: string[];
 }
+
+/**
+ * LE CHAMP A LE FOCUS, SUR TÉLÉPHONE (demande du 25/10/2026, capture #5e66) :
+ * le repère des tâches posé juste au-dessus (`barreTravail`) se replie alors
+ * sur sa ligne d'en-tête pour laisser la place au clavier, puis retrouve son
+ * état exact au blur — un repli PASSAGER, qui ne touche jamais au pli retenu
+ * (`usePliDesTaches`). Fourni autour de `barreTravail` seulement : chaque
+ * composer ne replie que le repère de son propre fil.
+ */
+export const ChampFocaliseSurTelephone = React.createContext(false);
 
 export function Composer({
   agent,
@@ -772,6 +835,47 @@ export function Composer({
       return suite.texte;
     });
   };
+
+  /*
+   * « REDEMANDER AVEC UNE CONSIGNE », depuis le menu « … » d'un média
+   * (`menu-du-media.tsx`) : la pièce rejoint le champ de CET agent, son tag
+   * est posé au curseur, et le champ prend la main pour qu'on écrive tout de
+   * suite ce qu'on veut changer. Rien ne part sans l'envoi.
+   */
+  const poseAncreCourante = React.useRef(poseAncre);
+  poseAncreCourante.current = poseAncre;
+  React.useEffect(() => {
+    const joindre = (event: Event) => {
+      const detail = (event as CustomEvent<DetailJoindreAuChamp>).detail;
+      if (!detail || detail.agentId !== agentIdCourant.current || editionCourante.current) return;
+      detail.recu = true;
+      /* « CORRIGER AVEC L'AGENT », depuis une pièce du suivi : son étiquette se pose au curseur. */
+      if (detail.texte) {
+        const etiquette = detail.texte;
+        setText((avant) => {
+          if (avant.includes(etiquette)) return avant;
+          const pose = insereTexte(avant, etiquette, curseur.current);
+          /* Posée en fin de texte, elle laisse un espace : on écrit la correction tout de suite. */
+          const suite = pose.curseur === pose.texte.length ? { texte: `${pose.texte} `, curseur: pose.curseur + 1 } : pose;
+          curseur.current = suite.curseur;
+          curseurAPoser.current = suite.curseur;
+          return suite.texte;
+        });
+        requestAnimationFrame(() => textareaRef.current?.focus());
+        return;
+      }
+      const jointe = detail.piece;
+      if (!jointe) return;
+      if (!attachmentsCourantes.current.some((a) => a.id === jointe.id)) {
+        attachmentsCourantes.current = [...attachmentsCourantes.current, jointe];
+        setAttachments((liste) => (liste.some((a) => a.id === jointe.id) ? liste : [...liste, jointe]));
+        poseAncreCourante.current(designationDePiece(jointe));
+      }
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    window.addEventListener(EVENEMENT_JOINDRE_AU_CHAMP, joindre);
+    return () => window.removeEventListener(EVENEMENT_JOINDRE_AU_CHAMP, joindre);
+  }, [setAttachments]);
 
   /**
    * Survoler une vignette montre le passage auquel le fichier se rapporte :
@@ -2182,7 +2286,7 @@ export function Composer({
       ) : (
         /* Collée à la zone de saisie, rien entre les deux : la file d'attente,
            les pièces jointes et l'édition en cours restent au-dessus. */
-        barreTravail
+        <ChampFocaliseSurTelephone.Provider value={telephone && champFocalise}>{barreTravail}</ChampFocaliseSurTelephone.Provider>
       )}
 
       <div className={cn('flex items-end gap-1.5', recorder.recording && 'hidden')}>
@@ -2422,7 +2526,12 @@ export function Composer({
           }
           rows={1}
           className={cn(
-            'relative z-10 min-h-[38px] border-0 bg-transparent focus-visible:ring-0',
+            /* LE DÉFILEMENT DU CHAMP NE SE TRANSMET JAMAIS À LA PAGE (#deca) :
+               arrivé en haut de son texte, un geste vers le haut faisait glisser
+               toute la vue de l'iPhone sous le clavier ; le toucher suivant
+               posait alors le curseur à l'endroit d'AVANT ce glissement,
+               décalé de lui. `overscroll-contain` garde le geste dans le champ. */
+            'relative z-10 min-h-[38px] overscroll-contain border-0 bg-transparent focus-visible:ring-0',
             aDesDrapeaux && 'texte-sous-calque caret-text',
           )}
         />
@@ -2499,9 +2608,7 @@ export function Composer({
                     ) : (
                       <Paperclip className="h-5 w-5" />
                     )}
-                    <span className="absolute inset-x-0 bottom-0 truncate bg-surface/85 px-1 text-center text-[10px] leading-4 text-muted">
-                      {etiquette}
-                    </span>
+                    <EtiquetteDeVignette texte={etiquette} />
                   </button>
                   <button
                     type="button"
@@ -2509,7 +2616,7 @@ export function Composer({
                     aria-label={t('Retirer ce fichier')}
                     onClick={() => retirerJointe(file)}
                     data-piece-retirer
-                    className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface/90 text-muted hover:text-danger"
+                    className="absolute right-0.5 top-0.5 flex h-6 sm:h-5 w-6 sm:w-5 items-center justify-center rounded-full bg-surface/90 text-muted hover:text-danger"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -2553,7 +2660,7 @@ export function Composer({
           {reglages}
 
           {onProposeTask && !edition && text.trim() ? (
-            <Button variant="ghost" size="sm" className={cn('h-7 min-w-0 shrink', CLASSE_MARGE_DU_LIBELLE_DU_CHAMP)} onClick={() => submit(true)}>
+            <Button variant="ghost" size="sm" className={cn('h-[34px] sm:h-7 min-w-0 shrink', CLASSE_MARGE_DU_LIBELLE_DU_CHAMP)} onClick={() => submit(true)}>
               {t('En faire une tâche')}</Button>
           ) : null}
 
@@ -2696,7 +2803,7 @@ function LigneEnvoi({ envoi }: { envoi: Envoi }) {
           type="button"
           data-envoi-annuler
           aria-label="Annuler l'envoi"
-          className="shrink-0 rounded p-1 text-muted hover:bg-surface hover:text-danger"
+          className="shrink-0 rounded p-1.5 sm:p-1 text-muted hover:bg-surface hover:text-danger"
           onClick={envoi.annuler}
         >
           <X className="h-3.5 w-3.5" />
@@ -2737,7 +2844,11 @@ function FileDAttente({
         title={libelle}
         aria-label="Messages en attente"
         data-file-attente-pastille={queue.length}
-        className="absolute bottom-full right-4 z-10 mb-2 flex h-9 items-center gap-1.5 rounded-full bg-raised px-3 text-text shadow-md hover:bg-border"
+        /* JAUNE À ÉCRITURE NOIRE (demande du 24/10/2026) : le bouton doit se voir
+           du premier coup d'œil. Exception VOULUE à l'interface monochrome — un
+           jaune fixe, le même dans les douze palettes, jamais un jeton de thème
+           détourné (`--warning` est gris). Sans bordure, comme tout bouton. */
+        className="absolute bottom-full right-4 z-10 mb-2 flex h-[43px] sm:h-9 items-center gap-1.5 rounded-full bg-[#FACC15] px-3 text-black shadow-md hover:bg-[#EAB308]"
       >
         <MessageSquareText className="h-4 w-4" />
         <span className="text-[13px] font-semibold tabular-nums">{queue.length}</span>

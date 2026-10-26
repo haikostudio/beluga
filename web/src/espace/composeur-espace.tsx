@@ -131,7 +131,7 @@ export function ComposeurEspace({
             onClick={() => setPiecesOuvertes((ouvert) => !ouvert)}
             aria-expanded={piecesOuvertes}
             data-pieces-bascule
-            className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[12.5px] text-faint hover:text-text"
+            className="flex w-full items-center gap-1.5 rounded-md px-1.5 sm:px-1 py-1.5 sm:py-1 text-left text-[12.5px] text-faint hover:text-text"
           >
             <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{t('{v0} pièces jointes', { v0: pieces.length })}</span>
@@ -174,7 +174,7 @@ export function ComposeurEspace({
                 key={personne.id}
                 type="button"
                 onClick={() => poserLaMention(personne.nom)}
-                className="block w-full px-2 py-1.5 text-left text-[13px] text-text hover:bg-raised"
+                className="block w-full px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13px] text-text hover:bg-raised"
                 data-mention={personne.id}
               >
                 @{personne.nom}

@@ -159,6 +159,12 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
     case 'studio.creation.ouvrir':
       return creationOuverte(String(cmd.id ?? ''));
 
+    case 'studio.carte.montage': {
+      const { ouvrirLeMontageDeLaCarte } = await import('./studio-montage-de-carte.js');
+      const r = await ouvrirLeMontageDeLaCarte(String(cmd.cardId ?? ''));
+      return { creationId: r.creation.id, aVerser: r.aVerser };
+    }
+
     case 'studio.creation.modifier':
       return { creation: ou(modifierCreation(String(cmd.id ?? ''), cmd)).creation };
 

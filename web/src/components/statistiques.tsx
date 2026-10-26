@@ -324,7 +324,7 @@ export function Statistiques({
                   onClick={() => setRecherche('')}
                   aria-label="Effacer la recherche"
                   title={t('Effacer la recherche')}
-                  className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-faint hover:text-text"
+                  className="absolute right-1 top-1/2 flex h-[29px] sm:h-6 w-[29px] sm:w-6 -translate-y-1/2 items-center justify-center rounded-sm text-faint hover:text-text"
                   data-stats-recherche-effacer
                 >
                   <X className="h-3.5 w-3.5" />
@@ -1426,7 +1426,7 @@ function Parcours({
                   <button
                     type="button"
                     onClick={() => setVisiteur(v.id)}
-                    className="flex w-full items-center gap-2 rounded-sm px-1 py-1 text-left text-[12.5px] hover:bg-surface"
+                    className="flex w-full items-center gap-2 rounded-sm px-1.5 sm:px-1 py-1.5 sm:py-1 text-left text-[12.5px] hover:bg-surface"
                     data-stats-visiteur={v.id}
                   >
                     <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted">{v.id.slice(0, 8)}</span>
@@ -1888,7 +1888,7 @@ function AssistantInstallation({
       </ZoneDefilement>
       <footer className="flex shrink-0 items-center gap-2 px-4 pb-4 pt-2" data-stats-assistant-pied>
         {retourPossible ? (
-          <Button variant="subtle" size="icon" className="h-9 w-9 shrink-0" aria-label="Retour" title={t('Retour')} onClick={retour} data-stats-assistant-retour>
+          <Button variant="subtle" size="icon" className="h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0" aria-label="Retour" title={t('Retour')} onClick={retour} data-stats-assistant-retour>
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
         ) : null}

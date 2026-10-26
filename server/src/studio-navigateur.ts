@@ -155,6 +155,30 @@ interface Session {
 let session: Session | null = null;
 /** Une lecture de nuit (ou d'après vérification) tient le navigateur : rien d'autre ne l'ouvre pendant ce temps. */
 let lectureEnCours: string | null = null;
+/**
+ * UN AUTRE SERVICE DU DÉMON TIENT LE NAVIGATEUR (machine de 7 Go : un seul
+ * Chrome du démon à la fois, tous services confondus). Il le prend par
+ * `prendreLeNavigateur`, le rend par `rendreLeNavigateur` ; tant qu'il le
+ * tient, ni le volet ni la lecture de nuit ne s'ouvrent ici.
+ */
+let tenuAilleurs: string | null = null;
+
+/** Le navigateur du démon est-il libre ? */
+export function navigateurLibre(): boolean {
+  return !session && !lectureEnCours && !tenuAilleurs;
+}
+
+/** Prendre le navigateur pour un autre service. Faux s'il est déjà pris : on attend sa place, on n'en ouvre pas un second. */
+export function prendreLeNavigateur(qui: string): boolean {
+  if (tenuAilleurs === qui) return true;
+  if (!navigateurLibre()) return false;
+  tenuAilleurs = qui;
+  return true;
+}
+
+export function rendreLeNavigateur(qui: string): void {
+  if (tenuAilleurs === qui) tenuAilleurs = null;
+}
 
 function dire(sourceId: string, champs: { etat?: 'ouvert' | 'ferme' | 'lecture' | 'verifie' | 'echec'; texte?: string; image?: string; largeur?: number; hauteur?: number; adresse?: string }) {
   bus.emit({ type: 'studio.navigateur', sourceId, ...champs });
@@ -185,6 +209,7 @@ export async function ouvrirVerification(sourceId: string, adresse: string): Pro
     return;
   }
   if (lectureEnCours) throw new Error('Le navigateur lit déjà une source : réessayez dans une minute.');
+  if (tenuAilleurs) throw new Error('Le navigateur du serveur est pris par un autre service : réessayez dans quelques minutes.');
   if (session) await fermerVerification(session.sourceId, 'Fermé : un autre volet de vérification s’est ouvert.');
   const contexte = await ouvrirContexte(sourceId);
   const page = contexte.pages()[0] ?? (await contexte.newPage());
@@ -269,7 +294,7 @@ export async function fermerVerification(sourceId: string, texte?: string): Prom
  * Rend null quand le navigateur est déjà pris (le volet d'une autre source est ouvert) : la nuit réessaiera.
  */
 export async function avecNavigateur<T>(sourceId: string, adresse: string, travail: (lecteur: Lecteur) => Promise<T>): Promise<T | null> {
-  if (session || lectureEnCours) return null;
+  if (session || lectureEnCours || tenuAilleurs) return null;
   lectureEnCours = sourceId;
   let contexte: BrowserContext | null = null;
   try {

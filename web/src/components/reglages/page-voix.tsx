@@ -260,7 +260,7 @@ export function VoiceSection({ open }: { open: boolean }) {
             }}
             onKeyDown={surToucheRaccourci}
             className={cn(
-              'flex-1 rounded-md px-2 py-1.5 text-left text-[13.5px] transition-colors',
+              'flex-1 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13.5px] transition-colors',
               captureRaccourci ? 'bg-border text-text' : 'bg-raised text-text hover:bg-border',
             )}
           >

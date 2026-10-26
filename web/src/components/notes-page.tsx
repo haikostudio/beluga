@@ -22,6 +22,7 @@ import {
   Input,
   ZoneDefilement,
   ListeDeroulante,
+  ChoixDateEtHeure,
 } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { EditeurRiche } from '@/components/editeur-riche';
@@ -329,7 +330,7 @@ export function NotesPage({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 shrink-0"
+                  className="h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0"
                   title={t('Trier les notes')}
                   aria-label="Trier les notes"
                   data-tri-notes={tri}
@@ -741,14 +742,7 @@ function FicheNote({
           className="h-7 w-auto text-[12.5px]"
           options={IMPORTANCES_NOTE.map((cle) => ({ valeur: cle, libelle: t(LIBELLES_IMPORTANCE[cle]) }))}
         />
-        <input
-          type="datetime-local"
-          value={echeance}
-          aria-label="Échéance de la note"
-          data-echeance-note
-          onChange={(event) => setEcheance(event.target.value)}
-          className="h-7 rounded-md border border-transparent bg-raised px-2 text-[12.5px]"
-        />
+        <ChoixDateEtHeure valeur={echeance} onChange={setEcheance} data-echeance-note="" className="w-auto" classeChamp="h-7 sm:h-7 px-2 text-[12.5px]" />
       </div>
 
       <EditeurRiche
@@ -787,7 +781,7 @@ function FicheNote({
                   title={t('Retirer ce fichier')}
                   aria-label="Retirer ce fichier"
                   onClick={() => setJointes((actuelles) => actuelles.filter((f) => f !== id))}
-                  className="absolute -right-1 -top-1 rounded-full bg-raised p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
+                  className="absolute -right-1 -top-1 rounded-full bg-raised p-1 sm:p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>

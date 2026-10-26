@@ -109,6 +109,7 @@ import {
   agentRetientLaPublication,
   raisonLancementEnPreparation,
   processusJoueAuDeploiement,
+  horsDuLotDeDeploiement,
 } from '@beluga/shared';
 import * as store from './store.js';
 // LE DÉPÔT PUBLIC DE BELUGA SE LIT, IL NE SE POUSSE JAMAIS (lecture OU envoi vers lui).
@@ -223,7 +224,8 @@ export function deployableCards(projectId: string, source: ColumnKey = 'to_deplo
   if (etapeDeLaColonne(source)?.sansLot) return [];
   const cards = store
     .listCardsInColumn(projectId, source)
-    .filter((card) => !card.excludedFromDeploy)
+    /* Écartée à la main, ou CRÉATION DE MÉDIA : un média ne livre aucun code (`horsDuLotDeDeploiement`). */
+    .filter((card) => !horsDuLotDeDeploiement(card))
     .filter((card) => !card.deployedAt)
     /* LA CARTE D'UN AGENT DE VOLET NE LIVRE AUCUN CODE : elle ne rejoint
        jamais le lot, donc ne reçoit jamais de date de mise en ligne — c'est

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertCircle, Check, ChevronDown, GitMerge, LayoutGrid, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, CornerDownLeft, GitMerge, LayoutGrid, Loader2 } from 'lucide-react';
 import {
   Message,
   descriptionRepliable,
@@ -61,18 +61,11 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
    * (`shared/src/jugement-rapide.ts`).
    */
   const attente = trierParInteret(propositionsEnAttente(messages), (entree) => entree.proposal.interet?.rang);
-  const [selectionActive, setSelectionActive] = React.useState(false);
-  const [selection, setSelection] = React.useState<string[]>([]);
-  const [fusionEnCours, setFusionEnCours] = React.useState(false);
+  const fusion = useFusionDePropositions(attente, { toutCocher: true });
   const [ouvert, setOuvert] = React.useState(pliInitial);
   const idsEnAttente = attente.map((entree) => entree.proposal.id);
   const cleAttente = idsEnAttente.join('|');
   const dejaVues = React.useRef<Set<string>>(new Set(idsEnAttente));
-
-  React.useEffect(() => {
-    setSelection((courante) => courante.filter((id) => idsEnAttente.includes(id)));
-    if (idsEnAttente.length < 2) setSelectionActive(false);
-  }, [cleAttente]);
 
   /* Une proposition JAMAIS VUE rouvre le bandeau : un pli est un confort de
      lecture, pas un moyen de rater une décision qui vous attend. */
@@ -95,37 +88,6 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
 
   if (!attente.length) return null;
 
-  const ouvrirSelection = () => {
-    setSelection(idsEnAttente);
-    setSelectionActive(true);
-  };
-  const fermerSelection = () => {
-    setSelection([]);
-    setSelectionActive(false);
-  };
-  const basculer = (id: string) =>
-    setSelection((courante) => (courante.includes(id) ? courante.filter((item) => item !== id) : [...courante, id]));
-
-  const fusionner = async () => {
-    const items = attente
-      .filter((entree) => selection.includes(entree.proposal.id))
-      .map((entree) => ({ messageId: entree.messageId, proposalId: entree.proposal.id }));
-    if (items.length < 2) return;
-    setFusionEnCours(true);
-    try {
-      const resultat = await client.call<{ already?: boolean }>({ type: 'proposal.merge', items });
-      client.pushToast(
-        'success',
-        resultat.already ? t('Ces propositions étaient déjà réunies') : t('Propositions réunies, à relire avant validation'),
-      );
-      fermerSelection();
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'fusion impossible');
-    } finally {
-      setFusionEnCours(false);
-    }
-  };
-
   return (
     <div
       data-bandeau="propositions"
@@ -140,7 +102,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
           aria-expanded={ouvert}
           onClick={basculerPli}
           title={ouvert ? t('Replier les cartes à valider') : t('Déplier les cartes à valider')}
-          className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-left transition-colors hover:bg-raised"
         >
           <LayoutGrid className="h-3 w-3 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate">
@@ -149,15 +111,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
           </span>
           <ChevronDown className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouvert && 'rotate-180')} />
         </button>
-        {ouvert && !selectionActive && attente.length > 1 ? (
-          <button
-            type="button"
-            onClick={ouvrirSelection}
-            className="flex shrink-0 items-center gap-1 text-[12px] text-accent hover:text-text"
-          >
-            <GitMerge className="h-3 w-3" />  {t('Fusionner')}
-</button>
-        ) : null}
+        {ouvert ? <BoutonFusionner fusion={fusion} /> : null}
       </div>
 
       {ouvert ? (
@@ -173,9 +127,9 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
               messageId={entree.messageId}
               agentId={entree.agentId}
               proposal={entree.proposal}
-              selectionActive={selectionActive}
-              selectionnee={selection.includes(entree.proposal.id)}
-              onSelection={() => basculer(entree.proposal.id)}
+              selectionActive={fusion.selectionActive}
+              selectionnee={fusion.selection.includes(entree.proposal.id)}
+              onSelection={() => fusion.basculer(entree.proposal.id)}
             />
           ))}
         </ZoneDefilement>
@@ -183,23 +137,109 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
         <div className="h-1.5" aria-hidden="true" />
       )}
 
-      {ouvert && selectionActive ? (
-        <div data-fusion-propositions="actions" className="flex items-center gap-1.5 border-t border-border px-4 py-1.5">
-          <Button size="sm" variant="ghost" className="flex-1" disabled={fusionEnCours} onClick={fermerSelection}>
-            {t('Annuler')}</Button>
-          <Button
-            size="sm"
-            variant="default"
-            className="flex-1"
-            disabled={selection.length < 2 || fusionEnCours}
-            onClick={fusionner}
-          >
-            {fusionEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitMerge className="h-3 w-3" />}
-            
-{t('Fusionner (')}{selection.length})
-          </Button>
-        </div>
-      ) : null}
+      {ouvert ? <BarreDeFusion fusion={fusion} className="px-4" /> : null}
+    </div>
+  );
+}
+
+/** Ce qu'il faut d'une proposition en attente pour la réunir : son message et son id. */
+interface EntreeFusionnable {
+  messageId: string;
+  proposal: { id: string };
+}
+
+export type FusionDePropositions = ReturnType<typeof useFusionDePropositions>;
+
+/**
+ * LA SÉLECTION ET LA FUSION DES PROPOSITIONS EN ATTENTE, partagées par le
+ * bandeau des conversations sans carte et par le bloc « Suggestion de carte »
+ * d'une carte (demande du 24/10/2026 : « fusionner la 3 et la 4 »). Seules
+ * les propositions en attente se réunissent (`proposal.merge`) ; la réunie
+ * s'ouvre en édition, ses sources quittent la rangée.
+ *
+ * `toutCocher` : le bandeau coche d'office toutes ses propositions (il en porte
+ * rarement plus de deux) ; le bloc d'une carte part d'une sélection VIDE, pour
+ * qu'on y choisisse « la 3 et la 4 » parmi bien d'autres.
+ */
+export function useFusionDePropositions(attente: EntreeFusionnable[], { toutCocher = false }: { toutCocher?: boolean } = {}) {
+  const [selectionActive, setSelectionActive] = React.useState(false);
+  const [selection, setSelection] = React.useState<string[]>([]);
+  const [enCours, setEnCours] = React.useState(false);
+  const ids = attente.map((entree) => entree.proposal.id);
+  const cle = ids.join('|');
+
+  React.useEffect(() => {
+    setSelection((courante) => courante.filter((id) => ids.includes(id)));
+    if (ids.length < 2) setSelectionActive(false);
+  }, [cle]);
+
+  const ouvrir = () => {
+    setSelection(toutCocher ? ids : []);
+    setSelectionActive(true);
+  };
+  const fermer = () => {
+    setSelection([]);
+    setSelectionActive(false);
+  };
+  const basculer = (id: string) =>
+    setSelection((courante) => (courante.includes(id) ? courante.filter((item) => item !== id) : [...courante, id]));
+
+  const fusionner = async () => {
+    const items = attente
+      .filter((entree) => selection.includes(entree.proposal.id))
+      .map((entree) => ({ messageId: entree.messageId, proposalId: entree.proposal.id }));
+    if (items.length < 2) return;
+    setEnCours(true);
+    try {
+      const resultat = await client.call<{ already?: boolean }>({ type: 'proposal.merge', items });
+      client.pushToast(
+        'success',
+        resultat.already ? t('Ces propositions étaient déjà réunies') : t('Propositions réunies, à relire avant validation'),
+      );
+      fermer();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'fusion impossible');
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  return { possible: ids.length > 1, selectionActive, selection, enCours, ouvrir, fermer, basculer, fusionner };
+}
+
+/** Le lien « Fusionner » d'un en-tête : il ouvre la sélection, dès deux propositions en attente. */
+export function BoutonFusionner({ fusion }: { fusion: FusionDePropositions }) {
+  if (!fusion.possible || fusion.selectionActive) return null;
+  return (
+    <button
+      type="button"
+      onClick={fusion.ouvrir}
+      className="flex shrink-0 items-center gap-1 text-[12px] text-accent hover:text-text"
+      data-fusion-propositions="ouvrir"
+    >
+      <GitMerge className="h-3 w-3" aria-hidden /> {t('Fusionner')}
+    </button>
+  );
+}
+
+/** La barre « Annuler / Fusionner (N) » posée sous la rangée pendant la sélection. */
+export function BarreDeFusion({ fusion, className }: { fusion: FusionDePropositions; className?: string }) {
+  if (!fusion.selectionActive) return null;
+  return (
+    <div data-fusion-propositions="actions" className={cn('flex items-center gap-1.5 border-t border-border py-1.5', className)}>
+      <Button size="sm" variant="ghost" className="flex-1" disabled={fusion.enCours} onClick={fusion.fermer}>
+        {t('Annuler')}
+      </Button>
+      <Button
+        size="sm"
+        variant="default"
+        className="flex-1"
+        disabled={fusion.selection.length < 2 || fusion.enCours}
+        onClick={fusion.fusionner}
+      >
+        {fusion.enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitMerge className="h-3 w-3" />}
+        {t('Fusionner (')}{fusion.selection.length})
+      </Button>
     </div>
   );
 }
@@ -219,9 +259,15 @@ export function VignetteProposition({
   selectionActive,
   selectionnee,
   onSelection,
+  integrable = false,
   className,
 }: {
   messageId: string;
+  /**
+   * « Intégrer à cette carte » : seulement dans le bloc des suggestions d'une
+   * carte, où il y a une carte actuelle à qui envoyer la suggestion.
+   */
+  integrable?: boolean;
   /** Ajouté au cadre : la rangée des suggestions l'étire à sa hauteur (`flex-1`). */
   className?: string;
   /** L'agent de la conversation : la carte hérite de SES réglages par défaut. */
@@ -237,6 +283,7 @@ export function VignetteProposition({
   const [ouverte, setOuverte] = React.useState(false);
   const [title, setTitle] = React.useState(proposal.title);
   const [description, setDescription] = React.useState(proposal.description);
+  const etapes = proposal.etapes ?? [];
 
   /*
    * Moteur, modèle et niveau de réflexion sont choisis AVANT que la carte
@@ -301,11 +348,41 @@ export function VignetteProposition({
           ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id, account: choix?.account }
           : undefined,
       });
-      client.pushToast(accept ? 'success' : 'info', accept ? t('Carte créée dans « Planifié »') : t('Carte refusée'));
+      client.pushToast(
+        accept ? 'success' : 'info',
+        accept
+          ? etapes.length
+            ? t('Suite créée dans « Planifié » : lancez sa carte globale pour démarrer l’étape 1')
+            : t('Carte créée dans « Planifié »')
+          : t('Carte refusée'),
+      );
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('décision impossible'));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /* LA SUGGESTION PART EN MESSAGE à l'agent de la carte (en file s'il
+     travaille), telle qu'on l'a sous les yeux, retouches comprises. */
+  const [integration, setIntegration] = React.useState(false);
+  const integrer = async () => {
+    setBusy(true);
+    setIntegration(true);
+    try {
+      const resultat = await client.call<{ already?: boolean }>({
+        type: 'proposal.integrate',
+        messageId,
+        proposalId: proposal.id,
+        title: title.trim() || proposal.title,
+        description,
+      });
+      if (!resultat?.already) client.pushToast('success', t('Envoyé à l\'agent de la carte'));
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('envoi impossible'));
+    } finally {
+      setBusy(false);
+      setIntegration(false);
     }
   };
 
@@ -333,7 +410,11 @@ export function VignetteProposition({
           </button>
         ) : null}
         <span className="min-w-0 flex-1 truncate">
-          {proposal.sourceProposalIds.length ? t('Proposition réunie') : t('À valider')}
+          {etapes.length
+            ? t('Suite de {n} étapes à valider', { n: etapes.length })
+            : proposal.sourceProposalIds.length
+              ? t('Proposition réunie')
+              : t('À valider')}
         </span>
         <button
           onClick={() => setEditing((current) => !current)}
@@ -393,6 +474,19 @@ export function VignetteProposition({
           </>
         )}
 
+        {/* UNE SUITE SE LIT D'UN BLOC, DANS L'ORDRE : un seul clic la pose entière,
+            et ses étapes partiront une à une (`shared/src/suite-de-cartes.ts`). */}
+        {etapes.length ? (
+          <ol className="mt-2 space-y-1" data-etapes-proposees={etapes.length}>
+            {etapes.map((etape, index) => (
+              <li key={index} className="flex gap-2 text-[13px] leading-snug" data-etape-proposee={index + 1}>
+                <span className="w-4 shrink-0 text-right tabular-nums text-faint">{index + 1}.</span>
+                <span className="min-w-0 break-words text-text">{etape.title}</span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+
         {proposal.labels.length ? (
           <div className="mt-2 flex flex-wrap gap-1">
             {proposal.labels.map((label) => (
@@ -414,8 +508,25 @@ export function VignetteProposition({
       <div className="mt-auto flex flex-col gap-1 border-t border-border px-2 py-1.5">
         <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur comptes={state.quotas} />
         <Button size="pied" variant="default" disabled={busy || selectionActive} onClick={() => decide(true)}>
-          <Check className="h-3 w-3" />  {t('Créer la carte')}
+          <Check className="h-3 w-3" />  {etapes.length ? t('Créer la suite') : t('Créer la carte')}
 </Button>
+        {integrable ? (
+          <Button
+            size="pied"
+            variant="ghost"
+            disabled={busy || selectionActive}
+            onClick={integrer}
+            /* SA PROPRE ROUE, LIBELLÉ GARDÉ (capture #f524) : l'attente générique
+               du bouton effaçait le texte et ne laissait qu'une roue muette. */
+            sansAttente
+            title={t('Envoyer cette suggestion en message à l\'agent de cette carte')}
+            data-suggestion-integrer=""
+            data-integration-en-cours={integration ? '' : undefined}
+          >
+            {integration ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <CornerDownLeft className="h-3 w-3" aria-hidden />}
+            {t('Intégrer à cette carte')}
+          </Button>
+        ) : null}
         <Button size="pied" variant="ghost" disabled={busy || selectionActive} onClick={() => decide(false)}>
           {t('Refuser')}</Button>
       </div>

@@ -628,7 +628,7 @@ export function TiroirDemande({
                   <button
                     type="button"
                     onClick={() => basculerLeRepli(!replie)}
-                    className="-my-1 flex shrink-0 items-center gap-1 rounded p-1 hover:text-text"
+                    className="-my-1 flex shrink-0 items-center gap-1 rounded p-1.5 sm:p-1 hover:text-text"
                     aria-expanded={!replie}
                     aria-label={replie ? t('Afficher la description') : t('Masquer la description')}
                     title={replie ? t('Afficher la description') : t('Masquer la description')}

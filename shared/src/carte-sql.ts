@@ -43,6 +43,10 @@ export const CHAMPS_SORTIS_DU_JSON = [
   'rangeeTableauDeBordAt',
   'brancheChoisie',
   'brancheDeDepart',
+  'teteDeSuite',
+  'rangDansLaSuite',
+  'etapeFinieAt',
+  'departDeLaSuiteAt',
   'lastReadAt',
   'deployedAt',
   'createdAt',
@@ -74,6 +78,10 @@ export interface LigneCarte {
   rangee_tableau_de_bord_at?: number | null;
   branche_choisie?: string | null;
   branche_de_depart?: string | null;
+  tete_de_suite?: number | null;
+  rang_dans_la_suite?: number | null;
+  etape_finie_at?: number | null;
+  depart_de_la_suite_at?: number | null;
   last_read_at?: number | null;
   run_engine?: string | null;
   run_model?: string | null;
@@ -112,6 +120,11 @@ export interface ColonnesCarte {
   /** La branche choisie à la main (`brancheChoisie`) et son départ. */
   branche_choisie: string | null;
   branche_de_depart: string | null;
+  /** La carte globale d'une suite, le rang d'une étape, sa fin retenue, son départ (`shared/src/suite-de-cartes.ts`). */
+  tete_de_suite: number | null;
+  rang_dans_la_suite: number | null;
+  etape_finie_at: number | null;
+  depart_de_la_suite_at: number | null;
   last_read_at: number | null;
   run_engine: string;
   run_model: string | null;
@@ -170,6 +183,10 @@ export function colonnesDeLaCarte(card: Card): ColonnesCarte {
     rangee_tableau_de_bord_at: card.rangeeTableauDeBordAt ?? null,
     branche_choisie: card.brancheChoisie ?? null,
     branche_de_depart: card.brancheDeDepart ?? null,
+    tete_de_suite: card.teteDeSuite ? 1 : null,
+    rang_dans_la_suite: card.rangDansLaSuite ?? null,
+    etape_finie_at: card.etapeFinieAt ?? null,
+    depart_de_la_suite_at: card.departDeLaSuiteAt ?? null,
     last_read_at: card.lastReadAt ?? null,
     run_engine: card.run.engine,
     run_model: card.run.model ?? null,
@@ -255,6 +272,13 @@ export function carteDepuisLigne(
       : {}),
     ...(texte(ligne.branche_choisie, 'brancheChoisie') ? { brancheChoisie: texte(ligne.branche_choisie, 'brancheChoisie') } : {}),
     ...(texte(ligne.branche_de_depart, 'brancheDeDepart') ? { brancheDeDepart: texte(ligne.branche_de_depart, 'brancheDeDepart') } : {}),
+    // Les champs d'une suite : absents, aucune clé — une carte ordinaire se relit à l'identique.
+    ...(drapeau(ligne.tete_de_suite, 'teteDeSuite') ? { teteDeSuite: true } : {}),
+    ...(nombre(ligne.rang_dans_la_suite, 'rangDansLaSuite') != null ? { rangDansLaSuite: nombre(ligne.rang_dans_la_suite, 'rangDansLaSuite') } : {}),
+    ...(nombre(ligne.etape_finie_at, 'etapeFinieAt') != null ? { etapeFinieAt: nombre(ligne.etape_finie_at, 'etapeFinieAt') } : {}),
+    ...(nombre(ligne.depart_de_la_suite_at, 'departDeLaSuiteAt') != null
+      ? { departDeLaSuiteAt: nombre(ligne.depart_de_la_suite_at, 'departDeLaSuiteAt') }
+      : {}),
     lastReadAt: nombre(ligne.last_read_at, 'lastReadAt'),
   });
 }

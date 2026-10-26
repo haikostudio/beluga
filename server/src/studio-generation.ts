@@ -77,6 +77,7 @@ import {
 import { log } from './logger.js';
 import * as store from './store.js';
 import { cheminDePieceJointe } from './pieces-jointes.js';
+import { consigneAEnvoyer } from './traduction-des-consignes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -889,7 +890,11 @@ export async function devisDeGeneration(entree: {
   const format = entree.format ?? creation.formats[0] ?? '9:16';
   let modele: string;
   let plafond: number | null;
-  const details: Record<string, unknown> = { consigne, format };
+  /* LA CONSIGNE PART EN ANGLAIS (24/10/2026), traduite au devis, avant toute
+     dépense ; l'originale reste dans le détail. Un échec refuse le devis. */
+  const envoyee = await consigneAEnvoyer(entree.genre === 'clip' ? 'video' : entree.genre, consigne);
+  if (!envoyee.ok) return { ok: false, raison: `la consigne n’a pas pu être traduite en anglais (${envoyee.raison}) : rien n’est proposé` };
+  const details: Record<string, unknown> = { consigne: envoyee.consigne, ...(envoyee.originale ? { consigneOriginale: envoyee.originale } : {}), format };
   if (entree.genre === 'clip') {
     if (Number.isFinite(entree.debut) && Number(entree.debut) >= 0) details.debut = Math.round(Number(entree.debut) * 100) / 100;
     if (entree.pisteId) details.pisteId = String(entree.pisteId).slice(0, 64);

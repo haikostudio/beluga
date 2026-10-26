@@ -519,7 +519,7 @@ export function Backups({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-10 shrink-0"
+                      className="h-12 sm:h-10 w-12 sm:w-10 shrink-0"
                       title={t('Trier les sites')}
                       aria-label="Trier les sites"
                       data-backups-tri-mobile={tri.colonne}

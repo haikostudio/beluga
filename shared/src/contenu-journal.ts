@@ -603,3 +603,15 @@ export function dejaDitDans(phrase: string | undefined, texte: string | undefine
   if (!cherche) return false;
   return ` ${lettresSeules(phrase ?? '')} `.includes(` ${cherche} `);
 }
+
+/**
+ * UNE ENTRÉE QUI NE FAIT QUE REDIRE LA PHRASE DE SON BLOC n'a rien à montrer
+ * dépliée. C'est le cas d'une « Note de l'agent » (« Je lis maintenant les
+ * fiches… ») : sa phrase EST son texte, et ouvrir le point le réaffichait mot
+ * pour mot (capture #b37f, 25/10/2026). Seul un TEXTE est visé : une commande,
+ * une lecture, un outil ont toujours un résultat à montrer. Un texte plus long
+ * que la phrase (coupée par « … », ou sur plusieurs lignes) reste montré.
+ */
+export function entreeDejaDite(phrase: string | undefined, vue: VueDEntree): boolean {
+  return vue.sorte === 'texte' && dejaDitDans(phrase, vue.texte);
+}

@@ -27,6 +27,7 @@ import {
   JOURS_DE_TENDANCE,
   JETONS_DE_REFERENCE,
   COLONNE_DE_FIN_DE_TOUR,
+  carteDeMedia,
   SECONDES_DE_REFERENCE,
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
@@ -59,6 +60,7 @@ import {
   etapeDeLaColonne,
   etatVisuelCarte,
   heritageAnalyseDeProposition,
+  messageDIntegration,
   sortieAutorisee,
   RAISON_SUSPENDU,
   RAISON_ARRETE_A_LA_MAIN,
@@ -883,8 +885,52 @@ export async function demanderLePlan(cardId: string): Promise<{ ok: true; numero
 /* Branché sur la fin de CHAQUE tour de cadrage (`runtime.ts`) : pas par
    `onComplete`, qui retirerait la demande de la file d'attente faute de quota. */
 brancherFinDeTourDeCadrage((cardId, agentId, ok) => {
-  if (store.getCard(cardId)?.parcours?.lancementAutomatique) void lancerSiAutomatique(cardId, agentId, ok);
+  const parcours = store.getCard(cardId)?.parcours;
+  if (parcours?.realisationSouhaitee && parcours.fabricationAccordeeA) void lancerLaFabricationAccordee(cardId, agentId);
+  else if (parcours?.lancementAutomatique) void lancerSiAutomatique(cardId, agentId, ok);
 });
+
+/** Ce que le directeur lit sous la réponse « Valider et lancer la fabrication ». */
+const CONSIGNE_FABRICATION_ACCORDEE =
+  'ACCORD DE FABRICATION DONNÉ : termine ton tour MAINTENANT par une phrase courte (la fabrication part, tu reviens avec le film monté), sans autre outil ni question. La fabrication part d’elle-même, dans cette même conversation, dès la fin de ton tour.';
+
+/**
+ * LA FABRICATION ACCORDÉE PART D'ELLE-MÊME (directeur artistique, 25/10/2026).
+ * Plus de bouton « Lancer la fabrication » : l'accord de l'arrêt 2 a posé
+ * `fabricationAccordeeA`, et chaque fin de tour du directeur (cadrage) lance
+ * le tour de tâche par le chemin UNIQUE du lancement (`startCard`) — le même
+ * agent reprend la même conversation. Une retouche écrite après la livraison
+ * rouvre le cadrage, qui finit son tour : la fabrication repart de même. On
+ * attend que le tour soit vraiment refermé, et rien ne part sur une question
+ * restée sans réponse ni sur une carte déjà au travail (DEC-037 : jamais deux
+ * tours sur une carte).
+ */
+async function lancerLaFabricationAccordee(cardId: string, agentId: string): Promise<void> {
+  const debut = Date.now();
+  while (isRunning(agentId) && Date.now() - debut < 120_000) {
+    await new Promise((fin) => setTimeout(fin, 1_000));
+  }
+  const card = store.getCard(cardId);
+  if (!card?.parcours?.fabricationAccordeeA || !carteEnCadrage(card) || isRunning(agentId)) return;
+  if (card.agentId && card.agentId !== agentId && isRunning(card.agentId)) return;
+  const questionEnAttente = store.listMessages(agentId, 5).some((m) => (m.questions ?? []).some((q) => !q.answer && !q.cancelled));
+  if (questionEnAttente) return;
+  const lance = await startCard(cardId).catch((err: any) => ({ ok: false, error: String(err?.message ?? err) }));
+  if (!lance.ok) {
+    const jalon = ajouterAuJournal({
+      cardId,
+      phase: phaseDeLaCarte(cardId, 'cadrage'),
+      nature: 'jalon',
+      libelle: 'Fabrication non lancée',
+      agentId,
+      agentRole: 'cadrage',
+      resultat: lance.error ?? 'lancement impossible',
+      reussie: false,
+    });
+    if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
+  }
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+}
 
 async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: boolean): Promise<void> {
   const debut = Date.now();
@@ -967,6 +1013,9 @@ function allumerSurDemandeComplexe(
   if (agent.role !== 'cadrage' || !agent.cardId) return undefined;
   const card = store.getCard(agent.cardId);
   if (!card || !carteEnCadrage(card)) return undefined;
+  /* UNE CRÉATION DE MÉDIA N'A NI CAHIER NI PLAN (demande du 25/10/2026,
+     capture #d326) : sa chaîne se lit dans le suivi à droite. */
+  if (card.parcours?.realisationSouhaitee) return undefined;
   const jugement = jugerLaComplexite(texte, nombreDeJointes);
   if (!jugement.complexe) return undefined;
   if (allumerLeCahierToutSeul(card.parcours?.planSouhaite, jugement)) {
@@ -1000,6 +1049,8 @@ function annoncerPlanDuMemeTour(
   if (agent.role !== 'cadrage' || !agent.cardId) return undefined;
   const card = store.getCard(agent.cardId);
   if (!card?.parcours?.planSouhaite) return undefined;
+  /* Une création de média ne rend jamais de plan : le suivi à droite le tient. */
+  if (card.parcours.realisationSouhaitee) return undefined;
   if (card.parcours.planDemandeA) return undefined;
   if (!carteEnCadrage(card)) return undefined;
   const numero = numeroDuProchainPlan(card.parcours?.plans);
@@ -1065,6 +1116,8 @@ const accusesOrphelins = new BoiteDesAccuses<AccuseServeur>();
 
 /** Les propositions dont la décision est en train de s'écrire (`proposal.decide`). */
 const decisionsEnCours = new Set<string>();
+/** Au-delà, « Intégrer à cette carte » répond sans attendre la fin de l'envoi à l'agent. */
+const DELAI_D_INTEGRATION_MS = 3000;
 
 /**
  * LA CARTE « CAHIER DES CHARGES » D'UN PROJET QU'ON VIENT DE MONTER, sans
@@ -1877,6 +1930,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         bus.emit({ type: 'card.upsert', card: refermee });
         return { card: refermee };
       }
+      /*
+       * UNE CRÉATION DE MÉDIA NE SE DÉPLOIE PAS (décision du 25/10/2026) :
+       * « Terminer », au bout du parcours, la range directement dans
+       * « Archivé » — jamais dans « À déployer », où elle rejoindrait le lot.
+       */
+      if (carteDeMedia(card)) {
+        const range = await archiveCard(card.id);
+        if (!range.ok) throw new Error(range.error ?? 'rangement impossible');
+        return { card: store.getCard(card.id) ?? card };
+      }
       if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
       const updated = store.saveCard({
         ...card,
@@ -1971,7 +2034,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * question (types de média) se pose dans la discussion.
      */
     case 'card.realisation.souhaitee':
-      return { card: basculerLaRealisation(cmd.cardId, cmd.actif) };
+      return { card: basculerLaRealisation(cmd.cardId, cmd.media) };
 
     /* Refermer l'incident du parcours : rien ne se relance, la carte se relit. */
     case 'plan.fermerIncident': {
@@ -2367,7 +2430,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
           ? rappelAjoutDeMoteur()
           : consigneAjoutDeMoteur(listerFiches())
         : undefined;
-      const contexteDuTour = [contexteDuConducteur, contexteConfiguration, contexteMoteur, contextePlan].filter(Boolean).join('\n\n');
+      /* L'AGENT D'UN SERVICE (sans projet, `agent.service`) relit sa consigne à chaque message. */
+      let contexteDuService: string | undefined = undefined;
+      const contexteDuTour = [contexteDuConducteur, contexteConfiguration, contexteMoteur, contexteDuService, contextePlan].filter(Boolean).join('\n\n');
       /* CHAQUE AJOUT DE MOTEUR A SA CARTE, posée au premier message et passée
          en « En cours » pendant le tour ; son état est reposé après. */
       if (contexteMoteur) {
@@ -2378,7 +2443,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         attachments: cmd.attachments,
         onComplete,
         // Sa carte est « En cours », mais l'agent d'ajout ne rend pas de compte rendu de tâche.
-        ...(contexteMoteur ? { template: 'none' as const } : {}),
+        ...(contexteMoteur || contexteDuService ? { template: 'none' as const } : {}),
         ...(planDuTour ? { apresLaDemande: planDuTour.noterLeJalon } : {}),
         ...(contexteDuTour ? { context: contexteDuTour } : {}),
       }).catch((err) => log.error('envoi de la demande impossible', err));
@@ -2761,6 +2826,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       oublierLeBrouillonDeReponse(`reponse.${cmd.questionId}`);
       /* UN CHOIX EN IMAGES TRANCHÉ rejoint le tableau d'ambiance de la carte (mode Réalisation). */
       if (question.options.some((o) => o.image)) retenirLesImagesChoisies(message.agentId, question, cmd.answer);
+      /* UNE DEMANDE D'ACCORD DU RESPONSABLE CRÉATIF s'écrit dès le clic : le suivi la montre aussitôt. */
+      /* L'ACCORD DE L'ARRÊT 2 (images clés et prix) VAUT LE GESTE DE LANCEMENT : le directeur
+         termine son tour en une phrase, puis la fabrication part d'elle-même (fin de tour de cadrage). */
+      let consigneDeLAccord = '';
+      if (question.accord) {
+        const { trancherLAccordDEtape } = await import('./responsable-creatif.js');
+        const tranche = trancherLAccordDEtape(question, cmd.answer);
+        if (tranche?.fabrication) consigneDeLAccord = CONSIGNE_FABRICATION_ACCORDEE;
+      }
 
       /*
        * UN ANCIEN ENCADRÉ DE COMPÉTENCE (d'avant la retenue d'office) N'EST
@@ -2805,7 +2879,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * rendue DANS CET APPEL, et il reprend aussitôt là où il s'était arrêté :
        * ni nouveau tour, ni message dans la file d'attente.
        */
-      if (repondreALAttente(cmd.questionId, cmd.answer, cmd.attachments ?? [])) {
+      if (repondreALAttente(cmd.questionId, cmd.answer, cmd.attachments ?? [], consigneDeLAccord)) {
         return { ok: true };
       }
 
@@ -3012,6 +3086,20 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
          * foi ; une proposition affichée avant cette règle le recalcule.
          */
         const projectId = projetDAccueilDeLaProposition(proposal, agent);
+        /*
+         * UNE SUITE D'ÉTAPES NAÎT D'UN SEUL CLIC : une carte globale et une
+         * carte par étape, groupées, déjà cadrées — aucun cadrage ne s'ouvre,
+         * rien ne part avant le lancement de la carte globale
+         * (`server/src/suites-de-cartes.ts`).
+         */
+        if (proposal.etapes?.length) {
+          const { poserLaSuite } = await import('./suites-de-cartes.js');
+          const tete = poserLaSuite({ projectId, proposal, retenu, agent, origineAt: message.createdAt });
+          cardId = tete.id;
+        }
+      }
+      if (cmd.accept && !cardId) {
+        const projectId = projetDAccueilDeLaProposition(proposal, agent);
         const card = createCard(projectId, {
           ...retenu,
           origin: 'agent',
@@ -3107,6 +3195,81 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       });
       bus.emit({ type: 'message.upsert', message: updatedMessage });
       return { ok: true, run };
+    }
+
+    /*
+     * « INTÉGRER À CETTE CARTE » : la suggestion part en MESSAGE à l'agent de la
+     * carte, par le chemin même de la barre d'écriture (`agent.prompt` : verrou
+     * de publication, routage vers le cadrage sous un rapport, file si un tour
+     * tourne — DEC-037). La proposition n'est marquée « integrated » qu'une fois
+     * le message accepté : un refus la laisse en attente, rien ne se perd. Même
+     * réservation que `proposal.decide` : un double clic n'envoie qu'un message.
+     */
+    case 'proposal.integrate': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      const proposal = message.proposals.find((p) => p.id === cmd.proposalId);
+      if (!proposal) throw new Error('proposition introuvable');
+      if (proposal.decision !== 'pending') return { already: true };
+      if (decisionsEnCours.has(proposal.id)) return { already: true };
+      decisionsEnCours.add(proposal.id);
+      let reservee = true;
+      try {
+        const agent = store.getAgent(message.agentId);
+        if (!agent) throw new Error('agent introuvable');
+        const carte = agent.cardId ? store.getCard(agent.cardId) : null;
+        if (!carte) throw new Error('cette suggestion n\'est rattachée à aucune carte');
+        // L'agent ACTUEL de la carte, pas forcément celui qui a proposé (un
+        // cadrage passé la main à l'agent de tâche, par exemple).
+        const cible = (carte.agentId && store.getAgent(carte.agentId)) || agent;
+        const title = cmd.title?.trim() || proposal.title;
+        const description = cmd.description ?? proposal.description;
+        const envoi = handleCommand(
+          { type: 'agent.prompt', agentId: cible.id, text: messageDIntegration(title, description) } as ClientEnvelope['cmd'],
+          compte,
+        );
+        const marquer = (decision: 'integrated' | 'pending') => {
+          const fiche = TaskProposal.parse(
+            decision === 'integrated'
+              ? { ...(store.decideProposal(proposal.id, 'integrated') ?? { ...proposal, decision: 'integrated' as const, decidedAt: Date.now() }), title, description }
+              : { ...proposal, decision: 'pending' as const, decidedAt: undefined },
+          );
+          store.saveProposal(message.id, agent.projectId, fiche);
+          const relu = store.getMessage(message.id) ?? message;
+          const ecrit = store.saveMessage({ ...relu, proposals: relu.proposals.map((p) => (p.id === proposal.id ? fiche : p)) });
+          bus.emit({ type: 'message.upsert', message: ecrit });
+          bus.emit({ type: 'attention', ...store.signalAttention() });
+        };
+        /*
+         * LE BOUTON RÉPOND EN QUELQUES SECONDES, JAMAIS PLUS (capture #f524 du
+         * 24/10/2026 : la roue tournait au-delà de dix secondes). Un refus rendu
+         * à temps laisse la suggestion en attente, comme avant. Passé le délai,
+         * la suggestion est marquée intégrée tout de suite — le message est
+         * parti — et un refus TARDIF la remet en attente, en le disant.
+         */
+        const envoye = envoi.then(() => 'envoye' as const);
+        // Un refus tardif est traité plus bas : la course ne doit pas le laisser sans réponse.
+        envoye.catch(() => {});
+        const issue = await Promise.race([
+          envoye,
+          new Promise<'long'>((r) => setTimeout(() => r('long'), DELAI_D_INTEGRATION_MS)),
+        ]);
+        marquer('integrated');
+        if (issue === 'long') {
+          log.warn(`proposal.integrate : l'envoi à l'agent ${cible.id} dépasse ${DELAI_D_INTEGRATION_MS} ms, suggestion marquée sans attendre`);
+          reservee = false;
+          envoi
+            .catch((err) => {
+              log.warn('proposal.integrate : envoi refusé après coup', err?.message ?? err);
+              marquer('pending');
+              bus.toast('error', `La suggestion « ${title} » n'a pas pu être envoyée à l'agent : elle reste à décider.`);
+            })
+            .finally(() => decisionsEnCours.delete(proposal.id));
+        }
+        return { ok: true, agentId: cible.id };
+      } finally {
+        if (reservee) decisionsEnCours.delete(proposal.id);
+      }
     }
 
     case 'proposal.merge': {
@@ -3309,6 +3472,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /* -------- Facturation -------- */
+
 
     case 'card.ecartChiffrage':
       return { ecart: ecartChiffrage(cmd.projectId) };
@@ -4074,6 +4238,64 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { medias: mediasLivresDe({ agentId: cmd.agentId }) };
     }
 
+    /* LES SERVICES DE CRÉATION, hors du Studio : la clé est testée avant d'être rangée au coffre, et ne revient jamais. */
+    case 'services.creation.lister': {
+      const { etatDesServices } = await import('./studio-services.js');
+      return { services: etatDesServices() };
+    }
+    case 'services.creation.enregistrer': {
+      const { enregistrerService, etatDesServices } = await import('./studio-services.js');
+      const r = await enregistrerService(String(cmd.service ?? ''), cmd.champs ?? {});
+      if (!r.ok) throw new Error(r.raison);
+      return { test: r.test, services: etatDesServices() };
+    }
+    case 'services.creation.tester': {
+      const { testerService, etatDesServices } = await import('./studio-services.js');
+      return { test: await testerService(String(cmd.service ?? '')), services: etatDesServices() };
+    }
+    case 'services.creation.retirer': {
+      const { retirerService, etatDesServices } = await import('./studio-services.js');
+      const r = retirerService(String(cmd.service ?? ''));
+      if (!r.ok) throw new Error(r.raison ?? 'retrait impossible');
+      return { services: etatDesServices() };
+    }
+
+    case 'production.lire': {
+      const { etatDeProductionDeLaCarte } = await import('./realisation.js');
+      return etatDeProductionDeLaCarte(cmd.cardId);
+    }
+
+    case 'production.revenir': {
+      /* « Revenir à cette version » depuis le suivi : une NOUVELLE version, rien d'effacé, idempotent. */
+      const { revenirAVersionDeLaCarte } = await import('./responsable-creatif.js');
+      const r = revenirAVersionDeLaCarte(cmd.cardId, cmd.cle, cmd.version, 'utilisateur');
+      if (!r.ok) throw new Error(r.raison);
+      return { version: r.element.version, deja: r.deja, aval: r.aval };
+    }
+
+    case 'production.modifier': {
+      /* Corriger une pièce à la main depuis le suivi : nouvelle version, l'aval à revalider. */
+      const { modifierUnePieceDeLaCarte } = await import('./responsable-creatif.js');
+      const r = modifierUnePieceDeLaCarte(cmd.cardId, cmd.cle, { titre: cmd.titre, contenu: cmd.contenu, depuisVersion: cmd.depuisVersion });
+      if (!r.ok) return { ok: false, raison: r.raison, conflit: r.conflit ?? null };
+      return { ok: true, version: r.element.version, deja: r.deja, aval: r.aval };
+    }
+
+    case 'production.choisirDirection': {
+      /* Retenir une autre direction après coup : l'ancienne écartée, scénario et suite à revalider. */
+      const { choisirUneAutreDirection } = await import('./responsable-creatif.js');
+      const r = choisirUneAutreDirection(cmd.cardId, cmd.cle);
+      if (!r.ok) return { ok: false, raison: r.raison };
+      return { ok: true, deja: r.deja, aval: r.aval };
+    }
+
+    case 'production.retenir': {
+      const { retenirUnMedia } = await import('./realisation.js');
+      const r = retenirUnMedia(cmd.cardId, cmd.mediaId, cmd.retenu);
+      if (!r.ok) throw new Error(r.raison);
+      return { retenu: !!r.media.retenuLe, change: r.change };
+    }
+
     case 'medias.lister': {
       const { mediasDuProjet } = await import('./realisation.js');
       return mediasDuProjet(cmd.projectId, { genre: cmd.genre, avant: cmd.avant });
@@ -4316,6 +4538,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'studio.espace.ecrire':
     case 'studio.creation.creer':
     case 'studio.creation.ouvrir':
+    case 'studio.carte.montage':
     case 'studio.creation.modifier':
     case 'studio.creation.agent':
     case 'studio.creation.supprimer':

@@ -19,7 +19,7 @@
 
 /** Ce qu'il faut savoir d'une proposition pour la trier. */
 export interface PropositionTriable {
-  decision?: 'pending' | 'accepted' | 'refused' | 'merged';
+  decision?: 'pending' | 'accepted' | 'refused' | 'merged' | 'integrated';
 }
 
 /** Ce qu'il faut savoir d'un message pour en tirer ses propositions. */
@@ -84,4 +84,15 @@ export const DESCRIPTION_REPLIEE_MAX = 160;
 /** La description mérite-t-elle un bouton pour la déplier ? */
 export function descriptionRepliable(description: string | undefined): boolean {
   return (description?.trim().length ?? 0) > DESCRIPTION_REPLIEE_MAX;
+}
+
+/**
+ * « INTÉGRER À CETTE CARTE » (demande du 24/10/2026) : la suggestion ne devient
+ * pas une carte, elle part en message à l'agent de la carte où elle a été
+ * proposée. Le texte de ce message — une bulle de l'utilisateur comme une autre,
+ * donc lisible dans le fil et éditable s'il attend en file.
+ */
+export function messageDIntegration(titre: string, description?: string): string {
+  const corps = description?.trim();
+  return [`Intègre cette suggestion à ton travail sur cette carte : ${titre.trim()}`, corps].filter(Boolean).join('\n\n');
 }

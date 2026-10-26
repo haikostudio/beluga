@@ -75,6 +75,7 @@ import {
   PROTOCOL_VERSION,
   doitRechargerPourLeProtocole,
   carteMarketingCachee,
+  estEtapeDeSuite,
   poserLesMoteursAjoutes,
   type FicheMoteur,
   separerLesSuivis,
@@ -145,8 +146,6 @@ export interface Toast {
   cle?: string;
   /** Depuis quand l'état dure : le message affiche le temps écoulé. */
   depuis?: number;
-  /** Le geste offert par le message, quand il y en a un. */
-  action?: 'reconnecter';
 }
 
 /** Ce que la page « En route » a reçu, et ce qui reste à demander. */
@@ -408,6 +407,8 @@ export interface AppState {
   attachments: Record<string, Attachment[]>;
   /** Les médias en fabrication, tous projets : les blocs d'attente du fil (`shared/src/media-en-fabrication.ts`). */
   mediasEnFabrication: MediaEnFabrication[];
+  /** L'heure du dernier changement de chaque production du studio créatif, par carte : le volet de suivi relit dessus. */
+  productionsMaj: Record<string, number>;
   /** Les veilles qui courent, et l'heure du dernier changement (`veilles.compte`) : la page « Tâches récurrentes » relit sur ce signal. */
   veilles: { actives: number; a: number };
   files: Record<string, FileNode[]>;
@@ -507,6 +508,7 @@ const initialState: AppState = {
   precedents: {},
   attachments: {},
   mediasEnFabrication: [],
+  productionsMaj: {},
   veilles: { actives: 0, a: 0 },
   files: {},
   memory: {},
@@ -555,7 +557,8 @@ const CLE_PARTICIPE_RESSORTIE = 'ressortie';
  * pas, l'écran non plus.
  */
 function colonneComptee(carte: Card | undefined): Card['column'] | undefined {
-  return carte && !carteMarketingCachee(carte) ? carte.column : undefined;
+  /* Une ÉTAPE DE SUITE se compte dans sa carte globale, jamais dans sa colonne (`estEtapeDeSuite`). */
+  return carte && !carteMarketingCachee(carte) && !estEtapeDeSuite(carte) ? carte.column : undefined;
 }
 
 class Client {
@@ -790,6 +793,7 @@ class Client {
     this.navigateurHandlers.add(handler);
     return () => this.navigateurHandlers.delete(handler);
   }
+
 
   /** Ouvrir une carte depuis n'importe où (une carte affichée dans le chat, par exemple). */
   onOpenCard(handler: (cardId: string) => void): () => void {
@@ -1376,7 +1380,6 @@ class Client {
             level: dire.etat === 'redemarrage' || dire.etat === 'resynchronisation' ? 'info' : 'warning',
             text: t(dire.texte),
             depuis: dire.depuis,
-            action: 'reconnecter',
           }
         : null,
     );
@@ -2037,6 +2040,10 @@ class Client {
         this.set({ mediasEnFabrication: event.items });
         break;
 
+      case 'production.maj':
+        this.set((state) => ({ productionsMaj: { ...state.productionsMaj, [event.cardId]: event.at } }));
+        break;
+
       case 'veilles.compte':
         this.set({ veilles: { actives: event.actives, a: event.a } });
         break;
@@ -2074,6 +2081,7 @@ class Client {
       case 'studio.navigateur':
         for (const handler of this.navigateurHandlers) handler(event);
         break;
+
 
       default:
         break;
@@ -2884,7 +2892,7 @@ class Client {
   compteDeColonne(projectId: string, column: ColumnKey): { recues: number; total: number } {
     let recues = 0;
     for (const carte of Object.values(this.state.cards)) {
-      if (carte.projectId === projectId && carte.column === column && !carteMarketingCachee(carte)) recues += 1;
+      if (carte.projectId === projectId && carte.column === column && colonneComptee(carte)) recues += 1;
     }
     const total = Math.max(recues, this.state.cartesTotaux[projectId]?.[column] ?? 0);
     return { recues, total };
@@ -2901,7 +2909,8 @@ class Client {
     if (this.tranchesEnVol.has(cle)) return false;
     const { recues, total } = this.compteDeColonne(projectId, column);
     if (!resteSurLeServeur(recues, total)) return false;
-    const chargees = Object.values(this.state.cards).filter((c) => c.projectId === projectId && c.column === column);
+    /* Les étapes de suite arrivent avec leur carte globale, hors des paquets : elles ne disent rien de la reprise. */
+    const chargees = Object.values(this.state.cards).filter((c) => c.projectId === projectId && c.column === column && !estEtapeDeSuite(c));
     const demande = (async () => {
       const reponse = await this.call<{ cards: Card[]; agents: Agent[]; total: number }>({
         type: 'cards.tranche',

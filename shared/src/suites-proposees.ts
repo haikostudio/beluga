@@ -2,7 +2,7 @@
  * LES SUITES POSSIBLES D'UNE RÉPONSE — DEUX OU TROIS PASTILLES DÉCRITES.
  *
  * Le compte rendu de fin listait ses « Évolutions possibles » en puces dans le
- * texte. Devenu un message de 600 signes (`message-court.ts`), il ne les porte
+ * texte. Devenu un message de discussion (`message-court.ts`), il ne les porte
  * plus : l'agent les pose par l'outil « proposer_suites », et l'écran les montre
  * sous la réponse, chacune avec une phrase qui dit ce qu'elle apporterait. Un
  * clic dépose la suite dans la barre d'écriture, comme les idées d'avant.

@@ -471,11 +471,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('card.creation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
   /**
-   * L'interrupteur « Réalisation » (caméra) de la barre d'écriture
-   * (`parcours.realisationSouhaitee`). L'allumer allume aussi le cahier des
-   * charges (`planSouhaite`) : un média se cadre toujours en entier.
+   * Le menu « Réalisation » (caméra) de la barre d'écriture : le type de média
+   * choisi AVANT l'envoi (`CHOIX_DE_DEPART`), écrit dans `realisation.medias` et
+   * qui allume `parcours.realisationSouhaitee` ; `null` éteint le mode.
    */
-  z.object({ type: z.literal('card.realisation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
+  z.object({ type: z.literal('card.realisation.souhaitee'), cardId: z.string(), media: z.enum(['video', 'image', 'son']).nullable() }),
   /**
    * LA RÉPONSE À « IMAGE OU VIDÉO ? », posée par l'écran dès l'allumage
    * (`Card.realisation.genre`). Elle démarre seule le questionnaire.
@@ -690,6 +690,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
     messageId: z.string(),
     proposalId: z.string(),
     run: RunConfig.partial(),
+  }),
+  /**
+   * « INTÉGRER À CETTE CARTE » : la suggestion ne devient pas une carte, elle
+   * part en MESSAGE à l'agent de la carte où elle a été proposée (mis en file
+   * s'il travaille), puis quitte la rangée (`decision: 'integrated'`). Titre
+   * et description : ceux de la vignette, retouches comprises.
+   */
+  z.object({
+    type: z.literal('proposal.integrate'),
+    messageId: z.string(),
+    proposalId: z.string(),
+    title: z.string().optional(),
+    description: z.string().optional(),
   }),
   /**
    * Réunir plusieurs propositions en attente. L'opération ne crée aucune
@@ -1265,6 +1278,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('medias.projets') }),
   /* Les médias livrés d'une discussion, rendus sous sa réponse finale (`medias-livres.ts`). */
   z.object({ type: z.literal('medias.livres.carte'), cardId: z.string() }),
+  /** L'ÉTAT D'UNE PRODUCTION DU STUDIO CRÉATIF (`shared/src/production.ts`) : de quoi recalculer le volet de suivi. */
+  z.object({ type: z.literal('production.lire'), cardId: z.string() }),
+  /** « Utiliser cette version » d'une pièce écrite (responsable créatif) : écrit la version suivante avec l'ancien contenu. */
+  z.object({ type: z.literal('production.revenir'), cardId: z.string(), cle: z.string(), version: z.number().int().positive() }),
+  /* Corriger une pièce écrite du suivi à la main : une nouvelle version signée « utilisateur ». */
+  z.object({ type: z.literal('production.modifier'), cardId: z.string(), cle: z.string(), titre: z.string().max(200).optional(), contenu: z.string().max(20_000), depuisVersion: z.number().int().positive().optional() }),
+  /** « Utiliser cette direction » depuis le menu « Versions » de la direction retenue : une autre piste est retenue, l'ancienne écartée, l'aval à revalider. */
+  z.object({ type: z.literal('production.choisirDirection'), cardId: z.string(), cle: z.string() }),
+  /** « Ajouter au suivi » / « Retirer du suivi » depuis le menu « … » d'un média : le fichier ne bouge jamais. */
+  z.object({ type: z.literal('production.retenir'), cardId: z.string(), mediaId: z.string(), retenu: z.boolean() }),
   z.object({ type: z.literal('medias.livres.agent'), agentId: z.string() }),
   z.object({
     type: z.literal('medias.lister'),
@@ -1374,6 +1397,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     depuisModele: z.string().optional(),
   }),
   z.object({ type: z.literal('studio.creation.ouvrir'), id: z.string() }),
+  /* LE MONTAGE D'UNE CARTE (grand volet de montage) : la création liée à la carte, créée au premier appel, nourrie de ses plans. */
+  z.object({ type: z.literal('studio.carte.montage'), cardId: z.string() }),
   z.object({ type: z.literal('studio.creation.modifier'), id: z.string(), titre: z.string().optional(), formats: z.array(z.string()).optional() }),
   /** Le réglage de l'agent d'une création, choisi avant sa première demande (`null` l'efface). */
   z.object({
@@ -1463,6 +1488,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('studio.services.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
   z.object({ type: z.literal('studio.services.tester'), service: z.string() }),
   z.object({ type: z.literal('studio.services.retirer'), service: z.string() }),
+  /*
+   * LES MÊMES GESTES HORS DU STUDIO (studio créatif, 24/10/2026) : l'encadré de
+   * branchement d'une carte caméra et la rubrique des paramètres s'en servent.
+   * Ouverts à l'administrateur qui pilote ses agents, jamais à un collaborateur
+   * ni à un client ; le Studio garde ses « studio.services.* ».
+   */
+  z.object({ type: z.literal('services.creation.lister') }),
+  z.object({ type: z.literal('services.creation.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
+  z.object({ type: z.literal('services.creation.tester'), service: z.string() }),
+  z.object({ type: z.literal('services.creation.retirer'), service: z.string() }),
   /* Le modèle vidéo retenu pour une création (encadré du chat) : gardé, puis dit à l'agent. */
   z.object({ type: z.literal('studio.modeleVideo.choisir'), creationId: z.string(), service: z.string(), modele: z.string() }),
   z.object({ type: z.literal('studio.assistant'), creationId: z.string(), demande: z.string() }),
@@ -2128,6 +2163,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
   /** LES MÉDIAS EN FABRICATION, liste entière (`shared/src/media-en-fabrication.ts`) : le bloc d'attente du fil. */
   z.object({ type: z.literal('medias.fabrication'), items: z.array(MediaEnFabrication) }),
+  /** UNE PRODUCTION A BOUGÉ (élément écrit, lot proposé ou décidé, média changé) : le volet de suivi ouvert relit. */
+  z.object({ type: z.literal('production.maj'), cardId: z.string(), at: z.number() }),
   /**
    * UNE VEILLE A BOUGÉ (posée, contrôlée, levée, arrêtée, échue) : le nombre de
    * veilles qui courent, pour la tuile du service, et l'heure du changement,

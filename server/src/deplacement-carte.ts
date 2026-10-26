@@ -27,6 +27,8 @@ import {
   issueDeCarteOubliee,
   issueDeFinDeTour,
   issueDuPontMort,
+  etapeRetenue,
+  etapeRetenueEnFinDeTour,
   metriquesSessionLlmIndisponibles,
   rangementApresDeplacement,
   retenueApresPontEpuise,
@@ -396,9 +398,17 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
       : card.scheduling;
 
   const rangement = fin.attitre ? colonneDeFinDUnAgentAttitre(cible) : cible;
+  /*
+   * L'ÉTAPE D'UNE SUITE RESTE DANS LE GROUPE (`etapeRetenueEnFinDeTour`). Là où
+   * une carte ordinaire passerait en « À déployer », elle reste en « En
+   * cours », marquée finie : la suite lance l'étape suivante, et toutes passent
+   * ensemble en « À déployer » quand la dernière a fini (`suivreLaSuite`).
+   */
+  const retenueDansLaSuite = !fin.attitre && etapeRetenueEnFinDeTour(card, rangement);
   return {
     ...card,
-    ...(cible && rangement
+    ...(retenueDansLaSuite ? { etapeFinieAt: Date.now() } : {}),
+    ...(cible && rangement && !retenueDansLaSuite
       ? {
           column: rangement,
           position: store.nextPosition(card.projectId, rangement),
@@ -456,6 +466,9 @@ export function rangerLesCartesOubliees(): void {
     /* UNE CARTE MÈRE n'a jamais d'agent : ce sont ses filles qui travaillent,
        et c'est leur suivi qui la range (`suivreLaMere`). */
     if (card.cartesFilles?.length) continue;
+    /* L'ÉTAPE D'UNE SUITE QUI A FINI ATTEND SES SŒURS en « En cours » : c'est la
+       suite qui la rangera, avec les autres (`etapeRetenue`). */
+    if (etapeRetenue(card)) continue;
     /* LA CARTE D'UN AJOUT DE MOTEUR n'est jamais « oubliée » : le démon la
        range d'après la fiche (`suivreLaCarteDuMoteur`), et un essai raté y
        reste en « En cours » avec sa raison, sans agent au travail. */

@@ -657,7 +657,7 @@ export function EnteteDeZone({
                   aria-label={cran.libelle}
                   title={cran.libelle}
                   onClick={cran.onClick}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised"
+                  className="flex h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised"
                 >
                   {cran.icone}
                 </button>
@@ -738,7 +738,7 @@ export function EnteteDeZone({
                se dispute le même bouton. La bulle maison lit `title`. */
             <button
               type="button"
-              className="group/cran -mx-1.5 flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised"
+              className="group/cran -mx-1.5 flex min-w-0 items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-left font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised"
               data-titre-bandeau
               title={t('Changer de projet')}
             >
@@ -757,7 +757,7 @@ export function EnteteDeZone({
           <Tooltip label={t('Changer de projet')}>
             <button
               type="button"
-              className="-mx-1.5 min-w-0 truncate rounded-md px-1.5 py-1 text-left font-medium text-text transition-colors hover:bg-raised"
+              className="-mx-1.5 min-w-0 truncate rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-left font-medium text-text transition-colors hover:bg-raised"
               data-titre-bandeau
               aria-haspopup="dialog"
               onClick={onTitre}

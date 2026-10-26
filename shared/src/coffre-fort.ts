@@ -219,8 +219,9 @@ export interface AccesCoffre {
    */
   archiveLe?: number | null;
   /**
-   * LES IMAGES DE LA FICHE (capture d'écran, code QR, document scanné) : des
-   * identifiants de pièces jointes, dans l'ordre où elles ont été posées. Elles
+   * LES FICHIERS DE LA FICHE (photo, capture, PDF, vidéo, texte… tout sauf un
+   * programme ; le nom « images » est resté de la première version) : des
+   * identifiants de pièces jointes, dans l'ordre où ils ont été posés. Ils
    * suivent la fiche aux archives, en reviennent avec elle, et sont effacées
    * avec elle. Absent = aucune image (fiche d'avant cette mécanique).
    */
@@ -263,10 +264,14 @@ export const NOM_ACCES_MAX = 80;
 export const NOM_DOSSIER_MAX = 80;
 export const NOTE_ACCES_MAX = 2000;
 export const VALEUR_CHAMP_MAX = 20000;
-/** Combien d'images une fiche peut porter. */
-export const IMAGES_ACCES_MAX = 12;
-/** Le poids d'UNE image du coffre : une capture ou un document scanné, pas une vidéo. */
-export const IMAGE_ACCES_OCTETS_MAX = 25 * 1024 * 1024;
+/**
+ * LE POIDS TOTAL des fichiers d'une fiche : aucune limite de nombre, mais la
+ * somme de ce qu'elle cite ne dépasse pas 1 Go. Jugé à l'ENREGISTREMENT de la
+ * fiche, pas à l'envoi d'un fichier (qui ne sait pas encore à quoi il s'ajoute).
+ */
+export const FICHIERS_FICHE_OCTETS_MAX = 1024 * 1024 * 1024;
+/** Garde-fou de forme seulement : au-delà, la liste reçue est tronquée. */
+const FICHIERS_LISTE_BORNE = 1000;
 
 /**
  * LE « PROJET » DES IMAGES DU COFFRE dans le dépôt des pièces jointes. Une
@@ -278,9 +283,42 @@ export const IMAGE_ACCES_OCTETS_MAX = 25 * 1024 * 1024;
  */
 export const PROJET_DU_COFFRE = 'coffre-fort';
 
-/** Le coffre ne prend que des IMAGES : une capture, un code QR, un document scanné. */
-export function imageDuCoffreAcceptee(mime: string): boolean {
-  return /^image\/[a-z0-9.+-]+$/i.test((mime ?? '').split(';')[0]!.trim());
+/** Les extensions d'un PROGRAMME : le seul genre de fichier que le coffre refuse. */
+const EXTENSIONS_DE_PROGRAMME = new Set([
+  'exe', 'msi', 'msp', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'ps1', 'psm1', 'vbs', 'vbe', 'wsf',
+  'sh', 'bash', 'zsh', 'csh', 'command', 'app', 'dmg', 'pkg', 'mpkg', 'apk', 'aab', 'xapk', 'ipa',
+  'jar', 'deb', 'rpm', 'bin', 'run', 'elf', 'appimage', 'dll', 'so', 'dylib', 'sys', 'drv', 'gadget',
+]);
+/** Les types annoncés d'un programme — le navigateur envoie souvent `application/octet-stream`, d'où le nom aussi. */
+const MIMES_DE_PROGRAMME = new Set([
+  'application/x-msdownload', 'application/x-ms-installer', 'application/x-msi', 'application/x-msdos-program',
+  'application/x-dosexec', 'application/x-executable', 'application/x-elf', 'application/x-sharedlib',
+  'application/x-mach-binary', 'application/x-sh', 'application/x-shellscript', 'application/x-csh',
+  'application/x-bat', 'application/vnd.microsoft.portable-executable', 'application/vnd.android.package-archive',
+  'application/x-apple-diskimage', 'application/x-newton-compatible-pkg', 'application/java-archive',
+  'application/x-java-archive', 'application/vnd.debian.binary-package', 'application/x-debian-package',
+  'application/x-rpm', 'application/x-redhat-package-manager', 'application/x-itunes-ipa',
+]);
+
+/**
+ * LE COFFRE PREND TOUT FICHIER, SAUF UN PROGRAMME : image, PDF, vidéo, son,
+ * texte, archive… Un programme se reconnaît à son type annoncé OU à son
+ * extension. Rend la raison du refus, `null` quand le fichier est accepté.
+ */
+export function refusDuFichierDuCoffre(mime: string, nom: string): string | null {
+  const type = (mime ?? '').split(';')[0]!.trim().toLowerCase();
+  const extension = /\.([a-z0-9]+)$/i.exec((nom ?? '').trim())?.[1]?.toLowerCase() ?? '';
+  if (MIMES_DE_PROGRAMME.has(type) || EXTENSIONS_DE_PROGRAMME.has(extension)) {
+    return `« ${nom || 'ce fichier'} » est un programme : le coffre-fort ne prend pas les programmes.`;
+  }
+  return null;
+}
+
+/** La raison d'un total trop lourd, `null` s'il tient sous le plafond d'une fiche. */
+export function refusDuPoidsDeLaFiche(totalOctets: number): string | null {
+  if (totalOctets <= FICHIERS_FICHE_OCTETS_MAX) return null;
+  const go = (totalOctets / 1024 / 1024 / 1024).toFixed(2).replace('.', ',');
+  return `Les fichiers de la fiche pèseraient ${go} Go : une fiche porte 1 Go de fichiers au plus.`;
 }
 
 /**
@@ -297,7 +335,7 @@ export function jugerImages(brut: unknown): string[] | undefined {
     const id = valeur.trim();
     if (id) vues.add(id);
   }
-  return [...vues].slice(0, IMAGES_ACCES_MAX);
+  return [...vues].slice(0, FICHIERS_LISTE_BORNE);
 }
 
 /**

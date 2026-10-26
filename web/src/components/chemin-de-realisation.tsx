@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Music, Play } from 'lucide-react';
+import { Clapperboard, Music, Play } from 'lucide-react';
 import {
   type Attachment,
   type Card,
@@ -18,6 +18,7 @@ import { CLASSE_TRAIT_DE_BRANCHE } from '@/components/pastille-projet';
 import { useMediasLivres } from '@/components/medias-livres';
 import { ImageDePiece, adresseDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
+import { ouvrirLeDocument } from '@/lib/document-de-carte';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -121,7 +122,12 @@ export function CheminDeRealisation({
             }
           : {})}
       >
-        <ol className="flex min-w-0 flex-col gap-0.5" aria-label="Étapes du tournage">
+        {/* LE BOUTON « SUIVI » EN HAUT À DROITE DE LA LISTE (capture #4e9c, décision
+            du 25/10/2026), plus sur la ligne de l'étape en cours : sur téléphone il
+            ouvre le suivi en page entière ; sur ordinateur le volet est toujours
+            ouvert, et le bouton le ramène quand un autre document a pris sa place. */}
+        <div className="flex min-w-0 items-start gap-2">
+        <ol className="flex min-w-0 flex-1 flex-col gap-0.5" aria-label="Étapes du tournage">
           {chemin.etapes.map((etape) => {
             /* L'étape DÉPLIÉE est celle du jalon : en cours, prête, ou « Livré » une fois tout fait. */
             const ici = etape.jalon === chemin.jalon;
@@ -169,6 +175,20 @@ export function CheminDeRealisation({
             );
           })}
         </ol>
+          <button
+            type="button"
+            className="mt-0.5 flex h-[29px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted transition-colors hover:bg-raised hover:text-text sm:h-6"
+            title={t('Ouvrir le suivi de la production')}
+            data-ouvrir-le-suivi=""
+            onClick={(event) => {
+              event.stopPropagation();
+              ouvrirLeDocument({ cardId: carte.id, genre: 'suivi', numero: 0 });
+            }}
+          >
+            <Clapperboard className="h-3.5 w-3.5" />
+            {t('Suivi')}
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -205,7 +225,8 @@ export function GaleriesDuTournage({ carte }: { carte: Card }) {
  */
 function PlansFabriques({ carte }: { carte: Card }) {
   const livres = useMediasLivres({ cardId: carte.id });
-  const enFabrication = useApp().mediasEnFabrication ?? [];
+  const etat = useApp();
+  const enFabrication = etat.mediasEnFabrication ?? [];
   const connues = usePiecesDuProjet(carte.projectId);
   const [ouverte, setOuverte] = React.useState<Attachment | null>(null);
   const ambiance = new Set((realisationDeLaCarte(carte).ambiance ?? []).map((p) => p.piece));
@@ -215,7 +236,21 @@ function PlansFabriques({ carte }: { carte: Card }) {
   const galerie = finis.map((m) => connues?.find((a) => a.id === m.attachmentId)).filter(Boolean) as Attachment[];
   return (
     <div className="mt-3" data-plans-fabriques={finis.length} data-plans-en-cours={enCours.length}>
-      <p className="mb-1.5 text-[12px] uppercase tracking-wide text-faint">{t('Plans fabriqués')}</p>
+      <div className="mb-1.5 flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-[12px] uppercase tracking-wide text-faint">{t('Plans fabriqués')}</p>
+        {/* LE GRAND VOLET DE MONTAGE : les plans finis s'y montent (réservé à qui ouvre le Studio). */}
+        {etat.studioOuvert && finis.length ? (
+          <button
+            type="button"
+            onClick={() => ouvrirLeDocument({ cardId: carte.id, genre: 'montage' })}
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 sm:px-1.5 py-1 sm:py-0.5 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
+            data-ouvrir-le-montage=""
+          >
+            <Clapperboard className="h-3.5 w-3.5" />
+            {t('Monter les plans')}
+          </button>
+        ) : null}
+      </div>
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
         {finis.map((m) => {
           const jointe = galerie.find((a) => a.id === m.attachmentId);

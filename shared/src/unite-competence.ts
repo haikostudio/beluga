@@ -196,7 +196,7 @@ export function gesteDeSynchro(
  * une version neuve à chaque démarrage : la synchronisation tourne souvent, la
  * base ne doit bouger que quand la fiche a bougé.
  */
-export function uniteAJour(unite: Pick<Unite, 'titre' | 'resume' | 'detail' | 'importance' | 'confiance' | 'statut' | 'sujets'>, p: PropositionUnite): boolean {
+export function uniteAJour(unite: Pick<Unite, 'titre' | 'resume' | 'detail' | 'importance' | 'confiance' | 'relue' | 'statut' | 'sujets'>, p: PropositionUnite): boolean {
   const sujets = Array.isArray(p.sujets) ? p.sujets : [];
   return (
     unite.statut === 'active' &&
@@ -205,7 +205,10 @@ export function uniteAJour(unite: Pick<Unite, 'titre' | 'resume' | 'detail' | 'i
     unite.detail === p.detail &&
     // Une importance RELEVÉE à la main (à l'écran) est gardée : la synchro ne la redescend pas.
     unite.importance <= String(p.importance ?? unite.importance) &&
-    Math.abs(unite.confiance - Number(p.confiance ?? unite.confiance)) < 0.005 &&
+    // Une unité RELUE (confiance relevée par la relecture) n'est pas réécrite tant que la mesure ne la dépasse pas :
+    // sinon la synchro la ramène à la mesure (relue = 0), la relecture la remonte, et la boucle écrit une version par tour.
+    (Math.abs(unite.confiance - Number(p.confiance ?? unite.confiance)) < 0.005 ||
+      (unite.relue && unite.confiance >= Number(p.confiance ?? unite.confiance))) &&
     sujets.every((s) => unite.sujets.includes(idDeSujetDUnite(String(s))))
   );
 }

@@ -561,7 +561,7 @@ export function OuPublier({ contenu, comptes, media }: { contenu: ContenuMarketi
             const verrou = publie || cible?.etat === 'publie' || cible?.etat === 'en_cours';
             return (
               <li key={compte.id} className="flex flex-col rounded-md bg-bloc" data-marketing-cible={compte.id} data-etat={cible?.etat ?? 'non'}>
-                <button type="button" disabled={verrou} onClick={() => basculer(compte.id)} className="flex min-h-[40px] w-full items-center gap-2 px-3 py-1.5 text-left enabled:hover:bg-raised disabled:cursor-default">
+                <button type="button" disabled={verrou} onClick={() => basculer(compte.id)} className="flex min-h-[40px] w-full items-center gap-2 px-3.5 sm:px-3 py-2 sm:py-1.5 text-left enabled:hover:bg-raised disabled:cursor-default">
                   {cible ? <CheckCircle2 className="h-4 w-4 shrink-0 text-termine" /> : <Circle className="h-4 w-4 shrink-0 text-faint" />}
                   <span className="min-w-0 flex-1 truncate text-[13px] text-text">
                     {libelleReseau(compte.reseau)} · {compte.nom}

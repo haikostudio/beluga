@@ -846,7 +846,7 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
           type="button"
           aria-expanded={deplie}
           onClick={() => setDeplie((d) => !d)}
-          className="flex min-h-9 w-full items-center gap-2 rounded-[inherit] px-3 py-1.5 text-left"
+          className="flex min-h-[43px] sm:min-h-9 w-full items-center gap-2 rounded-[inherit] px-3.5 sm:px-3 py-2 sm:py-1.5 text-left"
           data-surveillance-wordpress-bascule=""
         >
           <ChevronDown aria-hidden className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', !deplie && '-rotate-90')} />

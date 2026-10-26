@@ -19,6 +19,8 @@ import {
   TabsList,
   TabsTrigger,
   ZoneDefilement,
+  CaseACocher,
+  BoutonsRadio,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
@@ -317,30 +319,18 @@ function PanneauImport() {
             {dependancesManquantes(cochees).length ? <Avertissement manquantes={dependancesManquantes(cochees)} /> : null}
 
             <p className="pt-1 text-[12px] uppercase tracking-wide text-faint">{t('Fiches déjà présentes ici')}</p>
-            <div className="flex flex-col gap-1.5">
-              {POLITIQUES.map((choix) => (
-                <label
-                  key={choix}
-                  className={cn(
-                    'flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition-colors',
-                    politique === choix ? 'border-accent bg-raised' : 'border-border bg-surface hover:bg-raised',
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="politique-import"
-                    checked={politique === choix}
-                    onChange={() => setPolitique(choix)}
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                    data-donnees-politique={choix}
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-[13px] text-text">{t(LIBELLE_POLITIQUE[choix])}</span>
-                    <span className="block text-[12px] leading-relaxed text-faint">{t(EXPLICATION_POLITIQUE[choix])}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            <BoutonsRadio
+              libelle={t('Fiches déjà présentes ici')}
+              valeur={politique}
+              onChoisir={(choix) => setPolitique(choix as typeof politique)}
+              classeOption="bg-surface"
+              options={POLITIQUES.map((choix) => ({
+                valeur: choix,
+                libelle: t(LIBELLE_POLITIQUE[choix]),
+                detail: t(EXPLICATION_POLITIQUE[choix]),
+                reperes: { 'data-donnees-politique': choix },
+              }))}
+            />
           </div>
         ) : null}
 
@@ -385,13 +375,7 @@ function CaseCategorie({
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-bloc px-2.5 py-2 transition-colors hover:bg-raised">
-      <input
-        type="checkbox"
-        checked={coche}
-        onChange={onBasculer}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0"
-        data-donnees-categorie={cle}
-      />
+      <CaseACocher checked={coche} onCheckedChange={onBasculer} className="mt-0.5" data-donnees-categorie={cle} />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{t(libelle)}</span>

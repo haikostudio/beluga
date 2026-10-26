@@ -471,7 +471,7 @@ export function QuotaBadge({
         <button
           className={cn(
             'flex min-w-0 items-center rounded-lg text-left transition-colors hover:bg-raised',
-            variante === 'bande' ? 'relative h-9 w-9 justify-center' : 'h-11 flex-1 gap-2.5 px-2.5',
+            variante === 'bande' ? 'relative h-[43px] sm:h-9 w-[43px] sm:w-9 justify-center' : 'h-11 flex-1 gap-2.5 px-2.5',
           )}
           title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair].filter(Boolean).join(' · ')}
           aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
@@ -532,7 +532,7 @@ export function QuotaBadge({
           <button
             onClick={actualiser}
             disabled={actualisation}
-            className="shrink-0 rounded p-1 text-faint hover:bg-raised hover:text-text disabled:opacity-70"
+            className="shrink-0 rounded p-1.5 sm:p-1 text-faint hover:bg-raised hover:text-text disabled:opacity-70"
             title={t('Actualiser')}
           >
             <RefreshCw className={cn('h-3 w-3', actualisation && 'animate-spin')} />
@@ -640,6 +640,8 @@ export function QuotaBadge({
                 <AlerteJumeaux jumeaux={quota.jumeaux} certains={quota.jumeauxCertains} />
 
                 <AmorceRefusee amorce={quota.derniereAmorce} />
+
+                <ProchainReveil creneau={quota.creneau} />
 
                 {quota.error ? (
                   <ReleveAncien
@@ -935,6 +937,42 @@ function AlerteJumeaux({ jumeaux, certains }: { jumeaux?: AccountQuota['jumeaux'
 }
 
 /**
+ * LE CRÉNEAU DE RÉVEIL, en une ligne discrète sous la jauge : les comptes
+ * Claude se calent sur le prioritaire, à parts égales de la fenêtre de 5 h.
+ * Le repère lui-même n'en porte pas — c'est sur lui que les autres se règlent.
+ */
+function ProchainReveil({ creneau }: { creneau?: AccountQuota['creneau'] }) {
+  if (!creneau || creneau.rang === 0 || !creneau.prochainReveil) return null;
+  const minutes = Math.round(creneau.decalageMs / 60_000);
+  const ecart = `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+  // La fenêtre en cours a perdu son créneau : on le dit, avec l'heure du recalage.
+  if (creneau.horsCreneau) {
+    const v = {
+      v0: creneau.repere,
+      v1: heureCourte(creneau.horsCreneau.finFenetre),
+      v2: heureCourte(creneau.prochainReveil),
+      v3: ecart,
+    };
+    return (
+      <p className="mt-1 text-[11px] text-faint" data-prochain-reveil data-hors-creneau>
+        {creneau.horsCreneau.alignee
+          ? t("Fenêtre alignée sur {v0} jusqu'à {v1} · au repos ensuite, réveil à {v2} pour reprendre {v3} d'écart", v)
+          : t("Fenêtre hors créneau jusqu'à {v1} · au repos ensuite, réveil à {v2} pour reprendre {v3} d'écart avec {v0}", v)}
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1 text-[11px] text-faint" data-prochain-reveil>
+      {t('Prochain réveil {v0} · {v1} après {v2}', {
+        v0: heureCourte(creneau.prochainReveil),
+        v1: ecart,
+        v2: creneau.repere,
+      })}
+    </p>
+  );
+}
+
+/**
  * Une amorce REFUSÉE reste sur la carte : elle appelle une réaction. L'amorce
  * réussie, simple preuve du travail de fond, est passée dans la bulle « i ».
  */
@@ -993,7 +1031,7 @@ function JournalDesAmorces({ ouvertMenu, onReglages }: { ouvertMenu: boolean; on
               window.history.pushState(null, '', `#${construireFragment({ vue: 'reglages', page: 'comptes' })}`);
               window.dispatchEvent(new PopStateEvent('popstate'));
             }}
-            className="shrink-0 rounded p-1 text-faint hover:bg-raised hover:text-text"
+            className="shrink-0 rounded p-1.5 sm:p-1 text-faint hover:bg-raised hover:text-text"
           >
             <Settings className="h-3 w-3" />
           </button>

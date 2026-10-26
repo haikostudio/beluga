@@ -42,6 +42,12 @@ export interface CompteAClasser {
    * croire à une capacité qui n'existe pas.
    */
   jumeauDe?: string;
+  /**
+   * LA FENÊTRE DE CINQ HEURES TOURNE DÉJÀ (moteurs à fenêtre courte : Claude).
+   * `false` : le compte est au repos, et le réveiller hors de son créneau
+   * casserait l'écart entre les comptes. Absent : inconnu, sans effet.
+   */
+  fenetreOuverte?: boolean;
 }
 
 /**
@@ -118,7 +124,11 @@ export function compteQuiRecoitLeTravail<T extends CompteAClasser>(comptes: read
   const ouverts = comptes.filter((compte) => !compte.disabled && placeRestante(compte) > 0);
   // Le classement passe D'ABORD : entre deux jumeaux, on garde celui que la
   // règle aurait retenu de toute façon, jamais le premier de la liste reçue.
-  return sansDoublonDAbonnement(classerComptesPourLeTravail(ouverts))[0];
+  const classes = sansDoublonDAbonnement(classerComptesPourLeTravail(ouverts));
+  // UN COMPTE AU REPOS EN DERNIER RECOURS : tant qu'un compte dont la fenêtre
+  // tourne a de la place, il passe devant, quel que soit son rang. Le travail
+  // n'attend jamais : sans lui, le compte au repos sert quand même.
+  return classes.find((compte) => compte.fenetreOuverte !== false) ?? classes[0];
 }
 
 /**

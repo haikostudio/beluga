@@ -244,7 +244,7 @@ function IdeeACocher({
       title={envoyee ? t('Idée déjà envoyée') : undefined}
       onClick={() => onBasculer?.(texteEnLigne(idee))}
       className={cn(
-        'group flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        'group flex w-full items-start gap-2.5 rounded-lg px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
         inerte ? 'cursor-default' : 'hover:bg-raised',
         cochee ? 'text-text' : 'text-muted',
       )}
@@ -278,7 +278,7 @@ function IdeeACocher({
 /**
  * LES SUITES POSSIBLES D'UNE RÉPONSE, SOUS ELLE (17/10/2026).
  *
- * Le message de l'agent tient en 600 signes (`shared/src/message-court.ts`) :
+ * Le message de l'agent est une discussion (`shared/src/message-court.ts`) :
  * ses suites ne s'y écrivent plus, elles arrivent par l'outil
  * « proposer_suites » (`Message.suites`, ou `donnees.suites` du jalon). Chacune
  * se coche comme une idée d'avant — son titre s'écrit dans le champ — et porte
@@ -337,7 +337,7 @@ export function SuitesProposees({
           disabled={etat === 'recherche'}
           aria-busy={etat === 'recherche'}
           className={cn(
-            'ml-2 mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-raised px-2 py-1 text-[12.5px] transition-colors',
+            'ml-2 mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-raised px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12.5px] transition-colors',
             etat === 'recherche' ? 'cursor-default text-accent' : 'text-muted hover:text-text',
           )}
           data-autres-idees={etat}
@@ -386,7 +386,7 @@ function BoutonToutCocher({ idees, onBasculer }: { idees: string[]; onBasculer: 
     <button
       type="button"
       onClick={() => onBasculer(restantes.map(texteEnLigne))}
-      className="ml-auto rounded-md bg-raised px-2 py-0.5 text-[12px] font-normal text-muted transition-colors hover:text-text"
+      className="ml-auto rounded-md bg-raised px-2.5 sm:px-2 py-1 sm:py-0.5 text-[12px] font-normal text-muted transition-colors hover:text-text"
     >
       {toutes ? t('Tout retirer') : t('Tout ajouter')}
     </button>
@@ -519,7 +519,7 @@ export function Markdown({
       case 'callout': {
         const config = CALLOUTS[block.variant] ?? CALLOUTS.NOTE;
         return (
-          <div key={index} className={cn('my-3 flex gap-2 rounded-xl border px-3.5 py-2.5', config.className)}>
+          <div key={index} data-callout={block.variant} className={cn('my-3 flex gap-2 rounded-xl border px-3.5 py-2.5', config.className)}>
             <span className="mt-0.5 shrink-0">{config.icon}</span>
             <div className="text-[14px] leading-relaxed">
               {block.lines.map((line, lineIndex) => (
@@ -540,25 +540,29 @@ export function Markdown({
         );
 
       case 'table':
+        /* UN TABLEAU LARGE DÉFILE CHEZ LUI : l'enveloppe défile, le tableau garde
+           toute la largeur du texte — jamais la colonne poussée hors de l'écran. */
         return (
-          <table key={index}>
-            <thead>
-              <tr>
-                {block.head.map((cell, cellIndex) => (
-                  <th key={cellIndex}>{inline(cell, `${index}-h-${cellIndex}`)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{inline(cell, `${index}-${rowIndex}-${cellIndex}`)}</td>
+          <div key={index} className="max-w-full overflow-x-auto" data-tableau-markdown="">
+            <table>
+              <thead>
+                <tr>
+                  {block.head.map((cell, cellIndex) => (
+                    <th key={cellIndex}>{inline(cell, `${index}-h-${cellIndex}`)}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {block.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={cellIndex}>{inline(cell, `${index}-${rowIndex}-${cellIndex}`)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         );
 
       default:

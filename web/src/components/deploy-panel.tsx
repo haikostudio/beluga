@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useDernierMonte } from '@/lib/dernier-monte';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -54,6 +55,7 @@ import {
   runDeLEtape,
   suiviDeLaPublication,
   titreDeLaPublication,
+  horsDuLotDeDeploiement,
 } from '@beluga/shared';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
 import { useCheminVersLAgentDeConfiguration } from '@/components/config-projet/agent-de-configuration';
@@ -91,6 +93,7 @@ import {
   Pastille,
   Tooltip,
   ZoneDefilement,
+  CaseACocher,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useSignalerLaPublication } from '@/lib/signal-publication';
@@ -262,7 +265,10 @@ export function DeployPanel({
      mène : c'est là que vivent ses issues (relancer, ignorer, arrêter). Il n'y
      a plus de fenêtre d'agent à part dans l'application. */
   const [filAgent, setFilAgent] = React.useState<string | null>(null);
-  const productionDemandee = presentation === 'bandeau' ? state.productionDemandee : null;
+  /* Le tableau ET la page d'une carte montent ce composant : seul celui du
+     dessus (le dernier monté) répond aux demandes venues d'ailleurs. */
+  const auDessus = useDernierMonte(`publication:${projectId}:${presentation === 'bandeau' ? 'production' : colonne}`);
+  const productionDemandee = presentation === 'bandeau' && auDessus ? state.productionDemandee : null;
   React.useEffect(() => {
     if (!productionDemandee || productionDemandee.projectId !== projectId) return;
     setTiroirOuvert(true);
@@ -307,7 +313,7 @@ export function DeployPanel({
    * empilé par le corps du volet (dépanneur, ou fil du conducteur).
    */
   const deploiementDemande =
-    presentation !== 'bandeau' && etape?.cible === 'dev' ? state.deploiementDemande : null;
+    presentation !== 'bandeau' && etape?.cible === 'dev' && auDessus ? state.deploiementDemande : null;
   const [agentDemande, setAgentDemande] = React.useState<{ id: string; nonce: number } | null>(null);
   /* `selection` (le bouton « Déployer » du pied d'une carte) : on ouvre la
      MÊME fenêtre de sélection que le bouton de ce bloc — un seul chemin vers
@@ -373,7 +379,8 @@ export function DeployPanel({
    */
   const embarked = etape?.sansLot
     ? []
-    : cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
+    : /* Écartée à la main, ou création de média : un média ne se déploie pas. */
+      cards.filter((card) => !horsDuLotDeDeploiement(card) && !card.deployedAt);
   /*
    * LE LOT, C'EST TOUTE LA COLONNE — PAS LE PREMIER PAQUET REÇU.
    *
@@ -572,7 +579,7 @@ export function DeployPanel({
           card.projectId === projectId &&
           card.column === colonneDuLot &&
           !estCarteMarketing(card) &&
-          !card.excludedFromDeploy &&
+          !horsDuLotDeDeploiement(card) &&
           !card.deployedAt,
       );
     }
@@ -1395,7 +1402,7 @@ export function DeployPanel({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 text-muted"
+                className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
                 onClick={() => onInitier()}
                 aria-label="Réglages du déploiement"
                 title={t('Réglages du déploiement')}
@@ -1922,7 +1929,7 @@ export function BandeauProduction({
             /* UN APLAT D'ENCRE, ICÔNE CLAIRE (demande du 11/10/2026 : « noir
                avec l'icône blanche ») : noir en clair, gris soutenu en sombre —
                le même jeton que le bouton qui arrête. Aucune bordure. */
-            'relative flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg bg-encre px-2 text-encre-fg transition-opacity hover:opacity-85',
+            'relative flex h-[38px] sm:h-8 min-w-[38px] sm:min-w-8 items-center justify-center gap-1.5 rounded-lg bg-encre px-2 text-encre-fg transition-opacity hover:opacity-85',
             onDetail && 'rounded-r-none',
             ouvert && 'opacity-85',
           )}
@@ -1985,7 +1992,7 @@ export function BandeauProduction({
             onClick={onDetail}
             aria-label="Voir le détail de la mise en production"
             title={t('Voir le détail de la mise en production')}
-            className="flex h-8 w-6 items-center justify-center rounded-lg rounded-l-none bg-encre text-encre-fg transition-opacity hover:opacity-85"
+            className="flex h-[38px] sm:h-8 w-[29px] sm:w-6 items-center justify-center rounded-lg rounded-l-none bg-encre text-encre-fg transition-opacity hover:opacity-85"
             data-chevron-production
           >
             <ChevronDown className="h-3 w-3" />
@@ -1998,7 +2005,7 @@ export function BandeauProduction({
         onClick={() => onOuvert(!ouvert)}
         aria-expanded={ouvert}
         aria-haspopup="dialog"
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-raised/50"
+        className="flex w-full items-center gap-2 px-3.5 sm:px-3 py-2 sm:py-1.5 text-left transition-colors hover:bg-raised/50"
         data-ouvrir-tiroir-production={ouvert ? 'ouvert' : 'ferme'}
         data-agent-configuration={etatAgent ? 'production' : undefined}
         data-etat-bouton-agent={etatAgent ?? undefined}
@@ -2246,11 +2253,10 @@ function SelectionDeploiementDialog({
             return (
               <li key={card.id} data-carte-selection={card.id}>
                 <label className="flex items-start gap-2 rounded-md border border-border bg-surface px-2.5 py-2 text-[13px] text-muted">
-                  <input
-                    type="checkbox"
+                  <CaseACocher
                     checked={selection.has(card.id)}
-                    onChange={() => basculer(card.id)}
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    onCheckedChange={() => basculer(card.id)}
+                    className="mt-0.5"
                     data-case-selection={card.id}
                   />
                   <span className="flex-1 truncate text-text">{card.title}</span>
@@ -2377,7 +2383,7 @@ export function AlerteTravailSansCarte({
       <Button
         size="sm"
         variant="outline"
-        className="mt-1.5 h-7 w-full text-[12px]"
+        className="mt-1.5 h-[34px] sm:h-7 w-full text-[12px]"
         data-ficher-sans-carte={colonne}
         onClick={ficher}
       >
@@ -2410,7 +2416,7 @@ export function BoutonInfosPublication({
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 shrink-0 px-1.5 text-faint"
+            className="h-[29px] sm:h-6 shrink-0 px-1.5 text-faint"
             aria-label="À propos de la mise en ligne"
             data-infos-publication={colonne}
           >

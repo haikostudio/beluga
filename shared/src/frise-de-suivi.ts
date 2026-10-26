@@ -42,11 +42,14 @@ export const ETAPES_DE_SUIVI_DE_LA_NUIT = ['demande', 'examen', 'propositions'] 
  */
 export const ETAPES_DE_SUIVI_DU_CAHIER = ['creation', 'cahier', 'termine'] as const;
 /**
- * LE VOLET DE RÉALISATION (caméra) A LES SIENNES, sur le même modèle : le choix
- * « image ou vidéo ? », le questionnaire, puis la fabrication
- * (`barreDeLaRealisation`, `mode-realisation.ts`).
+ * UNE CRÉATION DE MÉDIA (carte caméra) A LES SIENNES, du premier message à la
+ * fin (décision de l'utilisateur du 25/10/2026) : le type de média, puis les
+ * trois accords du directeur artistique — l'idée, les images clés et le prix,
+ * le film monté — avec la fabrication entre les deux derniers, et la
+ * livraison. Ni « Compréhension » ni « À déployer » : un média ne se déploie
+ * pas (`etapesDuMedia`, `etapes-du-media.ts`).
  */
-export const ETAPES_DE_SUIVI_DE_LA_REALISATION = ['genre', 'questionnaire', 'fabrication'] as const;
+export const ETAPES_DE_SUIVI_DE_LA_REALISATION = ['type', 'idee', 'images-cles', 'fabrication', 'film', 'livre'] as const;
 export type EtapeDeSuivi =
   | (typeof ETAPES_DE_SUIVI)[number]
   | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number]
@@ -65,9 +68,12 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   creation: 'Création du projet',
   cahier: 'Définition du cahier des charges',
   termine: 'Terminé',
-  genre: 'Types de média',
-  questionnaire: 'Questionnaire de réalisation',
+  type: 'Type',
+  idee: 'Idée',
+  'images-cles': 'Images clés et prix',
   fabrication: 'Fabrication',
+  film: 'Film monté',
+  livre: 'Livré',
 };
 
 /** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */
@@ -77,7 +83,7 @@ export function etapesDeSuivi(carte: Pick<CarteDeSuivi, 'rendezVousDeNuit'>): re
 
 /** L'étape d'ARRIVÉE, finie pour de bon : rien ne s'y attend plus. */
 function etapeDArrivee(etape: EtapeDeSuivi): boolean {
-  return etape === 'archivee' || etape === 'propositions' || etape === 'termine';
+  return etape === 'archivee' || etape === 'propositions' || etape === 'termine' || etape === 'livre';
 }
 
 /** L'état d'un rond : passé, celui où se trouve la carte, ou à venir. */

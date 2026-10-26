@@ -520,7 +520,7 @@ export function LigneDeTemps({
                 aria-label={`Retirer la piste « ${p.nom} »`}
                 title={t('Retirer la piste « {nom} »', { nom: p.nom })}
                 onClick={() => onOperation({ op: 'piste-supprimer', pisteId: p.id })}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-raised hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-60"
+                className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-raised hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 max-sm:opacity-60"
                 data-studio-piste-supprimer={p.id}
               >
                 <Trash2 className="h-3 w-3" />
@@ -531,7 +531,7 @@ export function LigneDeTemps({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="mx-1 mt-1 flex h-7 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-muted transition-colors hover:bg-raised hover:text-text"
+                className="mx-1 mt-1 flex h-[34px] sm:h-7 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-muted transition-colors hover:bg-raised hover:text-text"
                 data-studio-piste-ajouter
               >
                 <Plus className="h-3 w-3" />
@@ -727,7 +727,7 @@ export function LigneDeTemps({
                         type="button"
                         aria-label={`Ajouter sur la piste « ${p.nom} »`}
                         title={t('Ajouter sur la piste « {v0} »', { v0: p.nom })}
-                        className="absolute top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-fg shadow"
+                        className="absolute top-1/2 z-10 flex h-[29px] sm:h-6 w-[29px] sm:w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-fg shadow"
                         style={{ left: (menu?.pisteId === p.id ? menu.t : (survol?.t ?? 0)) * zoom }}
                         data-studio-plus={p.id}
                       >
@@ -825,7 +825,7 @@ function PastilleTransition({
             ouvrir(e);
           }}
           className={cn(
-            'absolute top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-termine text-white shadow ring-2 ring-surface transition-opacity',
+            'absolute top-1/2 z-10 flex h-6 sm:h-5 w-6 sm:w-5 -translate-y-1/2 items-center justify-center rounded-full bg-termine text-white shadow ring-2 ring-surface transition-opacity',
             cote === 'entree' ? (auBord ? 'left-0.5' : '-left-1.5') : '-right-1.5',
             'pointer-events-none opacity-0 group-hover/bloc:pointer-events-auto group-hover/bloc:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100',
           )}

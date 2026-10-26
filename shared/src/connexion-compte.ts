@@ -418,6 +418,12 @@ export function etatDeConnexion(lecture: LectureCompte): EtatCompteConnexion {
     return { etat: 'expiree', libelle: 'session expirée', doitReconnecter: true };
   }
 
+  // Un jeton expiré dont le renouvellement est VOULU plus tard (créneau du
+  // compte, ou agent au travail qui s'en charge) n'est pas une connexion à
+  // refaire : le dire « expirée » poussait à reconnecter un compte qui marche.
+  if (/rafra[iî]chie à son créneau|en cours de renouvellement/.test(erreur)) {
+    return { etat: 'valide', libelle: lecture.erreur ?? 'connexion valide', doitReconnecter: false };
+  }
   if (/non connect|aucun jeton/.test(erreur)) {
     return { etat: 'absente', libelle: 'non connecté', doitReconnecter: true };
   }
@@ -539,7 +545,12 @@ export function enUnSeulVol<T>(vols: Map<string, Promise<T>>, cle: string, lance
   return vol;
 }
 
-export type DecisionDeRenouvellement = 'forcer' | 'laisser-aux-agents' | 'impossible';
+export type DecisionDeRenouvellement = 'forcer' | 'laisser-aux-agents' | 'impossible' | 'attendre-le-creneau';
+
+/** Avance admise sur le créneau : le même minuteur que l'amorce (`AVANCE_CRENEAU_MS`). */
+const AVANCE_SUR_LE_CRENEAU_MS = 60 * 1000;
+/** La session elle-même doit survivre à l'attente, avec cette marge ; sinon on renouvelle tout de suite. */
+const MARGE_DE_LA_SESSION_MS = 60 * 60 * 1000;
 
 /**
  * LE RELEVÉ DE QUOTA NE FORCE UN RENOUVELLEMENT QUE SUR UN COMPTE AU REPOS.
@@ -547,13 +558,79 @@ export type DecisionDeRenouvellement = 'forcer' | 'laisser-aux-agents' | 'imposs
  * moteur de plus sur le même coffre ne fait que disputer le verrou du moteur
  * (« another Claude Code process is holding the refresh lock ») et coûter un
  * tour raté à l'agent.
+ *
+ * …ET JAMAIS HORS DE SON CRÉNEAU (25/10/2026). Le renouvellement passe par un
+ * VRAI message au moteur (`claude -p ok`) : il OUVRE la fenêtre de cinq heures.
+ * Le 25/10 à 04:25 UTC, le jeton de Claude Pro a expiré cinq minutes après
+ * l'amorce de Claude Perso ; le relevé l'a renouvelé aussitôt, et les deux
+ * fenêtres se sont retrouvées alignées. Un compte qui suit le repère, fenêtre
+ * fermée, ATTEND donc son créneau : c'est l'amorce du créneau qui renouvelera
+ * (`amorcerFenetres`). Fenêtre ouverte, compte repère ou sans créneau connu :
+ * on renouvelle tout de suite, comme avant. Une session qui expirerait avant
+ * le créneau se renouvelle aussi tout de suite : la perdre coûte une
+ * reconnexion à la main, bien plus qu'un écart de fenêtres.
  */
 export function decisionDeRenouvellement(entree: {
   peutRenouveler: boolean;
   agentsAuTravail: number;
+  /** La fenêtre de cinq heures du compte tourne déjà : un message de plus ne la déplace pas. */
+  fenetreOuverte?: boolean;
+  /** Le prochain créneau d'amorce du compte (absent pour le repère, ou sans repère sûr). */
+  prochainCreneau?: number;
+  /** Fin de la session (jeton de renouvellement). */
+  renouvellementExpireA?: number;
+  maintenant?: number;
 }): DecisionDeRenouvellement {
   if (!entree.peutRenouveler) return 'impossible';
-  return entree.agentsAuTravail > 0 ? 'laisser-aux-agents' : 'forcer';
+  if (entree.agentsAuTravail > 0) return 'laisser-aux-agents';
+  if (entree.fenetreOuverte || entree.prochainCreneau === undefined) return 'forcer';
+  const maintenant = entree.maintenant ?? Date.now();
+  if (entree.prochainCreneau <= maintenant + AVANCE_SUR_LE_CRENEAU_MS) return 'forcer';
+  if (entree.renouvellementExpireA && entree.renouvellementExpireA <= entree.prochainCreneau + MARGE_DE_LA_SESSION_MS) {
+    return 'forcer';
+  }
+  return 'attendre-le-creneau';
+}
+
+/**
+ * LE MOTEUR NE RENOUVELLE SON JETON QUE DANS SES CINQ DERNIÈRES MINUTES
+ * (`now + 300000 >= expiresAt`, lu dans le moteur Claude Code 2.1.310) : plus
+ * tôt, `claude -p ok` n'est qu'un message, sans jeton neuf.
+ */
+export const MARGE_DE_RENOUVELLEMENT_DU_MOTEUR_MS = 5 * 60 * 1000;
+/** Le renouvellement préventif part un peu après l'entrée dans cette marge. */
+export const AVANCE_DU_RENOUVELLEMENT_PREVENTIF_MS = 4 * 60 * 1000;
+
+/**
+ * LE RENOUVELLEMENT PRÉVENTIF : quand le jeton d'un compte arrive à ses
+ * dernières minutes PENDANT que sa fenêtre tourne, on le renouvelle tout de
+ * suite — le message du moteur ne déplace pas une fenêtre déjà ouverte, et le
+ * jeton neuf (≈ 8 h) couvre l'amorce du créneau suivant. Sans cela, il
+ * expirerait plus tard, fenêtre fermée, et devrait attendre son créneau.
+ */
+export function renouvellementPreventif(entree: {
+  peutRenouveler: boolean;
+  agentsAuTravail: number;
+  fenetreOuverte: boolean;
+  expireA?: number;
+  maintenant?: number;
+}): boolean {
+  if (!entree.peutRenouveler || entree.agentsAuTravail > 0 || !entree.fenetreOuverte) return false;
+  if (!entree.expireA) return false;
+  const maintenant = entree.maintenant ?? Date.now();
+  return entree.expireA - maintenant <= MARGE_DE_RENOUVELLEMENT_DU_MOTEUR_MS;
+}
+
+/** Quand armer le renouvellement préventif d'un jeton (jamais dans le passé). */
+export function instantDuRenouvellementPreventif(expireA: number | undefined, maintenant = Date.now()): number | undefined {
+  if (!expireA || expireA <= maintenant) return undefined;
+  return Math.max(maintenant, expireA - AVANCE_DU_RENOUVELLEMENT_PREVENTIF_MS);
+}
+
+/** Le message du relevé pendant l'attente : calme et daté, jamais « reconnexion nécessaire ». */
+export function texteDeConnexionEnAttente(prochainCreneau: number): string {
+  const heure = new Date(prochainCreneau).toLocaleTimeString('fr-CH', { hour: '2-digit', minute: '2-digit' });
+  return `connexion rafraîchie à son créneau de ${heure}`;
 }
 
 const deuxChiffres = (n: number) => String(n).padStart(2, '0');

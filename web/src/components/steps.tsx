@@ -103,7 +103,7 @@ export function Steps({
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        className="flex w-full items-center gap-2 px-3 sm:px-2.5 py-2 sm:py-1.5 text-left"
       >
         {enCours && derniere && estUneAide(derniere) ? (
           <Bot className="h-3 w-3 shrink-0 animate-pulse text-teinte" />
@@ -150,7 +150,7 @@ export function Steps({
                     })
                   }
                   className={cn(
-                    'flex w-full items-start gap-2 rounded px-1 py-1 text-left',
+                    'flex w-full items-start gap-2 rounded px-1.5 sm:px-1 py-1.5 sm:py-1 text-left',
                     aDuDetail(step) && 'hover:bg-raised',
                   )}
                 >
@@ -202,7 +202,7 @@ export function Steps({
                     type="button"
                     data-capture-etape={step.id}
                     onClick={() => basculer(setEnGrand, step.id)}
-                    className="mx-1 mb-1 block overflow-hidden rounded bg-raised p-1"
+                    className="mx-1 mb-1 block overflow-hidden rounded bg-raised p-1.5 sm:p-1"
                     title={enGrand.has(step.id) ? t('Réduire la capture') : t('Voir la capture en grand')}
                   >
                     <img

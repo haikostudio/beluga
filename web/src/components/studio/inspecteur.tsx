@@ -453,7 +453,7 @@ function ReglagesDuGenre({
           ) : null}
           {s.dureeAudio ? <p className="text-[12px] text-faint">{t('Durée réelle du son : {n} s', { n: s.dureeAudio.toFixed(2) })}</p> : null}
           {/* Dans la colonne des valeurs, sur toute sa largeur : le libellé va à la ligne au lieu de déborder sur la note du dessus. */}
-          <Button size="sm" variant="outline" className="mt-1 h-auto min-h-8 w-full whitespace-normal py-1.5 leading-snug" onClick={() => onVoixEssai(s.id)} data-studio-voix-essai>
+          <Button size="sm" variant="outline" className="mt-1 h-auto min-h-[38px] sm:min-h-8 w-full whitespace-normal py-1.5 leading-snug" onClick={() => onVoixEssai(s.id)} data-studio-voix-essai>
             {t('Fabriquer la voix d’essai (gratuite)')}
           </Button>
         </Section>
@@ -1039,7 +1039,7 @@ function BoutonBascule({
         e.preventDefault();
         onBasculer(!actif);
       }}
-      className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-raised/60 hover:text-text', actif && 'bg-accent/15 text-text')}
+      className={cn('flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-raised/60 hover:text-text', actif && 'bg-accent/15 text-text')}
       {...reste}
     >
       <Icone className="h-3.5 w-3.5" />
@@ -1246,7 +1246,7 @@ export function Calques({
           onClick={onChoisirDessin}
           aria-current={actif ? 'true' : undefined}
           className={cn(
-            'flex min-h-7 items-center gap-2 rounded-md px-1 pb-0.5 text-left transition-colors hover:bg-raised/60',
+            'flex min-h-[34px] sm:min-h-7 items-center gap-2 rounded-md px-1 pb-0.5 text-left transition-colors hover:bg-raised/60',
             actif ? 'text-teinte' : 'text-text',
           )}
           data-studio-calques-tete={segment.id}
@@ -1286,7 +1286,7 @@ export function Calques({
               aria-label={r.masquee ? `Afficher « ${id} »` : `Masquer « ${id} »`}
               title={r.masquee ? t('Afficher « {nom} »', { nom: id }) : t('Masquer « {nom} »', { nom: id })}
               onClick={() => poser(id, { masquee: !r.masquee })}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
+              className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
               data-studio-calque-oeil={id}
             >
               {r.masquee ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -1313,7 +1313,7 @@ export function Calques({
               aria-label="Avancer d’un plan"
               title={t('Avancer d’un plan')}
               onClick={() => poser(id, { plan: plan(id) + 1 })}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
+              className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
               data-studio-calque-avancer={id}
             >
               <ChevronUp className="h-3.5 w-3.5" />
@@ -1323,7 +1323,7 @@ export function Calques({
               aria-label="Reculer d’un plan"
               title={t('Reculer d’un plan')}
               onClick={() => poser(id, { plan: plan(id) - 1 })}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
+              className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded text-faint hover:text-text"
               data-studio-calque-reculer={id}
             >
               <ChevronDown className="h-3.5 w-3.5" />

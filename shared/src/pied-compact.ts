@@ -20,6 +20,17 @@ export interface BlocDuPied {
   hauteurRepliee: number;
   /** Le panneau de décision compte dans la hauteur, mais ne se replie pas. */
   repliable: boolean;
+  /**
+   * GARDÉ DÉPLIÉ, LES AUTRES SE REPLIENT POUR LUI (décision du 25/10/2026,
+   * captures #1640 et #c92f) : les étapes du tournage. Repliées par le pied,
+   * elles ne montraient plus que l'étape en cours sous « Liste des étapes —
+   * 4/7 faites », chevron déplié. Un bloc gardé ne se replie jamais (il est
+   * aussi `repliable: false`) et, tant qu'il est là, le dernier bloc APPARU ne
+   * reste plus déplié d'office : seul celui qu'on vient de rouvrir d'un appui
+   * l'est. Sans quoi « Ce que l'agent a vu », seul autre bloc repliable et
+   * dernier venu, ne se replierait jamais à sa place.
+   */
+  garde?: boolean;
 }
 
 /** Hauteur supposée d'un bloc replié dont on n'a encore rien mesuré. */
@@ -47,12 +58,20 @@ export function ordreDOuverture(avant: readonly string[], presents: readonly str
  * LES BLOCS À REPLIER : on part de tout déplié, puis on replie du plus ancien
  * au plus récent tant que le total dépasse le budget. Le dernier ouvert parmi
  * les repliables ne se replie jamais ; un bloc non repliable compte sans bouger.
+ * Avec un bloc GARDÉ (`garde`), seul le dernier ouvert PAR UN APPUI
+ * (`rouvertParAppui`) est protégé.
  */
-export function blocsARepliers(blocs: readonly BlocDuPied[], ordre: readonly string[], budget: number): string[] {
+export function blocsARepliers(
+  blocs: readonly BlocDuPied[],
+  ordre: readonly string[],
+  budget: number,
+  rouvertParAppui?: string | null,
+): string[] {
   const parCle = new Map(blocs.map((bloc) => [bloc.cle, bloc]));
   const rangs = [...ordre.filter((cle) => parCle.has(cle)), ...blocs.map((b) => b.cle).filter((cle) => !ordre.includes(cle))];
-  const repliables = rangs.filter((cle) => parCle.get(cle)!.repliable);
-  const dernier = repliables[repliables.length - 1];
+  const repliables = rangs.filter((cle) => parCle.get(cle)!.repliable && !parCle.get(cle)!.garde);
+  const dernierVenu = repliables[repliables.length - 1];
+  const dernier = blocs.some((bloc) => bloc.garde) ? (dernierVenu === rouvertParAppui ? dernierVenu : undefined) : dernierVenu;
   let total = blocs.reduce((somme, bloc) => somme + bloc.hauteurDepliee, 0);
   const replies: string[] = [];
   for (const cle of repliables) {

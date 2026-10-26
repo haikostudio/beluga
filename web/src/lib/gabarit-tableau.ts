@@ -24,20 +24,25 @@ export const LARGEUR_CARTE_PX = 268;
  * garde donc, sous la frise, de quoi loger cette bande et un peu d'air (7 px
  * mesurés). Demande du 12/10/2026 (« gagner un peu en hauteur ») : plus
  * d'ancienneté en pied, et un titre sur UNE ligne — la carte passe de 178 à
- * 156 px. Elle reste FIXE : la silhouette de chargement a la même hauteur, et
- * rien ne saute à l'arrivée des cartes.
+ * 156 px. Le 25/10/2026 (« aérer les cartes ») : plus de demande sous le
+ * titre, un titre sur deux lignes, plus d'espace intérieur et une frise plus
+ * fine — la carte passe à 150 px : son contenu (120 px) plus la bande de
+ * travail (30 px) y tiennent sans rien écraser. Elle reste FIXE : la silhouette de chargement a la même
+ * hauteur, et rien ne saute à l'arrivée des cartes.
  */
-export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[156px]';
+export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[150px]';
 
 /**
  * « TABLEAUX DE BORD » : LA HAUTEUR DU CORPS D'UNE CARTE (titre, début de la
  * demande), sous sa tête. Fixe, pour que la frise des étapes posée juste
  * dessous tombe au MÊME endroit sur toutes les cartes — qu'elles portent une
  * bande de travail en pied (qui raccourcit la tuile) ou non, et quelle que
- * soit la longueur de la demande. Une ligne de titre et deux de demande y
- * tiennent ; au-delà, le corps se coupe.
+ * soit la longueur du titre. Depuis le 25/10/2026 (« aérer les cartes »), la
+ * demande ne s'y écrit plus (elle se lit dans la pastille « i ») : le corps
+ * loge DEUX lignes de titre à 16 px (`leading-snug`, 2 × 22 px) ; au-delà, le
+ * titre se coupe par « … ».
  */
-export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[60px]';
+export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[44px]';
 
 /**
  * LA TENUE DES CARTES SYSTÈME (agents sans carte, dépannages, agents de
@@ -45,7 +50,7 @@ export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[60px]';
  * les distingue se lit dans leur tête (« Dépannage », « Mise en ligne »).
  */
 export const CLASSE_CADRE_SYSTEME =
-  'relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-xl bg-surface px-3.5 py-3 transition-colors hover:bg-raised';
+  'relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-xl bg-surface px-4 py-3.5 transition-colors hover:bg-raised';
 
 /**
  * LES CARTES DE SERVICE (agents de volet : Studio, Marketing, Surveillance,

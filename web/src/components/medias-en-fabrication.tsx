@@ -10,6 +10,7 @@ import {
 } from '@beluga/shared';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
+import { InformationsDeLaPiece, MenuDeLaPiece } from '@/components/menu-du-media';
 import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
 import { t } from '@/lib/langue';
@@ -90,9 +91,10 @@ function BlocDeMedia({ media }: { media: MediaEnFabrication }) {
     <figure
       data-media-en-fabrication={media.id}
       data-media-etat={media.etat}
-      className="min-w-0 max-w-full"
+      className="relative min-w-0 max-w-full"
       style={{ width: largeur }}
     >
+      {fini ? <MenuDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} /> : null}
       {fini && piece.mime.startsWith('image/') ? (
         <button
           type="button"
@@ -143,6 +145,7 @@ function BlocDeMedia({ media }: { media: MediaEnFabrication }) {
             </>
           ) : null}
         </p>
+        {fini ? <InformationsDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} /> : null}
       </figcaption>
       {piece ? <AttachmentPreview item={ouverte ? piece : null} onClose={() => setOuverte(false)} /> : null}
     </figure>

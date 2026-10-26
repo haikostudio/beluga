@@ -224,7 +224,7 @@ export function TableauDeBlocs({
                     type="button"
                     aria-label="Masquer le bloc"
                     title={t('Masquer')}
-                    className="flex h-6 w-6 items-center justify-center rounded-sm text-faint hover:bg-raised hover:text-text"
+                    className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 items-center justify-center rounded-sm text-faint hover:bg-raised hover:text-text"
                     onClick={() => basculer(id)}
                     data-stats-bloc-masquer={id}
                   >
@@ -234,7 +234,7 @@ export function TableauDeBlocs({
                     type="button"
                     aria-label="Déplacer le bloc"
                     title={t('Glisser pour déplacer')}
-                    className="flex h-6 w-6 cursor-grab touch-none items-center justify-center rounded-sm text-faint hover:bg-raised hover:text-text"
+                    className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 cursor-grab touch-none items-center justify-center rounded-sm text-faint hover:bg-raised hover:text-text"
                     onPointerDown={(e) => start(e, { id, kind: 'bloc', label: bloc.titre })}
                     data-stats-bloc-poignee={id}
                   >

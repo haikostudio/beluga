@@ -583,7 +583,7 @@ export function TerminalServeur({
             <button
               type="button"
               data-terminal-compte
-              className="flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint hover:bg-raised disabled:opacity-60"
+              className="flex min-w-0 shrink items-center gap-1.5 rounded-md px-2 sm:px-1.5 py-1 sm:py-0.5 text-[12.5px] text-faint hover:bg-raised disabled:opacity-60"
               disabled={bascule || !comptesDesMoteurs.length}
             >
               {bascule ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
@@ -636,7 +636,7 @@ export function TerminalServeur({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
+            className="h-[34px] sm:h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
             data-terminal-copier
             data-terminal-copie={copie ? 'oui' : undefined}
             data-terminal-copie-en-attente={copieEnAttente && !aSelection ? 'oui' : undefined}

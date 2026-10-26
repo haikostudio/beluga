@@ -73,15 +73,29 @@ const buttonVariants = cva(
         arret: 'bg-danger text-white hover:opacity-90',
         /* Le geste qui CRÉE : le même aplat d'encre que `CLASSE_BOUTON_DE_CREATION`. */
         creation: CLASSE_BOUTON_DE_CREATION,
+        /*
+         * LE GESTE SECONDAIRE POSÉ SUR UN FOND `raised` (une ligne, une fiche) :
+         * `subtle` y disparaît (même fond) et `ghost` n'en a pas. Un voile de
+         * l'encre du texte se détache donc de N'IMPORTE QUEL fond, dans les douze
+         * palettes : plus foncé en clair, plus clair en sombre. Sans bordure.
+         */
+        contraste: 'bg-text/[0.14] text-text hover:bg-text/[0.2]',
+        /*
+         * LE GESTE PRINCIPAL POSÉ SUR UN FOND `raised` : l'aplat d'encre en clair
+         * (noir, écriture blanche). En sombre l'encre vaut presque le fond d'une
+         * ligne et disparaissait : un voile plus fort de l'encre du texte la
+         * remplace — jamais le blanc franc refusé en sombre.
+         */
+        principal: cn(CLASSE_BOUTON_DE_CREATION, 'dark:bg-text/[0.3] dark:text-text dark:hover:bg-text/[0.36] dark:hover:opacity-100'),
       },
       size: {
-        sm: 'h-8 px-3 text-[13.5px]',
-        md: 'h-9 px-3.5 text-[14.5px]',
-        lg: 'h-10 px-4 text-[14.5px]',
-        icon: 'h-7 w-7',
+        sm: 'h-[38px] sm:h-8 px-3.5 sm:px-3 text-[13.5px]',
+        md: 'h-[43px] sm:h-9 px-4 sm:px-3.5 text-[14.5px]',
+        lg: 'h-12 sm:h-10 px-5 sm:px-4 text-[14.5px]',
+        icon: 'h-[34px] sm:h-7 w-[34px] sm:w-7',
         /* La case d'icône d'une BARRE d'en-tête (voir `CLASSE_RANGEE_DE_BOUTONS`). */
-        'icon-barre': 'h-8 w-8',
-        'icon-sm': 'h-6 w-6',
+        'icon-barre': 'h-[38px] sm:h-8 w-[38px] sm:w-8',
+        'icon-sm': 'h-[29px] sm:h-6 w-[29px] sm:w-6',
         /*
          * LE BOUTON D'UN PIED — en bas d'un écran, d'une colonne ou d'un tiroir,
          * sur toute la largeur. Tous les pieds ont la MÊME hauteur : celle d'une
@@ -90,7 +104,7 @@ const buttonVariants = cva(
          * plus bas que les lignes au-dessus de lui. Un pied neuf la prend en
          * nommant la taille, sans la recopier ni l'écraser par un `h-…`.
          */
-        pied: 'h-9 w-full px-3 text-[14px]',
+        pied: 'h-[43px] sm:h-9 w-full px-3.5 sm:px-3 text-[14px]',
       },
     },
     defaultVariants: { variant: 'outline', size: 'md' },
@@ -320,7 +334,7 @@ export const ChampMotDePasse = React.forwardRef<
             aria-label="Générer un mot de passe"
             disabled={props.disabled}
             onClick={generer}
-            className="grid h-7 w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-50"
+            className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-50"
           >
             <WandSparkles className="h-3.5 w-3.5" />
           </button>
@@ -332,7 +346,7 @@ export const ChampMotDePasse = React.forwardRef<
           aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
           aria-pressed={visible}
           onClick={() => basculer(!visible)}
-          className="grid h-7 w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text"
+          className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text"
         >
           {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
@@ -572,7 +586,7 @@ export const Tabs = TabsPrimitive.Root;
  * le fond de la page ; `--ligne-active` est le gris le plus marqué des deux
  * palettes, et l'onglet ouvert s'y détache en clair comme en sombre.
  */
-export const CLASSES_LISTE_ONGLETS = 'h-8 items-center gap-0.5 rounded-lg bg-ligne-active p-0.5';
+export const CLASSES_LISTE_ONGLETS = 'h-[38px] sm:h-8 items-center gap-0.5 rounded-lg bg-ligne-active p-0.5';
 
 export const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
@@ -611,7 +625,7 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-bg data-[state=active]:text-teinte data-[state=active]:shadow-sm dark:data-[state=active]:bg-faint/30',
+      'inline-flex h-[34px] sm:h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 sm:px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-bg data-[state=active]:text-teinte data-[state=active]:shadow-sm dark:data-[state=active]:bg-faint/30',
       className,
     )}
     {...props}
@@ -912,16 +926,24 @@ export const ZoneDefilement = React.forwardRef<
         className={cn(
           'pointer-events-none absolute z-10 transition-opacity duration-200',
           horizontal ? 'inset-y-0' : 'inset-x-0',
+          /*
+           * LE VOILE DÉBORDE D'UN PIXEL AU-DELÀ DE SON BORD, et l'enveloppe le
+           * rogne (`overflow-clip`). Sur un écran à trois pixels par point
+           * (iPhone), la zone qui défile et son voile ne tombent pas toujours
+           * sur le même pixel physique : une ligne de contenu net restait
+           * visible entre le bord et le flou (#2d5b). Débordant puis rogné au
+           * même bord que la zone, le voile la couvre jusqu'au dernier pixel.
+           */
           horizontal
             ? cote === 'debut'
-              ? 'left-0'
-              : 'right-0'
+              ? '-left-px'
+              : '-right-px'
             : cote === 'debut'
-              ? 'top-0'
-              : 'bottom-0',
+              ? '-top-px'
+              : '-bottom-px',
           visible ? 'opacity-100' : 'opacity-0',
         )}
-        style={horizontal ? { width: hauteur } : { height: hauteur }}
+        style={horizontal ? { width: hauteur + 1 } : { height: hauteur + 1 }}
       >
         {/*
          * Un flou PROGRESSIF, et non une bande floue posée d'un bloc : un seul
@@ -963,6 +985,9 @@ export const ZoneDefilement = React.forwardRef<
     <div
       className={cn(
         'relative flex',
+        // Rogne le pixel de débord des voiles, rien d'autre : le contenu, lui,
+        // est déjà rogné par la zone qui défile.
+        avecVoile && 'overflow-clip',
         horizontal ? 'min-w-0 flex-1 flex-row' : 'min-h-0 flex-1 flex-col',
         classeEnveloppe,
       )}
@@ -1181,13 +1206,13 @@ export function DialogHeader({
         data-fenetre-rangee
         className="grid grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-start gap-2"
       >
-        <div data-fenetre-gauche className="flex h-8 min-w-0 items-center justify-start gap-1">
+        <div data-fenetre-gauche className="flex h-[38px] sm:h-8 min-w-0 items-center justify-start gap-1">
           {gauche}
         </div>
-        <div data-fenetre-titre className="flex min-h-8 min-w-0 items-center justify-center gap-1 text-center">
+        <div data-fenetre-titre className="flex min-h-[38px] sm:min-h-8 min-w-0 items-center justify-center gap-1 text-center">
           {titre}
         </div>
-        <div data-fenetre-droite className={cn('flex h-8 min-w-0 items-center justify-end gap-1', !sansCroix && 'pr-8')}>
+        <div data-fenetre-droite className={cn('flex h-[38px] sm:h-8 min-w-0 items-center justify-end gap-1', !sansCroix && 'pr-10 sm:pr-8')}>
           {droite}
         </div>
       </div>
@@ -1273,6 +1298,15 @@ export const Dialog = DialogPrimitive.Root;
  * installé, la zone sûre vaut 0 : la bande n'a aucune hauteur, rien ne se lit.
  * Enfant du voile, elle suit son fondu d'entrée et de sortie, et laisse passer
  * le toucher jusqu'à lui (qui referme ce qu'il couvre).
+ *
+ * ELLE EST ELLE-MÊME `fixed`, JAMAIS `absolute` (capture iPhone du 25/10/2026,
+ * feuille des quotas : flou gris clair qui fondait vers le voile sous l'heure).
+ * WebKit n'échantillonne que l'élément FIXE qui touche le bord : une bande
+ * `absolute` dans le voile laissait iOS lire le voile lui-même, translucide, et
+ * remettre son flou. Le voile n'est ni transformé ni filtré au point de
+ * déplacer la bande (il couvre déjà toute la fenêtre), elle reste donc collée
+ * au bord. Sa couleur se relit à la fin du fondu d'ouverture et à chaque
+ * changement de thème, pour rester l'aplat exact du voile.
  */
 function couleurOpaqueSous(x: number, y: number, ignorer: Element): [number, number, number] | null {
   for (const element of document.elementsFromPoint(x, y)) {
@@ -1300,20 +1334,31 @@ export function BandeDuVoile() {
   React.useLayoutEffect(() => {
     const bande = ref.current;
     const voile = bande?.parentElement;
-    if (!bande || !voile || bande.offsetHeight === 0) return;
-    const teinte = lireRgba(getComputedStyle(voile).backgroundColor);
-    const dessous = couleurOpaqueSous(window.innerWidth / 2, Math.max(0, bande.offsetHeight / 2), voile);
-    if (!teinte || !dessous) return;
-    const a = teinte[3];
-    const melange = [0, 1, 2].map((i) => Math.round(teinte[i]! * a + dessous[i]! * (1 - a)));
-    setCouleur(`rgb(${melange.join(', ')})`);
+    if (!bande || !voile) return;
+    const peindre = () => {
+      if (bande.offsetHeight === 0) return;
+      const teinte = lireRgba(getComputedStyle(voile).backgroundColor);
+      const dessous = couleurOpaqueSous(window.innerWidth / 2, Math.max(0, bande.offsetHeight / 2), voile);
+      if (!teinte || !dessous) return;
+      const a = teinte[3];
+      const melange = [0, 1, 2].map((i) => Math.round(teinte[i]! * a + dessous[i]! * (1 - a)));
+      setCouleur(`rgb(${melange.join(', ')})`);
+    };
+    peindre();
+    voile.addEventListener('animationend', peindre);
+    const theme = new MutationObserver(() => window.requestAnimationFrame(peindre));
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'data-ambiance'] });
+    return () => {
+      voile.removeEventListener('animationend', peindre);
+      theme.disconnect();
+    };
   }, []);
   return (
     <div
       ref={ref}
       aria-hidden
       data-bande-du-voile
-      className="pointer-events-none absolute inset-x-0 top-0"
+      className="pointer-events-none fixed inset-x-0 top-0"
       style={{ height: 'var(--zone-sure-haut, 0px)', backgroundColor: couleur }}
     />
   );
@@ -1742,7 +1787,7 @@ function FeuilleDeTiroir({
               aria-label="Fermer"
               data-poignee-tiroir
               data-retour-de-page
-              className="flex h-8 items-center gap-1.5 rounded-md pl-1.5 pr-2.5 text-[14px] text-muted transition-colors hover:bg-raised hover:text-text"
+              className="flex h-[38px] sm:h-8 items-center gap-1.5 rounded-md pl-1.5 pr-2.5 text-[14px] text-muted transition-colors hover:bg-raised hover:text-text"
             >
               <ArrowLeft className="h-4 w-4" />
               {t('Retour')}
@@ -2181,7 +2226,7 @@ export function EnteteDeFeuille({
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
   return (
     <header className={cn('shrink-0 px-3 pb-2', className)} data-entete-feuille {...attributs}>
-      <div className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+      <div className="grid min-h-[38px] sm:min-h-8 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
         <div className="flex min-w-0 items-center justify-start gap-1" data-entete-gauche>
           {gauche}
         </div>
@@ -2517,7 +2562,7 @@ export function BulleInfo({
           }}
           className={cn(
             'flex shrink-0 items-center justify-center text-faint transition-colors hover:bg-bloc hover:text-text data-[state=open]:text-text',
-            dansBarre ? 'h-8 w-8 rounded-lg' : 'h-5 w-5 rounded-full',
+            dansBarre ? 'h-[38px] sm:h-8 w-[38px] sm:w-8 rounded-lg' : 'h-6 sm:h-5 w-6 sm:w-5 rounded-full',
           )}
         >
           <Info className={dansBarre ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
@@ -3173,7 +3218,7 @@ export function BlocRepliable({
           type="button"
           onClick={basculer}
           aria-expanded={ouvert}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left text-[11px] uppercase tracking-wide text-faint transition-colors hover:text-text"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-2 sm:py-1.5 text-left text-[11px] uppercase tracking-wide text-faint transition-colors hover:text-text"
           data-bloc-bascule={repere}
         >
           <ChevronDown
@@ -3604,7 +3649,7 @@ export function ListeDeroulante({
               option.action!.onClick();
             }}
             className={cn(
-              'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-bloc hover:text-text',
+              'flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-bloc hover:text-text',
               option.action.active ? 'text-accent' : 'text-faint',
             )}
           >
@@ -3690,8 +3735,8 @@ export function ListeDeroulante({
         variante === 'champ'
           ? /* La tenue d'un champ de saisie (`Input`) : un fond, aucun trait au
                repos ; ouverte, le même filet discret qu'un champ qui a le focus. */
-            'h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-border'
-          : 'h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
+            'h-[38px] sm:h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-border'
+          : 'h-[34px] sm:h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
         ouvert && variante === 'champ' && 'border-faint/60',
         className,
       )}
@@ -4078,3 +4123,4 @@ export function GroupeTiroir({ titre, children }: { titre: string; children: Rea
     </div>
   );
 }
+export * from './elements-maison';

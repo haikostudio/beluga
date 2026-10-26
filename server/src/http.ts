@@ -85,13 +85,13 @@ import { paysDeLaRequete } from './pays-des-visites.js';
 import { noterLEcran, noterUneLatence, noterUnePanne } from './usage-installation.js';
 import { scriptDeSuivi } from '@beluga/shared';
 import {
-  IMAGE_ACCES_OCTETS_MAX,
+  FICHIERS_FICHE_OCTETS_MAX,
   PROJET_DU_COFFRE,
   ROUTE_ARCHIVE_DES_IMAGES,
   ROUTE_FICHIER_CITE,
   typeServiDUnFichierCite,
   adresseDuLot,
-  imageDuCoffreAcceptee,
+  refusDuFichierDuCoffre,
   type CorpsDArchive,
   type LotDArchive,
 } from '@beluga/shared';
@@ -1434,10 +1434,12 @@ export function createHttpServer(): http.Server {
 
       if (route === '/api/upload' && req.method === 'POST') {
         /*
-         * UNE IMAGE POUR LE COFFRE-FORT (`?coffre=1`). Une fiche partagée n'a
-         * pas de projet : ses images se rangent sous le projet RÉSERVÉ du
+         * UN FICHIER POUR LE COFFRE-FORT (`?coffre=1`). Une fiche partagée n'a
+         * pas de projet : ses fichiers se rangent sous le projet RÉSERVÉ du
          * coffre, à part de toute carte et de toute demande. Seul
-         * l'administrateur en dépose, et seulement des images.
+         * l'administrateur en dépose ; tout fichier, sauf un programme. Le
+         * plafond d'1 Go se juge sur la FICHE à l'enregistrement — ici, un
+         * seul fichier plus lourd que ce plafond est refusé d'office.
          */
         const pourLeCoffre =
           url.searchParams.get('coffre') === '1' || url.searchParams.get('project') === PROJET_DU_COFFRE;
@@ -1449,9 +1451,10 @@ export function createHttpServer(): http.Server {
         }
         const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'fichier'));
         const mime = String(req.headers['content-type'] ?? 'application/octet-stream');
-        if (pourLeCoffre && !imageDuCoffreAcceptee(mime)) {
+        const refusDuCoffre = pourLeCoffre ? refusDuFichierDuCoffre(mime, name) : null;
+        if (refusDuCoffre) {
           res.setHeader('connection', 'close');
-          return json(res, 415, { error: 'Le coffre-fort ne prend que des images.' });
+          return json(res, 415, { error: refusDuCoffre });
         }
         /*
          * AU FIL DE L'EAU, JUSQU'À 2 GO (`server/src/envoi-piece-jointe.ts`) :
@@ -1471,9 +1474,9 @@ export function createHttpServer(): http.Server {
           return json(res, recu.statut, { error: recu.raison });
         }
         const sha = recu.sha;
-        if (pourLeCoffre && recu.taille > IMAGE_ACCES_OCTETS_MAX) {
+        if (pourLeCoffre && recu.taille > FICHIERS_FICHE_OCTETS_MAX) {
           fs.rmSync(recu.provisoire, { force: true });
-          return json(res, 413, { error: 'Cette image est trop lourde pour le coffre-fort.' });
+          return json(res, 413, { error: 'Ce fichier dépasse 1 Go, le plafond d’une fiche du coffre-fort.' });
         }
 
         // Dédoublonnage : le même fichier envoyé dix fois n'apparaît qu'une fois.
@@ -1536,7 +1539,7 @@ export function createHttpServer(): http.Server {
           return json(res, 403, { error: REFUS_HORS_PORTEE });
         }
         /*
-         * UNE IMAGE DU COFFRE-FORT NE SORT QUE POUR L'ADMINISTRATEUR, quoi que
+         * UN FICHIER DU COFFRE-FORT NE SORT QUE POUR L'ADMINISTRATEUR, quoi que
          * dise la règle ci-dessus : c'est une capture d'accès, un code QR, un
          * document — jamais la pièce d'une demande.
          */

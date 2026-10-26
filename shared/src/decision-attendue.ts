@@ -48,6 +48,8 @@ export interface DecisionAttendue extends DemandeEnAttente {
    * mène encore quelque part (`issue-de-decision.ts`).
    */
   messageId?: string;
+  /** L'adresse de l'écran où elle se prend, quand ce n'est ni une carte ni un projet (« #<écran> » : un service de l'application). */
+  url?: string;
   /** D'où elle vient : c'est ce qui dit quel geste l'écran rend derrière. */
   source?: SourceDeDecision;
   /**

@@ -34,6 +34,7 @@ import {
   Label,
   Switch,
   Tooltip,
+  ChoixDeDate,
 } from '@/components/ui';
 import { BlocConnexion, RemplacerCle, RepriseDeConnexion } from '@/components/connexion-compte';
 import { LigneChiffresCursor, UsageCursor } from '@/components/quota-badge';
@@ -597,13 +598,13 @@ function FormulaireForfaitMensuel({ quota, onFini }: { quota: AccountQuota; onFi
         </div>
         <div className="min-w-0">
           <Label className="text-[11.5px] text-faint">{t('Renouvellement')}</Label>
-          <Input
-            type="date"
-            value={jour}
+          <ChoixDeDate
+            valeur={jour}
             disabled={envoi}
-            onChange={(e) => setJour(e.target.value)}
-            className="mt-0.5 h-7 w-full min-w-0 appearance-none text-[13px]"
-            data-forfait-renouvellement
+            onChange={setJour}
+            aria-label="Renouvellement"
+            className="mt-0.5 h-7 sm:h-7 px-2 text-[13px]"
+            data-forfait-renouvellement=""
           />
         </div>
         <div className="min-w-0">

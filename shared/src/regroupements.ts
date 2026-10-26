@@ -28,6 +28,7 @@
 import type { ColumnKey } from './columns.js';
 import type { Agent, Card, DepotAnnexe, Project, SuiviDUneFille } from './models.js';
 import { minusculesSansAccents } from './mots.js';
+import { estEtapeDeSuite, etapeRetenue } from './suite-de-cartes.js';
 
 /** Le sous-dossier des données où vit le dossier de rangement de chaque regroupement. */
 export const DOSSIER_DES_REGROUPEMENTS = 'regroupements';
@@ -225,7 +226,11 @@ export function estUnePhraseDeMere(phrase: string): boolean {
 export interface FilleLue {
   carte: Pick<Card, 'id' | 'projectId' | 'column' | 'sansModification' | 'doneAt' | 'codeDejaEnregistre'> & {
     estimate?: { clientExplanation?: string; summary?: string } | null;
-    scheduling?: { waitingReason?: string } | null;
+    scheduling?: { waitingReason?: string; tourEnVolDepuis?: number } | null;
+    /** Une étape de suite : son rang, son titre, et sa fin retenue dans le groupe (`shared/src/suite-de-cartes.ts`). */
+    rangDansLaSuite?: number;
+    title?: string;
+    etapeFinieAt?: number;
   };
   agent?: Pick<Agent, 'status' | 'attendReponse' | 'etapeEnCours' | 'todos'> | null;
   projet: string;
@@ -253,9 +258,27 @@ function court(texte: string | undefined, max = 280): string | undefined {
  *  - « Planifié » : ATTENTE, avec la raison écrite sur la fille (quota, file).
  */
 export function etatDeLaFille({ carte, agent, projet }: FilleLue): SuiviDUneFille {
-  const base = { projectId: carte.projectId, cardId: carte.id, projet, colonne: carte.column };
+  const base = {
+    projectId: carte.projectId,
+    cardId: carte.id,
+    projet,
+    colonne: carte.column,
+    ...(estEtapeDeSuite(carte) ? { rang: carte.rangDansLaSuite, titre: court(carte.title, 120) } : {}),
+  };
   const avancement = agent?.todos?.total ? { faites: agent.todos.done, total: agent.todos.total } : {};
-  if (COLONNES_RENDUES.includes(carte.column)) {
+  /*
+   * UNE ÉTAPE DE SUITE FINIE RESTE EN « EN COURS » (`etapeRetenue`) : elle est
+   * FAITE tant qu'aucun nouveau tour ne la tient — une relance à la main la
+   * remet au travail, une question posée dans ce tour la remet en question.
+   */
+  const retenueFinie =
+    etapeRetenue(carte) &&
+    !carte.scheduling?.tourEnVolDepuis &&
+    !agent?.attendReponse &&
+    agent?.status !== 'failed' &&
+    agent?.status !== 'running' &&
+    agent?.status !== 'starting';
+  if (COLONNES_RENDUES.includes(carte.column) || retenueFinie) {
     const sansCode = !carte.codeDejaEnregistre && !!carte.sansModification;
     return {
       ...base,

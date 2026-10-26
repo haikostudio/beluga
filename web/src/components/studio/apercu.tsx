@@ -735,7 +735,7 @@ function BoutonBarre({
       title={libelle}
       disabled={desactive}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-full text-text transition-colors hover:bg-raised disabled:opacity-40 max-sm:h-8 max-sm:w-8"
+      className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-full text-text transition-colors hover:bg-raised disabled:opacity-40 max-sm:h-8 max-sm:w-8"
       data-studio-barre={repere}
     >
       {children}

@@ -81,7 +81,7 @@ export function EncadreServices({ texte, donnees }: { texte: string; donnees: Do
       ) : attendUnService ? (
         <>
           <p className="text-[12.5px] leading-relaxed text-muted">
-            {t('Pour fabriquer des extraits vidéo, branchez un de vos comptes (Runway, Krea, fal.ai, Replicate, Freepik, BytePlus ou Higgsfield) : collez sa clé dans les paramètres. Dès qu’un service est branché, ses modèles apparaissent ici.')}
+            {t('Pour fabriquer des extraits vidéo, branchez un de vos comptes (kie.ai, Runway, Krea, Replicate, Freepik ou BytePlus) : collez sa clé dans les paramètres. Dès qu’un service est branché, ses modèles apparaissent ici.')}
           </p>
           <div>
             <Button size="sm" onClick={ouvrirLesServicesDeCreation} data-studio-ouvrir-services>

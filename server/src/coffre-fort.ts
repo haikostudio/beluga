@@ -4,8 +4,6 @@ import {
   AccesCoffre,
   ChampLibre,
   DossierCoffre,
-  IMAGES_ACCES_MAX,
-  IMAGE_ACCES_OCTETS_MAX,
   NOM_ACCES_MAX,
   PROJET_DU_COFFRE,
   TypeAcces,
@@ -15,12 +13,13 @@ import {
   cheminTexte,
   creeUnCycle,
   descendantsDuDossier,
-  imageDuCoffreAcceptee,
   imagesApresEnregistrement,
   jugerAcces,
   jugerDossier,
   mimeDuFichier,
   normaliserRecherche,
+  refusDuFichierDuCoffre,
+  refusDuPoidsDeLaFiche,
   trierAcces,
   type Attachment,
 } from '@beluga/shared';
@@ -525,12 +524,15 @@ export function reclasserAcces(
  * pas. Rend la phrase de refus, ou rien.
  */
 function imagesRefusees(ids: readonly string[]): string | undefined {
+  let total = 0;
   for (const id of ids) {
     const piece = store.getAttachment(id);
-    if (!piece) return 'Une image de cette fiche est introuvable : retirez-la et joignez-la de nouveau.';
-    if (piece.projectId !== PROJET_DU_COFFRE) return 'Cette image n’a pas été déposée dans le coffre-fort.';
+    if (!piece) return 'Un fichier de cette fiche est introuvable : retirez-le et joignez-le de nouveau.';
+    if (piece.projectId !== PROJET_DU_COFFRE) return 'Ce fichier n’a pas été déposé dans le coffre-fort.';
+    total += piece.size;
   }
-  return undefined;
+  // Aucune limite de nombre : seul le POIDS TOTAL de la fiche est plafonné (1 Go).
+  return refusDuPoidsDeLaFiche(total) ?? undefined;
 }
 
 /**
@@ -571,21 +573,22 @@ export async function imagesDemandeesParUnAgent(opts: {
   racines: Array<string | undefined | null>;
 }): Promise<{ ok: true; ids: string[] } | { ok: false; raison: string }> {
   const demandes = [...new Set(opts.entrees.map((e) => String(e ?? '').trim().replace(/^#/, '')).filter(Boolean))];
-  if (demandes.length > IMAGES_ACCES_MAX) {
-    return { ok: false, raison: `Une fiche porte ${IMAGES_ACCES_MAX} images au plus : ${demandes.length} demandées.` };
-  }
   const portees = opts.dejaPortees.map((id) => store.getAttachment(id)).filter((p): p is Attachment => !!p);
   const plan: Array<{ id: string } | { fichier: string; nom: string; demande: string }> = [];
+  // Le poids TOTAL se juge avant toute copie, comme le reste : un refus ne laisse aucun fichier.
+  let total = 0;
   for (const demande of demandes) {
     const deLaFiche = portees.find((p) => p.id === demande || p.alias === demande);
     if (deLaFiche) {
       plan.push({ id: deLaFiche.id });
+      total += deLaFiche.size;
       continue;
     }
-    // Une image déjà rangée au coffre (vue dans « lister » sur une autre fiche) se redonne par son id.
+    // Un fichier déjà rangé au coffre (vu dans « lister » sur une autre fiche) se redonne par son id.
     const duCoffre = store.getAttachment(demande);
     if (duCoffre?.projectId === PROJET_DU_COFFRE) {
       plan.push({ id: duCoffre.id });
+      total += duCoffre.size;
       continue;
     }
     const source = store.attachmentsParAlias([demande])[0];
@@ -603,17 +606,16 @@ export async function imagesDemandeesParUnAgent(opts: {
     if (!fichier) {
       return {
         ok: false,
-        raison: `Aucune pièce jointe ni aucun fichier ne correspond à « ${demande} » : donne l’alias d’une pièce jointe (ex. 74ad), le chemin d’un fichier lisible, ou l’« id » d’une image déjà portée par la fiche.`,
+        raison: `Aucune pièce jointe ni aucun fichier ne correspond à « ${demande} » : donne l’alias d’une pièce jointe (ex. 74ad), le chemin d’un fichier lisible, ou l’« id » d’un fichier déjà porté par la fiche.`,
       };
     }
-    if (!imageDuCoffreAcceptee(mimeDuFichier(fichier))) {
-      return { ok: false, raison: `« ${nom || demande} » n’est pas une image : le coffre ne garde que des images (capture, code QR, document scanné).` };
-    }
-    if (fs.statSync(fichier).size > IMAGE_ACCES_OCTETS_MAX) {
-      return { ok: false, raison: `« ${nom || demande} » pèse plus de ${Math.round(IMAGE_ACCES_OCTETS_MAX / 1024 / 1024)} Mo, le plafond d’une image du coffre.` };
-    }
+    const refus = refusDuFichierDuCoffre(source?.mime || mimeDuFichier(fichier), nom || demande);
+    if (refus) return { ok: false, raison: refus };
+    total += fs.statSync(fichier).size;
     plan.push({ fichier, nom, demande });
   }
+  const tropLourd = refusDuPoidsDeLaFiche(total);
+  if (tropLourd) return { ok: false, raison: tropLourd };
   const ids: string[] = [];
   for (const etape of plan) {
     if ('id' in etape) {

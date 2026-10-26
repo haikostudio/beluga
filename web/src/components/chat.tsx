@@ -29,13 +29,10 @@ import {
   attenteDeLaDemande,
   barreDeSuivi,
   barreDuCahier,
-  barreDeLaRealisation,
   estVoletDuCahier,
   estVoletDeRealisation,
   cheminDeRealisationVisible,
   barreDEcritureDuVolet,
-  etapeCouranteDeLaRealisation,
-  realisationDeLaCarte,
   etapeCouranteDuCahier,
   colonneAffichee,
   agentCompteCommeTravail,
@@ -80,6 +77,7 @@ import {
   repartirLesMediasLivres,
   type MediaLivre,
   veilleTientLaRangee,
+  cheminDeLaRealisation,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -101,15 +99,16 @@ import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { MessageView } from '@/components/message-view';
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
 import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
-import { Composer } from '@/components/composer';
+import { ChampFocaliseSurTelephone, Composer } from '@/components/composer';
 import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { SuggestionsDeCarte, groupesDeSuggestions, suggestionsDeLaCarte, useSuggestionsFermees } from '@/components/suggestions-de-carte';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
-import { LectureDuCahierDeRealisation } from '@/components/realisation-volet';
 import { CheminDuCahier } from '@/components/cahier-des-charges';
 import { CheminDeRealisation, GaleriesDuTournage } from '@/components/chemin-de-realisation';
+import { useDocumentDeCarte } from '@/lib/document-de-carte';
+import { useEtapesDuMedia } from '@/lib/production-de-carte';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
@@ -728,13 +727,27 @@ function FilDeConversation({
     [messages],
   );
   const barreRendueAuVolet = barreDEcritureDuVolet(carte, { travaille: busy, questionEnAttente });
+  /* LA QUESTION D'ACCORD DU DIRECTEUR ENCORE OUVERTE (idée, images clés et
+     prix, film monté) : le bouton d'une création de média y répond. */
+  const accordEnAttente = React.useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const question = messages[i]!.questions?.find((q) => q.accord && !q.answer && !q.cancelled);
+      if (question) return { messageId: messages[i]!.id, question };
+    }
+    return null;
+  }, [messages]);
   /* LE PIED NE MANGE PLUS L'ÉCRAN DU TÉLÉPHONE (demande du 22/10/2026,
      capture #b76d) : déroulé, « Ce que l'agent a vu » et panneau de décision
      s'empilaient jusqu'en haut. La question se réduit à son intitulé et à
      « Répondre » (`BulleQuestion`, feuille du bas)… */
   const telephone = useTelephone();
   const cahier = carte?.cahierDesCharges;
-  const cheminDuTournage = !!carte && cheminDeRealisationVisible(carte);
+  /* LE VOLET DE SUIVI OUVERT À DROITE (studio créatif, 24/10/2026) : sur
+     ordinateur, le chemin du tournage lui cède la place — les mêmes étapes
+     écrites deux fois feraient doublon. Refermé, le chemin revient. */
+  const documentDeLaCarte = useDocumentDeCarte(cardId);
+  const suiviACote = documentDeLaCarte?.genre === 'suivi' && !telephone;
+  const cheminDuTournage = !!carte && cheminDeRealisationVisible(carte) && !suiviACote;
   /* …ET IL SE REPLIE PAR ORDRE D'APPARITION (demande du 22/10/2026) : sur
      téléphone, quand les blocs collés sous le fil dépassent leur part de
      l'écran, le plus ancien se replie d'abord, le dernier ouvert reste déplié,
@@ -748,7 +761,15 @@ function FilDeConversation({
   const groupesDuFil = React.useMemo(() => (carte ? groupesDeSuggestions(messages) : []), [carte?.id, messages]);
   const blocsDuPied = React.useMemo(
     () => [
-      ...(cheminDuTournage || cahier ? [{ cle: 'chemin', repliable: true }] : []),
+      /* LES ÉTAPES DU TOURNAGE NE SE REPLIENT JAMAIS D'ELLES-MÊMES (décision du
+         25/10/2026) : les autres blocs se replient pour elles ; seul le chevron
+         de la ligne du témoin les replie. Le déroulé du cahier, lui, reste
+         repliable. */
+      ...(cheminDuTournage
+        ? [{ cle: 'chemin', repliable: false, garde: true }]
+        : cahier
+          ? [{ cle: 'chemin', repliable: true }]
+          : []),
       ...(avecCaptures ? [{ cle: 'captures', repliable: true }] : []),
       ...(avecSuggestions ? [{ cle: 'suggestions', repliable: true }] : []),
       { cle: 'decision', repliable: false },
@@ -756,17 +777,18 @@ function FilDeConversation({
     [cheminDuTournage, !!cahier, avecCaptures, avecSuggestions],
   );
   const pied = usePiedCompact(telephone && !!carte, blocsDuPied);
-  const realisation = voletDeRealisation ? realisationDeLaCarte(carte) : null;
+  /* UNE CRÉATION DE MÉDIA GARDE SES SIX ÉTAPES DU PREMIER MESSAGE À LA FIN
+     (Type → Idée → Images clés et prix → Fabrication → Film monté → Livré,
+     décision du 25/10/2026) : jamais « Demande, Compréhension, Travail, À
+     déployer » une fois la fabrication lancée (`etapesDuMedia`). */
+  const media = useEtapesDuMedia(carte);
   const segments = React.useMemo(
-    () =>
-      cahier ? barreDuCahier(cahier) : realisation ? barreDeLaRealisation(realisation) : barreDeSuivi(points, suivi),
-    [cahier, realisation, points, suivi],
+    () => (cahier ? barreDuCahier(cahier) : media ? media.segments : barreDeSuivi(points, suivi)),
+    [cahier, media, points, suivi],
   );
-  const etapeCourante = cahier
-    ? etapeCouranteDuCahier(cahier)
-    : realisation
-      ? etapeCouranteDeLaRealisation(realisation)
-      : segmentActifDeSuivi(suivi);
+  const etapeCourante = cahier ? etapeCouranteDuCahier(cahier) : media ? media.courante : segmentActifDeSuivi(suivi);
+  /* Ni le cahier ni un média n'ouvrent un point du fil au toucher : leurs étapes se lisent, elles ne mènent nulle part. */
+  const barreFigee = voletDuCahier || !!media;
   const deploiement = React.useMemo(
     () => ({ etat: etatDuDeploiement(suivi), deployeeA: suivi.deployeeA }),
     [suivi],
@@ -1277,6 +1299,7 @@ function FilDeConversation({
                   menuReglages={menuReglagesCarte}
                   reglagesModifiables={reglagesCarte.vu?.modifiable === true}
                   resumeSousLeDeploiement={miseEnLigneFaite}
+                  accordEnAttente={accordEnAttente}
                 />
               </>
             )}
@@ -1324,7 +1347,7 @@ function FilDeConversation({
                   key={texte}
                   type="button"
                   onClick={() => ecrireDansLeChamp(texte)}
-                  className="rounded-full bg-raised px-2.5 py-1 text-left text-[12.5px] text-muted transition-colors hover:text-text"
+                  className="rounded-full bg-raised px-3 sm:px-2.5 py-1.5 sm:py-1 text-left text-[12.5px] text-muted transition-colors hover:text-text"
                 >
                   {texte}
                 </button>
@@ -1407,10 +1430,10 @@ function FilDeConversation({
             <div className="shrink-0 space-y-1.5 px-4 pt-1.5">
               {emplacementBarre?.current
                 ? createPortal(
-                    <BarreDEtapes segments={segments} active={voletDuCahier ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={voletDuCahier ? () => {} : allerAuPoint} />,
+                    <BarreDEtapes segments={segments} active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={barreFigee ? () => {} : allerAuPoint} />,
                     emplacementBarre.current,
                   )
-                : <BarreDEtapes segments={segments} active={voletDuCahier ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={voletDuCahier ? () => {} : allerAuPoint} />}
+                : <BarreDEtapes segments={segments} active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={barreFigee ? () => {} : allerAuPoint} />}
             </div>
 
             {/* LE FLUX EN CINQ POINTS, dans la zone qui défile : chaque point
@@ -1467,12 +1490,11 @@ function FilDeConversation({
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
               <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} className="px-4 pb-3 pt-1" />
-              {/* LA LECTURE DU CAHIER DE RÉALISATION EST LA DERNIÈRE LIGNE DU FIL,
-                  sous le plan, les médias en fabrication et les galeries du
-                  tournage. Celle du cahier des charges vit dans la rangée
-                  d'action (`parcours-carte.tsx`). */}
+              {/* Les galeries du tournage, sous le plan et les médias en fabrication. La
+                  lecture du cahier de réalisation vit dans le PIED FIXE du volet
+                  « Suivi de la production » (`volet-de-suivi.tsx`, 25/10/2026) ;
+                  celle du cahier des charges dans la rangée d'action (`parcours-carte.tsx`). */}
               {cheminDuTournage ? <GaleriesDuTournage carte={carte} /> : null}
-              {voletDeRealisation ? <LectureDuCahierDeRealisation carte={carte} /> : null}
               <div ref={bottomRef} />
             </ZoneDefilement>
 
@@ -1575,14 +1597,15 @@ function FilDeConversation({
             data-volet-cahier={voletDeRealisation ? undefined : carte.id}
             data-volet-realisation={voletDeRealisation ? carte.id : undefined}
           >
-            {/* PLUS DE BANDEAU : la seule rangée d'action — « Lancer la
-                fabrication » et ses réglages, ou les réglages seuls du cahier. */}
+            {/* PLUS DE BANDEAU : la seule rangée d'action — le bouton d'étape
+                d'une création de média et ses réglages, ou ceux du cahier. */}
             <BarreDAction
               carte={carte}
               agent={agent}
               gestes={gestes}
               menuReglages={menuReglagesCarte}
               reglagesModifiables={reglagesCarte.vu?.modifiable === true}
+              accordEnAttente={accordEnAttente}
             />
           </div>
         ) : (
@@ -1766,7 +1789,7 @@ function BarreNouveauDepart({
         <button
           type="button"
           onClick={() => onTout(!tout)}
-          className="pointer-events-auto flex min-w-0 items-center gap-1 rounded bg-raised/90 px-1.5 py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
+          className="pointer-events-auto flex min-w-0 items-center gap-1 rounded bg-raised/90 px-2 sm:px-1.5 py-1 sm:py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
         >
           <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
           <span className="truncate">{tout ? t('Replier les échanges précédents') : libellePrecedents(precedents)}</span>
@@ -1903,6 +1926,20 @@ function TravailEnCours({
   // ailleurs. Le pli est retenu d'une fois sur l'autre (`usePliDesTaches`,
   // `todos.tsx`) : téléphone replié, ordinateur déplié, sauf choix contraire.
   const [listeOuverte, basculerListe] = usePliDesTaches();
+  /*
+   * LE CHAMP A LE FOCUS, SUR TÉLÉPHONE : le bloc se replie sur sa seule ligne
+   * d'en-tête, le temps de l'écriture (demande du 25/10/2026, capture #5e66),
+   * et retrouve son état exact au blur — le blur du champ est déjà différé de
+   * 250 ms. Ce repli ne passe JAMAIS par `basculerListe` : le pli retenu
+   * d'une fois sur l'autre n'en sait rien. Un appui sur le chevron pendant ce
+   * repli rouvre la liste (dérogation), jusqu'au prochain focus.
+   */
+  const champFocalise = React.useContext(ChampFocaliseSurTelephone);
+  const [derogation, setDerogation] = React.useState(false);
+  React.useEffect(() => {
+    if (!champFocalise) setDerogation(false);
+  }, [champFocalise]);
+  const replieParLeChamp = champFocalise && !derogation;
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   useSeconde(busy);
@@ -1959,11 +1996,18 @@ function TravailEnCours({
   /* La ligne du témoin : ce qui tourne, le bilan de la liste montrée, ou les
      flèches des procédures — elles n'ont plus d'autre place. Sans rien de
      tout cela, le bloc ne garde que ses étapes. */
-  const avecLigne = busy || todosDisponibles || enPasse || avecFleches;
+  const niche = !!entete;
+  /*
+   * LA LISTE DES ÉTAPES A SON EN-TÊTE, COMME LA LISTE DES TÂCHES (#9c15,
+   * demande du 25/10/2026) : même rien ne tournant, le bloc des étapes du
+   * tournage porte la ligne du témoin — « Liste des étapes — n/7 faites » et
+   * son chevron —, et se replie par elle comme une liste de tâches.
+   */
+  const avecLigne = busy || todosDisponibles || enPasse || avecFleches || niche;
   /* Une procédure passée se lit en entier : sa liste est dépliée d'office.
      Pour le reste, SEUL le chevron replie la liste — rien ne la referme à la
      fin d'un tour ni à l'envoi d'un message. */
-  const listeVisible = todosDisponibles && (listeOuverte || enPasse);
+  const listeVisible = todosDisponibles && (listeOuverte || enPasse) && !replieParLeChamp;
   /*
    * UN SEUL PLI POUR TOUT LE BLOC (demande du 23/10/2026) : en mode
    * Réalisation, la ligne d'état replie les étapes ET les tâches rangées sous
@@ -1971,10 +2015,20 @@ function TravailEnCours({
    * ligne (rien ne tourne, aucune liste), les étapes restent : rien ne les
    * rouvrirait.
    */
-  const niche = !!entete;
-  const etapesVisibles = niche && (!avecLigne || listeOuverte || enPasse);
+  const etapesVisibles = niche && (listeOuverte || enPasse) && !replieParLeChamp;
   const repliable = todosDisponibles || niche;
   const deplie = niche ? etapesVisibles : listeVisible;
+  /* Replié par le champ, un appui DÉPLIE toujours : la dérogation lève le
+     repli passager, et seul un bloc aussi replié par choix voit ce choix
+     changer. Jamais deux bascules pour un seul appui. */
+  const basculer = enPasse
+    ? () => setRang(null)
+    : replieParLeChamp
+      ? () => {
+          setDerogation(true);
+          if (!listeOuverte) basculerListe();
+        }
+      : basculerListe;
   const fleches = avecFleches ? (
     <span className="flex shrink-0 items-center gap-0.5 text-faint" data-fleches-procedures={`${position + 1}/${total}`}>
       <button
@@ -1983,7 +2037,7 @@ function TravailEnCours({
         title={t('Procédure précédente')}
         disabled={position === 0}
         onClick={() => setRang(position - 1)}
-        className="rounded p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
+        className="rounded p-1 sm:p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
         data-procedure-precedente
       >
         <ChevronLeft className="h-3.5 w-3.5" />
@@ -1995,7 +2049,7 @@ function TravailEnCours({
         title={t('Procédure suivante')}
         disabled={!enPasse}
         onClick={() => setRang(position + 1 >= defaut ? null : position + 1)}
-        className="rounded p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
+        className="rounded p-1 sm:p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
         data-procedure-suivante
       >
         <ChevronRight className="h-3.5 w-3.5" />
@@ -2023,8 +2077,13 @@ function TravailEnCours({
    */
   const rangeLeTour =
     busy && agent?.tourVivantDepuis !== undefined && agent?.status !== 'running' && agent?.status !== 'starting';
+  const carteDuChemin = niche && cardId ? state.cards[cardId] : undefined;
+  const etapesDuChemin = carteDuChemin ? cheminDeLaRealisation(carteDuChemin).etapes : [];
+  const etapesFaites = etapesDuChemin.filter((etape) => etape.etat === 'fait').length;
   const quoi = enPasse
     ? resumeDesTaches(todos!)
+    : niche && !busy && !todosDisponibles
+    ? t('Liste des étapes — {faites}/{v0} faite{v1}', { faites: etapesFaites, v0: etapesDuChemin.length, v1: etapesFaites > 1 ? 's' : '' })
     : !busy && !todosDisponibles
     ? t('Procédures précédentes')
     : !busy
@@ -2060,7 +2119,9 @@ function TravailEnCours({
   // L'icône de gauche : la roue tourne tant que l'agent travaille ; une fois le
   // tour refermé, une coche BLEUE si tout est fait, sinon un point discret —
   // les mêmes repères que portait l'ancienne barre pleine largeur.
-  const toutFait = todosDisponibles && todos!.every((todo) => todo.state === 'done');
+  const toutFait = todosDisponibles
+    ? todos!.every((todo) => todo.state === 'done')
+    : niche && etapesDuChemin.length > 0 && etapesFaites === etapesDuChemin.length;
   /* AVEC QUOI L'AGENT TRAVAILLE, tant qu'il travaille : moteur, modèle et
      niveau en toutes lettres (la largeur du champ le permet). */
   const etiquette = busy && !enPasse && agent ? <EtiquetteDuModele run={agent.run} complet className="max-w-[50%]" /> : null;
@@ -2104,7 +2165,7 @@ function TravailEnCours({
           <button
             type="button"
             aria-expanded={deplie}
-            onClick={enPasse ? () => setRang(null) : basculerListe}
+            onClick={basculer}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
             data-statut-du-temoin
           >
@@ -2115,8 +2176,8 @@ function TravailEnCours({
             type="button"
             aria-expanded={deplie}
             aria-label={deplie ? t('Replier la liste') : t('Déplier la liste')}
-            onClick={enPasse ? () => setRang(null) : basculerListe}
-            className="shrink-0 rounded p-0.5 text-faint hover:text-text"
+            onClick={basculer}
+            className="shrink-0 rounded p-1 sm:p-0.5 text-faint hover:text-text"
             data-chevron-du-temoin
           >
             {deplie ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
@@ -2150,6 +2211,7 @@ function TravailEnCours({
          même repère pour qui le cherche (scripts de vérification compris). */
       data-volet="taches"
       data-procedure-passee={enPasse ? '' : undefined}
+      data-liste-repliee-par-le-champ={replieParLeChamp && (todosDisponibles || niche) ? '' : undefined}
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
@@ -2351,7 +2413,7 @@ function ResumeDeLAgent({
           type="button"
           data-resume-agent
           title={titreDesReglages(vu)}
-          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-2.5 py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-border"
+          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-3 sm:px-2.5 py-2 sm:py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-border"
         >
           <Cpu className="h-3 w-3 shrink-0 text-faint" aria-hidden />
           <span className="min-w-0 break-words">

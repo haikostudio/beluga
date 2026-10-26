@@ -11,6 +11,8 @@ import {
 export interface BlocSuivi {
   cle: string;
   repliable: boolean;
+  /** Toujours déplié : les autres se replient pour lui (`garde`, shared/src/pied-compact.ts). */
+  garde?: boolean;
 }
 
 interface Hauteurs {
@@ -27,6 +29,7 @@ interface Hauteurs {
 export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
   const presents = blocs.map((b) => b.cle);
   const signature = presents.join('|');
+  const drapeaux = blocs.map((b) => `${b.repliable ? 'r' : ''}${b.garde ? 'g' : ''}`).join('|');
   const [ordre, setOrdre] = React.useState<string[]>(() => ordreDOuverture([], presents));
   React.useEffect(() => {
     setOrdre((avant) => {
@@ -35,6 +38,9 @@ export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
+
+  /* Le dernier bloc rouvert D'UN APPUI : seul protégé quand un bloc est gardé. */
+  const [rouvertParAppui, setRouvertParAppui] = React.useState<string | null>(null);
 
   const [hauteurs, setHauteurs] = React.useState<Record<string, Hauteurs>>({});
   const [budget, setBudget] = React.useState(() =>
@@ -53,11 +59,11 @@ export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
     const mesures: BlocDuPied[] = blocs.map((b) => {
       const h = hauteurs[b.cle] ?? {};
       const repliee = h.repliee ?? HAUTEUR_REPLIEE_PAR_DEFAUT;
-      return { cle: b.cle, repliable: b.repliable, hauteurRepliee: repliee, hauteurDepliee: h.depliee ?? repliee };
+      return { cle: b.cle, repliable: b.repliable, garde: b.garde, hauteurRepliee: repliee, hauteurDepliee: h.depliee ?? repliee };
     });
-    return new Set(blocsARepliers(mesures, ordre, budget));
+    return new Set(blocsARepliers(mesures, ordre, budget, rouvertParAppui));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actif, signature, hauteurs, ordre, budget]);
+  }, [actif, signature, drapeaux, hauteurs, ordre, budget, rouvertParAppui]);
 
   /* Chaque enveloppe est suivie : sa hauteur s'écrit sous l'état où elle a été
      mesurée (repliée ou dépliée), à 2 px près pour ne pas redessiner pour rien. */
@@ -86,7 +92,10 @@ export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
   React.useEffect(() => () => observateurs.current.forEach((o) => o.disconnect()), []);
 
   const rouvrir = React.useCallback(
-    (cle: string) => setOrdre((avant) => ordreDOuverture(avant, presents, cle)),
+    (cle: string) => {
+      setRouvertParAppui(cle);
+      setOrdre((avant) => ordreDOuverture(avant, presents, cle));
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [signature],
   );

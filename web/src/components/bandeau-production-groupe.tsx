@@ -451,7 +451,7 @@ export function BandeauProductionGroupe({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="-mr-1 -mt-0.5 h-7 w-7 shrink-0 text-muted"
+                      className="-mr-1 -mt-0.5 h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 text-muted"
                       onClick={() => {
                         setOuvert(false);
                         ouvrirRubriqueDeLEtape(id, 'production');

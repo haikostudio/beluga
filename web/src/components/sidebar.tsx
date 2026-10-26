@@ -569,7 +569,7 @@ export function Sidebar({
   const avancementOf = (projectId: string): AvancementColonne | null =>
     avancementDeLaColonne(
       Object.values(state.agents)
-        .filter((a) => a.projectId === projectId && a.role === 'task' && agentTientSonTour(a))
+        .filter((a) => a.projectId === projectId && !a.service && a.role === 'task' && agentTientSonTour(a))
         .map((agent) => ({ agentActif: true, todos: agent.todos })),
     );
 
@@ -814,7 +814,7 @@ export function Sidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted"
+              className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
               aria-label="Déplier le menu"
               title={t('Déplier le menu')}
               data-deplier-colonne
@@ -833,7 +833,7 @@ export function Sidebar({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="relative -ml-2 h-8 w-8 shrink-0 text-muted"
+                      className="relative -ml-2 h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
                       aria-label="Retour"
                       data-retour-de-colonne
                       onClick={service.onRetour}
@@ -859,7 +859,7 @@ export function Sidebar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn('h-8 w-8 text-muted', outilsVisibles && 'bg-raised text-text')}
+                  className={cn('h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted', outilsVisibles && 'bg-raised text-text')}
                   aria-pressed={outilsVisibles}
                   aria-label={outilsVisibles ? 'Cacher les poignées et réglages' : 'Afficher les poignées et réglages'}
                   title={outilsVisibles ? t('Cacher les poignées et réglages') : t('Afficher les poignées et réglages')}
@@ -874,7 +874,7 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-muted"
+                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
                     aria-label="Chercher un projet"
                     data-chercher-projet
                     onClick={onChercher}
@@ -893,7 +893,7 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-muted"
+                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
                     aria-label="Déplier le menu"
                     data-deplier-colonne
                     data-replier-colonne="survolee"
@@ -907,7 +907,7 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-muted"
+                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
                     aria-label="Replier le menu"
                     data-replier-colonne="depliee"
                     onClick={() => setReduite(true)}
@@ -973,7 +973,7 @@ export function Sidebar({
                 onChoose?.();
               }}
               className={cn(
-                'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium transition-opacity',
+                'flex h-[43px] sm:h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium transition-opacity',
                 bandeSeule ? 'justify-center px-0' : 'px-2.5',
                 CLASSE_BOUTON_DE_CREATION,
               )}
@@ -1014,7 +1014,7 @@ export function Sidebar({
                     data-tri-par-ouverture={triParOuverture ? 'ouverture' : 'manuel'}
                     onClick={() => setTriParOuverture(!triParOuverture)}
                     className={cn(
-                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text',
+                      'flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text',
                       triParOuverture
                         ? 'bg-raised text-teinte'
                         : 'text-faint opacity-100 transition-opacity survol:opacity-0 group-hover/section:survol:opacity-100',
@@ -1029,7 +1029,7 @@ export function Sidebar({
                     aria-label="Nouveau groupe"
                     data-nouveau-groupe
                     onClick={() => setCreatingGroup(true)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint opacity-100 transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/section:survol:opacity-100"
+                    className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint opacity-100 transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/section:survol:opacity-100"
                   >
                     <FolderPlus className="h-3.5 w-3.5" />
                   </button>
@@ -1040,7 +1040,7 @@ export function Sidebar({
                     aria-label="Ajouter ou créer un projet"
                     data-ouvrir-projets
                     onClick={() => setAdding(true)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
+                    className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1344,7 +1344,7 @@ export function Sidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="relative h-9 w-9 shrink-0 text-muted"
+              className="relative h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0 text-muted"
               aria-label="Terminal du serveur"
               title={bulleDuTerminal(terminal.etat, terminal.actif)}
               data-terminal-pied
@@ -1363,7 +1363,7 @@ export function Sidebar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative h-9 w-9 shrink-0 text-muted"
+                className="relative h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0 text-muted"
                 aria-label="Réglages"
                 data-reglages-menu
                 onClick={() => {
@@ -1459,7 +1459,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
                 setOpen(false);
               }}
               className={cn(
-                'h-5 w-5 rounded-full ring-offset-2 ring-offset-surface transition-transform hover:scale-110',
+                'h-6 sm:h-5 w-6 sm:w-5 rounded-full ring-offset-2 ring-offset-surface transition-transform hover:scale-110',
                 value === couleur ? 'ring-2 ring-text' : '',
               )}
               style={{ backgroundColor: couleur }}
@@ -1472,7 +1472,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
             onPick('');
             setOpen(false);
           }}
-          className="mt-2 w-full rounded bg-raised px-2 py-1 text-[12px] text-muted transition-colors hover:bg-border hover:text-text"
+          className="mt-2 w-full rounded bg-raised px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12px] text-muted transition-colors hover:bg-border hover:text-text"
         >
           {t('Aucune couleur')}</button>
       </DropdownMenuContent>
@@ -1561,11 +1561,11 @@ function EnteteGroupe({
       data-groupe-attention={signal.attention || undefined}
       data-groupe-rendus={signal.rendus || undefined}
       className={cn(
-        // `min-h-9` FIXE : réduite à sa seule initiale, l'en-tête de groupe
+        // `min-h-[43px] sm:min-h-9` FIXE : réduite à sa seule initiale, l'en-tête de groupe
         // était plus basse que son propre bouton de nom en mode ouvert (une
         // lettre tient dans moins de hauteur qu'un libellé) — chaque groupe
         // décalait d'autant tout ce qui suivait entre les deux modes.
-        'group/g flex h-9 items-center gap-1 rounded-lg transition-colors hover:bg-raised sm:gap-1.5',
+        'group/g flex h-[43px] sm:h-9 items-center gap-1 rounded-lg transition-colors hover:bg-raised sm:gap-1.5',
         bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
@@ -2073,7 +2073,7 @@ function LigneEspaceDev({
         data-ouvrir-espace-dev
         onClick={ouvrir}
         title={t('{v0} — l’espace où l’application elle-même est développée', { v0: project.name })}
-        className={cn('flex h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
+        className={cn('flex h-[43px] sm:h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
       >
         {/* L'ICÔNE DE L'APPLICATION RESTE TOUJOURS LÀ. L'état (un agent
             travaille, une publication part, une réponse attend) se pose EN
@@ -2248,7 +2248,7 @@ function ProjectRow({
           onChoose?.();
         }}
         title={bande ? project.name : undefined}
-        className={cn('flex h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
+        className={cn('flex h-[43px] sm:h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
       >
         {/* L'icône du projet (ou ses initiales) reste TOUJOURS en premier, à sa
             taille et sa place fixes : c'est la seule couleur de la ligne.
@@ -2312,7 +2312,7 @@ function ProjectRow({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => sousGroupe.basculer()}
           data-deplier-regroupement={project.id}
-          className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-text"
+          className="flex h-[34px] sm:h-7 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-text"
           title={sousGroupe.ouvert ? t('Replier les projets réunis') : t('Déplier les projets réunis')}
         >
           <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', sousGroupe.ouvert && 'rotate-90')} />

@@ -138,11 +138,11 @@ export const BoutonOptionsDuProjet = React.forwardRef<
       variant="ghost"
       size="icon"
       className={cn(
-        'relative h-8 shrink-0 text-muted',
+        'relative h-[38px] sm:h-8 shrink-0 text-muted',
         /* Un chiffre à dire — un avancement, des versions en attente — : le
            bouton s'élargit et l'écrit À CÔTÉ des trois points. Posée dans son
            coin, la pastille les recouvrait. */
-        (suivi && suivi.pourcent !== null) || (!suivi && enAttente > 0) ? 'w-auto gap-1 px-1.5' : 'w-8',
+        (suivi && suivi.pourcent !== null) || (!suivi && enAttente > 0) ? 'w-auto gap-1 px-1.5' : 'w-[38px] sm:w-8',
         className,
       )}
       aria-label="Options du projet"
@@ -260,7 +260,7 @@ export function MenuGeneral({
   // justement celui qu'on veut pouvoir arrêter.
   const duProjet = Object.values(state.agents).filter(
     (agent) =>
-      (agent.status === 'running' || agent.status === 'starting') && agent.projectId === state.activeProjectId,
+      (agent.status === 'running' || agent.status === 'starting') && agent.projectId === state.activeProjectId && !agent.service,
   );
 
   const arreterLeProjet = () => {
@@ -448,7 +448,7 @@ export function MenuGeneral({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 text-muted"
+                className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
                 aria-label="Options du projet"
                 title={t('Options')}
                 data-menu-general

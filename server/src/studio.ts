@@ -254,6 +254,45 @@ export function creationDeLAgent(agentId: string): Creation | null {
 }
 
 /**
+ * LE MONTAGE D'UNE CARTE (grand volet de montage) : la création liée à une
+ * carte ORDINAIRE — `card_id` posé, SANS agent attitré (celle d'un agent du
+ * Studio porte les deux). Les agents de la carte la pilotent par l'outil
+ * « studio » (`creationPilotableParLAgent`) ; aucun agent du Studio ne s'y ouvre.
+ */
+export function creationDeMontage(cardId: string): Creation | null {
+  const l = getDb().prepare('SELECT * FROM studio_creations WHERE card_id = ? AND agent_id IS NULL ORDER BY cree_le LIMIT 1').get(cardId) as LigneCreation | undefined;
+  return l ? depuisLigneCreation(l) : null;
+}
+
+export function estMontageDeCarte(creation: Pick<Creation, 'cardId' | 'agentId'>): boolean {
+  return !!creation.cardId && !creation.agentId;
+}
+
+export function lierLeMontageALaCarte(creationId: string, cardId: string): void {
+  getDb().prepare('UPDATE studio_creations SET card_id = ?, agent_id = NULL WHERE id = ?').run(cardId, creationId);
+  const c = lireCreation(creationId);
+  if (c) diffuserStudio(c.projectId, creationId);
+}
+
+/**
+ * LA CRÉATION QUE CET AGENT PEUT MODIFIER : la sienne s'il est l'agent attitré
+ * d'une création, sinon le montage de SA carte (retouche demandée en mots dans
+ * la conversation de la carte — mêmes opérations, une version par geste).
+ */
+export function creationPilotableParLAgent(agentId: string): Creation | null {
+  const propre = creationDeLAgent(agentId);
+  if (propre) return propre;
+  const agent = store.getAgent(agentId);
+  return agent?.cardId ? creationDeMontage(agent.cardId) : null;
+}
+
+/** L'agent travaille-t-il sur une carte qui a un montage ? C'est ce qui lui ouvre l'outil « studio ». */
+export function estAgentDUnMontage(agentId: string): boolean {
+  const agent = store.getAgent(agentId);
+  return !!agent?.cardId && !creationDeLAgent(agentId) && !!creationDeMontage(agent.cardId);
+}
+
+/**
  * L'AGENT PORTE-T-IL UNE CARTE DU STUDIO ? C'est ce qui lui ouvre l'outil
  * « studio ». Aucun autre agent ne le voit — ni ne repaie sa description.
  */

@@ -19,8 +19,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  brancheDeLaCarte,
   Card,
+  colonneDeLaTeteDeSuite,
   ComprehensionDeCarte,
+  etapeAEnchainer,
+  etapesALiberer,
   DOSSIER_DES_REGROUPEMENTS,
   Project,
   briefingDeLaFille,
@@ -40,6 +44,7 @@ import {
 
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
+import { rangerLaCarte } from './deplacement-carte.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 
@@ -324,6 +329,7 @@ export function suivreLaMere(fille: Card): void {
   if (!fille.carteMereId) return;
   const mere = store.getCard(fille.carteMereId);
   if (!mere?.cartesFilles?.length) return;
+  if (mere.teteDeSuite) return suivreLaSuite(mere);
   const { suivi, colonnes } = releverLesFilles(mere);
   const colonne = colonneDeLaMere(colonnes);
   const bouge = !!colonne && colonne !== mere.column;
@@ -348,9 +354,143 @@ export function suivreLaMere(fille: Card): void {
   bus.emit({ type: 'card.upsert', card: ecrite });
 }
 
+/* ------------------------------------------------------------------ */
+/* Les suites d'étapes : une étape après l'autre, groupées jusqu'au bout */
+/* ------------------------------------------------------------------ */
+
+type Lanceur = (cardId: string) => Promise<{ ok: boolean; error?: string }>;
+
+/**
+ * LE CHEMIN DE LANCEMENT ORDINAIRE (`startCard`), confié par le démarrage du
+ * démon (`veillerSurLesMeres`) ou par le premier lancement d'une suite : ce
+ * module ne peut pas importer l'ordonnanceur, qui l'importe déjà.
+ */
+let lancerUneEtape: Lanceur | null = null;
+
+/**
+ * LANCER UNE SUITE D'ÉTAPES (`shared/src/suite-de-cartes.ts`).
+ *
+ * Comme une mère de projet réuni, la carte globale ne lance AUCUN agent et ne
+ * consomme aucun quota : elle passe en « En cours » et lance sa PREMIÈRE étape,
+ * par le chemin ordinaire. Ce clic vaut autorisation pour toute la suite :
+ * chaque étape suivante partira seule quand la précédente aura rendu son
+ * travail (`suivreLaSuite`). Les étapes existent déjà, posées à la validation
+ * de la proposition.
+ */
+export async function lancerLaSuite(mere: Card, lancer: Lanceur): Promise<{ ok: boolean; error?: string }> {
+  if (!mere.cartesFilles?.length) return { ok: false, error: 'Cette suite n’a aucune étape à lancer.' };
+  lancerUneEtape ??= lancer;
+  const fraiche = store.getCard(mere.id) ?? mere;
+  const lancee =
+    fraiche.column === 'running'
+      ? fraiche
+      : store.saveCard({
+          ...fraiche,
+          column: 'running',
+          position: store.nextPosition(fraiche.projectId, 'running'),
+          scheduling: {
+            ...(fraiche.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+            waitingReason: undefined,
+            tourEnVolDepuis: undefined,
+            suspendu: false,
+          },
+        });
+  if (lancee !== fraiche) bus.emit({ type: 'card.upsert', card: lancee });
+  log.info(`suite « ${mere.title} » lancée : ${mere.cartesFilles.length} étape(s), une à une`);
+  suivreLaSuite(lancee, lancer);
+  return { ok: true };
+}
+
+/**
+ * LA CARTE GLOBALE SUIT SES ÉTAPES. Appelé à chaque mouvement d'une étape ou de
+ * son agent. Trois gestes, dans cet ordre, et chacun seulement s'il y a lieu :
+ *
+ *  1. LIBÉRER : quand la dernière étape a fini, les étapes retenues dans le
+ *     groupe passent TOUTES ENSEMBLE en « À déployer » ;
+ *  2. RANGER la carte globale (`colonneDeLaTeteDeSuite`) et réécrire son relevé
+ *     quand il change ;
+ *  3. ENCHAÎNER : la première étape non finie, encore jamais lancée, part —
+ *     depuis la branche de l'étape d'avant, pour en voir le code. Une étape
+ *     bloquée (question, panne) ou au travail ne laisse rien partir.
+ *
+ * Toutes les écritures précèdent toutes les diffusions : chaque diffusion
+ * rappelle ce suivi (garde `carteMereId`), et il doit alors trouver un état
+ * déjà cohérent — jamais une étape libérée deux fois, ni lancée deux fois
+ * (`departDeLaSuiteAt` est posé AVANT le lancement).
+ */
+function suivreLaSuite(mere: Card, lancer: Lanceur | null = lancerUneEtape): void {
+  const filles = (mere.cartesFilles ?? [])
+    .map((f) => store.getCard(f.cardId))
+    .filter((carte): carte is Card => !!carte);
+  let { suivi } = releverLesFilles(mere);
+
+  const liberees = etapesALiberer(filles, suivi).map((etape) => rangerLaCarte({ ...etape, etapeFinieAt: undefined }, 'to_deploy'));
+  if (liberees.length) ({ suivi } = releverLesFilles(mere));
+
+  const colonne = colonneDeLaTeteDeSuite(
+    mere.column,
+    suivi.map((f) => ({ column: f.colonne, etat: f.etat })),
+  );
+  const bouge = !!colonne && colonne !== mere.column;
+  let ecrite: Card | null = null;
+  if (bouge || !memeSuiviDesFilles(suivi, mere.suiviDesFilles)) {
+    const maintenant = store.now();
+    ecrite = store.saveCard({
+      ...mere,
+      suiviDesFilles: suivi,
+      ...(bouge
+        ? {
+            column: colonne!,
+            position: store.nextPosition(mere.projectId, colonne!),
+            ...(colonne === 'running' ? { doneAt: undefined, archivedAt: undefined } : {}),
+            ...(colonne === 'to_deploy' ? { doneAt: mere.doneAt ?? maintenant } : {}),
+            ...(colonne === 'archived' ? { doneAt: mere.doneAt ?? maintenant, archivedAt: mere.archivedAt ?? maintenant } : {}),
+          }
+        : {}),
+    });
+  }
+
+  let lancee: Card | null = null;
+  if ((ecrite ?? mere).column === 'running' && lancer) {
+    const aLancer = etapeAEnchainer(
+      filles.map((fille, index) => ({
+        cardId: fille.id,
+        rang: fille.rangDansLaSuite ?? index + 1,
+        column: fille.column,
+        etat: suivi.find((f) => f.cardId === fille.id)?.etat ?? 'attente',
+        departDeLaSuiteAt: fille.departDeLaSuiteAt,
+      })),
+    );
+    const etape = aLancer ? filles.find((f) => f.id === aLancer) : undefined;
+    if (etape) {
+      const rang = etape.rangDansLaSuite ?? filles.indexOf(etape) + 1;
+      const precedente = filles.find((f) => (f.rangDansLaSuite ?? filles.indexOf(f) + 1) === rang - 1);
+      lancee = store.saveCard({
+        ...etape,
+        departDeLaSuiteAt: store.now(),
+        /* L'ÉTAPE PART DU CODE DE LA PRÉCÉDENTE : sa branche n'est fusionnée
+           qu'au déploiement. Une branche absente du dépôt (étape sans code)
+           retombe sur la branche de déploiement (`ouvrirDossierDeCarte`). */
+        ...(precedente && !etape.brancheChoisie ? { brancheDeDepart: brancheDeLaCarte(precedente) } : {}),
+      });
+    }
+  }
+
+  if (ecrite) bus.emit({ type: 'card.upsert', card: ecrite });
+  for (const etape of liberees) bus.emit({ type: 'card.upsert', card: etape });
+  if (lancee && lancer) {
+    bus.emit({ type: 'card.upsert', card: lancee });
+    log.info(`suite « ${mere.title} » : l’étape ${lancee.rangDansLaSuite ?? '?'} « ${lancee.title} » part`);
+    const id = lancee.id;
+    void lancer(id).catch((err) => log.warn(`étape ${id} de la suite « ${mere.title} » : lancement impossible`, err));
+  }
+}
+
 /**
  * LES MÈRES SE RELISENT AU DÉMARRAGE : une mère rangée avant le suivi n'a pas
  * de relevé, et porte encore l'ancienne phrase « prêt à déployer dans … ».
+ * Les suites ouvertes aussi : une étape finie pendant l'arrêt du démon doit
+ * encore lancer la suivante, ou libérer le groupe.
  */
 export function rafraichirLesMeres(): void {
   for (const projet of store.listProjects(true)) {
@@ -360,10 +500,17 @@ export function rafraichirLesMeres(): void {
       if (premiere) suivreLaMere(premiere);
     }
   }
+  for (const tete of store.tetesDeSuiteOuvertes()) suivreLaSuite(tete);
+}
+
+/** La carte globale d'une suite relit ses étapes : appelé à la validation, pour qu'elle les montre tout de suite. */
+export function releverLaSuite(mere: Card): void {
+  if (mere.teteDeSuite) suivreLaSuite(mere);
 }
 
 /** Branche le suivi des mères. Rend la fonction qui le débranche. */
-export function veillerSurLesMeres(): () => void {
+export function veillerSurLesMeres(lancer?: Lanceur): () => void {
+  if (lancer) lancerUneEtape = lancer;
   return bus.subscribe((event) => {
     try {
       /* LA GARDE `carteMereId` ÉVITE LA BOUCLE : l'écriture de la mère émet son

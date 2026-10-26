@@ -169,7 +169,7 @@ export function TiroirNouvelAgent({
                   disabled={!!enCours}
                   onClick={() => void choisir(projet.id)}
                   className={cn(
-                    'flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-text transition-colors hover:bg-raised disabled:cursor-not-allowed',
+                    'flex h-12 sm:h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-text transition-colors hover:bg-raised disabled:cursor-not-allowed',
                     parentId && RETRAIT_MEMBRE_DE_TIROIR,
                   )}
                 >

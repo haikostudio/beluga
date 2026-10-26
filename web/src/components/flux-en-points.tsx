@@ -57,6 +57,9 @@ import {
   retirerLeBlocDeProcessus,
   genreDAction,
   nomClairDeLaLigne,
+  estUnIdentifiantDUnite,
+  titreTechniqueLu,
+  titreDuSujetLu,
   nomDeLaLigne,
   poidsLisible,
   SousPointDuTravail,
@@ -72,6 +75,8 @@ import {
   versionDuPassageDePlan,
   versionEnPreparation,
   vueDeLEntree,
+  entreeDejaDite,
+  documentsDuTour,
   type TourDuParcours,
   type CompetenceProposee,
   planCourant,
@@ -82,7 +87,7 @@ import {
 import { createPortal } from 'react-dom';
 import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, useDocumentDeCarte } from '@/lib/document-de-carte';
 import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
-import { ContenuDeLEntree, EncadreQuestion } from '@/components/contenu-journal';
+import { ContenuDeLEntree, EncadreQuestion, TexteDeLaDemande } from '@/components/contenu-journal';
 import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
 import { PointsDuCadrage } from '@/components/points-du-cadrage';
@@ -91,6 +96,7 @@ import { BULLE_DE_L_AGENT, RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
 import { Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
+import { DocumentsProduits } from '@/components/documents-produits';
 import { client } from '@/lib/client';
 import { voirLesSuggestions } from '@/lib/suggestions-de-carte';
 import { useTitresClairs } from '@/lib/titres-memoire';
@@ -98,7 +104,8 @@ import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
 import { CompetenceDuFlux } from '@/components/encadre-competence';
-import { ApercuDesCaptures, OuvrirUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
+import { ApercuDesCaptures, OuvrirUneCapture, RepereDUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
+import { EtiquetteDeVignette } from '@/components/pastille-de-fichier';
 import { useTelephone } from '@/lib/telephone';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { cn, dateHeure, dureeFine, heureEtDuree } from '@/lib/utils';
@@ -382,6 +389,16 @@ export interface OuvertureDemandee {
 /** L'ancre du point « Déploiement » : il n'existe qu'une fois par carte. */
 export const ANCRE_DU_DEPLOIEMENT = 'point-deploiement';
 
+/**
+ * LES ACTIONS DE TOUTE LA CARTE, et l'instant de chacun de ses comptes rendus :
+ * un compte rendu y retrouve les documents écrits depuis le précédent
+ * (`DocumentsProduits`), même quand ils vivent dans d'autres passages.
+ */
+const ContexteDesActionsDeLaCarte = React.createContext<{ traces: EntreeJournal[]; rapports: number[] }>({
+  traces: [],
+  rapports: [],
+});
+
 export function FluxEnPoints({
   carte,
   projectId,
@@ -663,6 +680,18 @@ export function FluxEnPoints({
     [flux],
   );
 
+  const actionsDeLaCarte = React.useMemo(
+    () => ({
+      traces: flux.flatMap((element) => element.point.traces),
+      rapports: flux
+        .flatMap((element) => element.point.moments)
+        .filter((moment) => moment.sorte === 'rapport')
+        .map((moment) => moment.entree.at)
+        .sort((x, y) => x - y),
+    }),
+    [flux],
+  );
+
   /* TANT QUE LE JOURNAL N'EST PAS LÀ, LE FLUX MONTRE SA FORME, PAS UN ÉTAT.
      Il est demandé après le premier rendu : calculer sur un journal vide
      faisait tourner « Demande » et « Travail » en même temps. */
@@ -675,7 +704,9 @@ export function FluxEnPoints({
 
   return (
     <MesuresContexte.Provider value={mesures}>
+      <ContexteDesActionsDeLaCarte.Provider value={actionsDeLaCarte}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
+      <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
       <div className="px-4 pb-6 pt-4" data-flux-points={carte.id}>
         {/* UNE COLONNE DE DISCUSSION : les passages se suivent, séparés par de
             l'air. Plus de ligne verticale (`mesures.ligne` vaut `hidden`). */}
@@ -710,7 +741,9 @@ export function FluxEnPoints({
         </ol>
         {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
       </div>
+      </RepereDUneCapture.Provider>
       </OuvrirUneCapture.Provider>
+      </ContexteDesActionsDeLaCarte.Provider>
     </MesuresContexte.Provider>
   );
 }
@@ -1117,7 +1150,7 @@ function PointDuFlux({
       {point.reponse ? (
         <ol className="flex flex-col gap-3">
           <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
-            <MomentDeReponse entree={point.reponse} onToggleEvolution={onToggleEvolution} />
+            <MomentDeReponse entree={point.reponse} traces={point.traces} onToggleEvolution={onToggleEvolution} />
           </SousPointDuFlux>
         </ol>
       ) : null}
@@ -1247,7 +1280,7 @@ function PointDuFlux({
               title={technique ? t('Revenir au récit') : t('Voir le détail technique')}
               aria-label={technique ? t('Revenir au récit') : t('Voir le détail technique')}
               className={cn(
-                'absolute right-10 top-2.5 z-10 rounded-md p-1.5 transition-colors',
+                'absolute right-10 top-2.5 z-10 rounded-md p-2 sm:p-1.5 transition-colors',
                 technique ? 'bg-raised text-text' : 'text-faint hover:text-muted',
               )}
             >
@@ -1366,7 +1399,10 @@ function FillesDuPoint({ point }: { point: PointDuParcours }) {
           >
             <div className="flex items-center gap-2">
               <span className={cn('h-2 w-2 shrink-0 rounded-full', TON_DE_LA_FILLE[fille.etat])} aria-hidden />
-              <span className="min-w-0 truncate font-medium text-text">{fille.projet}</span>
+              {/* Une étape de suite se nomme par son rang et son sujet ; une fille de projet réuni, par son projet. */}
+              <span className="min-w-0 truncate font-medium text-text">
+                {fille.titre ? `${fille.rang ?? ''}. ${fille.titre}` : fille.projet}
+              </span>
               <span className="shrink-0 text-faint">
                 {rapport && fille.sansCode ? t('terminé sans modification') : t(LIBELLES_DE_LA_FILLE[fille.etat])}
                 {!rapport && fille.etat !== 'fait' && fille.total ? ` · ${fille.faites ?? 0}/${fille.total}` : ''}
@@ -1418,7 +1454,7 @@ function PropositionsDuPoint({ point }: { point: PointDuParcours }) {
                 type="button"
                 data-ouvrir-proposition={cardId}
                 onClick={() => client.openCard(cardId)}
-                className="flex w-full items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-left text-[13.5px] leading-snug hover:bg-surface"
+                className="flex w-full items-center gap-2 rounded-lg bg-raised px-3 sm:px-2.5 py-2 sm:py-1.5 text-left text-[13.5px] leading-snug hover:bg-surface"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-text">{titre}</span>
                 <span className="inline-flex shrink-0 items-center gap-0.5 text-[12.5px] text-muted">
@@ -1456,7 +1492,7 @@ function RepereDeSuggestions({ carteId, groupe }: { carteId: string; groupe: Gro
       <button
         type="button"
         onClick={() => voirLesSuggestions(carteId, groupe.ids)}
-        className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-text hover:bg-raised"
+        className="shrink-0 rounded-md px-2 sm:px-1.5 py-1 sm:py-0.5 font-medium text-text hover:bg-raised"
         data-repere-suggestions-voir=""
       >
         {t('Voir')}
@@ -1525,6 +1561,10 @@ function MomentDePlan({
   const emplacement = React.useContext(ContexteEmplacementDuDocument);
   const documentOuvert = useDocumentDeCarte(carte.id);
   if (!plans.length || versionDuPlan === null) return null;
+  /* UNE CRÉATION DE MÉDIA NE MONTRE AUCUN PLAN DANS LE FIL (demande du
+     25/10/2026, capture #d326) : sa chaîne vit dans le suivi à droite. Un plan
+     rendu avant ce garde-fou reste en base, il ne s'affiche plus. */
+  if (carte.parcours?.realisationSouhaitee) return null;
   const courant = planCourant(plans);
   const vue = (versionDuPlan === 'courante' ? courant : plans.find((p) => p.numero === versionDuPlan)) ?? courant;
   if (!vue) return null;
@@ -1632,7 +1672,7 @@ function PanneauDuPlan({ titre, children }: { titre: string; children: React.Rea
           onClick={fermerLeDocument}
           title={t('Fermer le plan')}
           data-fermer-le-plan
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text"
+          className="flex h-[38px] sm:h-8 w-[38px] sm:w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text"
         >
           <X className="h-4 w-4" />
         </button>
@@ -1719,6 +1759,15 @@ function MomentsDuPoint({
  * dit ce qu'il a fait : une coche quand c'est copié, un message quand le
  * navigateur a refusé.
  */
+/** Le texte et les pièces d'une demande, lus par la règle pure, rendus en texte. */
+function DemandeDansLaBulle({ entree, projectId }: { entree: EntreeJournal; projectId?: string }) {
+  const vue = React.useMemo(() => vueDeLEntree(entree), [entree]);
+  const texte = vue.sorte === 'demande' || vue.sorte === 'texte' ? vue.texte : (entree.resultat ?? '');
+  const pieces = vue.sorte === 'demande' ? vue.pieces : AUCUNE_PIECE;
+  return <TexteDeLaDemande texte={texte} pieces={pieces} projectId={projectId} />;
+}
+const AUCUNE_PIECE: readonly string[] = [];
+
 function BoutonCopierLaDemande({ entree, projectId }: { entree: EntreeJournal; projectId?: string }) {
   const state = useApp();
   const [etat, setEtat] = React.useState<'repos' | 'encours' | 'fait'>('repos');
@@ -1753,7 +1802,7 @@ function BoutonCopierLaDemande({ entree, projectId }: { entree: EntreeJournal; p
       onClick={copier}
       title={t('Copier la demande')}
       aria-label="Copier la demande"
-      className="shrink-0 rounded-md p-1 text-faint transition-colors hover:bg-raised hover:text-text"
+      className="shrink-0 rounded-md p-1.5 sm:p-1 text-faint transition-colors hover:bg-raised hover:text-text"
     >
       {etat === 'fait' ? (
         <Check className="h-3.5 w-3.5 text-termine" />
@@ -1790,7 +1839,10 @@ function Moment({
             data-bulle="utilisateur"
             className={cn('bulle-utilisateur rounded-[20px] bg-encre px-4 py-2.5 text-encre-fg', LARGEUR_DU_FIL)}
           >
-            <ContenuDeLEntree entree={entree} projectId={projectId} />
+            {/* DU TEXTE, PAS UNE ÉTAPE : la bulle ne passe pas par l'aiguillage
+                des étapes, dont une demande sans pièce jointe ressortait en
+                rapport (sommaire, cadres blancs à icône « # »). */}
+            <DemandeDansLaBulle entree={entree} projectId={projectId} />
           </div>
           <div className="mt-1 flex items-center gap-1 pr-1">
             <span className="transition-opacity survol:opacity-0 group-hover/bulle:survol:opacity-100">
@@ -1952,13 +2004,17 @@ function PartDuPointCompris({ libelle, texte }: { libelle: string; texte: string
  */
 function MomentDeReponse({
   entree,
+  traces = [],
   onToggleEvolution,
 }: {
   entree: EntreeJournal;
+  /** Les actions du passage : les documents qu'elles ont écrits s'ouvrent sous la réponse. */
+  traces?: EntreeJournal[];
   onToggleEvolution?: (text: string) => void;
 }) {
   const texte = retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(entree.resultat ?? ''));
   const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
+  const documents = React.useMemo(() => documentsDuTour(traces), [traces]);
   return (
     /* LA RÉPONSE DE L'AGENT : une BULLE GRISE à GAUCHE, face à la vôtre à
        droite (demande du 22/10/2026). Seule la réponse en porte une : la
@@ -1967,6 +2023,7 @@ function MomentDeReponse({
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
       <div data-bulle="agent" className={cn(BULLE_DE_L_AGENT, LARGEUR_DE_L_AGENT)}>
         <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text [&>*:last-child]:mb-0" />
+        <DocumentsProduits chemins={documents} />
         <SuitesProposees suites={suites} onBasculer={onToggleEvolution} cible={{ entreeId: entree.id }} />
       </div>
       <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
@@ -2003,6 +2060,12 @@ function MomentDeRapport({
   const ouvert = dernier ? true : choix?.cle === cle ? choix.ouvert : false;
   const texte = entree.resultat ?? '';
   const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
+  /* LES DOCUMENTS ÉCRITS DEPUIS LE COMPTE RENDU PRÉCÉDENT, ouvrables d'un bouton. */
+  const { traces, rapports } = React.useContext(ContexteDesActionsDeLaCarte);
+  const documents = React.useMemo(() => {
+    const precedent = rapports.filter((at) => at < entree.at).pop() ?? -Infinity;
+    return documentsDuTour(traces.filter((trace) => trace.at > precedent && trace.at <= entree.at));
+  }, [traces, rapports, entree.at]);
   const liste = texte.trim() ? (
     <>
     <RapportEnFlux
@@ -2013,6 +2076,7 @@ function MomentDeRapport({
       onToggleEvolution={onToggleEvolution}
       onToggleAll={onToggleAll}
     />
+    <DocumentsProduits chemins={documents} />
     {/* LES SUITES POSSIBLES du message de fin (`proposer_suites`) ; figées sur un compte rendu dépassé. */}
     <SuitesProposees suites={suites} onBasculer={onToggleEvolution} figee={!dernier} cible={{ entreeId: entree.id }} />
     </>
@@ -2268,7 +2332,7 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
       attrs={{ 'data-sous-point-flux': 'memoire' }}
     >
     <div className="rounded-xl bg-raised/40" data-point-memoire={lignes.length}>
-      <button type="button" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} className="flex w-full items-center gap-2 px-3 py-1.5 text-left" data-point-memoire-bascule>
+      <button type="button" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} className="flex w-full items-center gap-2 px-3.5 sm:px-3 py-2 sm:py-1.5 text-left" data-point-memoire-bascule>
         <span className="min-w-0 flex-1 truncate text-[14.5px] text-muted" data-point-memoire-phrase>
           {phrase}
         </span>
@@ -2811,24 +2875,62 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
      les autres images de la bande ; la fenêtre seule ne sert plus que si la
      bande ne connaît pas cette image. */
   const ouvrirDansLaGalerie = React.useContext(OuvrirUneCapture);
+  const repereDuChemin = React.useContext(RepereDUneCapture);
   const agrandir = () => {
     if (vignette && ouvrirDansLaGalerie?.(vignette)) return;
     setEnFenetre(true);
   };
   const titre = t(bloc.titre.motif, bloc.titre.valeurs);
   const phrase = React.useMemo(() => phraseDuBloc(bloc), [bloc]);
-  const dite = phrase.dit === 'agent' ? phrase.texte : t(phrase.motif, phrase.valeurs);
+  /* UNE UNITÉ LUE PAR SON CODE SE NOMME PAR SON TITRE : « J'ouvre la mémoire
+     du projet sur « titre clair (DEC-346) » » — le titre clair, sinon le titre
+     technique de la réponse, à défaut le code seul (carte 79083bc5). */
+  const codeLu =
+    phrase.dit === 'demon' && bloc.genre === 'memoire' && estUnIdentifiantDUnite(String(phrase.valeurs?.v0 ?? ''))
+      ? String(phrase.valeurs!.v0).trim()
+      : undefined;
+  const titresClairs = useTitresClairs(codeLu ? [codeLu] : []);
+  const titreLu = React.useMemo(() => {
+    if (!codeLu) return undefined;
+    let technique: string | undefined;
+    for (const entree of bloc.entrees) {
+      const vue = vueDeLEntree(entree);
+      if (vue.sorte === 'memoire') technique = titreTechniqueLu(vue.texte, codeLu);
+      if (technique) break;
+    }
+    return titreDuSujetLu(titresClairs[codeLu], technique);
+  }, [bloc, codeLu, titresClairs]);
+  const dite =
+    phrase.dit === 'agent'
+      ? phrase.texte
+      : t(phrase.motif, codeLu && titreLu ? { ...phrase.valeurs, v0: `${titreLu} (${codeLu})` } : phrase.valeurs);
+  /* LE CODE ENTRE PARENTHÈSES EN TEXTE PÂLE, comme dans les volets du détail. */
+  const diteAffichee = React.useMemo(() => {
+    if (phrase.dit !== 'demon' || !codeLu || !titreLu) return dite;
+    const marque = '\u0000';
+    const [avant, apres = ''] = t(phrase.motif, { ...phrase.valeurs, v0: marque }).split(marque);
+    return (
+      <>
+        {avant}
+        <span data-bloc-raconte-titre-clair={titresClairs[codeLu] ? 'clair' : 'technique'}>{titreLu}</span>{' '}
+        <span className="text-faint">({codeLu})</span>
+        {apres}
+      </>
+    );
+  }, [phrase, codeLu, titreLu, titresClairs, dite]);
   /* LA QUESTION DÉJÀ DESSINÉE SOUS LA PHRASE NE SE REDESSINE PAS DANS LE
      DÉTAIL : ouvrir le bloc montrerait sinon le même encadré deux fois. */
+  /* …ET UNE NOTE DE L'AGENT DÉJÀ LUE DANS LA PHRASE NON PLUS : déplier « Je
+     lis maintenant les fiches… » redisait la même phrase (capture #b37f). Un
+     bloc qui n'a plus que des redites n'a rien à déplier. */
   const entrees = React.useMemo(
     () =>
-      bloc.question
-        ? bloc.entrees.filter((entree) => {
-            const vue = vueDeLEntree(entree);
-            return !(vue.sorte === 'question' && vue.question === bloc.question?.intitule);
-          })
-        : bloc.entrees,
-    [bloc],
+      bloc.entrees.filter((entree) => {
+        const vue = vueDeLEntree(entree);
+        if (bloc.question && vue.sorte === 'question' && vue.question === bloc.question.intitule) return false;
+        return technique || !entreeDejaDite(dite, vue);
+      }),
+    [bloc, dite, technique],
   );
   /* UN BLOC SANS AUCUNE ACTION N'A RIEN À DÉPLIER : pas de chevron, pas de
      phrase cliquable — le clic promettrait un vide. */
@@ -2968,7 +3070,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
               data-bloc-raconte-vignette={bloc.cle}
               onClick={agrandir}
               title={t('Voir la capture en grand')}
-              className="shrink-0 overflow-hidden rounded border border-transparent bg-raised p-0.5"
+              className="shrink-0 overflow-hidden rounded border border-transparent bg-raised p-1 sm:p-0.5"
             >
               <img
                 src={source}
@@ -3025,7 +3127,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
             data-bloc-raconte-phrase={phrase.dit}
           >
             {bloc.enEchec ? <CircleAlert className="mt-1 h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-            <span className="min-w-0">{dite}</span>
+            <span className="min-w-0">{diteAffichee}</span>
           </p>
           <MentionDeTemps debutAt={bloc.debutAt} dureeMs={bloc.dureeMs} marque={bloc.cle} className="sm:mt-[3px]" />
         </div>
@@ -3040,7 +3142,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
             aria-label={ouvert ? t('Masquer le détail') : t('Voir le détail')}
             title={ouvert ? t('Masquer le détail') : t('Voir le détail')}
             data-bloc-raconte-chevron={bloc.cle}
-            className="-my-1 shrink-0 rounded p-1 text-faint transition-colors hover:text-muted"
+            className="-my-1 shrink-0 rounded p-1.5 sm:p-1 text-faint transition-colors hover:text-muted"
           >
             <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', ouvert && 'rotate-180')} aria-hidden />
           </button>
@@ -3059,7 +3161,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           data-bloc-raconte-vignette={bloc.cle}
           onClick={agrandir}
           title={t('Voir la capture en grand')}
-          className="mt-1 block overflow-hidden rounded-md border border-transparent bg-raised p-0.5"
+          className="relative mt-1 block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
         >
           <img
             src={source}
@@ -3068,6 +3170,8 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
             onError={() => setImagePerdue(true)}
             className="max-h-40 max-w-[min(320px,100%)] rounded object-contain object-left-top"
           />
+          {/* LE REPÈRE COURT DE LA PIÈCE, comme sous la barre d'écriture (#ce5d). */}
+          {vignette && repereDuChemin?.(vignette) ? <EtiquetteDeVignette texte={repereDuChemin(vignette)!} /> : null}
         </button>
       ) : null}
 

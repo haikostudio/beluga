@@ -1,5 +1,9 @@
 import * as React from 'react';
-import { ContexteEmplacementDuDocument, fermerLeDocument, useDocumentDeCarte } from '@/lib/document-de-carte';
+import { createPortal } from 'react-dom';
+import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, ouvrirLeSuiviSiRienNestOuvert, useDocumentDeCarte } from '@/lib/document-de-carte';
+import { VoletDeSuivi } from '@/components/volet-de-suivi';
+import { ContexteAgentDuFil } from '@/components/menu-du-media';
+import { useMediasLivres } from '@/components/medias-livres';
 import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
 import {
   AlertTriangle,
@@ -22,6 +26,7 @@ import {
   Trash2,
   X,
   AppWindow,
+  Clapperboard,
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
@@ -56,6 +61,8 @@ import {
   recalerLeRepli,
   repliALOuverture,
   suivreLeDefilement,
+  cheminDeRealisationVisible,
+  carteDeMedia,
   type EtatDuRepli,
 } from '@beluga/shared';
 import {
@@ -80,6 +87,7 @@ import {
   Tooltip,
   ZoneDefilement,
   ListeDeroulante,
+  CaseACocher,
 } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
@@ -109,9 +117,13 @@ import { t, formatRegional } from '@/lib/langue';
 import { MenuExportDuCahier } from '@/components/cahier-des-charges';
 import { ResizeHandle, useResizable } from '@/components/resizer';
 import { VoletApercu } from '@/components/volet-apercu';
+import { CLASSE_FEUILLE_DU_VOLET, PoigneeDuVolet, useFeuilleDuVolet, VoileDuVolet } from '@/components/feuille-du-volet';
 
 /** La colonne de lecture d'une carte : la conversation se centre, elle ne s'étale pas. */
 export const CLASSE_COLONNE_DE_CARTE = 'max-w-[820px]';
+
+/** LE GRAND VOLET DE MONTAGE, chargé à son ouverture seulement : une carte qu'on ne monte pas ne télécharge pas le Studio. */
+const MontageDeCarte = React.lazy(() => import('@/components/studio/montage-de-carte'));
 
 export function CardPanel({
   cardId,
@@ -682,17 +694,65 @@ function CardPanelBody({
   const documentOuvert = useDocumentDeCarte(card.id);
   const [emplacementDuDocument, setEmplacementDuDocument] = React.useState<HTMLDivElement | null>(null);
   React.useEffect(() => () => fermerLeDocument(), [card.id]);
-  const documentPleinEcran = !!documentOuvert && telephone;
+  /* SUR TÉLÉPHONE, LE DOCUMENT EST UNE FEUILLE DU BAS (#f41f), plus une page
+     entière : la conversation reste montée et visible derrière. */
+  const documentEnFeuille = !!documentOuvert && telephone;
+  const feuilleDuDocument = useFeuilleDuVolet(documentEnFeuille, fermerLeDocument);
+  /*
+   * LE VOLET DE SUIVI D'UNE PRODUCTION (studio créatif) : sur ordinateur, il est
+   * TOUJOURS OUVERT dès que le chemin du tournage paraît, et ne se ferme pas
+   * (décision du 25/10/2026). Un autre document de la carte (plan, montage) peut
+   * prendre sa place ; refermé, le suivi revient aussitôt. Sur téléphone, il ne
+   * s'ouvre qu'au bouton « Suivi », en feuille du bas : celui que l'ordinateur
+   * avait ouvert DE LUI-MÊME se referme quand l'écran passe en largeur de
+   * téléphone, pour ne pas couvrir la conversation d'une feuille qu'on n'a pas
+   * demandée.
+   */
+  const suiviPossible = cheminDeRealisationVisible(card);
+  const aucunDocument = !documentOuvert;
+  const suiviOuvertSeul = React.useRef(false);
+  React.useEffect(() => {
+    if (suiviPossible && !telephone && aucunDocument) {
+      ouvrirLeSuiviSiRienNestOuvert(card.id);
+      suiviOuvertSeul.current = true;
+    }
+  }, [suiviPossible, telephone, card.id, aucunDocument]);
+  React.useEffect(() => {
+    if (documentOuvert?.genre !== 'suivi') suiviOuvertSeul.current = false;
+  }, [documentOuvert?.genre]);
+  React.useEffect(() => {
+    if (telephone && suiviOuvertSeul.current && documentOuvert?.genre === 'suivi') {
+      suiviOuvertSeul.current = false;
+      fermerLeDocument();
+    }
+  }, [telephone, documentOuvert?.genre]);
   /* Sa largeur, réglable et gardée ; le plafond laisse 360 px à la conversation. */
   const largeurDuDocument = useResizable('document-de-carte', {
     initial: 520,
     min: 360,
     max: placeDeLaRangee ? Math.max(360, Math.min(960, placeDeLaRangee - 360)) : 960,
   });
+  /*
+   * LE GRAND VOLET DE MONTAGE (24/10/2026) : le même volet, ÉLARGI — l'éditeur
+   * du Studio y tient aperçu, ligne de temps, onde et bande d'images. Sa largeur
+   * a sa propre mémoire (`width.montage-de-carte`), et laisse 360 px à la
+   * conversation, où s'écrivent les retouches en mots.
+   */
+  const montageOuvert = documentOuvert?.genre === 'montage';
+  const largeurDuMontage = useResizable('montage-de-carte', {
+    initial: 880,
+    min: 600,
+    max: placeDeLaRangee ? Math.max(600, placeDeLaRangee - 360) : 1600,
+  });
+  const largeurDuVolet = montageOuvert ? largeurDuMontage : largeurDuDocument;
+  /* LE BOUTON DU MONTAGE : réservé à qui ouvre le Studio, sur une carte qui a fabriqué des plans. */
+  const plansLivres = useMediasLivres({ cardId: state.studioOuvert ? card.id : null }).length;
 
   const adresseDeDev = project?.devUrl?.trim() || undefined;
   const apercuOuvert = apercu && !!adresseDeDev && !voletDuCahier && !documentOuvert;
-  const apercuPleinEcran = apercuOuvert && telephone;
+  const apercuEnFeuille = apercuOuvert && telephone;
+  const fermerLApercu = React.useCallback(() => setApercu(false), []);
+  const feuilleDeLApercu = useFeuilleDuVolet(apercuEnFeuille, fermerLApercu);
 
   return (
     <div ref={page} className="flex min-h-0 flex-1 flex-col" data-page-carte={card.id}>
@@ -704,10 +764,10 @@ function CardPanelBody({
         deuxRangsSurPetitEcran
         /* LE RANG DU HAUT SE REPLIE AVEC LA BARRE DES ÉTAPES (demande du
            24/10/2026) ; le rang du titre, avec la branche, reste. */
-        rangDuHautMasque={!barreVisible && !apercuPleinEcran}
+        rangDuHautMasque={!barreVisible}
         /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
            à la conversation ; un second appui quitte la carte. */
-        onRetour={documentPleinEcran ? fermerLeDocument : apercuPleinEcran ? () => setApercu(false) : onClose}
+        onRetour={documentEnFeuille ? fermerLeDocument : apercuEnFeuille ? fermerLApercu : onClose}
         /* Sur ordinateur, le retour est porté par la colonne de gauche. */
         retourDansLaColonne={dansLaColonne}
         chemin={
@@ -816,12 +876,29 @@ function CardPanelBody({
             </Button>
           </Tooltip>
         ) : null}
+        {/* LE GRAND VOLET DE MONTAGE : les plans fabriqués par la carte, montés à côté de sa conversation. */}
+        {plansLivres > 0 || montageOuvert ? (
+          <Tooltip label={montageOuvert ? t('Fermer le montage') : t('Monter les plans de la carte')}>
+            <Button
+              variant="ghost"
+              size="icon-barre"
+              aria-label="Montage des plans"
+              aria-pressed={montageOuvert}
+              data-geste-montage={montageOuvert ? 'ouvert' : 'ferme'}
+              onClick={() => (montageOuvert ? fermerLeDocument() : ouvrirLeDocument({ cardId: card.id, genre: 'montage' }))}
+              className={cn('shrink-0', montageOuvert ? 'text-teinte hover:text-teinte' : 'text-muted')}
+            >
+              <Clapperboard className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+        ) : null}
         {/* LE CAHIER DES CHARGES S'EXPORTE D'ICI, en PDF ou en texte. */}
         {voletDuCahier ? <MenuExportDuCahier projectId={card.projectId} /> : null}
         {/* LES DEUX GESTES DE MISE EN LIGNE DU PROJET, comme sur la maquette :
             le déploiement (sur ce serveur) en contour, la mise en production en
-            aplat. Ils ouvrent les MÊMES pages que le tableau. */}
-        {voletDuCahier || telephone ? null : <GestesDePublicationDeCarte projectId={card.projectId} />}
+            aplat. Ils ouvrent les MÊMES pages que le tableau. JAMAIS SUR UNE
+            CRÉATION DE MÉDIA (décision du 25/10/2026) : un média ne se déploie pas. */}
+        {voletDuCahier || telephone || carteDeMedia(card) ? null : <GestesDePublicationDeCarte projectId={card.projectId} />}
       </EnteteDeZone>
       {/* Le titre, pour les lecteurs d'écran : la page est une fenêtre Radix. */}
       <DialogTitle className="sr-only">{card.title}</DialogTitle>
@@ -906,17 +983,14 @@ function CardPanelBody({
         onScrollCapture={surDefilement}
         onTouchMoveCapture={noterLeGeste}
         onWheelCapture={noterLeGeste}
-        data-conversation-masquee={apercuPleinEcran || documentPleinEcran ? '' : undefined}
-        style={apercuOuvert && !apercuPleinEcran ? { width: largeurDuChat.width } : undefined}
+        style={apercuOuvert && !apercuEnFeuille ? { width: largeurDuChat.width } : undefined}
         className={cn(
           'flex min-h-0 flex-col',
-          apercuPleinEcran || documentPleinEcran
-            ? 'hidden'
-            : apercuOuvert
-              ? 'shrink-0'
-              : documentOuvert
-                ? 'min-w-0 flex-1'
-                : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
+          apercuOuvert && !apercuEnFeuille
+            ? 'shrink-0'
+            : documentOuvert && !documentEnFeuille
+              ? 'min-w-0 flex-1'
+              : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
         )}
       >
         {/* SUR TÉLÉPHONE, LA BARRE D'ÉTAPES EST COLLÉE SOUS L'EN-TÊTE : la
@@ -933,7 +1007,10 @@ function CardPanelBody({
             )}
           >
             <div className="min-h-0 overflow-hidden">
-              <div ref={emplacementBarre} data-emplacement-barre className="px-4 pb-1" />
+              {/* `px-6` : le premier rond tombe sous l'icône du projet de la
+                  ligne du titre (24 px du bord, sa case de bouton commence à
+                  12 px), le dernier à la même distance du bord droit. */}
+              <div ref={emplacementBarre} data-emplacement-barre className="px-6 pb-1" />
             </div>
           </div>
         ) : null}
@@ -975,7 +1052,7 @@ function CardPanelBody({
           </ZoneDefilement>
         </TabsContent>
       </Tabs>
-      {apercuOuvert && !apercuPleinEcran ? (
+      {apercuOuvert && !apercuEnFeuille ? (
         <ResizeHandle
           onPointerDown={(event) => {
             largeurDuChat.start(event, 'left');
@@ -985,11 +1062,28 @@ function CardPanelBody({
           data-conversation-poignee=""
         />
       ) : null}
-      {apercuOuvert ? <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={() => setApercu(false)} inerte={poigneeTenue} /> : null}
-      {documentOuvert && !documentPleinEcran ? (
+      {apercuEnFeuille ? (
+        <>
+          <VoileDuVolet onFermer={fermerLApercu} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Aperçu du site"
+            data-feuille-du-volet="apercu"
+            className={CLASSE_FEUILLE_DU_VOLET}
+            style={feuilleDeLApercu.style}
+          >
+            <PoigneeDuVolet tirer={feuilleDeLApercu.tirer} onFermer={fermerLApercu} croix />
+            <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={fermerLApercu} inerte={poigneeTenue} />
+          </div>
+        </>
+      ) : apercuOuvert ? (
+        <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={fermerLApercu} inerte={poigneeTenue} />
+      ) : null}
+      {documentOuvert && !documentEnFeuille ? (
         <ResizeHandle
-          onPointerDown={(event) => largeurDuDocument.start(event, 'right')}
-          onDoubleClick={largeurDuDocument.reset}
+          onPointerDown={(event) => largeurDuVolet.start(event, 'right')}
+          onDoubleClick={largeurDuVolet.reset}
           /* Au-dessus de la piste du pouce de défilement de la conversation (z-20), qui la recouvrait. */
           className="z-30"
           data-document-poignee=""
@@ -1003,28 +1097,54 @@ function CardPanelBody({
        * posé dans une fenêtre arrondie au fond `bg` (blanc en clair, le fond
        * sombre en sombre), liseré `--faint` et ombre très légère. Sa largeur
        * se règle à la poignée et se garde (`width.document-de-carte`). Sur
-       * téléphone, rien de tout cela : le document est une page entière.
+       * téléphone, LE MÊME ÉLÉMENT devient une feuille du bas (#f41f) : il reste
+       * monté, l'emplacement du plan avec lui.
        */}
+      {documentEnFeuille ? <VoileDuVolet onFermer={fermerLeDocument} /> : null}
       <div
         data-volet-du-document=""
-        style={documentOuvert && !documentPleinEcran ? { width: largeurDuDocument.width } : undefined}
+        data-feuille-du-volet={documentEnFeuille ? documentOuvert.genre : undefined}
+        role={documentEnFeuille ? 'dialog' : undefined}
+        aria-modal={documentEnFeuille ? true : undefined}
+        style={documentEnFeuille ? feuilleDuDocument.style : documentOuvert ? { width: largeurDuVolet.width } : undefined}
         className={cn(
           'min-h-0',
           !documentOuvert
             ? 'hidden'
-            : documentPleinEcran
-              ? 'flex w-full flex-1 flex-col'
+            : documentEnFeuille
+              ? CLASSE_FEUILLE_DU_VOLET
               : 'flex shrink-0 flex-col bg-fond-plan p-2',
         )}
       >
+        {documentEnFeuille ? (
+          <PoigneeDuVolet tirer={feuilleDuDocument.tirer} onFermer={fermerLeDocument} croix={documentOuvert.genre !== 'plan'} />
+        ) : null}
+        {montageOuvert ? (
+          <div
+            data-volet-de-montage=""
+            className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25')}
+          >
+            <React.Suspense fallback={null}>
+              <MontageDeCarte cardId={card.id} />
+            </React.Suspense>
+          </div>
+        ) : null}
         <div
           ref={setEmplacementDuDocument}
           data-emplacement-du-document=""
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
-            documentOuvert && !documentPleinEcran && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25',
+            montageOuvert && 'hidden',
+            documentOuvert && !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25',
           )}
         />
+        {documentOuvert?.genre === 'suivi' && emplacementDuDocument ? createPortal(
+              /* Les gestes du suivi qui parlent à l'agent (« Corriger avec l'agent », « Redemander ») visent l'agent de CETTE conversation. */
+              <ContexteAgentDuFil.Provider value={agent?.id ?? null}>
+                <VoletDeSuivi card={card} />
+              </ContexteAgentDuFil.Provider>,
+              emplacementDuDocument,
+            ) : null}
       </div>
       </div>
       </ContexteEmplacementDuDocument.Provider>
@@ -1339,7 +1459,7 @@ function CommentsTab({ card }: { card: Card }) {
                   type="button"
                   aria-label="Retirer"
                   title={t('Retirer')}
-                  className="absolute -right-1 -top-1 rounded-full bg-surface p-0.5 text-faint opacity-100 transition-opacity hover:text-text md:opacity-0 md:group-hover:opacity-100"
+                  className="absolute -right-1 -top-1 rounded-full bg-surface p-1 sm:p-0.5 text-faint opacity-100 transition-opacity hover:text-text md:opacity-0 md:group-hover:opacity-100"
                   onClick={() => setAttachments((current) => current.filter((a) => a.id !== item.id))}
                 >
                   <X className="h-3 w-3" />

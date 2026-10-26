@@ -5,6 +5,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { LecteurSon } from '@/components/lecteur-son';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { adresseDePiece, LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
+import { InformationsDeLaPiece, MenuDeLaPiece } from '@/components/menu-du-media';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useTelechargement } from '@/lib/telechargement';
@@ -87,6 +88,7 @@ function MediaDuBloc({ media }: { media: MediaLivre }) {
   return (
     <li className="flex min-w-0 flex-col gap-1" data-media-livre={media.attachmentId} data-media-livre-genre={media.genre}>
       <div className="relative overflow-hidden rounded-lg bg-raised">
+        <MenuDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} />
         {media.genre === 'image' ? (
           <button type="button" className="block aspect-video w-full" onClick={() => setOuverte(true)} title={t('Ouvrir en grand')}>
             <img src={adresseDePiece(media.attachmentId, false, LARGEUR_DE_VIGNETTE)} alt={legende} className="h-full w-full object-contain" loading="lazy" />
@@ -116,6 +118,7 @@ function MediaDuBloc({ media }: { media: MediaLivre }) {
           {etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
         </Button>
       </div>
+      <InformationsDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} />
       {piece ? <AttachmentPreview item={ouverte ? piece : null} onClose={() => setOuverte(false)} /> : null}
     </li>
   );
@@ -149,7 +152,7 @@ function ToutTelecharger({ medias }: { medias: readonly MediaLivre[] }) {
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
+      className="h-[34px] sm:h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
       onClick={lancer}
       disabled={etat === 'reception'}
       title={t('Télécharger tous les médias en une archive (.zip)')}

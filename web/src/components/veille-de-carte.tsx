@@ -137,7 +137,7 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
           <Button
             variant="ghost"
             size="sm"
-            className="h-9 w-9 shrink-0 rounded-lg bg-raised p-0 text-text hover:bg-border"
+            className="h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0 rounded-lg bg-raised p-0 text-text hover:bg-border"
             onClick={() => ouvrirLaVeilleDansLeService(carte.projectId, veille.id)}
             title={t('Voir dans Tâches récurrentes')}
             aria-label="Voir dans Tâches récurrentes"

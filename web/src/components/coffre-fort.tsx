@@ -18,9 +18,10 @@ import {
   EyeOff,
   Folder,
   FolderPlus,
-  ImagePlus,
+  Download,
+  FilePlus,
   IdCard,
-  Images,
+  Paperclip,
   KeyRound,
   Landmark,
   Loader2,
@@ -41,7 +42,9 @@ import {
   ChampLibre,
   DossierCoffre,
   LIBELLE_CHAMP_LIBRE_MAX,
-  IMAGES_ACCES_MAX,
+  refusDuFichierDuCoffre,
+  refusDuPoidsDeLaFiche,
+  genreDuFichier,
   LIBELLE_TYPE_ACCES,
   NOM_ACCES_MAX,
   NOM_DOSSIER_MAX,
@@ -83,18 +86,19 @@ import {
   ListeDeroulante,
   FormulaireEnColonnes,
   LigneFormulaire,
+  Tooltip,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
 import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { AttachmentPreview } from '@/components/attachment-preview';
-import { ImageDePiece } from '@/components/pastille-de-fichier';
+import { IconeDeGenre, ImageDePiece, adresseDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
 import { PasAPas } from '@/components/pas-a-pas';
-import { cn } from '@/lib/utils';
+import { bytes, cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 
 /**
@@ -862,7 +866,7 @@ function LigneDeDossier({
             title={toutOuvert ? t('Tout replier') : t('Tout déplier')}
             aria-label={toutOuvert ? 'Tout replier' : 'Tout déplier'}
             data-coffre-dossier-tout={toutOuvert ? 'ouvert' : 'ferme'}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+            className="flex h-[29px] sm:h-6 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
           >
             {toutOuvert ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
           </button>
@@ -886,7 +890,7 @@ function LigneDeDossier({
                 title={t('Actions du dossier')}
                 aria-label="Actions du dossier"
                 data-coffre-dossier-actions
-                className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+                className="mr-2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
               >
                 <EllipsisVertical className="h-4 w-4" />
               </button>
@@ -914,7 +918,7 @@ function LigneDeDossier({
             title={t('Restaurer le dossier')}
             aria-label="Restaurer le dossier"
             data-coffre-dossier-restaurer
-            className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+            className="mr-2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
           >
             <ArchiveRestore className="h-3.5 w-3.5" />
           </button>
@@ -1113,10 +1117,10 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
         {acces.images?.length ? (
           <span
             className="flex shrink-0 items-center gap-0.5 text-[12px] tabular-nums text-faint"
-            title={t('Images jointes')}
+            title={t('Fichiers joints')}
             data-coffre-nombre-images={acces.images.length}
           >
-            <Images className="h-3 w-3" />
+            <Paperclip className="h-3 w-3" />
             {acces.images.length}
           </span>
         ) : null}
@@ -1445,18 +1449,20 @@ function FicheAcces({
   );
 }
 
-/** Envoie UNE image au coffre et rend la pièce déposée, ou rien en cas de refus. */
-async function envoyerImageAuCoffre(fichier: File): Promise<Attachment | null> {
-  if (!fichier.type.startsWith('image/')) {
-    client.pushToast('error', t('Le coffre-fort ne prend que des images.'));
+/** Envoie UN fichier au coffre et rend la pièce déposée, ou rien en cas de refus. */
+async function envoyerFichierAuCoffre(fichier: File): Promise<Attachment | null> {
+  // Le serveur refuse aussi : ce premier refus évite seulement d'envoyer un programme pour rien.
+  const refus = refusDuFichierDuCoffre(fichier.type, fichier.name);
+  if (refus) {
+    client.pushToast('error', t('Le coffre-fort ne prend pas les programmes ({v0}).', { v0: fichier.name }));
     return null;
   }
   try {
     const reponse = await fetch('/api/upload?coffre=1', {
       method: 'POST',
       headers: {
-        'content-type': fichier.type,
-        'x-file-name': encodeURIComponent(fichier.name || 'image.png'),
+        'content-type': fichier.type || 'application/octet-stream',
+        'x-file-name': encodeURIComponent(fichier.name || 'fichier'),
       },
       body: fichier,
     });
@@ -1464,20 +1470,77 @@ async function envoyerImageAuCoffre(fichier: File): Promise<Attachment | null> {
     if (!reponse.ok) throw new Error(typeof data?.error === 'string' ? data.error : String(reponse.status));
     return (data.attachment as Attachment) ?? null;
   } catch (err: any) {
-    client.pushToast('error', /^\d+$/.test(err?.message ?? '') ? t('Envoi de l’image impossible') : (err?.message ?? t('Envoi de l’image impossible')));
+    client.pushToast('error', /^\d+$/.test(err?.message ?? '') ? t('Envoi du fichier impossible') : (err?.message ?? t('Envoi du fichier impossible')));
     return null;
   }
 }
 
+/** Au-delà, un texte n'est pas lu pour l'aperçu rapide : on n'en demande que le début. */
+const DEBUT_DE_TEXTE_OCTETS = 2048;
+const estUnTexte = (mime: string) => mime.startsWith('text/') || mime === 'application/json';
+
+/** Le début d'un fichier texte, demandé par une lecture partielle — jamais le fichier entier. */
+function DebutDeTexte({ id }: { id: string }) {
+  const [texte, setTexte] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const arret = new AbortController();
+    fetch(adresseDePiece(id), { headers: { range: `bytes=0-${DEBUT_DE_TEXTE_OCTETS - 1}` }, signal: arret.signal })
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((contenu) => setTexte(contenu.slice(0, 600)))
+      .catch(() => {});
+    return () => arret.abort();
+  }, [id]);
+  return (
+    <pre className="h-full w-full overflow-hidden whitespace-pre-wrap break-words p-2 text-left font-mono text-[11px] leading-snug text-muted">
+      {texte ?? t('Lecture…')}
+    </pre>
+  );
+}
+
 /**
- * LES IMAGES D'UNE FICHE : des vignettes sous les champs, qui s'ouvrent en
- * grand, et trois façons d'en ajouter — choisir, glisser, coller. Une fiche
- * archivée (`figee`) les montre sans permettre d'y toucher.
+ * L'APERÇU RAPIDE D'UN FICHIER, DANS L'INFOBULLE DE SA LIGNE. L'infobulle ne
+ * se monte qu'au survol (et jamais sans pointeur qui survole) : rien de ceci
+ * ne se télécharge à l'ouverture de la fiche. Une image en vignette, la
+ * première page d'un PDF, la première image d'une vidéo (muette, seulement
+ * ses métadonnées), le début d'un texte ; sinon l'icône et le nom.
+ */
+function ApercuRapide({ piece }: { piece: Attachment }) {
+  const genre = genreDuFichier(piece.mime);
+  const source = adresseDePiece(piece.id);
+  return (
+    <span className="flex w-[240px] flex-col gap-1" data-coffre-apercu-rapide={piece.id}>
+      <span className="relative flex h-[170px] w-full items-center justify-center overflow-hidden rounded bg-surface">
+        {genre === 'image' ? (
+          <ImageDePiece id={piece.id} alt={piece.name} className="max-h-full max-w-full object-contain" />
+        ) : genre === 'video' ? (
+          <video src={`${source}#t=${piece.apercuSeconde ?? 0.1}`} preload="metadata" muted playsInline className="max-h-full max-w-full" />
+        ) : piece.mime === 'application/pdf' ? (
+          <iframe title={piece.name} src={`${source}#toolbar=0&navpanes=0&view=FitH`} className="h-full w-full" tabIndex={-1} />
+        ) : estUnTexte(piece.mime) ? (
+          <DebutDeTexte id={piece.id} />
+        ) : (
+          <IconeDeGenre genre={genre} className="h-8 w-8 text-faint" />
+        )}
+      </span>
+      <span className="truncate text-[12px]">{piece.name}</span>
+    </span>
+  );
+}
+
+/**
+ * LES FICHIERS D'UNE FICHE : une LISTE sous les champs — une ligne par fichier,
+ * avec l'icône de son genre, son nom et son poids. Le survol d'une ligne
+ * montre un aperçu rapide en infobulle ; un clic (ou un toucher, sur
+ * téléphone) ouvre la visionneuse, qui feuillette toute la liste et propose
+ * de télécharger ce qu'elle ne sait pas montrer. Tout genre de fichier sauf un
+ * programme, sans limite de nombre, 1 Go au total. Trois façons d'en ajouter
+ * — choisir, glisser, coller. Une fiche archivée (`figee`) les montre sans
+ * permettre d'y toucher.
  *
  * Coller marche DANS TOUTE LA FICHE, pas seulement sur cette zone : une
  * capture d'écran se colle d'instinct, sans viser. L'écoute est posée sur le
  * document tant que la fiche est ouverte, et ne prend que les collages qui
- * portent une image — un texte collé dans un champ suit son chemin.
+ * portent un FICHIER — un texte collé dans un champ suit son chemin.
  */
 function ImagesDeLaFiche({
   images,
@@ -1492,20 +1555,27 @@ function ImagesDeLaFiche({
   const [envoi, setEnvoi] = React.useState(false);
   const [survol, setSurvol] = React.useState(false);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
-  const pleine = images.length >= IMAGES_ACCES_MAX;
+  const poidsActuel = React.useRef(0);
+  poidsActuel.current = images.reduce((total, piece) => total + piece.size, 0);
+  const total = poidsActuel.current;
 
   const ajouter = React.useCallback(
     async (fichiers: File[]) => {
-      const retenus = fichiers.filter((f) => f.type.startsWith('image/'));
-      if (!retenus.length) return;
+      if (!fichiers.length) return;
       setEnvoi(true);
       try {
-        for (const fichier of retenus) {
-          const piece = await envoyerImageAuCoffre(fichier);
+        let poids = poidsActuel.current;
+        for (const fichier of fichiers) {
+          // Le plafond d'1 Go se juge avant d'envoyer : rien ne part qui serait refusé à l'enregistrement.
+          const tropLourd = refusDuPoidsDeLaFiche(poids + fichier.size);
+          if (tropLourd) {
+            client.pushToast('error', t('« {v0} » ferait dépasser 1 Go à la fiche : il n’est pas ajouté.', { v0: fichier.name }));
+            continue;
+          }
+          const piece = await envoyerFichierAuCoffre(fichier);
           if (!piece) continue;
-          onChange((avant) =>
-            avant.some((image) => image.id === piece.id) || avant.length >= IMAGES_ACCES_MAX ? avant : [...avant, piece],
-          );
+          poids += piece.size;
+          onChange((avant) => (avant.some((autre) => autre.id === piece.id) ? avant : [...avant, piece]));
         }
       } finally {
         setEnvoi(false);
@@ -1519,7 +1589,7 @@ function ImagesDeLaFiche({
     if (figee) return;
     const coller = (e: ClipboardEvent) => {
       // Seulement quand la fiche est à l'écran : ce composant ne vit que là.
-      const fichiers = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      const fichiers = Array.from(e.clipboardData?.files ?? []);
       if (!fichiers.length) return;
       e.preventDefault();
       void ajouter(fichiers);
@@ -1532,7 +1602,14 @@ function ImagesDeLaFiche({
 
   return (
     <div className="flex flex-col gap-1" data-coffre-images={images.length}>
-      <span className="text-[12px] font-medium text-muted">{t('Images')}</span>
+      <span className="flex items-baseline gap-1.5 text-[12px] font-medium text-muted">
+        {t('Fichiers')}
+        {images.length ? (
+          <span className="font-normal tabular-nums text-faint" data-coffre-poids-total={total}>
+            {t('{v0} sur 1 Go', { v0: bytes(total) })}
+          </span>
+        ) : null}
+      </span>
       <div
         onDragOver={(e) => {
           if (figee) return;
@@ -1546,53 +1623,62 @@ function ImagesDeLaFiche({
           setSurvol(false);
           void ajouter(Array.from(e.dataTransfer.files ?? []));
         }}
-        className={cn(
-          'flex flex-wrap items-start gap-2 rounded-md bg-bloc p-2 transition-colors',
-          survol && 'bg-raised',
-        )}
+        className={cn('flex flex-col gap-0.5 rounded-md bg-bloc p-1 transition-colors', survol && 'bg-raised')}
       >
-        {images.map((image) => (
-          <span key={image.id} className="relative block h-[72px] w-[72px] shrink-0" data-coffre-image={image.id}>
-            <button
-              type="button"
-              onClick={() => setApercu(image)}
-              className="relative block h-full w-full overflow-hidden rounded-md bg-raised"
-              aria-label={image.name}
-              title={image.name}
+        {images.map((piece) => (
+          <div key={piece.id} className="group flex min-w-0 items-center gap-1 rounded-md hover:bg-raised" data-coffre-image={piece.id}>
+            <Tooltip label={<ApercuRapide piece={piece} />}>
+              <button
+                type="button"
+                onClick={() => setApercu(piece)}
+                className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 sm:py-1.5 text-left text-[13px] text-text"
+                aria-label={piece.name}
+                data-coffre-fichier-ouvrir={piece.id}
+              >
+                <IconeDeGenre genre={genreDuFichier(piece.mime)} className="h-3.5 w-3.5 shrink-0 text-faint" />
+                <span className="min-w-0 flex-1 truncate">{piece.name}</span>
+                <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{bytes(piece.size)}</span>
+              </button>
+            </Tooltip>
+            <a
+              href={adresseDePiece(piece.id, true)}
+              download={piece.name}
+              title={t('Télécharger')}
+              aria-label="Telecharger"
+              className="grid h-8 w-8 sm:h-7 sm:w-7 shrink-0 place-items-center rounded-md text-faint transition-colors hover:text-text"
             >
-              <ImageDePiece id={image.id} alt={image.name} className="h-full w-full object-cover" />
-            </button>
+              <Download className="h-3.5 w-3.5" />
+            </a>
             {figee ? null : (
               <button
                 type="button"
-                onClick={() => onChange((avant) => avant.filter((autre) => autre.id !== image.id))}
-                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface text-muted shadow-sm transition-colors hover:text-text"
-                aria-label="Retirer cette image"
-                title={t('Retirer cette image')}
-                data-coffre-image-retirer={image.id}
+                onClick={() => onChange((avant) => avant.filter((autre) => autre.id !== piece.id))}
+                className="grid h-8 w-8 sm:h-7 sm:w-7 shrink-0 place-items-center rounded-md text-faint transition-colors hover:text-text"
+                aria-label="Retirer ce fichier"
+                title={t('Retirer ce fichier')}
+                data-coffre-image-retirer={piece.id}
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             )}
-          </span>
+          </div>
         ))}
-        {figee || pleine ? null : (
+        {figee ? null : (
           <button
             type="button"
             onClick={() => champ.current?.click()}
             disabled={envoi}
-            className="flex h-[72px] min-w-[72px] flex-1 flex-col items-center justify-center gap-1 rounded-md bg-raised px-2 text-center text-[12px] leading-tight text-faint transition-colors hover:bg-border hover:text-text disabled:opacity-60"
+            className="flex min-h-[40px] items-center justify-center gap-1.5 rounded-md px-2 py-2 text-center text-[12px] leading-tight text-faint transition-colors hover:bg-raised hover:text-text disabled:opacity-60"
             data-coffre-image-ajouter
           >
-            {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-            {images.length ? t('Ajouter une image') : t('Choisir, glisser ou coller une image')}
+            {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FilePlus className="h-3.5 w-3.5" />}
+            {images.length ? t('Ajouter un fichier') : t('Choisir, glisser ou coller un fichier')}
           </button>
         )}
       </div>
       <input
         ref={champ}
         type="file"
-        accept="image/*"
         multiple
         hidden
         onChange={(e) => void ajouter(Array.from(e.target.files ?? []))}

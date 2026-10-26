@@ -17,8 +17,15 @@
  */
 
 import { type Composition, type OperationStudio, type Piste, type ResultatOperation, appliquerOperation } from './studio.js';
+import { corpsEnDirect } from './catalogue-en-direct.js';
+import { KIE_API, MODELES_KIE, lireCommandeKie, lireSuiviKie, modeleKie, requeteDeCommandeKie } from './kie.js';
 
-export const IDS_SERVICES_CREATION = ['higgsfield', 'byteplus', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter'] as const;
+/*
+ * kie.ai (25/10/2026) remplace Higgsfield et fal.ai, CACHÉS mais pas retirés
+ * (`SERVICES_CACHES`, `shared/src/services-de-generation.ts`) : leur entrée
+ * reste ici, prête à être rallumée.
+ */
+export const IDS_SERVICES_CREATION = ['kie', 'higgsfield', 'byteplus', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter'] as const;
 export type IdServiceCreation = (typeof IDS_SERVICES_CREATION)[number];
 
 export type RatioClip = '16:9' | '9:16' | '1:1';
@@ -53,6 +60,15 @@ const plage = (min: number, max: number) => Array.from({ length: max - min + 1 }
 const CLE = [{ id: 'cle' as const, libelle: 'Clé d’API' }];
 
 export const SERVICES_CREATION: readonly ServiceDeCreation[] = [
+  {
+    id: 'kie',
+    /* CE NOM EXACT retrouve la fiche du coffre (« Studio — kie.ai ») : ne pas le changer. */
+    nom: 'kie.ai',
+    description: 'Kling, Seedance, Grok, Nano Banana, voix ElevenLabs, musique Suno et synchronisation labiale, payés en crédits kie.ai.',
+    adresseCle: 'https://kie.ai/api-key',
+    champs: CLE,
+    modeles: MODELES_KIE.filter((m) => m.capacite === 'video').map((m) => ({ id: m.id, nom: m.nom, durees: m.durees ?? [5], ratios: m.ratios ?? [], son: !!m.son })),
+  },
   {
     id: 'higgsfield',
     nom: 'Higgsfield',
@@ -240,6 +256,8 @@ export function entetesDuService(service: IdServiceCreation, cle: string): Recor
 export function requeteDeTest(service: IdServiceCreation, cle: string): RequeteHttp {
   const entetes = entetesDuService(service, cle);
   const adresse: Record<IdServiceCreation, string> = {
+    // Le solde : gratuit ; une fausse clé y répond `code: 401` (en HTTP 200 — lu par `verdictDuSoldeKie`).
+    kie: `${KIE_API}/api/v1/chat/credit`,
     // Un travail qui n'existe pas : 404 avec une bonne clé, 401 sinon.
     higgsfield: 'https://api.higgsfield.ai/requests/00000000-0000-0000-0000-000000000000/status',
     byteplus: `${BYTEPLUS}/contents/generations/tasks?page_size=1`,
@@ -269,6 +287,14 @@ export function requeteDeCreation(service: IdServiceCreation, modele: string, cl
   const entetes = { ...entetesDuService(service, cle), 'Content-Type': 'application/json' };
   const ratio = d.ratio ?? undefined;
   switch (service) {
+    case 'kie': {
+      /* Le corps suit le schéma recopié du modèle (`shared/src/kie.ts`) : une commande refusée ici n'a rien coûté. */
+      const k = modeleKie(modele, 'video');
+      if (!k) throw new Error(`modèle kie.ai inconnu : ${modele}`);
+      const c = corpsEnDirect(k.entrees, { consigne: d.consigne, format: d.ratio ?? '16:9', duree: d.duree, son: d.son }, k.defauts);
+      if (!c.ok) throw new Error(`commande refusée avant l’envoi : ${c.raison}`);
+      return requeteDeCommandeKie(k.id, cle, c.corps);
+    }
     case 'higgsfield':
       return { methode: 'POST', adresse: `https://api.higgsfield.ai/${modele}`, entetes, corps: { prompt: d.consigne, duration: d.duree } };
     case 'byteplus':
@@ -326,6 +352,11 @@ export function requeteDeCreation(service: IdServiceCreation, modele: string, cl
 
 export type EtatDuTravail = { etat: 'attente'; suivi: string } | { etat: 'fini'; url: string } | { etat: 'echec'; raison: string };
 
+/** L'état d'un travail kie.ai, ramené à celui du Studio (le coût réel n'y est pas gardé). */
+function enTravail(e: ReturnType<typeof lireSuiviKie>): EtatDuTravail {
+  return e.etat === 'fini' ? { etat: 'fini', url: e.url } : e;
+}
+
 /** Le message d'erreur d'une réponse, quel qu'en soit le service. */
 function raisonDe(corps: any, defaut: string): string {
   const brut = corps?.error?.message ?? corps?.error ?? corps?.detail ?? corps?.failure ?? corps?.message ?? defaut;
@@ -337,6 +368,8 @@ function raisonDe(corps: any, defaut: string): string {
  * a déjà fini, l'extrait lui-même).
  */
 export function lireCreationDeClip(service: IdServiceCreation, modele: string, statut: number, corps: any): EtatDuTravail {
+  /* kie.ai répond en 200 même en erreur : son champ `code` fait foi. */
+  if (service === 'kie') return enTravail(lireCommandeKie(statut, corps));
   if (statut === 401 || statut === 403) return { etat: 'echec', raison: 'le service refuse la clé enregistrée : retestez-la dans « Services de création »' };
   if (statut === 402) return { etat: 'echec', raison: 'le crédit de votre compte chez ce service est épuisé' };
   if (statut < 200 || statut >= 300) return { etat: 'echec', raison: `le service a refusé l’extrait (${statut}) : ${raisonDe(corps, 'sans détail')}` };
@@ -373,6 +406,7 @@ export function adresseDeSuivi(service: IdServiceCreation, suivi: string): strin
  * ou en échec (avec sa raison, telle que le service la donne).
  */
 export function lireSuiviDeClip(service: IdServiceCreation, statut: number, corps: any, suivi = ''): EtatDuTravail {
+  if (service === 'kie') return enTravail(lireSuiviKie(statut, corps, suivi));
   if (statut === 401 || statut === 403) return { etat: 'echec', raison: 'le service refuse la clé enregistrée pendant le suivi' };
   if (statut === 404) return { etat: 'echec', raison: 'le service ne retrouve plus ce travail' };
   if (statut >= 500 || statut === 429) return { etat: 'attente', suivi };

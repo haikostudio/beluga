@@ -6,6 +6,7 @@ import {
   Check,
   Circle,
   Copy,
+  CornerDownLeft,
   CornerDownRight,
   Download,
   FileText,
@@ -20,6 +21,7 @@ import {
 import {
   Attachment,
   LIBELLE_ETAPE_DE_SUIVI,
+  documentsDuTour,
   agentAuTravailALEcran,
   agentCompteCommeTravail,
   colonneAffichee,
@@ -45,8 +47,6 @@ import {
   emballerJointes,
   jointesDuMessage,
   texteAvecTagsDesJointes,
-  texteAvecEtiquettes,
-  tagsDuTexte,
   texteAEcouter,
   tempsRestant,
   texteDeReponse,
@@ -56,12 +56,12 @@ import {
   retirerLaStructureDeCadrage,
   retirerLeBlocDeProcessus,
   phraseDeLErreurDeTour,
-  nettoyerTexteColle,
   sansBlocDeChiffrage,
 } from '@beluga/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
 import { Markdown, SuitesProposees } from '@/lib/markdown';
+import { DocumentsProduits } from '@/components/documents-produits';
 import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
@@ -70,6 +70,7 @@ import { EncadresDeCompetences } from '@/components/encadre-competence';
 import { Steps } from '@/components/steps';
 import { CapturesDuFlux } from '@/components/captures-du-flux';
 import { TravailDUnTourSansCarte } from '@/components/flux-en-points';
+import { TexteDeLaDemande } from '@/components/contenu-journal';
 import { ContextePiecesDesBlocs } from '@/components/medias-en-fabrication';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
@@ -293,20 +294,19 @@ export function MessageView({
       <>
         <div className="flex justify-end">
           <div className="w-[min(78%,520px)] min-w-0 max-w-full">
-            <div className="overflow-hidden rounded-lg rounded-br-sm bg-raised px-3 py-2">
+            <div data-bulle="utilisateur-assistant" className="overflow-hidden rounded-lg rounded-br-sm bg-raised px-3 py-2">
               {/*
                * Une adresse ou un chemin sans espace ne doit JAMAIS élargir la
                * bulle : elle pousserait la conversation vers la droite, et la
                * moindre sélection ferait glisser tout le fil de côté.
                */}
-              {/* LES TAGS SE LISENT PAR LEUR IDENTIFIANT COURT, comme dans la
-                  barre d'écriture ; le texte enregistré (et copié) ne change pas. */}
-              <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed text-text">
-                {texteAvecEtiquettes(nettoyerTexteColle(message.content), jointes, tagsDuTexte(message.content))}
-              </p>
-              {message.attachments.length ? (
-                <PiecesJointes ids={message.attachments} projectId={projectId} />
-              ) : null}
+              {/* LE MÊME TEXTE QUE DANS LA BULLE D'UNE CARTE : nettoyé, titres
+                  « # » un cran plus grands, sans cadre ; les tags se lisent par
+                  leur identifiant court. Le texte enregistré (et copié) ne
+                  change pas. */}
+              <div className="break-words [overflow-wrap:anywhere] text-text">
+                <TexteDeLaDemande texte={message.content} pieces={message.attachments} projectId={projectId} />
+              </div>
             </div>
             <LigneReperes
               at={message.createdAt}
@@ -341,6 +341,12 @@ export function MessageView({
   // de tâche, en bulles de recherche (`BullesDuPromptEnvoye`, plus haut). Les
   // anciens messages qui portent encore l'étape s'affichent donc sans elle.
   const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
+  /* LES DOCUMENTS ÉCRITS OU JOINTS PENDANT LE TOUR, chacun ouvrable d'un bouton sous la réponse. */
+  // Calculé sans crochet : des sorties anticipées précèdent (règle des crochets).
+  const documents =
+    message.role === 'assistant'
+      ? documentsDuTour(message.steps.map((step) => ({ outil: step.outil, params: step.entree, reussie: step.state !== 'failed' })))
+      : [];
   const entreesDuTour = entreesDuTourSansCarte(message, (step) => step.id !== MEMORY_STEP_ID);
   const enCoursDuTour = message.streaming ? etapes.filter((step) => step.state === 'running') : [];
 
@@ -400,6 +406,8 @@ export function MessageView({
         ) : message.streaming && !etapes.length ? (
           <p className="text-[14.5px] text-faint">{t('L\'agent réfléchit…')}</p>
         ) : null}
+
+        {!message.streaming ? <DocumentsProduits chemins={documents} /> : null}
 
         {/* LES SUITES POSSIBLES, sous la réponse (`proposer_suites`). */}
         {message.suites?.length && !message.streaming ? (
@@ -537,7 +545,7 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
       onClick={() => (enCours ? taireVoix() : direVoix(aLire, cle))}
       title={enCours ? t('Arrêter la lecture') : t('Écouter le message')}
       aria-label={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
-      className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[12.5px] text-faint transition-colors hover:bg-surface hover:text-text"
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-[12.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {enCours ? (
         <Square className="h-2.5 w-2.5 text-success" />
@@ -664,7 +672,7 @@ function BoutonCopier({
       type="button"
       onClick={copier}
       title={titre}
-      className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[12.5px] text-faint transition-colors hover:bg-surface hover:text-text"
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-[12.5px] text-faint transition-colors hover:bg-surface hover:text-text"
     >
       {copie ? <Check className="h-2.5 w-2.5 text-success" /> : <Copy className="h-2.5 w-2.5" />}
       {copie ? t('Copié') : libelle}
@@ -739,7 +747,8 @@ export function QuestionCard({
         <p className="text-[14.5px] leading-relaxed text-faint">{question.question}</p>
         <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14.5px] leading-relaxed text-text">
           <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
-          <span className="min-w-0 flex-1 truncate" data-reponse-question>
+          {/* Les réponses d'un formulaire groupé se lisent une par ligne, jamais coupées. */}
+          <span className={question.formulaire ? 'min-w-0 flex-1 whitespace-pre-line' : 'min-w-0 flex-1 truncate'} data-reponse-question>
             {question.answer}
           </span>
         </p>
@@ -1071,7 +1080,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
                 disabled={busy}
                 data-compte-reprise={compte.id}
                 onClick={() => void reprendre(compte.id)}
-                className="flex w-full items-center gap-2 rounded-lg border border-transparent bg-surface px-2 py-1.5 text-left text-muted transition-colors hover:bg-raised disabled:opacity-60"
+                className="flex w-full items-center gap-2 rounded-lg border border-transparent bg-surface px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-muted transition-colors hover:bg-raised disabled:opacity-60"
               >
                 {busy ? (
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -1386,6 +1395,17 @@ export function ProposalChip({
             </Button>
           ) : null}
         </div>
+      </div>
+    );
+  }
+
+  /* Envoyée en message à l'agent de la carte (`proposal.integrate`) : aucune carte née. */
+  if (proposal.decision === 'integrated') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-transparent bg-surface/60 px-3 py-2 text-[14.5px] text-muted" data-proposition-integree="">
+        <CornerDownLeft className="h-3 w-3 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1 truncate">{proposal.title}</span>
+        <span className="text-[12.5px]">{t('intégrée à cette carte')}</span>
       </div>
     );
   }

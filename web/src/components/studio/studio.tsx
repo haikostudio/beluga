@@ -19,6 +19,7 @@ import {
   Volume2,
   VolumeX,
   Loader2,
+  X,
 } from 'lucide-react';
 import {
   type Agent,
@@ -46,6 +47,7 @@ import {
   ListeDeroulante,
   PromptDialog,
   ZoneDefilement,
+  CaseACocher,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { RunSelectors, resoudreRun, type RunChoix } from '@/components/run-selectors';
@@ -414,11 +416,10 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
             {modele ? null : <LigneFormulaire libelle={t('Formats')}>
               {CLES_FORMATS_STUDIO.map((f) => (
                 <label key={f} className="flex min-h-7 items-center gap-2">
-                  <input
-                    type="checkbox"
+                  <CaseACocher
                     checked={formats.includes(f)}
-                    onChange={(e) => setFormats((x) => (e.target.checked ? [...x, f] : x.filter((y) => y !== f)))}
-                    className="h-4 w-4 accent-[hsl(var(--accent))]"
+                    onCheckedChange={(coche) => setFormats((x) => (coche ? [...x, f] : x.filter((y) => y !== f)))}
+                    data-studio-format-coche={f}
                   />
                   {libelleFormat(f)} <span className="text-faint">({f}, {FORMATS_STUDIO[f].largeur}×{FORMATS_STUDIO[f].hauteur})</span>
                 </label>
@@ -460,11 +461,34 @@ const FOND_DE_PANNEAU: React.CSSProperties = {
   ['--fond-zone-defilement' as string]: 'color-mix(in srgb, hsl(var(--raised)) 55%, hsl(var(--surface)))',
 };
 
-function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRetour: () => void; onOuvrir: (id: string) => void }) {
-  const state = useApp();
+/**
+ * L'ÉDITEUR DANS LE VOLET D'UNE CARTE (`enCarte`, grand volet de montage) : le
+ * même atelier, sans ce qui appartient à la page du Studio — ni fil d'Ariane, ni
+ * colonne de gauche, ni conversation de l'agent (la retouche en mots s'écrit
+ * dans la conversation de la carte, juste à côté). Une barre propre porte le
+ * titre, Annuler / Rétablir, « Style », l'export et la croix qui referme.
+ */
+export interface EditeurEnCarte {
+  onFermer: () => void;
+}
+
+/** Ce que l'éditeur lit du magasin, et RIEN d'autre : une progression d'export ou un message d'une autre carte ne le redessine pas. */
+function useVersionDeLaCreation(creationId: string): number {
+  return React.useSyncExternalStore(client.subscribe, () => {
+    const s = client.lireEtat();
+    return (s.studioVersions[creationId] ?? 0) + (s.studioVersions.reprise ?? 0);
+  });
+}
+
+function useAgentLu(agentId: string | null): Agent | null {
+  return React.useSyncExternalStore(client.subscribe, () => (agentId ? (client.lireEtat().agents[agentId] ?? null) : null));
+}
+
+export function Editeur({ creationId, onRetour, onOuvrir, enCarte }: { creationId: string; onRetour: () => void; onOuvrir: (id: string) => void; enCarte?: EditeurEnCarte }) {
   const telephone = useTelephone();
-  /* Sur ordinateur, « Bibliothèque » et « Style » sont des rubriques de la colonne de gauche. */
-  const dansLaColonne = useColonneDeService();
+  /* Sur ordinateur, « Bibliothèque » et « Style » sont des rubriques de la colonne de gauche — sauf dans une carte, qui n'en a pas. */
+  const colonneDeService = useColonneDeService();
+  const dansLaColonne = colonneDeService && !enCarte;
   // Ordinateur : colonnes, hauteur de la ligne de temps et repli, mémorisés EN BASE (même mise en page partout).
   // Les plafonds suivent LA PLACE DE L'ATELIER, pour qu'on ne puisse pas écraser l'aperçu : la fenêtre moins la
   // colonne de gauche de l'application (`--zone-principale-gauche`, posée par app.tsx). Mesurés sur la fenêtre
@@ -475,7 +499,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   const hauteurTimeline = useResizable('studio.timeline', { axe: 'y', initial: 300, min: 150, max: Math.max(220, Math.round(window.innerHeight * 0.6)) });
   const [timelineOuverte, setTimelineOuverte] = usePref<boolean>('studio.timelineOuverte', true);
   // `reprise` avance après une coupure : la création ouverte se relit même si aucun signal ne l'a nommée.
-  const version = (state.studioVersions[creationId] ?? 0) + (state.studioVersions.reprise ?? 0);
+  const version = useVersionDeLaCreation(creationId);
   const [donnees, setDonnees] = React.useState<DonneesCreation | null>(null);
   const [temps, setTemps] = React.useState(0);
   const [lecture, setLecture] = React.useState(false);
@@ -544,7 +568,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   /* L'AGENT DE LA CRÉATION TRAVAILLE : le témoin suit l'agent (tour vivant, ou statut en cours), pas un message.
      Tant qu'il travaille, la barre du haut est grisée à 50 % et sans effet — ses gestes se marcheraient dessus. */
   const agentId = donnees?.creation.agentId ?? null;
-  const agentDeLaCreation = agentId ? (state.agents[agentId] ?? null) : null;
+  const agentDeLaCreation = useAgentLu(agentId);
   const agentTravaille = agentDeLaCreation ? agentTientSonTour(agentDeLaCreation) : false;
   React.useEffect(() => {
     // Le bouton « Style » est éteint pendant le travail de l'agent : son volet se referme.
@@ -803,7 +827,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
 
   /** LES ONGLETS DU TÉLÉPHONE, sous le pouce (l'ordinateur n'en a plus : son volet est la conversation). */
   const onglets: { cle: Panneau; libelle: string; Icone: typeof Bot }[] = [
-    { cle: 'agent', libelle: t('Agent'), Icone: Bot },
+    // Dans une carte, la conversation est celle de la carte : pas d'onglet « Agent ».
+    ...(enCarte ? [] : [{ cle: 'agent' as Panneau, libelle: t('Agent'), Icone: Bot }]),
     { cle: 'reglages', libelle: t('Réglages'), Icone: SlidersHorizontal },
     { cle: 'bibliotheque', libelle: t('Style'), Icone: Palette },
   ];
@@ -846,7 +871,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     <>
       <button
         type="button"
-        className="-mx-1 flex min-w-0 shrink items-baseline gap-2 truncate rounded-md px-1 py-1 text-left transition-colors hover:bg-raised"
+        className="-mx-1 flex min-w-0 shrink items-baseline gap-2 truncate rounded-md px-1.5 sm:px-1 py-1.5 sm:py-1 text-left transition-colors hover:bg-raised"
         onClick={() => setRenommer(true)}
         title={t('Renommer')}
         data-studio-titre-creation
@@ -887,7 +912,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
           « Mettre en production » — SUR TÉLÉPHONE ; sur ordinateur, ce sont deux
           rubriques de la colonne de gauche (demande du 12/10/2026). */}
       {dansLaColonne ? null : (<>
-      <Button
+      {/* La bibliothèque de styles se confie à l'agent du Studio : un montage de carte n'en a pas. */}
+      {enCarte ? null : <Button
         size="sm"
         variant={galerie ? 'subtle' : 'ghost'}
         onClick={() => setGalerie((g) => !g)}
@@ -900,7 +926,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       >
         <Library className="h-3.5 w-3.5" />
         {t('Bibliothèque')}
-      </Button>
+      </Button>}
       <Button
         size="sm"
         variant={styleOuvert ? 'subtle' : 'ghost'}
@@ -972,6 +998,23 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
           les lignes du menu à trois points, Annuler / Rétablir vivent dans la
           rangée de l'aperçu. L'atelier ne pose AUCUN bouton en bas de l'écran :
           le bas porte déjà Agent / Réglages / Style. */}
+      {enCarte ? (
+        <div className="flex shrink-0 items-center gap-1 px-3 pb-1 pt-2" data-montage-entete="">
+          <Clapperboard className="h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text" title={donnees.creation.titre}>
+            {t('Montage')}
+          </span>
+          {telephone ? (
+            <BoutonMiseEnProduction compact bloque={agentTravaille} depenses={donnees.depenses} exports={donnees.exports} onClick={() => setProduction(true)} />
+          ) : (
+            gestesDeLAtelier
+          )}
+          <Button variant="ghost" size="icon" aria-label="Fermer le montage" title={t('Fermer le montage')} onClick={enCarte.onFermer} data-fermer-le-montage="">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : (
+      <>
       <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-studio-retour': '' } }}>
         <SeparateurDuFil />
         {cranDeLaCreation}
@@ -1040,6 +1083,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         />
       ) : (
         <GestesDePage>{gestesDeLAtelier}</GestesDePage>
+      )}
+      </>
       )}
 
       <DepensesEnAttente donnees={donnees} />
@@ -1110,7 +1155,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         </div>
 
         {/* LE VOLET DE CÔTÉ (ordinateur) */}
-        {!telephone ? (
+        {!telephone && !enCarte ? (
           <ResizeHandle
             className="-mx-1.5"
             onPointerDown={(event) => voletDeDroite.start(event, 'right')}
@@ -1118,7 +1163,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
             data-studio-poignee="volet"
           />
         ) : null}
-        {!telephone ? (
+        {!telephone && !enCarte ? (
           <aside className="flex shrink-0 flex-col overflow-hidden rounded-md bg-bloc" style={{ width: voletDeDroite.width, ...FOND_DE_PANNEAU }} data-studio-volet>
             {/* LE VOLET DE DROITE N'EST QUE LA CONVERSATION avec l'agent. « Style »
                 s'ouvre dans son propre volet, par-dessus (plus bas) ; les réglages
@@ -1140,7 +1185,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
               key={o.cle}
               type="button"
               onClick={() => (o.cle === 'bibliotheque' ? setStyleOuvert(true) : setTiroir(o.cle))}
-              className="flex flex-col items-center gap-0.5 px-2 py-1 text-[11px] text-muted" data-studio-ouvrir={o.cle}>
+              className="flex flex-col items-center gap-0.5 px-2.5 sm:px-2 py-1.5 sm:py-1 text-[11px] text-muted" data-studio-ouvrir={o.cle}>
               <o.Icone className="h-4 w-4" />
               {o.libelle}
             </button>
