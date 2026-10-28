@@ -5,7 +5,7 @@
  * `Settings.ordreDesMoteurs`) : le premier moteur de sa liste qui a encore du
  * quota reçoit la carte, le suivant prend le relais s'il n'en a plus. Avant, un
  * ordre figé dépendait du GENRE de la carte (Claude d'abord pour la
- * programmation, GPT d'abord pour l'administratif, tranché par Laya) : le genre
+ * programmation, GPT d'abord pour l'administratif, tranché par Jev) : le genre
  * ne décide plus du moteur, il reste dans la signature pour les appelants.
  *
  * JAMAIS DE REPLI PAYANT PAR BASCULE AUTOMATIQUE (DEC-156, même règle que la
@@ -28,7 +28,7 @@ export const GENRES_CARTE = ['programmation_avancee', 'administratif', 'indeterm
 export type GenreCarte = (typeof GENRES_CARTE)[number];
 
 /**
- * En dessous de ce seuil, la classification de Laya n'est pas assez sûre
+ * En dessous de ce seuil, la classification de Jev n'est pas assez sûre
  * d'elle pour trancher entre les deux moteurs : la carte est traitée comme
  * « indéterminée ». `classerLeGenreDeLaCarte` (server/src/jugement-rapide.ts) applique
  * déjà ce seuil ; il vit ici, à côté du reste de la règle, pour rester lisible

@@ -115,7 +115,7 @@ export function VignetteMiseEnProduction({
         className={
           formatCarte
             ? CLASSE_CADRE_SYSTEME
-            : 'relative z-10 cursor-pointer overflow-hidden rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-border'
+            : 'relative z-10 cursor-pointer overflow-hidden rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-fond-survol'
         }
       >
         <div className="mb-1 flex h-[18px] min-w-0 items-center gap-1.5 text-[12px]" data-tete-carte-en-route>

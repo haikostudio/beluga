@@ -4512,7 +4512,7 @@ export const MIGRATIONS: {
     `,
   },
   {
-    id: 139,
+    id: 140,
     name: 'methodes-creatives',
     /*
      * LA BIBLIOTHÈQUE DE MÉTHODES DU MODE RÉALISATION (24/10/2026,
@@ -4522,8 +4522,21 @@ export const MIGRATIONS: {
      * des vraies productions : un média fabriqué selon une version
      * (`methodes_usages`), puis gardé ou refusé par l'utilisateur
      * (`medias_avis`), note cette version — une ligne par version et par média.
+     *
+     * NUMÉRO 140, PAS 139 (corrigé le 28/10/2026). Elle portait le même numéro
+     * que « production-du-studio-creatif » : le registre la croyait faite, elle
+     * n'a donc jamais tourné — en production comme dans les tests (« no such
+     * column: domaine »). Cette dernière avait posé une ébauche homonyme
+     * (`methodes_creatives` sans `domaine`, `methodes_creatives_versions`,
+     * `methodes_creatives_evaluations`) qu'AUCUN code ne lit ni n'écrit : elle
+     * est retirée avant de poser les vraies tables. Une base où cette migration
+     * a déjà tourné sous son nom la saute (registre par nom) : rien n'y est
+     * effacé.
      */
     sql: `
+      DROP TABLE IF EXISTS methodes_creatives_evaluations;
+      DROP TABLE IF EXISTS methodes_creatives_versions;
+      DROP TABLE IF EXISTS methodes_creatives;
       CREATE TABLE IF NOT EXISTS methodes_creatives (
         id TEXT PRIMARY KEY,
         nom TEXT NOT NULL UNIQUE,
@@ -4606,6 +4619,84 @@ export const MIGRATIONS: {
       UPDATE medias_realisation SET retenu_le = modifie_le WHERE etat = 'fini';
     `,
   },
+  {
+    id: 143,
+    name: 'legende-des-medias-livres',
+    siTable: 'medias_livres',
+    /*
+     * CHAQUE MÉDIA EST UNE LIGNE DU FIL (décision du 26/10/2026, capture
+     * #e9bd) : la phrase que l'agent donne en le rendant (`media_en_cours`
+     * « fin », « legende »). Vide pour les anciens : l'écran l'écrit d'après le
+     * sujet et la version (`phraseDuMediaLivre`).
+     */
+    sql: `ALTER TABLE medias_livres ADD COLUMN legende TEXT NOT NULL DEFAULT '';`,
+  },
+  {
+    id: 144,
+    name: 'visages-des-pieces',
+    /*
+     * LES VISAGES REPÉRÉS SUR CHAQUE IMAGE (« Remplacer le visage », 26/10/2026) :
+     * le navigateur détecte une fois, le démon garde le résultat. La
+     * bibliothèque ne montre que les pièces où `visages > 0` ; `boites` porte
+     * les cadres en fractions de l'image (JSON `[{x,y,largeur,hauteur}]`).
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS visages_des_pieces (
+        attachment_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        visages INTEGER NOT NULL,
+        boites TEXT NOT NULL DEFAULT '[]',
+        detecte_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_visages_des_pieces_projet ON visages_des_pieces(project_id);
+    `,
+  },
+  {
+    id: 145,
+    name: 'recherches-de-veille-indexees',
+    siTable: 'cards',
+    /*
+     * LA MARQUE « REPRENDRE DÈS QUE POSSIBLE », TENUE PAR UN INDEX PARTIEL.
+     * L'ordonnanceur la cherche à CHAQUE tour, projet par projet : le `LIKE`
+     * relisait le JSON de toutes les cartes du projet (28 projets, 3 400
+     * cartes), soit 1,2 s de boucle bloquée quand ces pages étaient sorties du
+     * cache — un des gels relevés dans `blocages.log` (28/10/2026). Colonne
+     * VIRTUELLE, comme la migration 121 : aucune écriture ne peut l'oublier, et
+     * la requête garde son `LIKE` derrière l'index.
+     */
+    sql: `
+      ALTER TABLE cards ADD COLUMN a_reprise_armee INTEGER
+        GENERATED ALWAYS AS (data LIKE '%reprendreDesQuePossible%') VIRTUAL;
+      CREATE INDEX idx_cards_reprise_armee ON cards(project_id) WHERE a_reprise_armee = 1;
+      -- Même remède pour la demande de plan, cherchée à chaque passage de veille
+      -- par \`cartesAvecDemandeDePlan\` (25 ms à chaud, bien plus à froid).
+      ALTER TABLE cards ADD COLUMN a_plan_demande INTEGER
+        GENERATED ALWAYS AS (data LIKE '%"planDemandeA":%') VIRTUAL;
+      CREATE INDEX idx_cards_plan_demande ON cards(a_plan_demande) WHERE a_plan_demande = 1;
+    `,
+  },
+  {
+    id: 146,
+    name: 'publications-en-cours-indexees',
+    siTable: 'deploys',
+    /*
+     * Les publications EN COURS, relues à chaque passage de veille
+     * (`runningDeploys`) : sans index, les 2 400 publications passées étaient
+     * balayées (295 ms à froid, 28/10/2026).
+     */
+    sql: `CREATE INDEX IF NOT EXISTS idx_deploys_en_cours ON deploys(state) WHERE state = 'running';`,
+  },
+  {
+    id: 147,
+    name: 'plan-place-des-medias',
+    siTable: 'medias_realisation',
+    /*
+     * LE PLAN OÙ L'UTILISATEUR A PLACÉ UN MÉDIA (28/10/2026) : au menu des
+     * plans de « Valider », ou en le glissant vers une case du suivi. Il
+     * l'emporte sur le plan nommé au devis (`plan`) ; NULL : le plan du devis.
+     */
+    sql: `ALTER TABLE medias_realisation ADD COLUMN plan_place TEXT;`,
+  },
 ];
 
 export function openDb(): DB {
@@ -4659,12 +4750,24 @@ export function openDb(): DB {
 
   // Deux migrations de même nom rendraient ce registre aveugle : la seconde
   // passerait pour faite. On refuse de démarrer plutôt que de sauter du travail.
+  // Deux migrations de même NUMÉRO, pareil : la seconde passait pour faite et
+  // ne tournait jamais (la bibliothèque de méthodes, n° 139, jusqu'au 28/10/2026).
+  // UNE exception, historique et voulue : la seconde n° 73
+  // (« depots-beluga-remis-en-ordre », 17/09/2026) n'a jamais tourné nulle part ;
+  // la renuméroter rejouerait aujourd'hui une réécriture ponctuelle des réglages
+  // du projet de production, sur une base qui a vécu six semaines sans elle.
+  const numerosVus = new Set<number>();
+  const doublonsHistoriques = new Set<number>([73]);
   for (const migration of MIGRATIONS) {
     if (numeroDuNomDansLeCode.has(migration.name)) {
       throw new Error(
         `migrations : le nom « ${migration.name} » est utilisé deux fois — un nom de migration est unique`,
       );
     }
+    if (numerosVus.has(migration.id) && !doublonsHistoriques.has(migration.id)) {
+      throw new Error(`migrations : le numéro ${migration.id} est utilisé deux fois — un numéro de migration est unique`);
+    }
+    numerosVus.add(migration.id);
     numeroDuNomDansLeCode.set(migration.name, migration.id);
   }
 

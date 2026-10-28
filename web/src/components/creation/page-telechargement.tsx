@@ -5,7 +5,9 @@ import { Button, ZoneDefilement } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { VignetteVideo } from '@/components/lecteur-video';
 import { adresseDePiece, ImageDePiece } from '@/components/pastille-de-fichier';
+import { CroixDuVolet } from '@/components/feuille-du-volet';
 import { client } from '@/lib/client';
+import { fermerLeDocument } from '@/lib/document-de-carte';
 import { t } from '@/lib/langue';
 import { useProduction } from '@/lib/production-de-carte';
 import { useApp } from '@/lib/use-app';
@@ -61,6 +63,7 @@ export default function PageTelechargement({ cardId }: { cardId: string }) {
           {tout.etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderDown className="h-3.5 w-3.5" />}
           {tout.etat === 'reception' ? t('Préparation de l’archive… {n} %', { n: tout.pourcent }) : t('Tout télécharger')}
         </Button>
+        <CroixDuVolet genre="telechargement" onFermer={fermerLeDocument} className="-my-1 -mr-2" />
       </div>
       {erreur ? <p className="px-4 text-[13px] text-danger">{erreur}</p> : null}
       {!sections && !erreur ? (

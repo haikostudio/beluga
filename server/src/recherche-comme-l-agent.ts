@@ -6,7 +6,7 @@ import { garderLesPertinents } from './jugement-rapide.js';
  * l'outil « memoire » (geste « chercher », `server/src/tools.ts`) et pour la
  * barre de recherche du graphe de l'écran Mémoire (`memoire.chercherCommeLAgent`).
  * L'écran doit allumer EXACTEMENT ce que l'agent recevrait : la même recherche
- * mêlée (mots + sens), les mêmes huit premières, puis le même tri de Laya.
+ * mêlée (mots + sens), les mêmes huit premières, puis le même tri de Jev.
  *
  * Le classement de `chercherUnitesMelees` ne dépend pas de sa limite (les
  * candidats sont bornés à part) : les huit premières d'une recherche à 40 sont
@@ -14,14 +14,14 @@ import { garderLesPertinents } from './jugement-rapide.js';
  * et marque les huit que l'agent recevrait.
  */
 
-/** Ce que l'outil de l'agent garde de la recherche mêlée, avant le tri de Laya. */
+/** Ce que l'outil de l'agent garde de la recherche mêlée, avant le tri de Jev. */
 export const UNITES_RECUES_PAR_L_AGENT = 8;
 
 /**
  * LA MÉMOIRE TRIÉE POUR LA DEMANDE. La recherche mêlée remonte aussi des unités
- * voisines par le vocabulaire mais sans rapport avec le travail : Laya écarte
+ * voisines par le vocabulaire mais sans rapport avec le travail : Jev écarte
  * celles qu'il juge franchement hors sujet. Une règle P0 ou « À ne jamais
- * supposer » passe toujours ; sans avis (Laya absent, endormi, usage éteint),
+ * supposer » passe toujours ; sans avis (Jev sans clé, en panne, usage éteint),
  * tout passe.
  */
 export function garderLesUnitesPertinentes(
@@ -44,7 +44,7 @@ export function garderLesUnitesPertinentes(
 export interface RechercheCommeLAgent {
   /** Les unités trouvées, dans l'ordre du classement (jusqu'à `limite`). */
   trouvees: UniteTrouvee[];
-  /** Celles que l'agent recevrait réellement : les huit premières, triées par Laya. */
+  /** Celles que l'agent recevrait réellement : les huit premières, triées par Jev. */
   recues: UniteTrouvee[];
 }
 

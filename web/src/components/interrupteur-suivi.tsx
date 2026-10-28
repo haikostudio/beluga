@@ -57,7 +57,7 @@ export function InterrupteurDeSuivi({ projectId, actif, libelle, repere }: { pro
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted">
           <Activity className="h-4 w-4" />
         </span>
-        <span className="min-w-0 flex-1 truncate">{libelle ?? t('Marketing suivi')}</span>
+        <span className="min-w-0 flex-1 truncate">{libelle ?? t('Réseaux sociaux suivis')}</span>
         {/* La ligne entière est le geste : l'interrupteur n'en est que le dessin. */}
         <span className="pointer-events-none flex shrink-0" aria-hidden>
           <Switch checked={coche} attente={attente} tabIndex={-1} data-marketing-interrupteur-suivi />
@@ -68,11 +68,11 @@ export function InterrupteurDeSuivi({ projectId, actif, libelle, repere }: { pro
   return (
     <label
       className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[12px] text-muted"
-      title={coche ? t('Couper le suivi marketing de ce projet') : t('Rallumer le suivi marketing de ce projet')}
+      title={coche ? t('Couper le suivi des réseaux sociaux de ce projet') : t('Rallumer le suivi des réseaux sociaux de ce projet')}
       data-marketing-suivi-actif={coche ? 'oui' : 'non'}
     >
-      <span className="hidden sm:inline">{libelle ?? t('Marketing suivi')}</span>
-      <Switch checked={coche} attente={attente} onCheckedChange={(v) => void basculer(v)} aria-label={repere ?? 'Marketing suivi'} data-marketing-interrupteur-suivi />
+      <span className="hidden sm:inline">{libelle ?? t('Réseaux sociaux suivis')}</span>
+      <Switch checked={coche} attente={attente} onCheckedChange={(v) => void basculer(v)} aria-label={repere ?? 'Réseaux sociaux suivis'} data-marketing-interrupteur-suivi />
     </label>
   );
 }

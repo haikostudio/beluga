@@ -214,7 +214,7 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'juge-rapide',
         titre: 'Juge rapide',
-        motsCles: ['laya', 'juge', 'jugement', 'avis', 'signal', 'urgence', 'niveau', 'local'],
+        motsCles: ['jev', 'typesafe', 'juge', 'jugement', 'avis', 'signal', 'urgence', 'niveau', 'local'],
         libelles: ['Le modèle local', 'Ce que le juge décide', 'Les jugements rendus'],
       },
     ],

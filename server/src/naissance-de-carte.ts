@@ -151,14 +151,17 @@ export function cadrerEnSerie(agentId: string, cardId: string, demande: string, 
  * la règle pure (`cadrageJamaisParti`).
  */
 export function cadrageDeLaCarteJamaisParti(card: Card): Agent | null {
+  /* La règle écarte d'emblée toute carte hors « Planifié » : on n'interroge la
+     base que pour celles qu'elle pourrait retenir (3 400 cartes au démarrage). */
+  if (card.archivedAt || !COLONNES_AVANT_LE_TRAVAIL.includes(card.column)) return null;
   const agent = store.getLastAgentByCard(card.id);
   if (!agent) return null;
   const jamaisParti = cadrageJamaisParti({
     carte: card,
     agent,
     auRepos: !isRunning(agent.id) && !agentsActifs().includes(agent.id),
-    messages: store.listMessages(agent.id).length,
-    enFile: store.listQueue(agent.id).length,
+    messages: store.nombreDeMessages(agent.id),
+    enFile: store.compterFile(agent.id),
     aUneSession: store.aUneSession(agent.id),
     dejaRelance: !!getMeta(marqueDuPremierTour(card.id)) || !!getMeta(`comprehension-rattrapee:${card.id}`),
   });
@@ -193,15 +196,29 @@ export function relancerLeCadrageJamaisParti(card: Card, mode: 'en-serie' | 'ouv
 }
 
 /**
+ * LES SEULES CARTES QUE REGARDENT LES FILETS DE DÉMARRAGE : non rangées, dans
+ * une colonne d'avant le travail. Les deux règles écartent déjà toutes les
+ * autres ; les lire quand même, c'était décoder les ~3 400 cartes de la base
+ * pour en garder une quinzaine.
+ */
+function cartesDAvantLeTravail(): Card[] {
+  const cartes: Card[] = [];
+  for (const projet of store.listProjects(true)) {
+    for (const colonne of COLONNES_AVANT_LE_TRAVAIL) {
+      for (const card of store.listCardsInColumn(projet.id, colonne)) if (!card.archivedAt) cartes.push(card);
+    }
+  }
+  return cartes;
+}
+
+/**
  * AU DÉMARRAGE : toutes les cartes dont le cadrage n'est jamais parti le
  * reçoivent, en série. Rend le nombre de cadrages remis en route.
  */
 export function relancerLesCadragesJamaisPartis(): number {
   let relances = 0;
-  for (const projet of store.listProjects(true)) {
-    for (const card of store.listCards(projet.id)) {
-      if (relancerLeCadrageJamaisParti(card, 'en-serie')) relances += 1;
-    }
+  for (const card of cartesDAvantLeTravail()) {
+    if (relancerLeCadrageJamaisParti(card, 'en-serie')) relances += 1;
   }
   return relances;
 }
@@ -218,18 +235,15 @@ export function relancerLesCadragesJamaisPartis(): number {
  */
 export function completerLesDemandesManquantes(): number {
   let completees = 0;
-  for (const projet of store.listProjects(true)) {
-    for (const card of store.listCards(projet.id)) {
-      if (!COLONNES_AVANT_LE_TRAVAIL.includes(card.column) || card.archivedAt) continue;
-      if (!carteSansDemande(card)) continue;
-      /* Une conversation déjà commencée a SA demande : le premier message. */
-      if (store.agentsDeLaCarte(card.id).some((agent) => store.listMessages(agent.id).length > 0)) continue;
-      const briefing = demandeDeNaissance(card, card.labels.includes(LABEL_MARKETING) ? 'marketing' : undefined);
-      if (!briefing) continue;
-      const completee = store.saveCard({ ...card, briefing });
-      bus.emit({ type: 'card.upsert', card: completee });
-      completees += 1;
-    }
+  for (const card of cartesDAvantLeTravail()) {
+    if (!carteSansDemande(card)) continue;
+    /* Une conversation déjà commencée a SA demande : le premier message. */
+    if (store.agentsDeLaCarte(card.id).some((agent) => store.aDesMessages(agent.id))) continue;
+    const briefing = demandeDeNaissance(card, card.labels.includes(LABEL_MARKETING) ? 'marketing' : undefined);
+    if (!briefing) continue;
+    const completee = store.saveCard({ ...card, briefing });
+    bus.emit({ type: 'card.upsert', card: completee });
+    completees += 1;
   }
   return completees;
 }

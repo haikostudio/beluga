@@ -218,6 +218,44 @@ export const MODELES_KIE: readonly ModeleKie[] = [
     defauts: { quality: 'basic' }, tarif: ['seedream 5 pro'], retouche: { sources: 3 },
   },
 
+  /*
+   * ---- les autres retouches de visage, de lumière et d'angle (26/10/2026) ----
+   * « Le modèle, je ne peux pas le sélectionner » : chaque retouche propose
+   * maintenant TOUS les modèles qui la savent faire. Schémas recopiés le
+   * 26/10/2026 des pages `docs.kie.ai/market/google/pro-image-to-image`,
+   * `gpt/gpt-image-2-image-to-image`, `flux2/pro-image-to-image` et
+   * `seedream/5-pro-image-to-image` ; prix lus sur la page publique des prix
+   * (1K : 18, 6, 5 et 7 crédits l'image). Tous reçoivent l'angle, la lumière
+   * ou le visage DÉCRITS en mots (`parMots`).
+   */
+  ...(['visage', 'lumiere', 'angles'] as const).flatMap((capacite): ModeleKie[] => {
+    const usage = { visage: 'pose le visage des photos fournies sur la personne choisie', lumiere: 'direction LIBRE, décrite au modèle en mots', angles: 'angle DÉCRIT en mots : moins précis qu’un réglage en degrés' }[capacite];
+    const retouche = capacite === 'lumiere' ? { lumiere: 'libre' as const, parMots: true, sources: 3 } : { parMots: true, sources: 3 };
+    const note = (q: Record<typeof capacite, number>) => q[capacite];
+    return [
+      {
+        id: 'nano-banana-pro', nom: 'Nano Banana Pro', capacite, qualite: note({ visage: 5, lumiere: 5, angles: 4 }), usage: `${usage} — le plus fidèle au sujet`, page: 'google/pro-image-to-image',
+        entrees: [texte('prompt', true), liste('image_input', true), choix('aspect_ratio', ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9', 'auto'], true, 'auto'), choix('resolution', ['1K', '2K', '4K'], true, '1K'), choix('output_format', ['png', 'jpg'], true, 'png')],
+        defauts: { aspect_ratio: 'auto', resolution: '1K', output_format: 'png' }, tarif: ['nano banana pro', '1/2k'], retouche,
+      },
+      {
+        id: 'gpt-image-2-image-to-image', nom: 'GPT Image 2', capacite, qualite: note({ visage: 4, lumiere: 4, angles: 4 }), usage: `${usage} — suit bien une consigne précise`, page: 'gpt/gpt-image-2-image-to-image',
+        entrees: [texte('prompt', true), liste('input_urls', true), choix('aspect_ratio', ['auto', '1:1', '3:2', '2:3', '4:3', '3:4', '5:4', '4:5', '16:9', '9:16', '2:1', '1:2', '21:9'], true, 'auto'), choix('resolution', ['1K', '2K', '4K'], true, '1K')],
+        defauts: { aspect_ratio: 'auto', resolution: '1K' }, tarif: ['gpt image 2', 'image-to-image', '1k'], retouche,
+      },
+      {
+        id: 'seedream/5-pro-image-to-image', nom: 'Seedream 5.0 Pro Edit', capacite, qualite: note({ visage: 4, lumiere: 4, angles: 3 }), usage: `${usage} — rendu photo`, page: 'seedream/5-pro-image-to-image',
+        entrees: [texte('prompt', true), IMAGES_EDIT(true), choix('aspect_ratio', ['1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '21:9'], true), choix('quality', ['basic', 'high'], true), choix('output_format', ['png', 'jpeg'], false, 'png')],
+        defauts: { quality: 'basic' }, tarif: ['seedream 5 pro', 'image-to-image', '1k'], retouche,
+      },
+      {
+        id: 'flux-2/pro-image-to-image', nom: 'FLUX 2 Pro Edit', capacite, qualite: 3, usage: `${usage} — le moins cher`, page: 'flux2/pro-image-to-image',
+        entrees: [liste('input_urls', true), texte('prompt', true), choix('aspect_ratio', ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', 'auto'], true, 'auto'), choix('resolution', ['1K', '2K'], true, '1K')],
+        defauts: { aspect_ratio: 'auto', resolution: '1K' }, tarif: ['flux-2 pro', 'image to image', '1k'], retouche,
+      },
+    ];
+  }),
+
   /* ---- voix ---- */
   { id: 'elevenlabs/text-to-speech-multilingual-v2', nom: 'ElevenLabs multilingue v2 (par kie.ai)', capacite: 'voix', qualite: 5, usage: 'voix off naturelle multilingue ; voix par identifiant (action « voix »)', page: 'elevenlabs/text-to-speech-multilingual-v2', entrees: VOIX_ELEVENLABS, defauts: {}, tarif: ['text to speech, multilingual v2'] },
   { id: 'elevenlabs/text-to-speech-turbo-2-5', nom: 'ElevenLabs Turbo 2.5 (par kie.ai)', capacite: 'voix', qualite: 4, usage: 'voix off rapide et économique, langue imposée possible', page: 'elevenlabs/text-to-speech-turbo-2-5', entrees: VOIX_ELEVENLABS, defauts: {}, tarif: ['text to speech, turbo 2.5'] },

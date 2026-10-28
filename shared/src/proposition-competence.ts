@@ -39,7 +39,7 @@ export const PROPOSITIONS_PAR_CARTE_MAX = 6;
  *  - le cosinus brut ne sépare pas non plus : 0,85 à 0,87 pour une fiche qui
  *    tombe pile, 0,85 à 0,87 aussi pour la moins mauvaise d'une demande qui
  *    n'en appelle aucune ;
- *  - le juge local de pertinence est éteint par défaut.
+ *  - le juge rapide de pertinence est éteint par défaut.
  * Ce qui sépare, c'est la SAILLANCE : une fiche qui correspond se DÉTACHE de la
  * foule des autres (0,014 à 0,025 au-dessus de la suivante), alors que sur une
  * demande sans compétence les premières se suivent à 0,001–0,009. On propose

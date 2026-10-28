@@ -715,7 +715,7 @@ export function SilhouetteMarketing({ lignes = 4 }: { lignes?: number }) {
 }
 
 /**
- * UN ATELIER EN GRILLE (le service Leads) : des vignettes avec leur titre, en
+ * UN ATELIER EN GRILLE (un service en vignettes) : des vignettes avec leur titre, en
  * attendant les données de l'écran.
  */
 export function SilhouetteAtelier({ vignettes = 6 }: { vignettes?: number }) {

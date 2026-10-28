@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { CheckCircle2, Cpu, Loader2 } from 'lucide-react';
-import { type CompteRenduDeNuit, type TraceDeJugement } from '@beluga/shared';
-import { BulleInfo, Badge, Switch } from '@/components/ui';
+import { CheckCircle2, KeyRound, Loader2 } from 'lucide-react';
+import { type TraceDeJugement } from '@beluga/shared';
+import { BulleInfo, Badge, Button, Switch } from '@/components/ui';
 import { Groupe } from '@/components/reglages/communs';
 import { client } from '@/lib/client';
 import { relativeTime } from '@/lib/utils';
@@ -10,16 +10,16 @@ import { t } from '@/lib/langue';
 /**
  * LE JUGE RAPIDE DES DÉCISIONS INTERNES.
  *
- * Laya, un modèle de décision posé sur ce serveur : il ne tient pas de
- * conversation et n'écrit pas de code, elle tranche des questions fermées en
- * moins d'une seconde — sans compte, sans clé et sans facture. Elle n'apparaît
- * donc PAS dans le menu des moteurs : c'est un chemin séparé, et cet écran est
- * le seul endroit où il se règle.
+ * Jev, le modèle de décision de TypeSafe, appelé à distance : il ne tient pas
+ * de conversation et n'écrit pas de code, il tranche des questions fermées en
+ * moins d'une seconde. Il n'apparaît donc PAS dans le menu des moteurs : c'est
+ * un chemin séparé, et cet écran est le seul endroit où il se règle.
  *
- * L'INTERRUPTEUR GÉNÉRAL EST SA PRÉSENCE : tant que Laya n'est pas installé,
- * aucun jugement n'est rendu et l'application se comporte exactement comme
- * avant. Chaque usage a ensuite son propre interrupteur, pour garder ceux qui
- * rendent service et couper ceux qui gênent.
+ * L'INTERRUPTEUR GÉNÉRAL EST LA CLÉ RANGÉE AU COFFRE-FORT : sans elle, aucun
+ * appel ne part et l'application se comporte exactement comme avant (la jauge
+ * de compréhension se calcule alors par des règles). Chaque usage a ensuite son
+ * propre interrupteur. Aucun compteur de jetons ici : la consommation reste
+ * dans les traces.
  */
 
 interface UsageAffiche {
@@ -30,28 +30,28 @@ interface UsageAffiche {
 }
 
 interface EtatDuJuge {
-  /** Laya est-il installé et prêt à juger sur ce serveur ? */
+  /** Une clé TypeSafe est-elle rangée au coffre-fort ? */
   allume: boolean;
+  /** La fiche du coffre qui porte la clé. */
+  fiche?: { id: string; nom: string };
   usages: UsageAffiche[];
   traces: TraceDeJugement[];
   bilan: { rendus: number; echecs: number; latenceMedianeMs: number };
-  /** L'entraînement de nuit (`server/src/laya-nuit.ts`) : absent d'un démon plus ancien. */
-  nuit?: { enCours: boolean; version: string; derniere?: CompteRenduDeNuit };
 }
 
-/** La phrase de l'issue d'une nuit : composée ici, traduisible, jamais recopiée du script. */
-function phraseDeLaNuit(issue: CompteRenduDeNuit['issue']): string {
-  switch (issue) {
-    case 'rien':
-      return t('Rien à apprendre cette nuit.');
-    case 'tranche':
-      return t('Une partie de l’entraînement est faite ; il reprendra la nuit prochaine.');
-    case 'passe-complete':
-      return t('Entraînement complet terminé.');
-    case 'interrompu':
-      return t('Entraînement interrompu (heure ou mémoire) ; il reprendra la nuit prochaine.');
+type EtatDeLaCle = 'acceptee' | 'refusee' | 'injoignable' | 'absente';
+
+/** La phrase de chaque issue du test : composée ici, traduisible. */
+function phraseDeLEtat(etat: EtatDeLaCle): string {
+  switch (etat) {
+    case 'acceptee':
+      return t('Clé acceptée : le service a répondu.');
+    case 'refusee':
+      return t('Clé refusée par le service : elle est fausse, expirée ou sans crédit.');
+    case 'injoignable':
+      return t('Service injoignable : aucune réponse dans le délai. Rien n’est bloqué pour autant.');
     default:
-      return t('La nuit a échoué ; la version en service n’a pas changé.');
+      return t('Aucune clé rangée : le juge est éteint et n’émet aucun appel.');
   }
 }
 
@@ -66,6 +66,7 @@ export function PageJugeRapide({ open }: { open: boolean }) {
   const [etat, setEtat] = React.useState<EtatDuJuge>(VIDE);
   const [chargement, setChargement] = React.useState(true);
   const [bascule, setBascule] = React.useState<string | null>(null);
+  const [essai, setEssai] = React.useState<{ enCours: boolean; etat?: EtatDeLaCle }>({ enCours: false });
 
   const relire = React.useCallback(async () => {
     const data = await client.call<EtatDuJuge>({ type: 'juge.etat' });
@@ -90,6 +91,17 @@ export function PageJugeRapide({ open }: { open: boolean }) {
     }
   };
 
+  /* UN BOUTON QUI PART EN REQUÊTE LE DIT DÈS LE CLIC : le rond tourne, puis la phrase. */
+  const testerLaCle = async () => {
+    setEssai({ enCours: true });
+    try {
+      const data = await client.call<{ etat: EtatDeLaCle }>({ type: 'juge.tester' });
+      setEssai({ enCours: false, etat: data?.etat ?? 'injoignable' });
+    } catch {
+      setEssai({ enCours: false, etat: 'injoignable' });
+    }
+  };
+
   if (chargement) {
     return (
       <div className="flex items-center gap-2 text-[13px] text-faint">
@@ -102,64 +114,37 @@ export function PageJugeRapide({ open }: { open: boolean }) {
   return (
     <div className="space-y-6">
       <Groupe
-        titre={t('Le modèle local')}
+        titre={t('Le juge : Jev')}
         aide={t(
-          'Laya : un modèle de décision local, sur ce serveur, sans compte ni facture. Il tranche des questions fermées en quelques dixièmes de seconde, puis s’endort après vingt minutes sans travail pour rendre la mémoire. Tant qu’il n’est pas installé, aucun jugement n’est rendu et tout se comporte comme avant.',
+          'Jev, le modèle de décision de TypeSafe, appelé à distance : rien ne tourne sur ce serveur. Il tranche des questions fermées en moins d’une seconde, pour quelques jetons par avis. Sa clé se range au coffre-fort, sous le service TypeSafe ; sans clé, aucun appel ne part et la jauge de compréhension se calcule par des règles simples.',
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {etat.allume ? (
             <Badge tone="success" className="gap-1">
               <CheckCircle2 className="h-3 w-3" />
-              {t('Installé — prêt à juger')}
+              {t('Clé rangée — juge allumé')}
             </Badge>
           ) : (
             <Badge className="gap-1">
-              <Cpu className="h-3 w-3" />
-              {t('Non installé — aucun jugement rendu')}
+              <KeyRound className="h-3 w-3" />
+              {t('Aucune clé — aucun appel')}
             </Badge>
           )}
+          {etat.fiche ? (
+            <span className="text-[12px] text-faint">{t('Fiche du coffre : {v0}', { v0: etat.fiche.nom })}</span>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={testerLaCle} disabled={essai.enCours} data-juge-tester>
+            {essai.enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {t('Tester la clé')}
+          </Button>
         </div>
+        {essai.etat ? (
+          <p className="text-[12.5px] text-faint" data-juge-essai={essai.etat}>
+            {phraseDeLEtat(essai.etat)}
+          </p>
+        ) : null}
       </Groupe>
-
-      {etat.nuit ? (
-        <Groupe
-          titre={t('Entraînement de nuit')}
-          aide={t(
-            'Chaque nuit entre 3 h et 7 h, Laya s’entraîne sur ce serveur à partir de vos propres décisions. La nouvelle version ne remplace l’actuelle que si elle fait mieux à l’examen, sans reculer nulle part ; aucun avis ne s’allume pour autant.',
-          )}
-        >
-          <div className="space-y-1 text-[12.5px] text-faint">
-            <p>
-              {t('Version en service : {v0}', {
-                v0: etat.nuit.version === 'origine' ? t('le modèle d’origine') : etat.nuit.version,
-              })}
-            </p>
-            {etat.nuit.enCours ? (
-              <Badge tone="warning">{t('Entraînement en cours')}</Badge>
-            ) : etat.nuit.derniere ? (
-              <>
-                <p>
-                  {t('Dernière nuit : {v0}', { v0: relativeTime(etat.nuit.derniere.fin || etat.nuit.derniere.debut) })} —{' '}
-                  {phraseDeLaNuit(etat.nuit.derniere.issue)}
-                </p>
-                {etat.nuit.derniere.progression != null && etat.nuit.derniere.issue !== 'passe-complete' ? (
-                  <p>{t('Avancement de l’entraînement : {v0} %', { v0: String(Math.round(etat.nuit.derniere.progression * 100)) })}</p>
-                ) : null}
-                {etat.nuit.derniere.bascule ? (
-                  <p>
-                    {etat.nuit.derniere.bascule.remplace
-                      ? t('La version entraînée a fait mieux : elle est en service.')
-                      : t('La version entraînée n’a pas fait mieux : l’actuelle reste en service.')}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p>{t('Aucune nuit d’entraînement pour l’instant.')}</p>
-            )}
-          </div>
-        </Groupe>
-      ) : null}
 
       <Groupe
         titre={t('Ce que le juge décide')}
@@ -191,7 +176,7 @@ export function PageJugeRapide({ open }: { open: boolean }) {
         </div>
         {!etat.allume ? (
           <p className="text-[12px] text-faint">
-            {t('Ces interrupteurs restent sans effet tant que Laya n’est pas installé.')}
+            {t('Ces interrupteurs restent sans effet tant qu’aucune clé TypeSafe n’est rangée au coffre-fort.')}
           </p>
         ) : null}
       </Groupe>

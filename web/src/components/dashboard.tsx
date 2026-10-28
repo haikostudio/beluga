@@ -111,7 +111,7 @@ function rubriques(studioOuvert: boolean): { groupe: string; entrees: { cle: Rub
           aide: t('Les visites des sites suivis, leurs visiteurs et les objectifs atteints.'),
         },
         { cle: 'messagerie', Icone: UsersRound, libelle: t('Messagerie'), aide: t('Les demandes des clients et les messages échangés.') },
-        { cle: 'marketing', Icone: Megaphone, libelle: t('Marketing'), aide: t('Les contenus préparés, les actions menées et les ventes relevées.') },
+        { cle: 'marketing', Icone: Megaphone, libelle: t('Réseaux sociaux'), aide: t('Les contenus préparés, les actions menées et les ventes relevées.') },
         { cle: 'notes', Icone: NotebookPen, libelle: t('Notes'), aide: t('Les notes créées et modifiées.') },
       ],
     },

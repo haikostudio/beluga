@@ -879,7 +879,8 @@ export const TOOL_DEFS: ToolDef[] = [
     description:
       "Annonce dans le fil une image, une vidéo ou un son que TU fabriques (Gemini, Codex, script…) : « debut » AVANT de lancer " +
       "la fabrication pose un bloc d'attente (sujet, temps, outil, prix) ; « fin » avec le chemin du fichier remplace le bloc par " +
-      "l'aperçu (inutile d'appeler attach_file en plus) ; « echec » dit pourquoi. Un bloc laissé ouvert passe en échec à la fin du tour. " +
+      "l'aperçu (inutile d'appeler attach_file en plus) — donne alors « legende », la phrase qui dit à l'utilisateur ce que tu as rendu ; " +
+      "« echec » dit pourquoi. Un bloc laissé ouvert passe en échec à la fin du tour. " +
       "Inutile pour l'outil « realiser », qui l'annonce lui-même.",
     inputSchema: {
       type: 'object',
@@ -893,6 +894,11 @@ export const TOOL_DEFS: ToolDef[] = [
         prix: { type: 'number', description: 'debut : prix annoncé en dollars (absent si inconnu)' },
         id: { type: 'string', description: 'fin / echec : l’identifiant rendu par « debut » (défaut : ton dernier bloc ouvert)' },
         path: { type: 'string', description: 'fin : le fichier produit (relatif à ton dossier, ou absolu)' },
+        legende: {
+          type: 'string',
+          description:
+            'fin : UNE phrase, dans la langue de l’utilisateur, qui dit ce que tu as rendu et pourquoi (« Votre visage posé sur l’image d’essai, version 2 »). Elle s’affiche au-dessus du média dans le fil ; absente, la phrase s’écrit d’après le sujet.',
+        },
         raison: { type: 'string', description: 'echec : pourquoi, en une phrase' },
       },
     },
@@ -1520,7 +1526,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing du projet et à l'assistant de l'application (qui nomme le projet visé). « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER RÉSEAUX SOCIAUX DE CE PROJET (outil « marketing ») — réservé à l'agent des réseaux sociaux du projet et à l'assistant de l'application (qui nomme le projet visé). « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1984,7 +1990,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'evaluer',
     description:
-      "MODE CRÉATION — fait départager 2 à 5 propositions par le juge local (Laya), selon un critère. Son verdict est un CONSEIL : tu gardes le dernier mot. S'il n'est pas disponible ou pas assez sûr, il le dit et tu tranches.",
+      "MODE CRÉATION — fait départager 2 à 5 propositions par le juge rapide (Jev), selon un critère. Son verdict est un CONSEIL : tu gardes le dernier mot. S'il n'est pas disponible ou pas assez sûr, il le dit et tu tranches.",
     inputSchema: {
       type: 'object',
       required: ['propositions'],
@@ -2278,7 +2284,7 @@ async function reglagesProposes(
     let base = souhait;
     if (automatique) {
       // L'ordre des moteurs est celui de l'utilisateur : le genre de la carte
-      // (Laya) ne décide plus du moteur, on ne le demande donc plus.
+      // (Jev) ne décide plus du moteur, on ne le demande donc plus.
       base = { engine: moteurDuTriAutomatique('indetermine', catalogue, store.getSettings().ordreDesMoteurs).engine };
     }
     // LE MODÈLE DE LA CONVERSATION PASSE TOUJOURS (hors tri automatique
@@ -2338,7 +2344,7 @@ function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): 
  * Seulement pour l'agent d'ANALYSE (chef d'orchestre, nuit) : personne n'a
  * discuté avec lui, et une idée déjà sur le tableau n'a pas à y revenir. Une
  * proposition née d'une conversation n'est JAMAIS arrêtée ici — c'est un geste
- * humain. Présélection par les mots (`candidatsDeDoublon`), puis le juge local
+ * humain. Présélection par les mots (`candidatsDeDoublon`), puis le juge rapide
  * compare les paires ; sans avis, rien n'est refusé.
  */
 /** Dit à l'agent dans quel projet naîtra la carte, quand ce n'est pas le sien. */
@@ -2428,6 +2434,19 @@ function rangerLaColonne(
     if (projet) bouges.push(store.saveProject({ ...projet, rank: ligne.rank }));
   }
   return bouges;
+}
+
+/**
+ * LA CARTE QU'UN OUTIL DU TABLEAU VEUT ÉCRIRE. Un identifiant inconnu sous la
+ * plume du CADRAGE vise sa propre carte : après une compression de contexte,
+ * l'agent en a inventé un qui n'existait nulle part (InVia, 27/10/2026) —
+ * « Carte introuvable », et la synthèse de la demande n'est jamais parue. Le
+ * cadrage n'écrit qu'une carte, la sienne.
+ */
+function carteAEcrire(cardId: unknown, ctx: ToolContext): Card | null {
+  const demandee = store.getCard(String(cardId));
+  if (demandee) return demandee;
+  return ctx.role === 'cadrage' && ctx.cardId ? store.getCard(ctx.cardId) : null;
 }
 
 export async function callTool(ctx: ToolContext, name: string, args: Record<string, any>): Promise<ToolResult> {
@@ -2568,7 +2587,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'board_update_card': {
-      const card = store.getCard(String(args.cardId));
+      const card = carteAEcrire(args.cardId, ctx);
       if (!card || card.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
       /*
        * LA CARTE S'ÉCRIT APRÈS L'ANALYSE, JAMAIS AVANT. Le cadrage écrivait un
@@ -2687,7 +2706,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         : '';
       /*
        * LE NIVEAU PROPOSÉ : UNE SUGGESTION, JAMAIS UNE ÉCRITURE. Quand le
-       * cadrage décrit la carte sans lui donner de niveau, le juge local en
+       * cadrage décrit la carte sans lui donner de niveau, le juge rapide en
        * propose un dans la réponse de l'outil. Rien n'est posé sur la carte
        * (DEC-213) : l'agent tranche, et un niveau déjà choisi n'est pas relu.
        */
@@ -2698,7 +2717,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           { cardId: updated.id, projectId: ctx.projectId },
         );
         if (suggere) {
-          annonceNiveau = ` Le juge local suggère le niveau « ${suggere} » — une indication : c'est à toi de le poser (champ « niveau ») ou non.`;
+          annonceNiveau = ` Le juge rapide suggère le niveau « ${suggere} » — une indication : c'est à toi de le poser (champ « niveau ») ou non.`;
         }
       }
       return {
@@ -3115,7 +3134,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         terminerUnMedia(bloc.id, { echec: jointure.refus });
         return { ok: false, text: `${jointure.refus} (${demande})` };
       }
-      terminerUnMedia(bloc.id, { attachmentId: jointure.attachment.id });
+      terminerUnMedia(bloc.id, { attachmentId: jointure.attachment.id, legende: typeof args.legende === 'string' ? args.legende : null });
       return { ok: true, text: `Aperçu posé dans le fil : ${jointure.attachment.name}.`, attachment: jointure.attachment };
     }
 
@@ -3653,7 +3672,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           limite: UNITES_RECUES_PAR_L_AGENT,
         });
         /*
-         * LA MÉMOIRE TRIÉE POUR LA DEMANDE, par Laya — le MÊME geste que la
+         * LA MÉMOIRE TRIÉE POUR LA DEMANDE, par Jev — le MÊME geste que la
          * recherche du graphe de l'écran Mémoire (`server/src/recherche-comme-l-agent.ts`),
          * pour que l'écran allume exactement ce que l'agent reçoit.
          */
@@ -3849,7 +3868,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'marketing': {
       // L'assistant global y a accès aussi, pour TOUT projet (`assistant-global.ts`).
       if (!estAgentMarketing(ctx.agentId) && !store.getAgent(ctx.agentId)?.assistantGlobal) {
-        return { ok: false, text: 'Cet outil est réservé à l’agent marketing du projet.' };
+        return { ok: false, text: 'Cet outil est réservé à l’agent des réseaux sociaux du projet.' };
       }
       return outilMarketing(ctx, project, args);
     }

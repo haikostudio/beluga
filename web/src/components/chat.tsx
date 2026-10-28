@@ -27,6 +27,9 @@ import {
   type TodoItem,
   ancreDuPoint,
   attenteDeLaDemande,
+  echoLocalSelonLaFile,
+  validationNonBloquante,
+  type EchoLocalDeLaDemande,
   barreDeSuivi,
   barreDuCahier,
   estVoletDuCahier,
@@ -74,7 +77,7 @@ import {
   idDuMessageDeSynthese,
   estUneAide,
   carteEnPause,
-  repartirLesMediasLivres,
+  placerLesMediasDansLeFil,
   type MediaLivre,
   veilleTientLaRangee,
   cheminDeLaRealisation,
@@ -98,15 +101,16 @@ import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type R
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { MessageView } from '@/components/message-view';
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
-import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
+import { GalerieDesMediasLivres, iconeDuMediaLivre, LigneDeMediaLivre, useMediasLivres } from '@/components/medias-livres';
 import { ChampFocaliseSurTelephone, Composer } from '@/components/composer';
-import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
+import { BandeDesCaptures, BoutonDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { SuggestionsDeCarte, groupesDeSuggestions, suggestionsDeLaCarte, useSuggestionsFermees } from '@/components/suggestions-de-carte';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
 import { CheminDuCahier } from '@/components/cahier-des-charges';
 import { CheminDeRealisation, GaleriesDuTournage } from '@/components/chemin-de-realisation';
+import { BoutonDuSuivi } from '@/components/bouton-du-suivi';
 import { useDocumentDeCarte } from '@/lib/document-de-carte';
 import { useEtapesDuMedia } from '@/lib/production-de-carte';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
@@ -114,6 +118,7 @@ import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
 import { useTelephone } from '@/lib/telephone';
 import { usePiedCompact } from '@/lib/pied-compact';
+import { useEcritureAuClavier } from '@/lib/ecriture-au-clavier';
 import { CarteDeConfiguration, choixDeLaCarte } from '@/components/carte-de-configuration';
 export { LigneDeConfiguration } from '@/components/carte-de-configuration';
 import { CorpsListeTaches, resumeDesTaches, usePliDesTaches } from '@/components/todos';
@@ -163,6 +168,8 @@ function FilDeConversation({
   avancementDansLeFil,
   enTeteDuFil,
   depot,
+  auDessusDuChamp,
+  largeurMax,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -208,6 +215,14 @@ function FilDeConversation({
   enTeteDuFil?: React.ReactNode;
   /** Un texte à écrire dans le champ de saisie, sans l'envoyer (chaque `nonce` neuf est un nouveau dépôt). */
   depot?: { texte: string; nonce: number } | null;
+  /** Un geste posé juste au-dessus de la barre d'écriture (le Marketing : « Passer à la configuration »). */
+  auDessusDuChamp?: React.ReactNode;
+  /**
+   * LA CONVERSATION CENTRÉE À LARGEUR LIMITÉE (le Marketing, capture #c1f44) :
+   * la largeur en pixels posée sur les messages ET sur la barre d'écriture,
+   * centrés tous les deux. Absente : toute la largeur, comme partout ailleurs.
+   */
+  largeurMax?: number;
 }) {
   const state = useApp();
   /* L'état du lien : il éteint les gestes du parcours au lieu de les laisser
@@ -260,11 +275,11 @@ function FilDeConversation({
   const ouDesBlocs = React.useMemo(() => (cardId ? { cardId } : { agentId: agent?.id ?? null }), [cardId, agent?.id]);
   const blocsDeMedias = useBlocsDeLaConversation(ouDesBlocs, derniereDemandeA);
   /*
-   * LES MÉDIAS LIVRÉS (décision du 20/10/2026) : sur une carte, le flux les pose
-   * sous la réponse de chaque tour ; dans la conversation d'un agent sans carte,
-   * sous le DERNIER message de l'agent de chaque tour (celui qui précède la
-   * demande suivante). Un média déjà rendu ainsi ne se redit pas dans le bloc de
-   * fabrication, une fois le tour fini.
+   * LES MÉDIAS LIVRÉS (décision du 20/10/2026, revue le 26/10/2026, capture
+   * #e9bd) : UNE LIGNE DU FIL CHACUN, À SON HEURE. Sur une carte, le flux les
+   * pose parmi ses lignes ; dans la conversation d'un agent sans carte, après
+   * le dernier message commencé avant lui. Un média déjà rendu ainsi ne se
+   * redit pas dans le bloc de fabrication du bas.
    */
   const mediasLivresDuFil = useMediasLivres(ouDesBlocs);
   /*
@@ -312,21 +327,15 @@ function FilDeConversation({
     reponseRendueA,
   });
   const mediasParMessage = React.useMemo(() => {
-    if (cardId || !mediasLivresDuFil.length) return new Map<string, MediaLivre[]>();
-    const finsDeTour: { cle: string; at: number }[] = [];
-    messages.forEach((message, index) => {
-      if (message.role !== 'assistant') return;
-      const suivant = messages[index + 1];
-      /* Le tour court jusqu'à la demande suivante : un message écrit tôt puis
-         complété garde les médias livrés pendant qu'il s'écrivait. */
-      if (suivant ? suivant.role === 'user' : !busy) finsDeTour.push({ cle: message.id, at: suivant ? suivant.createdAt : Number.MAX_SAFE_INTEGER });
-    });
-    return repartirLesMediasLivres(mediasLivresDuFil, finsDeTour);
-  }, [cardId, mediasLivresDuFil, messages, busy]);
-  const piecesLivrees = React.useMemo(
-    () => (busy ? new Set<string>() : new Set(mediasLivresDuFil.map((m) => m.attachmentId))),
-    [busy, mediasLivresDuFil],
-  );
+    if (cardId || !mediasLivresDuFil.length) return { avant: [] as MediaLivre[], apres: new Map<string, MediaLivre[]>() };
+    return placerLesMediasDansLeFil(
+      mediasLivresDuFil,
+      messages.map((message) => ({ cle: message.id, at: message.createdAt })),
+    );
+  }, [cardId, mediasLivresDuFil, messages]);
+  /* Un média livré est déjà une ligne du fil, tour fini ou pas : le bloc de
+     fabrication du bas ne le montre pas une seconde fois. */
+  const piecesLivrees = React.useMemo(() => new Set(mediasLivresDuFil.map((m) => m.attachmentId)), [mediasLivresDuFil]);
 
   /*
    * ET CE FILET SE DÉCLENCHE TOUT SEUL, SANS NOUVEL ÉVÉNEMENT. Il repose sur
@@ -515,8 +524,15 @@ function FilDeConversation({
    * Elle s'efface d'elle-même dès que la vraie entrée arrive (même texte),
    * ce qui interdit la double bulle, et l'échec d'envoi la retire aussi.
    */
-  const [envoiLocal, setEnvoiLocal] = React.useState<{ texte: string; at: number } | null>(null);
+  const [envoiLocal, setEnvoiLocal] = React.useState<EchoLocalDeLaDemande | null>(null);
   React.useEffect(() => setEnvoiLocal(null), [cardId, agent?.id]);
+  /* UN ENVOI PASSÉ PAR LA FILE PUIS RETIRÉ N'AURA JAMAIS SON JALON : l'écho
+     suit la demande de file qui le porte, et s'efface quand elle en sort
+     (`echoLocalSelonLaFile`). Sans cela, « Demande envoyée » restait à vie. */
+  const empreinteDeLaFile = queue.map((item) => `${item.id}\u0000${item.text}`).join('\u0001');
+  React.useEffect(() => {
+    setEnvoiLocal((echo) => echoLocalSelonLaFile(echo, queue));
+  }, [empreinteDeLaFile]);
   const demandeDejaAuJournal =
     !!envoiLocal &&
     (journal ?? []).some(
@@ -722,7 +738,8 @@ function FilDeConversation({
      cahier des charges », réglages) reste au-dessus du champ, portée par la
      barre d'écriture elle-même (`boutonPrincipal`). */
   const questionEnAttente = React.useMemo(
-    () => messages.some((m) => m.questions?.some((q) => !q.answer && !q.cancelled && !q.competence)),
+    /* Une validation de génération (« Valider · prix ») n'arrête personne : la barre reste. */
+    () => messages.some((m) => m.questions?.some((q) => !q.answer && !q.cancelled && !q.competence && !validationNonBloquante(q))),
     [messages],
   );
   const barreRendueAuVolet = barreDEcritureDuVolet(carte, { travaille: busy, questionEnAttente });
@@ -769,13 +786,21 @@ function FilDeConversation({
         : cahier
           ? [{ cle: 'chemin', repliable: true }]
           : []),
-      ...(avecCaptures ? [{ cle: 'captures', repliable: true }] : []),
+      /* SUR TÉLÉPHONE, LES IMAGES NE SONT PLUS UN BLOC DU PIED (demande du
+         27/10/2026) : elles flottent derrière le bouton photo
+         (`BoutonDesCaptures`) et ne prennent aucune hauteur à replier. */
+      ...(avecCaptures && !telephone ? [{ cle: 'captures', repliable: true }] : []),
       ...(avecSuggestions ? [{ cle: 'suggestions', repliable: true }] : []),
       { cle: 'decision', repliable: false },
     ],
-    [cheminDuTournage, !!cahier, avecCaptures, avecSuggestions],
+    [cheminDuTournage, !!cahier, avecCaptures, telephone, avecSuggestions],
   );
   const pied = usePiedCompact(telephone && !!carte, blocsDuPied);
+  /* CLAVIER OUVERT, LA BARRE D'ÉCRITURE PASSE PAR-DESSUS LE PIED (décision du
+     27/10/2026) : les blocs restent à leur place, recouverts, et le champ reste
+     entier au-dessus du clavier (`useEcritureAuClavier`, `styles.css`). */
+  const ecranDeCarte = React.useRef<HTMLDivElement | null>(null);
+  useEcritureAuClavier(telephone && !!carte, ecranDeCarte, carte?.id);
   /* UNE CRÉATION DE MÉDIA GARDE SES SIX ÉTAPES DU PREMIER MESSAGE À LA FIN
      (Type → Idée → Images clés et prix → Fabrication → Film monté → Livré,
      décision du 25/10/2026) : jamais « Demande, Compréhension, Travail, À
@@ -1326,6 +1351,27 @@ function FilDeConversation({
       dansTiroir={!!cardId || !!creuxReserveAilleurs}
       cardId={cardId}
       fondNoir={!!nouveauDepart}
+      /* Les réponses proposées par l'agent restent AU-DESSUS de la file
+         d'attente et du témoin : rien ne s'intercale entre ces deux
+         décrochés empilés. */
+      auDessusDuTravail={
+        auDessusDuChamp ? (
+          auDessusDuChamp
+        ) : reponsesProposees?.length ? (
+          <div className="mb-1.5 flex flex-wrap gap-1" data-reponses-proposees={reponsesProposees.length}>
+            {reponsesProposees.map((texte) => (
+              <button
+                key={texte}
+                type="button"
+                onClick={() => ecrireDansLeChamp(texte)}
+                className="rounded-full bg-raised px-3 sm:px-2.5 py-1.5 sm:py-1 text-left text-[12.5px] text-muted transition-colors hover:text-text"
+              >
+                {texte}
+              </button>
+            ))}
+          </div>
+        ) : null
+      }
       /* Le témoin « en cours » est un petit décroché posé JUSTE AU-DESSUS de
          la zone de saisie, collé à elle — rien ne doit s'intercaler entre
          les deux. Les messages déjà envoyés (le fil, au-dessus) et ceux qui
@@ -1339,20 +1385,6 @@ function FilDeConversation({
          sort de derrière elle. */
       barreTravail={
         <>
-          {reponsesProposees?.length ? (
-            <div className="mb-1.5 flex flex-wrap gap-1" data-reponses-proposees={reponsesProposees.length}>
-              {reponsesProposees.map((texte) => (
-                <button
-                  key={texte}
-                  type="button"
-                  onClick={() => ecrireDansLeChamp(texte)}
-                  className="rounded-full bg-raised px-3 sm:px-2.5 py-1.5 sm:py-1 text-left text-[12.5px] text-muted transition-colors hover:text-text"
-                >
-                  {texte}
-                </button>
-              ))}
-            </div>
-          ) : null}
           <TravailEnCours
             agent={agent}
             messages={messages}
@@ -1411,7 +1443,7 @@ function FilDeConversation({
    */
   if (carte && cardId) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div ref={ecranDeCarte} className="flex h-full min-h-0 flex-col" data-ecran-de-carte>
         {header}
 
         {configurationOuverte && reglagesCarte.libelles ? (
@@ -1425,8 +1457,13 @@ function FilDeConversation({
                 l'agent ne se tient plus ici : elle est devenue le PREMIER
                 POINT du flux, juste avant « Demande ». */}
             {/* `px-4` comme la rangée d'onglets (`mx-4`, `card-panel.tsx`) : le
-                premier et le dernier rond tombent sur ses bords. */}
-            <div className="shrink-0 space-y-1.5 px-4 pt-1.5">
+                premier et le dernier rond tombent sur ses bords.
+                `pb-3` ÉCARTE LE FONDU DU HAUT DU FIL de la barre (capture
+                #d12b) : le voile de `ZoneDefilement` part du bord de la zone,
+                donc collée à la barre son ombre mangeait le bas des libellés.
+                Sur téléphone la barre part dans l'en-tête par portail : rien à
+                écarter ici. */}
+            <div className={cn('shrink-0 space-y-1.5 px-4 pt-1.5', !emplacementBarre?.current && 'pb-3')} data-barre-du-fil>
               {emplacementBarre?.current
                 ? createPortal(
                     <BarreDEtapes segments={segments} active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={barreFigee ? () => {} : allerAuPoint} />,
@@ -1539,8 +1576,17 @@ function FilDeConversation({
                 le flux, elle reste au-dessus du panneau de décision et de la
                 barre d'écriture, et se replie sur sa ligne de titre par son
                 chevron (`BandeDesCaptures`). Rien tant que l'agent n'a pas
-                produit d'image. */}
-            {avecCaptures ? (
+                produit d'image. SUR TÉLÉPHONE, ELLE SE REPLIE DANS UN BOUTON
+                PHOTO (demande du 27/10/2026) : un rond en bas à droite du fil,
+                posé contre ce pied (`relative`), qui grandit en volet par-dessus
+                le fil (`BoutonDesCaptures`). Fermé à chaque arrivée sur une
+                carte (`key`). */}
+            {/* LE BOUTON « SUIVI », JUSTE AU-DESSUS DE « CE QUE L'AGENT A VU »
+                (28/10/2026) : il ouvre et ferme le suivi de la production, et la
+                carte s'en souvient. Sur ordinateur seulement. */}
+            {carte && !telephone && cheminDeRealisationVisible(carte) ? <BoutonDuSuivi cardId={carte.id} /> : null}
+            {avecCaptures && telephone ? <BoutonDesCaptures key={carte?.id} galerie={galerieDesCaptures} /> : null}
+            {avecCaptures && !telephone ? (
               <div
                 className={CLASSE_BLOC_DU_PIED}
                 ref={pied.mesurer('captures')}
@@ -1681,17 +1727,19 @@ function FilDeConversation({
               ? cn('grow px-3 pt-3', messages.length && 'flex flex-col justify-end')
               : messages.length && 'flex min-h-full flex-col justify-end',
           )}
+          style={largeurMax ? { maxWidth: largeurMax, width: '100%', marginInline: 'auto' } : undefined}
         >
           {messages.length ? (
             <ContextePiecesDesBlocs.Provider value={blocsDeMedias.pieces}>
-              {messages.map((message, index) => (
-                <React.Fragment key={message.id}>
-                  {rendreMessage(index)}
-                  {mediasParMessage.get(message.id)?.length ? (
-                    <MediasLivres medias={mediasParMessage.get(message.id)!} className="mb-3 max-w-[min(100%,46rem)]" />
-                  ) : null}
-                </React.Fragment>
-              ))}
+              <GalerieDesMediasLivres medias={cardId ? [] : mediasLivresDuFil}>
+                <LignesDeMediasDuMessage medias={mediasParMessage.avant} />
+                {messages.map((message, index) => (
+                  <React.Fragment key={message.id}>
+                    {rendreMessage(index)}
+                    <LignesDeMediasDuMessage medias={mediasParMessage.apres.get(message.id)} />
+                  </React.Fragment>
+                ))}
+              </GalerieDesMediasLivres>
             </ContextePiecesDesBlocs.Provider>
           ) : chargement && cardId && state.conversationsEnEchec[cardId] ? (
             /* LA SILHOUETTE A UNE FIN : la demande est restée sans réponse
@@ -1738,9 +1786,10 @@ function FilDeConversation({
           bandeau FIXE, juste au-dessus du volet des tâches : elles ne remontent
           plus avec les messages et leurs boutons restent sous les yeux. Sans
           proposition en attente, le bandeau ne rend rien. */}
-      {/* `relative` : l'icône des messages en attente s'y pose, en bas à
-          droite du fil, au-dessus du bandeau et de la barre (`FileDAttente`). */}
-      <div className="relative shrink-0" data-pied-du-fil>
+      {/* `relative` : repère de position du pied, comme sur la page d'une
+          carte. Les messages en attente n'y flottent plus : ils sont un second
+          décroché au-dessus de la ligne d'état (`FileDAttente`). */}
+      <div className="relative shrink-0" data-pied-du-fil style={largeurMax ? { maxWidth: largeurMax, width: '100%', marginInline: 'auto' } : undefined}>
         <BandeauPropositions messages={messages} />
 
         {barreDEcriture}
@@ -1805,7 +1854,7 @@ function BarreNouveauDepart({
           onClick={() => verdict.ok && setAConfirmer(true)}
           className={cn(
             'pointer-events-auto ml-auto flex shrink-0 items-center gap-1 rounded bg-raised/90 px-1.5 py-0.5 text-[12.5px] text-muted backdrop-blur transition-colors',
-            verdict.ok ? 'hover:bg-border hover:text-text' : 'cursor-not-allowed opacity-40',
+            verdict.ok ? 'hover:bg-fond-survol hover:text-text' : 'cursor-not-allowed opacity-40',
           )}
         >
           <RotateCcw className="h-3 w-3" />
@@ -2178,7 +2227,7 @@ function TravailEnCours({
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
             data-statut-du-temoin
           >
-            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-text" />
           </button>
           {fleches}
           <button
@@ -2194,7 +2243,7 @@ function TravailEnCours({
         </>
       ) : (
         <>
-          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-text" />
           {fleches ? <span className="ml-auto flex shrink-0">{fleches}</span> : null}
         </>
       )}
@@ -2230,12 +2279,14 @@ function TravailEnCours({
         // arrondis ; ici il descend jusqu'aux flancs droits du champ, qui le
         // recouvre. Son propre haut prend le même rayon.
         'relative z-0 -mb-3 flex shrink-0 flex-col rounded-t-lg',
-        // UN GRIS UN PEU PLUS CLAIR QUE LE CHAMP (`--decroche`), SOLIDE du
-        // haut jusqu'en bas (entête et liste dépliée comprises) : il se pose
-        // entre le fond de la page et celui du champ. C'est son TEXTE qui le
-        // distingue — en violet, la seule couleur de l'interface (un fond
-        // jaune pastel a été essayé le 11/10/2026, puis refusé).
-        'bg-decroche',
+        // UN DÉGRADÉ GRIS (demande du 27/10/2026, capture #40a9 : le violet
+        // d'avant retiré, seule la barre des messages en attente garde sa
+        // couleur, le bleu) : fond et bordure plus clairs en haut, qui
+        // s'éteignent vers le bas dans un gris (`--decroche`) qui tranche sur
+        // le champ posé dessous. Le dégradé ne couvre que l'ENTÊTE (34 px
+        // visibles) : la liste dépliée repose sur le gris du bas, et y fond
+        // quand elle défile (`.decroche-degrade`, `.decroche-gris`, styles.css).
+        'decroche-degrade decroche-gris [--hauteur-du-degrade:34px]',
       )}
     >
       {entete ? (
@@ -2362,7 +2413,7 @@ function ReglagesAgent({
           type="button"
           data-reglages-figes={vu.modifiable ? undefined : ''}
           data-reglages-agent={vu.modifiable ? 'modifiable' : 'fige'}
-          className="flex w-full flex-col gap-0.5 rounded-md bg-raised px-2.5 py-2 text-left transition-colors hover:bg-border"
+          className="flex w-full flex-col gap-0.5 rounded-md bg-raised px-2.5 py-2 text-left transition-colors hover:bg-fond-survol"
         >
           <span className="flex w-full min-w-0 items-center gap-1.5 text-[11px] uppercase tracking-wide text-faint">
             <Cpu className="h-3 w-3 shrink-0" />
@@ -2422,7 +2473,7 @@ function ResumeDeLAgent({
           type="button"
           data-resume-agent
           title={titreDesReglages(vu)}
-          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-3 sm:px-2.5 py-2 sm:py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-border"
+          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-3 sm:px-2.5 py-2 sm:py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-fond-survol"
         >
           <Cpu className="h-3 w-3 shrink-0 text-faint" aria-hidden />
           <span className="min-w-0 break-words">
@@ -2595,3 +2646,26 @@ function LigneLue({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
+/**
+ * LES MÉDIAS RENDUS DANS LA CONVERSATION D'UN AGENT SANS CARTE : une ligne
+ * chacun, à son heure, comme dans le fil d'une carte — l'icône de leur genre à
+ * gauche, la phrase et l'heure, puis le média dessous (capture #e9bd).
+ */
+function LignesDeMediasDuMessage({ medias }: { medias?: readonly MediaLivre[] }) {
+  if (!medias?.length) return null;
+  return (
+    <ol className="flex max-w-[min(100%,46rem)] flex-col gap-3" data-medias-du-message={medias.length}>
+      {medias.map((media) => {
+        const Icone = iconeDuMediaLivre(media);
+        return (
+          <li key={media.id} className="flex min-w-0 items-start gap-2" data-sous-point-flux="media">
+            <Icone className="mt-[5px] h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <LigneDeMediaLivre media={media} />
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

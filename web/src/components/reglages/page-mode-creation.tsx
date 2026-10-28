@@ -58,7 +58,7 @@ export function PageModeCreation({ settings, update }: ProprietesReglages) {
         titre={t('Qui fait quoi')}
         aide={`${t(
           'Quand l’interrupteur « Création » est allumé sur une carte, l’agent confie chaque morceau au modèle réglé ici. Un moteur sans quota est contourné tout seul ; l’agent peut aussi vous proposer un autre modèle, pour une carte seulement.',
-        )}\n\n${t('Évaluation : toujours le juge local, Laya, quand il est installé et allumé.')}`}
+        )}\n\n${t('Évaluation : toujours le juge rapide, Jev, quand sa clé est rangée et l’usage allumé.')}`}
       >
         <Champ label={t('Texte')} aide={t('Rédaction, formulation, contenus.')}>
           <SelecteurTiroir

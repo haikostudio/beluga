@@ -179,7 +179,12 @@ export function Statistiques({
      le geste qui crée, détaché, puis les groupes de la liste. Sur téléphone,
      le geste reste dans la page. */
   const dansLaColonne = useColonneDeService();
-  const [groupe, setGroupe] = React.useState<GroupeDeLaListe>('tous');
+  /* L'ADRESSE PORTE LA RUBRIQUE (refonte du 28/10/2026) : « liste/<groupe> » pour un groupe de la liste,
+     « <site>/parcours » pour l'onglet d'un site. Précédent ramène à la rubrique quittée. */
+  const [siteVise, sousVise] = (vise ?? '').split('/');
+  const groupe: GroupeDeLaListe = siteVise === 'liste' && ['actifs', 'inactifs', 'autonomes', 'installations'].includes(sousVise ?? '') ? (sousVise as GroupeDeLaListe) : 'tous';
+  const setGroupe = (g: GroupeDeLaListe) => onVise?.(g === 'tous' ? null : `liste/${g}`);
+  const site = siteVise && siteVise !== 'liste' ? siteVise : null;
   /*
    * LES INSTALLATIONS DE BELUGA BUILD (décision du 20/10/2026) : une rubrique de
    * plus, seulement sur la machine qui reçoit leurs signes de vie.
@@ -224,8 +229,17 @@ export function Statistiques({
 
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
-      {vise ? (
-        <DetailDuSite key={vise} id={vise} sites={liste?.sites ?? []} assistantInitial={assistantVoulu} onChoisir={(id) => ouvrir(id)} onOuvrirCarte={onOuvrirCarte} />
+      {site ? (
+        <DetailDuSite
+          key={site}
+          id={site}
+          sites={liste?.sites ?? []}
+          assistantInitial={assistantVoulu}
+          onChoisir={(id) => ouvrir(id)}
+          onOuvrirCarte={onOuvrirCarte}
+          onglet={sousVise === 'parcours' ? 'parcours' : 'audience'}
+          onOnglet={(o) => onVise?.(o === 'parcours' ? `${site}/parcours` : site)}
+        />
       ) : (
         <>
           <TitreDePage>{t('Statistiques')}</TitreDePage>
@@ -652,18 +666,25 @@ function DetailDuSite({
   assistantInitial,
   onChoisir,
   onOuvrirCarte,
+  onglet: ongletVise,
+  onOnglet,
 }: {
   id: string;
   sites: LigneSite[];
   assistantInitial?: boolean;
   onChoisir: (id: string | null) => void;
   onOuvrirCarte?: (card: Card) => void;
+  /** L'onglet tenu par l'adresse (« <site>/parcours ») ; sans lui, tenu ici. */
+  onglet?: OngletStats;
+  onOnglet?: (o: OngletStats) => void;
 }) {
   const state = useApp();
   const version = state.marketingVersions[id] ?? 0;
   const [periode, setPeriode] = React.useState<ChoixDePeriode>(() => ({ echelle: 30, debut: Date.now() - 30 * UN_JOUR, fin: Date.now() }));
   const [detail, setDetail] = React.useState<DetailSite | null>(null);
-  const [onglet, setOnglet] = React.useState<OngletStats>('audience');
+  const [ongletLocal, setOngletLocal] = React.useState<OngletStats>('audience');
+  const onglet = ongletVise ?? ongletLocal;
+  const setOnglet = (o: OngletStats) => (onOnglet ? onOnglet(o) : setOngletLocal(o));
   const [assistant, setAssistant] = React.useState(!!assistantInitial);
   const telephone = useTelephone();
   /* LES ONGLETS SONT LES RUBRIQUES DE LA COLONNE DE GAUCHE (demande du

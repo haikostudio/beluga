@@ -25,6 +25,7 @@ import {
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
+import { ouvrirFichierSurPlace } from '@/components/visionneuse-de-lien';
 
 /**
  * L'EXPORT ET L'IMPORT INTÉGRAL DES DONNÉES — un tiroir, deux onglets.
@@ -135,7 +136,7 @@ function PanneauExport({ open }: { open: boolean }) {
         type: 'donnees.exporter',
         categories: cochees,
       });
-      window.location.href = `/api/download?token=${encodeURIComponent(data.token)}`;
+      ouvrirFichierSurPlace(`/api/download?token=${encodeURIComponent(data.token)}`, data.name);
       client.pushToast('success', t('Archive prête : {v0}', { v0: poids(data.size) }));
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Export impossible'));

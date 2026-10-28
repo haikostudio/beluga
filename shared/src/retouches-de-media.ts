@@ -13,9 +13,14 @@
  * Décisions de l'utilisateur du 24/10/2026 :
  *  - seuls les services DÉJÀ EN PLACE (fal.ai, Higgsfield, OpenRouter) ;
  *    jamais Magnific ;
- *  - la lumière se règle sur une SPHÈRE 3D : libre avec un modèle qui accepte
- *    une direction décrite (Higgsfield, OpenRouter), BLOQUÉE sur les directions
- *    qu'un modèle à directions fixes autorise (IC-Light, Fibo) ;
+ *  - la lumière se règle dans un CUBE 3D, personnage au centre (revu le
+ *    26/10/2026, capture #8c9bf) : libre avec un modèle qui accepte une
+ *    direction décrite, CALÉE sur les directions qu'un modèle à directions
+ *    fixes autorise (`directionAimantee`) ;
+ *  - l'angle se règle dans le même cube : la caméra tournée à la main se cale
+ *    sur l'angle nommé le plus proche (`angleAimante`, capture #129c) ;
+ *  - le visage à remplacer se CLIQUE parmi ceux repérés sur l'image, puis se
+ *    dit en mots au modèle (`phraseDeVisageCible`, captures #7cc3 et #7a99) ;
  *  - sous chaque média, une ligne d'informations selon son genre ; tout le
  *    détail dans « Réglages ».
  *
@@ -111,6 +116,35 @@ export function angleDeVue(brut: unknown, bornes: { verticalMin: number; vertica
   };
 }
 
+/**
+ * L'AIMANT DU CUBE D'ANGLE (26/10/2026) : la caméra tournée à la main se cale
+ * sur l'angle nommé le plus proche quand elle passe à moins de `seuil` degrés
+ * (rotation et hauteur), le cadrage restant celui choisi. Rend l'angle (calé
+ * ou non) et le nom de l'angle reconnu — « gros plan » ou « plan large » de
+ * face selon le cadrage.
+ */
+export function angleAimante(a: AngleDeVue, seuil = 12): AngleDeVue & { nom: NomDAngle | null } {
+  const ecart = (x: number, y: number) => {
+    const d = Math.abs((((x - y) % 360) + 540) % 360 - 180);
+    return d;
+  };
+  let meilleur: NomDAngle | null = null;
+  let distance = Infinity;
+  for (const nom of ANGLES_DE_VUE) {
+    if (nom === 'gros-plan' || nom === 'plan-large') continue;
+    const p = PARAMETRES_DES_ANGLES[nom];
+    const d = Math.hypot(ecart(a.horizontal, p.horizontal), a.vertical - p.vertical);
+    if (d < distance) {
+      distance = d;
+      meilleur = nom;
+    }
+  }
+  if (!meilleur || distance > seuil) return { ...a, nom: null };
+  const p = PARAMETRES_DES_ANGLES[meilleur];
+  const nom: NomDAngle = meilleur === 'face' && a.zoom >= 8 ? 'gros-plan' : meilleur === 'face' && a.zoom <= 2 ? 'plan-large' : meilleur;
+  return { horizontal: p.horizontal, vertical: p.vertical, zoom: a.zoom, nom };
+}
+
 /** L'angle DÉCRIT en anglais, pour un modèle qui ne prend que des mots. */
 export function phraseDAngle(a: AngleDeVue): string {
   const h = a.horizontal;
@@ -119,6 +153,52 @@ export function phraseDAngle(a: AngleDeVue): string {
   const hauteur = a.vertical > 10 ? `, high angle looking down (${a.vertical}°)` : a.vertical < -10 ? `, low angle looking up (${-a.vertical}°)` : ', eye level';
   const cadre = a.zoom >= 8 ? ', close-up' : a.zoom <= 2 ? ', wide shot' : '';
   return `Show the same subject and scene from a different camera angle: ${cote}${hauteur}${cadre}. Keep the identity, clothing, lighting and style identical.`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Le visage à remplacer                                                */
+/* ------------------------------------------------------------------ */
+
+/** Un visage repéré sur une image, en fractions (0 à 1) de sa largeur et de sa hauteur. */
+export interface BoiteDeVisage {
+  x: number;
+  y: number;
+  largeur: number;
+  hauteur: number;
+}
+
+/** Une boîte ramenée dans l'image ; `null` si elle n'en est pas une. */
+export function boiteDeVisage(brut: unknown): BoiteDeVisage | null {
+  if (!brut || typeof brut !== 'object') return null;
+  const o = brut as Record<string, unknown>;
+  const [x, y, l, h] = [o.x, o.y, o.largeur, o.hauteur].map(Number);
+  if (![x, y, l, h].every((n) => Number.isFinite(n)) || l! <= 0 || h! <= 0) return null;
+  const borne = (n: number) => Math.min(1, Math.max(0, n));
+  const net = (n: number) => Math.round(n * 10_000) / 10_000;
+  return { x: net(borne(x!)), y: net(borne(y!)), largeur: net(Math.min(1 - borne(x!), l!)), hauteur: net(Math.min(1 - borne(y!), h!)) };
+}
+
+const RANGS_ANGLAIS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
+
+/**
+ * LE VISAGE CHOISI SUR L'IMAGE, DIT AU MODÈLE (26/10/2026) : l'utilisateur
+ * clique un des visages repérés ; le modèle, lui, ne prend que des mots. Seul
+ * visage : « the person ». Sinon son rang de gauche à droite, sa place dans
+ * l'image et la position de son visage en pour cent — de quoi le désigner
+ * sans ambiguïté.
+ */
+export function phraseDeVisageCible(choisi: BoiteDeVisage, tous: readonly BoiteDeVisage[] = [choisi]): string {
+  const centre = (b: BoiteDeVisage) => b.x + b.largeur / 2;
+  const cx = centre(choisi);
+  const cy = choisi.y + choisi.hauteur / 2;
+  const ou = `face centred about ${Math.round(cx * 100)}% from the left and ${Math.round(cy * 100)}% from the top of the image`;
+  const autres = tous.filter((b) => Math.abs(centre(b) - cx) > 1e-6 || Math.abs(b.y - choisi.y) > 1e-6);
+  if (!autres.length) return `the person (${ou})`;
+  const tries = [...autres, choisi].sort((a, b) => centre(a) - centre(b));
+  const rang = tries.indexOf(choisi);
+  const place = cx < 0.36 ? 'on the left' : cx > 0.64 ? 'on the right' : 'in the middle';
+  const rangAnglais = RANGS_ANGLAIS[rang] ?? `number ${rang + 1}`;
+  return `the ${rangAnglais} person from the left, ${place} of the image (${ou}), among ${tries.length} people`;
 }
 
 /* ------------------------------------------------------------------ */

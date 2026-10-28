@@ -4,9 +4,10 @@
  * Les blocs de fabrication (`medias-en-fabrication.ts`) vivent en mémoire et ne
  * restent au bas du fil que jusqu'au message suivant. Ici, chaque image, vidéo
  * ou son terminé avec sa pièce jointe est écrit en base, rattaché à sa carte ou
- * à son agent, avec son groupe (le plan, le sujet) et sa version : l'écran les
- * rend TOUS sous la réponse finale du tour (`shared/src/medias-livres.ts`),
- * après un redémarrage comme des semaines plus tard.
+ * à son agent, avec son groupe (le plan, le sujet), sa version et la phrase de
+ * l'agent : l'écran en fait une ligne du fil chacun, à son heure
+ * (`shared/src/medias-livres.ts`), après un redémarrage comme des semaines
+ * plus tard.
  */
 import { groupeDuMedia, mediasLivres, type MediaEnFabrication, type MediaLivre } from '@beluga/shared';
 import { getDb } from './db.js';
@@ -24,6 +25,7 @@ interface Ligne {
   version: number;
   sujet: string;
   outil: string;
+  legende: string | null;
   livre_le: number;
 }
 
@@ -38,6 +40,7 @@ const versMedia = (l: Ligne): MediaLivre => ({
   version: l.version,
   sujet: l.sujet,
   outil: l.outil,
+  legende: l.legende ?? '',
   livreLe: l.livre_le,
 });
 
@@ -69,11 +72,12 @@ export function enregistrerUnMediaLivre(m: MediaEnFabrication): MediaLivre | nul
       version: n + 1,
       sujet: m.sujet,
       outil: m.outil,
+      legende: m.legende ?? '',
       livre_le: m.fin ?? Date.now(),
     };
     db.prepare(
-      `INSERT INTO medias_livres (id, project_id, card_id, agent_id, attachment_id, genre, groupe, version, sujet, outil, livre_le)
-       VALUES (@id, @project_id, @card_id, @agent_id, @attachment_id, @genre, @groupe, @version, @sujet, @outil, @livre_le)`,
+      `INSERT INTO medias_livres (id, project_id, card_id, agent_id, attachment_id, genre, groupe, version, sujet, outil, legende, livre_le)
+       VALUES (@id, @project_id, @card_id, @agent_id, @attachment_id, @genre, @groupe, @version, @sujet, @outil, @legende, @livre_le)`,
     ).run(ligne);
     return versMedia(ligne);
   } catch (err) {

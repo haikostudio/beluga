@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { PAGES_MIN_PAR_PAS, pagesDuPasSuivant } from '@beluga/shared';
 import { getDb } from './db.js';
 import { PATHS, CONFIG } from './config.js';
 import { bus } from './bus.js';
@@ -28,8 +29,26 @@ export async function runBackup(reason = 'automatique'): Promise<{ ok: boolean; 
     const dir = path.join(PATHS.backups, `beluga-${stamp}`);
     fs.mkdirSync(dir, { recursive: true });
 
-    // Copie à chaud de la base, cohérente même pendant les écritures.
-    getDb().exec(`VACUUM INTO '${path.join(dir, 'beluga.db').replace(/'/g, "''")}'`);
+    /*
+     * COPIE À CHAUD DE LA BASE, PAR MORCEAUX, SANS FIGER LE DÉMON. `VACUUM INTO`
+     * recopiait les 2 Go d'un seul tenant sur le fil principal : ~32 s sans
+     * répondre à personne, chaque nuit vers 3 h (enquête des décrochages,
+     * 28/10/2026). L'API de sauvegarde de SQLite copie un pas de pages à la
+     * fois et rend la main entre deux pas ; chaque pas est réglé pour durer
+     * ~50 ms (`pagesDuPasSuivant`). La copie reste cohérente — une écriture
+     * faite pendant la copie y est reportée, ou la fait reprendre.
+     */
+    // Départ prudent : le premier pas ne sait encore rien du disque, les suivants doublent tant qu'ils restent sous la cible.
+    let pages = PAGES_MIN_PAR_PAS;
+    let depuis = Date.now();
+    await getDb().backup(path.join(dir, 'beluga.db'), {
+      progress: () => {
+        const maintenant = Date.now();
+        pages = pagesDuPasSuivant(pages, maintenant - depuis);
+        depuis = maintenant;
+        return pages;
+      },
+    });
 
     // Archive compressée : la base depuis le dossier temporaire, les données volumineuses lues directement.
     const archive = `${dir}.tar.gz`;

@@ -82,7 +82,7 @@ import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
 import { noterLEcran, noterUneLatence, noterUnePanne } from './usage-installation.js';
-import { scriptDeSuivi } from '@beluga/shared';
+import { mimeDuFichier, scriptDeSuivi, validationNonBloquante } from '@beluga/shared';
 import {
   FICHIERS_FICHE_OCTETS_MAX,
   PROJET_DU_COFFRE,
@@ -156,7 +156,7 @@ function pageDeRetourDeConnexion(r: { ok: boolean; raison?: string; comptes?: { 
   const echapper = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
   const titre = r.ok ? 'Compte relié' : 'Connexion impossible';
   const phrase = r.ok
-    ? `${(r.comptes ?? []).map((c) => echapper(c.nom)).join(', ')} : l’atelier marketing peut publier. Vous pouvez fermer cet onglet.`
+    ? `${(r.comptes ?? []).map((c) => echapper(c.nom)).join(', ')} : l’atelier Réseaux sociaux peut publier. Vous pouvez fermer cet onglet.`
     : echapper(r.raison ?? 'La connexion n’a pas abouti.');
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titre}</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;background:#111;color:#eee;display:grid;place-items:center;min-height:100vh;margin:0}main{max-width:420px;padding:24px}h1{font-size:18px;color:${r.ok ? '#a78bfa' : '#f87171'}}</style></head>
@@ -235,6 +235,9 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.webmanifest': 'application/manifest+json',
   '.wav': 'audio/wav',
+  /* La détection des visages (« Remplacer le visage ») : son moteur et son modèle, chargés à l'ouverture du panneau. */
+  '.wasm': 'application/wasm',
+  '.tflite': 'application/octet-stream',
 };
 
 /**
@@ -780,7 +783,7 @@ export function createHttpServer(): http.Server {
          * CETTE DEMANDE PRESSE-T-ELLE ? Un avis pour ORDONNER ce qui attend,
          * posé en arrière-plan : la réponse à l'appelant ne l'attend pas, et
          * aucun avis ne lance, ne valide ni ne déplace quoi que ce soit
-         * (`server/src/juge-des-cartes.ts`). Sans Laya installé : rien.
+         * (`server/src/juge-des-cartes.ts`). Sans clé Jev au coffre : rien.
          */
         jugerLUrgenceEnFond(card.id, 'porte-externe');
         log.info('api externe', `carte « ${card.title} » posée dans ${vise.projet.name} par « ${verdict.cle.nom} »`);
@@ -1163,6 +1166,13 @@ export function createHttpServer(): http.Server {
               for (const question of retenues.questions) attachToCurrentMessage(agentId, { question });
               return json(res, 200, { ok: true, text: retenues.texte });
             }
+          }
+          /* UNE VALIDATION DE GÉNÉRATION N'ARRÊTE PAS LE MOTEUR (27/10/2026) : son
+             bouton à prix se tranche au clic, côté démon (`trancherLeLotDuClic`).
+             L'agent en pose une par plan dans le même tour ; aucune attente. */
+          if (result.question && validationNonBloquante(result.question)) {
+            attachToCurrentMessage(agentId, { question: result.question });
+            return json(res, 200, { ok: result.ok, text: result.text });
           }
           if (result.question) {
             /* Deux appels simultanés passent tous deux le contrôle d'entrée : on
@@ -1588,6 +1598,10 @@ export function createHttpServer(): http.Server {
             ids: Array.isArray(corps.ids) ? corps.ids.filter(texte) : [],
             captures: texte(corps.project) ? { projet: corps.project, chemins: Array.isArray(corps.chemins) ? corps.chemins.filter(texte) : [] } : undefined,
             nom: texte(corps.nom) ? corps.nom : null,
+            ...(corps.nomsDansLArchive && typeof corps.nomsDansLArchive === 'object'
+              ? { nomsDansLArchive: Object.fromEntries(Object.entries(corps.nomsDansLArchive).filter(([, v]) => texte(v))) as Record<string, string> }
+              : {}),
+            ...(Array.isArray(corps.textes) ? { textes: corps.textes.filter((x) => x && texte(x.nom) && texte(x.contenu)) } : {}),
           };
           const verifiee = verifierArchive(demande, acces);
           if (!verifiee.ok) return json(res, verifiee.statut, { error: verifiee.raison });
@@ -1886,8 +1900,14 @@ export function createHttpServer(): http.Server {
         if (!entry || !fs.existsSync(entry.path)) {
           return json(res, 404, { error: 'lien expiré ou introuvable' });
         }
+        /* LE VRAI TYPE DU FICHIER (un PDF reste un PDF) : la fenêtre de
+           l'application installée s'en sert pour le montrer au lieu d'annoncer
+           « données ». Une page ou une image vectorielle, qui pourraient porter
+           du script, restent un simple téléchargement. */
+        const type = mimeDuFichier(entry.name);
         res.writeHead(200, {
-          'content-type': 'application/octet-stream',
+          'content-type': /html|svg|xml/.test(type) ? 'application/octet-stream' : type,
+          'x-content-type-options': 'nosniff',
           'content-disposition': `attachment; filename="${encodeURIComponent(entry.name)}"`,
         });
         return fs.createReadStream(entry.path).pipe(res);

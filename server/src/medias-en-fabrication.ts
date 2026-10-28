@@ -4,8 +4,8 @@
  * forme, ménage, fermeture en fin de tour — vivent dans
  * `shared/src/media-en-fabrication.ts`.
  *
- * Trois sources l'alimentent : le mode réalisation (`realisation.ts`, suivi par
- * le démon), le Studio (`studio-generation.ts`, idem) et l'outil
+ * Deux sources l'alimentent : le mode réalisation (`realisation.ts`, suivi par
+ * le démon) et l'outil
  * « media_en_cours » de n'importe quel agent (suivi par l'agent, refermé en
  * échec si son tour finit avant). Le média fini reste une pièce jointe
  * ordinaire, rangée par `joindreUnFichier` : ce module ne range aucun fichier.
@@ -72,7 +72,10 @@ export function annoncerUnMedia(a: AnnonceDeMedia): MediaEnFabrication {
 }
 
 /** Le média est prêt (avec sa pièce jointe) ou a échoué : le bloc montre l'aperçu, ou l'échec. */
-export function terminerUnMedia(id: string, fin: { attachmentId?: string | null; echec?: string | null; prix?: number | null }): MediaEnFabrication | null {
+export function terminerUnMedia(
+  id: string,
+  fin: { attachmentId?: string | null; echec?: string | null; prix?: number | null; legende?: string | null },
+): MediaEnFabrication | null {
   const avant = liste.find((m) => m.id === id);
   if (!avant) return null;
   const apres: MediaEnFabrication = {
@@ -82,6 +85,7 @@ export function terminerUnMedia(id: string, fin: { attachmentId?: string | null;
     ...(fin.attachmentId ? { attachmentId: fin.attachmentId } : {}),
     ...(fin.echec ? { echec: fin.echec.slice(0, 300) } : {}),
     ...(fin.prix !== undefined ? { prix: fin.prix } : {}),
+    ...(fin.legende?.trim() ? { legende: fin.legende.trim().slice(0, 400) } : {}),
   };
   /* Fini avec sa pièce : il entre aussi, pour de bon, dans les médias livrés de
      sa discussion — rendus sous la réponse finale (`medias-livres.ts`). */

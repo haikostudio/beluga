@@ -10,6 +10,8 @@ export default {
         bg: 'hsl(var(--bg))',
         surface: 'hsl(var(--surface))',
         raised: 'hsl(var(--raised))',
+        // Le survol d'un élément posé sur `raised` : une marche au-dessus.
+        'fond-survol': 'hsl(var(--fond-survol))',
         border: 'hsl(var(--border))',
         text: 'hsl(var(--text))',
         muted: 'hsl(var(--muted))',
@@ -81,6 +83,7 @@ export default {
         'teinte-trait': 'hsl(var(--teinte-trait))',
         // Le violet PLEIN sous un texte blanc : boutons de l'assistant de démarrage.
         'teinte-plein': 'hsl(var(--teinte-plein))',
+        'sur-couleur': 'hsl(var(--sur-couleur))',
         // Le JAUNE du badge de statut « Compréhension » (styles.css) : son seul
         // usage, avec le fond et le trait de la même teinte.
         comprehension: {

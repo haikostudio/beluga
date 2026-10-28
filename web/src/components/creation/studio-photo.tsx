@@ -25,7 +25,9 @@ import {
 import { Button, ZoneDefilement } from '@/components/ui';
 import { Curseur } from '@/components/ui/elements-maison';
 import { adresseDePiece, ImageDePiece } from '@/components/pastille-de-fichier';
+import { CroixDuVolet } from '@/components/feuille-du-volet';
 import { client } from '@/lib/client';
+import { fermerLeDocument } from '@/lib/document-de-carte';
 import { useProduction } from '@/lib/production-de-carte';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
@@ -71,6 +73,7 @@ export default function StudioPhoto({ cardId, source }: { cardId: string; source
       <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-3">
         <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{t('Studio photo')}</span>
         <span className="shrink-0 text-[12px] text-faint">{t('Gratuit')}</span>
+        <CroixDuVolet genre="studio-photo" onFermer={fermerLeDocument} className="-my-1 -mr-2" />
       </div>
       {images.length ? (
         <>
@@ -314,7 +317,7 @@ function EditeurDePhoto({ cardId, image, enregistres }: { cardId: string; image:
               aria-pressed={reglages.format === format}
               onClick={() => choisirLeFormat(format)}
               data-format-photo={format}
-              className={cn('h-8 rounded-md px-2.5 text-[12.5px] transition-colors', reglages.format === format ? 'bg-teinte-plein text-white' : 'bg-raised text-text hover:bg-raised/70')}
+              className={cn('h-8 rounded-md px-2.5 text-[12.5px] transition-colors', reglages.format === format ? 'bg-teinte-plein text-sur-couleur' : 'bg-raised text-text hover:bg-raised/70')}
             >
               {format === 'libre' ? t('Libre') : format}
             </button>

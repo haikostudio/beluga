@@ -1009,7 +1009,7 @@ function FicheDossier({
 
   return (
     <>
-      <Drawer open={edition !== null} onClose={onClose} empile>
+      <Drawer open={edition !== null} onClose={onClose} empile adresse="dossier-coffre">
         <DialogTitle className="min-w-0 truncate px-3 pb-2">
           {dossier ? dossier.nom : parent ? t('Nouveau sous-dossier') : t('Nouveau dossier')}
         </DialogTitle>

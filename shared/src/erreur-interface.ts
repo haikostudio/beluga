@@ -194,6 +194,12 @@ export interface EtatDuLienAuGeste {
   enVeille: boolean;
   pageCachee: boolean;
   enLigne?: boolean;
+  /**
+   * Le geste a ATTENDU l'ouverture du canal tant de millisecondes avant de
+   * renoncer (`client.call`, canal « en ouverture »). Présent, il dit que ce
+   * n'est plus un simple chargement de page : la règle d'enquête le compte.
+   */
+  attenteMs?: number | null;
 }
 
 const ETATS_DU_SOCKET = ['en ouverture', 'ouvert', 'en fermeture', 'fermé'];
@@ -222,5 +228,6 @@ export function rapportDuGesteNonParti(etat: EtatDuLienAuGeste, maintenant: numb
     `dernier message reçu : ${ilYA(etat.dernierEvenementA, maintenant)}`,
     `veille : ${etat.enVeille ? 'oui' : 'non'} · page cachée : ${etat.pageCachee ? 'oui' : 'non'} · réseau : ${etat.enLigne === false ? 'hors ligne' : 'en ligne'}`,
   ];
+  if (etat.attenteMs != null) lignes.push(`attente de l’ouverture : ${Math.round(etat.attenteMs / 100) / 10} s`);
   return { source: 'canal', message: `geste non parti : ${etat.commande}`, pile: lignes.join('\n') };
 }

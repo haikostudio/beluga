@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { EVENEMENT_JOINDRE_AU_CHAMP, type DetailJoindreAuChamp } from '@/lib/joindre-au-champ';
-import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, Image as ImageIcon, Loader2, MessageSquareText, Music, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Image as ImageIcon, Loader2, MessageSquareText, Music, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
 import {
   Agent,
   COLONNES_AVANT_LE_TRAVAIL,
@@ -153,6 +153,12 @@ export interface ComposerProps {
    * au-dessus, comme le fil des messages déjà envoyés.
    */
   barreTravail?: React.ReactNode;
+  /**
+   * Ce qui se pose AU-DESSUS de la file d'attente et du témoin (les réponses
+   * proposées par l'agent) : jamais entre la file, qui passe sous le témoin
+   * comme un second décroché, et le témoin lui-même.
+   */
+  auDessusDuTravail?: React.ReactNode;
   /**
    * UN GESTE PLEINE LARGEUR, POSÉ AU-DESSUS DU CHAMP DE SAISIE. Aujourd'hui
    * « Lancer la tâche », qui ferme la conversation de cadrage d'une carte et
@@ -329,7 +335,7 @@ function InterrupteurDePlan({ cardId, agent }: { cardId?: string; agent?: Agent 
  *
  * Allumé, l'agent de la carte devient chef d'orchestre : il confie le texte, le
  * code et des avis à d'autres moteurs du serveur, et fait départager les
- * propositions par le juge local (`shared/src/mode-creation.ts`). Seule la
+ * propositions par le juge rapide (`shared/src/mode-creation.ts`). Seule la
  * BASCULE vit ici — la répartition se règle dans les réglages, jamais dans la
  * barre d'écriture (DEC-090).
  *
@@ -561,6 +567,7 @@ export function Composer({
   cardId,
   fondNoir,
   barreTravail,
+  auDessusDuTravail,
   boutonPrincipal,
   libelleDuChamp,
   reglages,
@@ -2127,7 +2134,10 @@ export function Composer({
       data-agent-contexte={agent?.id}
       className={cn(
         'px-4 pt-2',
-        fondNoir ? 'bg-bg' : 'bg-surface',
+        // `--fond-du-pied` : une zone qui porte son propre fond (la
+        // conversation d'une page de service) le pose à `transparent`, sinon
+        // le pied dessine une bande autour du champ.
+        fondNoir ? 'bg-bg' : 'bg-[var(--fond-du-pied,hsl(var(--surface)))]',
       )}
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
@@ -2159,7 +2169,9 @@ export function Composer({
       {/* Le geste principal, en tête de la barre d'écriture et sur toute sa
           largeur : impossible à manquer, et jamais emporté par le fil qui
           défile au-dessus. */}
-      {boutonPrincipal ? <div className="mb-2">{boutonPrincipal}</div> : null}
+      {/* `data-rangee-principale` : clavier ouvert, c'est elle qui cède la
+          hauteur si la barre ne tient plus, jamais le champ (`styles.css`). */}
+      {boutonPrincipal ? <div className="mb-2" data-rangee-principale>{boutonPrincipal}</div> : null}
 
       {/* L'ACCORD AVANT UNE NOUVELLE CARTE : le message attend dans le champ. */}
       {accordNouvelleCarte && ouvreUneNouvelleCarte ? (
@@ -2176,22 +2188,6 @@ export function Composer({
             </Button>
           </div>
         </div>
-      ) : null}
-
-      {/* LA FILE D'ATTENTE NE PREND PLUS DE LIGNE (demande du 24/10/2026) :
-          une icône chiffrée flotte en bas à droite du fil, au-dessus du pied,
-          et ouvre le tiroir des messages en attente (`FileDAttente`). */}
-      {queue.length ? (
-        <FileDAttente
-          queue={queue}
-          enEdition={edition?.id}
-          onEdit={(item) => {
-            ouvrirEnEdition(item);
-            /* Le tiroir refermé rend le focus à l'icône : on le reprend pour
-               le champ, une fois la feuille partie. */
-            window.setTimeout(() => textareaRef.current?.focus(), 320);
-          }}
-        />
       ) : null}
 
       {/* LA COUPURE SE DIT AU CHAMP LUI-MÊME : verrouillé, il explique pourquoi,
@@ -2272,6 +2268,29 @@ export function Composer({
         />
       ) : null}
 
+      {auDessusDuTravail}
+
+      {/* LA FILE D'ATTENTE EST UN SECOND DÉCROCHÉ, AU-DESSUS DE LA LIGNE
+          D'ÉTAT (demande du 27/10/2026, capture #ad093) : elle dit combien de
+          messages attendent et ouvre leur tiroir (`FileDAttente`). Posée AVANT
+          le témoin (ou le menu « / »), elle passe sous lui comme lui passe
+          sous le champ : même plan d'empilement (`relative z-0`), et c'est
+          l'ordre du DOM qui met le suivant par-dessus. Sans témoin, c'est le
+          champ qui la recouvre. Plus rien ne flotte en bas à droite du fil :
+          cette place est celle du bouton photo. */}
+      {queue.length ? (
+        <FileDAttente
+          queue={queue}
+          enEdition={edition?.id}
+          onEdit={(item) => {
+            ouvrirEnEdition(item);
+            /* Le tiroir refermé rend le focus à la barre : on le reprend pour
+               le champ, une fois la feuille partie. */
+            window.setTimeout(() => textareaRef.current?.focus(), 320);
+          }}
+        />
+      ) : null}
+
       {/* Le menu des commandes « / » prend la place du repère des tâches : même
           habillage, même endroit, collé au champ — deux bandeaux empilés là se
           disputeraient le recouvrement de 8px. */}
@@ -2284,8 +2303,9 @@ export function Composer({
           onSurvol={setSlashVise}
         />
       ) : (
-        /* Collée à la zone de saisie, rien entre les deux : la file d'attente,
-           les pièces jointes et l'édition en cours restent au-dessus. */
+        /* Collée à la zone de saisie, rien entre les deux : la file d'attente
+           (posée au-dessus, en second décroché), les pièces jointes et
+           l'édition en cours restent au-dessus. */
         <ChampFocaliseSurTelephone.Provider value={telephone && champFocalise}>{barreTravail}</ChampFocaliseSurTelephone.Provider>
       )}
 
@@ -2672,7 +2692,7 @@ export function Composer({
                 porte un texte), et une jauge posée au milieu d'eux se
                 déplaçait sous l'oeil. C'est le seul reste visible du relecteur
                 automatique : plus un message écrit nulle part. Il ne bloque
-                jamais le lancement, et sans Laya installé il n'existe pas. */}
+                jamais le lancement, et sans clé Jev au coffre il n'existe pas. */}
             <IndicateurComprehension carte={cardId ? state.cards[cardId] : undefined} />
 
             {/* Puis le bouton « Suspendre », le CONTEXTE DU MODÈLE en anneau, le
@@ -2814,16 +2834,19 @@ function LigneEnvoi({ envoi }: { envoi: Envoi }) {
 }
 
 /**
- * LES MESSAGES EN ATTENTE, DERRIÈRE UNE ICÔNE CHIFFRÉE (demande du 24/10/2026).
+ * LES MESSAGES EN ATTENTE, DANS UN SECOND DÉCROCHÉ AU-DESSUS DE LA LIGNE D'ÉTAT
+ * (demandes du 27/10/2026, après l'icône chiffrée du 24/10).
  *
- * Ils ne s'empilent plus au-dessus du champ, et leur phrase d'explication a
- * disparu : sur téléphone, chaque ligne mangeait la hauteur du fil. Une petite
- * icône porte leur nombre, en bas à droite du fil — posée en `absolute` contre
- * le pied de la conversation (`data-pied-de-conversation`, `relative`), donc
- * au-dessus de TOUS ses blocs —, et ouvre une feuille du bas qui les liste avec
- * leurs gestes : modifier, envoyer tout de suite, retirer. Le crayon referme la
- * feuille et remonte le message dans le champ, comme avant. La file elle-même
- * (ordre, envoi dès que l'agent a fini) ne change pas : seul son affichage.
+ * Ils ne s'empilent pas au-dessus du champ : une seule barre, pleine largeur,
+ * posée AU-DESSUS de la ligne d'état (« Réflexion en cours », `barreTravail`),
+ * qui reste, elle, collée au champ. La barre suit le gabarit du décroché
+ * (MEM-5160) et passe sous le témoin de 12 px, comme le témoin passe sous le
+ * champ. Elle dit leur nombre et ouvre une feuille du bas qui les liste avec
+ * leurs gestes : modifier, envoyer tout de suite, retirer. Le crayon referme
+ * la feuille et remonte le message dans le champ, comme avant. La file
+ * elle-même (ordre, envoi dès que l'agent a fini) ne change pas : seul son
+ * affichage. L'ancienne icône flottait en bas à droite du fil ; cette place
+ * revient au bouton photo du téléphone (`BoutonDesCaptures`).
  */
 function FileDAttente({
   queue,
@@ -2842,16 +2865,26 @@ function FileDAttente({
         type="button"
         onClick={() => setOuvert(true)}
         title={libelle}
-        aria-label="Messages en attente"
-        data-file-attente-pastille={queue.length}
-        /* JAUNE À ÉCRITURE NOIRE (demande du 24/10/2026) : le bouton doit se voir
-           du premier coup d'œil. Exception VOULUE à l'interface monochrome — un
-           jaune fixe, le même dans les douze palettes, jamais un jeton de thème
-           détourné (`--warning` est gris). Sans bordure, comme tout bouton. */
-        className="absolute bottom-full right-4 z-10 mb-2 flex h-[43px] sm:h-9 items-center gap-1.5 rounded-full bg-[#FACC15] px-3 text-black shadow-md hover:bg-[#EAB308]"
+        aria-haspopup="dialog"
+        data-file-attente-barre={queue.length}
+        /* UN DÉCROCHÉ EN DÉGRADÉ VIOLET (demandes du 27/10/2026 : le jaune
+           refusé, puis le bleu passé au violet, capture #312b) : fond et
+           bordure violets en haut, qui s'éteignent vers le bas ; le fond finit
+           dans un gris (`--decroche-attente`) qui tranche sur la liste des
+           tâches posée dessous (`.decroche-degrade` et `.decroche-violet`,
+           styles.css). Le violet est le jeton `--teinte` de chaque palette.
+           Exception VOULUE au bouton sans bordure (MEM-4858). Haut et
+           flancs seulement : le bas passe sous le témoin (ou le champ), 12 px
+           de recouvrement, le rayon du champ — d'où les 12 px rendus en bas
+           (36 + 12, 32 + 12 : resserrée le 27/10/2026, autant d'air au-dessus
+           qu'au-dessous du texte), et un dégradé borné à la hauteur VISIBLE.
+           Le survol n'existe qu'à la souris : sur téléphone, l'appui le
+           laissait collé. */
+        className="decroche-degrade decroche-violet relative z-0 -mb-3 flex h-12 w-full shrink-0 items-start gap-2 rounded-t-lg px-3 pt-2 text-left text-text [--hauteur-du-degrade:36px] sm:h-11 sm:pt-1.5 sm:[--hauteur-du-degrade:32px]"
       >
-        <MessageSquareText className="h-4 w-4" />
-        <span className="text-[13px] font-semibold tabular-nums">{queue.length}</span>
+        <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 tabular-nums">{libelle}</span>
+        <ChevronUp className="mt-0.5 h-4 w-4 shrink-0 text-faint" aria-hidden />
       </button>
       <Drawer open={ouvert} onClose={() => setOuvert(false)} feuille>
         <EnteteDeFeuille titre={libelle} />
@@ -2915,7 +2948,7 @@ function QueuedItem({
     depuis = tag.fin;
   }
   if (depuis < apercu.length) morceaux.push(apercu.slice(depuis));
-  const geste = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-border hover:text-text';
+  const geste = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-fond-survol hover:text-text';
   return (
     <div
       data-file-attente-element={item.id}

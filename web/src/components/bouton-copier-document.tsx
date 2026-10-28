@@ -3,6 +3,22 @@ import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 
+/** Met un texte dans le presse-papiers ; refusé (page non sécurisée), il passe par un champ caché. */
+export async function copierLeTexte(texte: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(texte);
+  } catch {
+    const zone = document.createElement('textarea');
+    zone.value = texte;
+    zone.style.position = 'fixed';
+    zone.style.opacity = '0';
+    document.body.appendChild(zone);
+    zone.select();
+    document.execCommand('copy');
+    zone.remove();
+  }
+}
+
 /**
  * COPIER UN DOCUMENT ENTIER dans le presse-papiers (le cahier des charges, le
  * cahier de réalisation), à côté du bouton « Télécharger ». Le bouton coche un
@@ -14,18 +30,7 @@ export function BoutonCopierDocument({ texte, repere }: { texte: string; repere:
   const minuterie = React.useRef<number>();
   React.useEffect(() => () => window.clearTimeout(minuterie.current), []);
   const copier = async () => {
-    try {
-      await navigator.clipboard.writeText(texte);
-    } catch {
-      const zone = document.createElement('textarea');
-      zone.value = texte;
-      zone.style.position = 'fixed';
-      zone.style.opacity = '0';
-      document.body.appendChild(zone);
-      zone.select();
-      document.execCommand('copy');
-      zone.remove();
-    }
+    await copierLeTexte(texte);
     setCopie(true);
     window.clearTimeout(minuterie.current);
     minuterie.current = window.setTimeout(() => setCopie(false), 1800);

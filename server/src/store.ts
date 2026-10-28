@@ -49,7 +49,7 @@ import {
   decisionEnTexteLibre,
   questionEnTexteLibre,
   COLONNE_OU_PARAIT_LA_CARTE_MARKETING,
-  LABEL_MARKETING,
+  LABELS_DE_CARTES_D_ATELIER,
   messageAttendUneReponse,
   type StatutAgent,
   rendusParProjet,
@@ -726,7 +726,7 @@ export function listCards(projectId: string): Card[] {
  * en « Archivé » FERME ses questions, cloche comprise. C'est la fin de tour qui
  * retient désormais une carte de volet sur sa question — `questionEnTexteSurLaCarte`.)
  */
-const SANS_MARKETING_SEUL = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = '${LABEL_MARKETING}'))`;
+const SANS_MARKETING_SEUL = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label IN (${LABELS_DE_CARTES_D_ATELIER.map((l) => `'${l.replace(/'/g, "''")}'`).join(', ')})))`;
 
 /**
  * LES ÉTAPES D'UNE SUITE NE PARAISSENT PAS SEULES SUR LE TABLEAU DU PROJET : elles
@@ -1066,14 +1066,17 @@ export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] 
  * L'ordonnanceur cherche, hors de « Planifié » et « En cours », les cartes
  * marquées `scheduling.reprendreDesQuePossible` — un lancement refusé faute de
  * quota qui doit repartir tout seul dès que la porte se rouvre. Ce marquage vit
- * dans le JSON résiduel de la carte, donc le `LIKE` DÉGROSSIT en SQL (comme
- * `cartesEnVol`) : il ne lit plus les 99 % de cartes qui ne portent jamais la
- * marque, et le tri fin (colonne, `suspendu`) reste en JavaScript après coup.
+ * dans le JSON résiduel de la carte : l'index partiel de la colonne générée
+ * `a_reprise_armee` (migration 145) ne lit que les cartes qui la portent, le
+ * `LIKE` reste derrière, et le tri fin (colonne, `suspendu`) reste en
+ * JavaScript après coup.
  */
 export function cartesArmeesPourReprise(projectId: string): Card[] {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM cards WHERE project_id = ? AND data LIKE '%reprendreDesQuePossible%' ORDER BY position DESC",
+      `SELECT * FROM cards
+        WHERE project_id = ? AND a_reprise_armee = 1 AND data LIKE '%reprendreDesQuePossible%'
+        ORDER BY position DESC`,
     )
     .all(projectId) as LigneCarte[];
   const ids = rows.map((r) => r.id);
@@ -1163,7 +1166,8 @@ export function cartesEnCours(): Card[] {
  */
 export function cartesAvecDemandeDePlan(): Card[] {
   const rows = getDb()
-    .prepare("SELECT * FROM cards WHERE data LIKE '%\"planDemandeA\":%'")
+    /* L'index partiel d'abord (migration 145), le `LIKE` derrière. */
+    .prepare("SELECT * FROM cards WHERE a_plan_demande = 1 AND data LIKE '%\"planDemandeA\":%'")
     .all() as LigneCarte[];
   return rows
     .map((row) =>
@@ -1896,6 +1900,27 @@ export function setCarteVue(agentId: string, empreinte: string): void {
  */
 const ORDRE_DES_MESSAGES_DESC = 'ORDER BY created_at DESC, rowid DESC';
 
+/**
+ * LE NOMBRE DE MESSAGES D'UN AGENT, sans en relire un seul : l'index
+ * `idx_messages_agent` suffit. Le filet de démarrage des cadrages jamais
+ * partis comptait en relisant et validant TOUT le fil de chaque carte
+ * (`listMessages(...).length`), 3 400 cartes durant (`blocages.log`, 28/10/2026).
+ */
+export function nombreDeMessages(agentId: string): number {
+  return (getDb().prepare('SELECT COUNT(*) AS n FROM messages WHERE agent_id = ?').get(agentId) as { n: number }).n;
+}
+
+/**
+ * CET AGENT A-T-IL DÉJÀ UN MESSAGE ? Une seule ligne d'index, rien de lu.
+ * `listMessages(id).length > 0` relisait, décodait et validait jusqu'à 400
+ * messages par agent : passé sur toutes les cartes au démarrage, c'était
+ * ~30 s de fil principal figé après chaque redémarrage (enquête des
+ * décrochages, 28/10/2026).
+ */
+export function aDesMessages(agentId: string): boolean {
+  return !!getDb().prepare('SELECT 1 FROM messages WHERE agent_id = ? LIMIT 1').get(agentId);
+}
+
 export function listMessages(agentId: string, limit = 400): Message[] {
   const rows = getDb()
     .prepare(
@@ -2510,7 +2535,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
   const propositions = getDb()
     .prepare(
       `SELECT p.id AS proposalId, p.project_id AS projectId, p.decision AS decision,
-              p.created_at AS createdAt, p.data AS data, p.message_id AS messageId,
+              p.created_at AS createdAt, p.message_id AS messageId,
+              CASE WHEN json_valid(p.data) THEN json_extract(p.data, '$.title') END AS titre,
               a.id AS agentId, a.card_id AS cardId
        FROM proposals p
        JOIN messages m ON m.id = p.message_id
@@ -2521,7 +2547,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
     projectId: string;
     decision: string;
     createdAt: number;
-    data: string;
+    /* Le seul titre, jamais la proposition entière : 1 400 JSON relus pour rien. */
+    titre: string | null;
     messageId: string;
     agentId: string;
     cardId: string | null;
@@ -2543,23 +2570,32 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
    * est déjà sous les yeux de qui l'a écrit. La règle elle-même vit dans
    * `shared`, donc elle se teste seule.
    */
+  /*
+   * PARTIR DES CARTES OUVERTES, PAS DES AGENTS (28/10/2026). L'ancienne forme
+   * balayait les 5 500 agents et, pour chacun, relisait la ligne de chaque
+   * message de sa carte pour en tirer l'identifiant : 40 ms à chaud, plus d'une
+   * seconde quand ces pages étaient sorties du cache (gels de `blocages.log`).
+   * Ici, une vingtaine de cartes ouvertes, et le dernier message de chacune
+   * se trouve par l'index `idx_messages_agent` SEUL — son `rowid` y est déjà.
+   */
   const derniers = getDb()
     .prepare(
-      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+      `WITH ouvertes AS (
+         SELECT c.id AS cardId, c.column_key AS colonne,
+                (SELECT m2.rowid FROM agents a2
+                   JOIN messages m2 ON m2.agent_id = a2.id
+                  WHERE a2.card_id = c.id
+                  ORDER BY m2.created_at DESC, m2.rowid DESC LIMIT 1) AS dernier
+           FROM cards c
+          WHERE c.column_key NOT IN (${SQL_COLONNES_FERMEES})
+       )
+       SELECT a.project_id AS projectId, a.id AS agentId, o.cardId AS cardId,
               a.status AS statut, m.id AS messageId, m.data AS data,
-              m.created_at AS createdAt, c.column_key AS colonne
-       FROM agents a
-       JOIN messages m ON m.agent_id = a.id
-       JOIN cards c ON c.id = a.card_id
-       WHERE a.card_id IS NOT NULL
-         AND c.column_key NOT IN (${SQL_COLONNES_FERMEES})
-         AND a.status NOT IN ('starting', 'running')
-         AND m.id = (
-           SELECT m2.id FROM messages m2
-           JOIN agents a2 ON a2.id = m2.agent_id
-           WHERE a2.card_id = a.card_id
-           ORDER BY m2.created_at DESC, m2.rowid DESC LIMIT 1
-         )`,
+              m.created_at AS createdAt, o.colonne AS colonne
+       FROM ouvertes o
+       JOIN messages m ON m.rowid = o.dernier
+       JOIN agents a ON a.id = m.agent_id
+       WHERE a.status NOT IN ('starting', 'running')`,
     )
     .all() as {
     projectId: string;
@@ -2601,12 +2637,7 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
   const propositionsVues = new Set<string>();
   for (const proposition of propositions) {
     propositionsVues.add(proposition.proposalId);
-    let titre: string | undefined;
-    try {
-      titre = JSON.parse(proposition.data).title as string | undefined;
-    } catch {
-      titre = undefined;
-    }
+    const titre = typeof proposition.titre === 'string' ? proposition.titre : undefined;
     decisions.push({
       projectId: proposition.projectId,
       agentId: proposition.agentId,
@@ -3042,6 +3073,15 @@ export function purgerContexteEnvoyeAncien(agentId: string): void {
 /* ------------------------------------------------------------------ */
 
 export const QUEUE_MAX = 10;
+
+/**
+ * COMBIEN DE DEMANDES EN FILE, sans en lire une seule. Les contrôles de
+ * démarrage ne veulent qu'un nombre : `listQueue().length` relisait et
+ * validait chaque entrée.
+ */
+export function compterFile(agentId: string): number {
+  return (getDb().prepare('SELECT COUNT(*) AS n FROM queue WHERE agent_id = ?').get(agentId) as { n: number }).n;
+}
 
 export function listQueue(agentId: string): QueuedPrompt[] {
   const rows = getDb()

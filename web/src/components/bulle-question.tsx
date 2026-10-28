@@ -1,19 +1,22 @@
 import * as React from 'react';
 import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { Attachment, genreDeMedia, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
+import { Attachment, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
 import { EmplacementDeLaPagination } from '@/components/carousel-questions';
 import { BarrePagination } from '@/components/ui/pagination-fleches';
 import { BranchementDeService } from '@/components/branchement-de-service';
 import { DevisDuLot } from '@/components/devis-du-lot';
-import { SphereDeLumiere } from '@/components/sphere-de-lumiere';
+import { ValidationAvecCout } from '@/components/validation-avec-cout';
+import { CubeDeLumiere } from '@/components/scene-3d';
 import { Button, Drawer, EnteteDeFeuille, Textarea, ZoneDefilement } from '@/components/ui';
 import { useTelephone } from '@/lib/telephone';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
+import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
 import { ImageDePiece, PastilleDeFichier } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
+import { useClasseDuCadreDeQuestion } from '@/lib/cadre-de-question';
 import { t } from '@/lib/langue';
 import { writePref } from '@/lib/prefs';
 import { arreterLeSon, basculerSon, useLectureDeSon } from '@/lib/lecture-de-media';
@@ -65,6 +68,8 @@ const memeBrouillon = (a: BrouillonDeReponse, b: BrouillonDeReponse) =>
  */
 export function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: string }) {
   const state = useApp();
+  /* Dans le fil d'une carte, chaque image, vidéo ou son porte son menu « … » (27/10/2026). */
+  const carteDuFil = React.useContext(ContexteCarteDuFil);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const connues = projectId ? (state.attachments[projectId] ?? []) : [];
 
@@ -85,7 +90,14 @@ export function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: s
             temps que la liste du projet arrive. La pastille, elle, sait se
             rendre avec le seul identifiant — et le clic télécharge déjà. */}
         {items.length
-          ? items.map((item) => <AttachmentThumb key={item.id} item={item} onOpen={() => setApercu(item)} />)
+          ? items.map((item) => (
+              <AttachmentThumb
+                key={item.id}
+                item={item}
+                onOpen={() => setApercu(item)}
+                menu={carteDuFil ? <MenuDuMediaDuFil cardId={carteDuFil} attachmentId={item.id} className={item.mime.startsWith('audio/') ? 'static' : undefined} /> : undefined}
+              />
+            ))
           : ids.map((id) => <PastilleDeFichier key={id} id={id} />)}
       </div>
       <AttachmentPreview
@@ -162,6 +174,25 @@ export interface QuestionAAfficher {
 
 export function BulleQuestion(props: ProprietesDeLaBulle) {
   const telephone = useTelephone();
+  /* UNE VALIDATION DE DÉPENSE (« Valider · prix ») N'EST PAS UNE QUESTION À
+     RÉDIGER : titre, une ligne, deux boutons (`ValidationAvecCout`). Ni champ
+     de réponse, ni Joindre, ni Annuler. */
+  const devis = props.question.devis;
+  if (devis?.bouton) {
+    const cout = devis.sansPrix && !devis.total ? t('prix non publié') : `${arrondi(devis.total)} $${devis.sansPrix ? ` + ${t('prix non publié')}` : ''}`;
+    return (
+      <ValidationAvecCout
+        titre={props.question.question ?? devis.titre}
+        description={props.question.description}
+        cout={cout}
+        entete={props.entete}
+        variante={props.variante}
+        repere={{ ...(props.repere ?? {}), 'data-bulle-question': props.variante ?? 'neutre', 'data-validation-du-lot': devis.lotId }}
+        onValider={() => props.onRepondre(REPONSE_GENERER_LE_LOT, [])}
+        onRefuser={() => props.onRepondre(REPONSE_REFUSER_LE_LOT, [])}
+      />
+    );
+  }
   const formulaire = props.question.formulaire?.questions.length ? props.question.formulaire : undefined;
   const reponsePossible = !!formulaire || props.question.options.length > 0 || !!props.question.allowFreeText;
   if (!telephone || !reponsePossible) return formulaire ? <BulleFormulaire {...props} formulaire={formulaire} /> : <BulleQuestionComplete {...props} />;
@@ -297,6 +328,7 @@ function BulleFormulaire(props: ProprietesDeLaBulle & { formulaire: Formulaire }
 function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
   const { question, entete, variante = 'neutre', repere } = props;
   const [ouverte, setOuverte] = React.useState(false);
+  const cadre = useClasseDuCadreDeQuestion();
   const repondre = async (reponse: string, images: string[]) => {
     await props.onRepondre(reponse, images);
     setOuverte(false);
@@ -309,7 +341,7 @@ function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
     : undefined;
   return (
     <div
-      className={cn('cadre-de-question rounded-lg px-3 py-2.5', variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised')}
+      className={cn(cadre, 'rounded-lg px-3 py-2.5', variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised')}
       data-bulle-question={variante}
       data-question-compacte=""
       {...(repere ?? {})}
@@ -333,7 +365,12 @@ function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
       </div>
       <Drawer open={ouverte} onClose={() => setOuverte(false)} feuille>
         <EnteteDeFeuille titre={t('Une question vous attend')} data-entete-feuille-question="" />
-        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-4">
+        {/* AUCUNE MARGE SOUS LA BULLE (capture #c913, 28/10/2026) : la barre
+            « Répondre / Joindre / Annuler » colle au bord INTÉRIEUR de la zone
+            qui défile — une marge basse laissait une bande où le texte des
+            choix passait SOUS la barre. Le bas de la bulle est porté par la
+            barre elle-même. */}
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-0" data-zone-feuille-question="">
           {/* Dans la feuille, les flèches d'un formulaire restent au-dessus de sa question. */}
           <EmplacementDeLaPagination.Provider value={null}>
             {props.question.formulaire?.questions.length ? (
@@ -621,6 +658,9 @@ function BulleQuestionComplete({
      ce qui se dessine par-dessus (zone de choix, pastille retenue, barre des
      issues) suit ce fond, pas le liseré. */
   const surFondRaised = variante !== 'neutre';
+  /* …SAUF DANS LE PANNEAU « UNE DÉCISION ATTEND », qui porte le trait jaune
+     autour de lui (`CadreDuPanneau`, demande du 27/10/2026). */
+  const cadre = useClasseDuCadreDeQuestion();
 
   return (
     <div
@@ -633,7 +673,8 @@ function BulleQuestionComplete({
       /* Les variantes « attention » et « contraste » se détachent du bloc qui
          les porte par un ÉTAGE de fond différent (`--raised`). */
       className={cn(
-        'cadre-de-question rounded-lg px-3 py-2.5',
+        cadre,
+        'rounded-lg px-3 py-2.5',
         variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised',
       )}
       /* UN REPÈRE STABLE POUR LES CONTRÔLES : la bulle se retrouvait par sa
@@ -693,11 +734,11 @@ function BulleQuestionComplete({
 
       {/* 1 bis bis. CE QUE LA QUESTION AUTORISE OU DEMANDE DE BRANCHER (studio
           créatif) : le détail d'un devis, ou l'encadré où coller une clé. */}
-      {question.devis ? <DevisDuLot devis={question.devis} onRepondre={reponsePossible ? (reponse) => onRepondre(reponse, []) : undefined} /> : null}
+      {question.devis ? <DevisDuLot devis={question.devis} /> : null}
       {question.branchement ? (
         <BranchementDeService capacites={question.branchement.capacites} onBranche={(reponse) => onRepondre(reponse, [])} />
       ) : null}
-      {question.lumiere ? <SphereDeLumiere sphere={question.lumiere} onRepondre={onRepondre} /> : null}
+      {question.lumiere ? <CubeDeLumiere sphere={question.lumiere} onRepondre={onRepondre} /> : null}
 
       {/* 1 ter. LA RÉPONSE CONSEILLÉE QUI N'EST PAS UN CHOIX DE LA LISTE. */}
       {question.recommandee && !question.options.some((option) => option.label === question.recommandee) ? (
@@ -745,21 +786,20 @@ function BulleQuestionComplete({
                 data-option-question={option.id}
                 data-option-retenue={actif ? '' : undefined}
                 className={cn(
-                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors',
-                  /* LE CHOIX RETENU DOIT RESTER VISIBLE : sur ces variantes,
-                     le bloc est DÉJÀ posé sur `--raised` — une pastille du
-                     même fond n'aurait plus rien montré. */
-                  surFondRaised
-                    ? actif
-                      ? 'bg-text/10 text-teinte'
-                      : 'text-muted hover:bg-text/5'
-                    : actif
-                      ? 'bg-raised text-teinte'
+                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--cadre-question))]',
+                  /* LE CHOIX RETENU, ENCADRÉ DE JAUNE SUR UN FOND LÉGÈREMENT JAUNE
+                     (demande du 28/10/2026, capture #4088) : le jaune des questions
+                     (`--cadre-question`, `--comprehension-fond`), déclaré dans chaque
+                     palette. Plus de violet ni d'anneau bleu de focus sur le choix. */
+                  actif
+                    ? 'bg-comprehension-fond text-text ring-1 ring-inset ring-[hsl(var(--cadre-question))]'
+                    : surFondRaised
+                      ? 'text-muted hover:bg-text/5'
                       : 'text-muted hover:bg-raised/60',
                 )}
               >
                 <span className="mt-0.5 shrink-0">
-                  {actif ? <Check className="h-3 w-3 text-teinte" /> : <Circle className="h-3 w-3 text-faint" />}
+                  {actif ? <Check className="h-3 w-3 text-text" /> : <Circle className="h-3 w-3 text-faint" />}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[14px] leading-snug">
@@ -864,6 +904,7 @@ function BulleQuestionComplete({
         )}
         ref={barreRef}
         data-actions-question
+        data-pied-colle
         data-question-sans-reponse={reponsePossible ? undefined : ''}
       >
         {reponsePossible ? (

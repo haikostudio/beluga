@@ -595,8 +595,8 @@ export interface RetraitContrats {
 /**
  * RETIRER UNIQUEMENT LES LIGNES NOMMÉES EXPLICITEMENT.
  *
- * Le titre est comparé après `nu()`, comme les autres noms d'instructions,
- * mais jamais par ressemblance : une ligne voisine reste donc intacte.
+ * Le titre (en gras ou non) est comparé après `nu()`, comme les autres noms
+ * d'instructions, mais jamais par ressemblance : une ligne voisine reste donc intacte.
  */
 export function retirerContrats(texte: string, titres: readonly string[]): RetraitContrats {
   const demandes = new Map<string, string>();
@@ -607,8 +607,11 @@ export function retirerContrats(texte: string, titres: readonly string[]): Retra
   const titresRetires = new Set<string>();
   const lignes = texte.split('\n').filter((ligne) => {
     const contrat = /^- \*\*(.+?)\*\*(?: — .+?)?\s*$/.exec(ligne);
-    if (!contrat) return true;
-    const demande = demandes.get(nu(contrat[1]));
+    // Une ligne sans gras se compare en entier, puis par son titre avant « — ».
+    const candidats = contrat
+      ? [contrat[1]]
+      : ligne.startsWith('- ') ? [ligne.slice(2).trim(), ligne.slice(2).split(' — ')[0]] : [];
+    const demande = candidats.map((c) => demandes.get(nu(c))).find(Boolean);
     if (!demande) return true;
     titresRetires.add(demande);
     return false;

@@ -13,6 +13,7 @@ import {
 } from '@beluga/shared';
 import { BoutonInfosPublication, DeployPanel, type InfosPublication } from '@/components/deploy-panel';
 import { BandeauProductionGroupe } from '@/components/bandeau-production-groupe';
+import { DeploiementDeGroupe } from '@/components/deploiement-de-groupe';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { useApp } from '@/lib/use-app';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
@@ -59,17 +60,22 @@ export function GestesDePublicationDeCarte({ projectId }: { projectId: string })
   const membres = estUnRegroupement(projet) ? membresActifsDuRegroupement(state.projects, projectId) : [];
   return (
     <>
-      <DeployPanel
-        projectId={projectId}
-        cards={parColonne.to_deploy ?? []}
-        colonne="to_deploy"
-        presentation="compact"
-        enTete
-        onInitier={() => {
-          const etape = etapeDeLaColonne('to_deploy');
-          if (etape) ouvrirRubriqueDeLEtape(projectId, etape.cible);
-        }}
-      />
+      {membres.length && projet ? (
+        /* Un regroupement liste ses projets à cocher (`deploiement-de-groupe.tsx`). */
+        <DeploiementDeGroupe groupe={projet} membres={membres} enTete />
+      ) : (
+        <DeployPanel
+          projectId={projectId}
+          cards={parColonne.to_deploy ?? []}
+          colonne="to_deploy"
+          presentation="compact"
+          enTete
+          onInitier={() => {
+            const etape = etapeDeLaColonne('to_deploy');
+            if (etape) ouvrirRubriqueDeLEtape(projectId, etape.cible);
+          }}
+        />
+      )}
       {membres.length && projet ? (
         <BandeauProductionGroupe groupe={projet} membres={membres} enTete />
       ) : (

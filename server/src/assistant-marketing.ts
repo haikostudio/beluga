@@ -128,7 +128,7 @@ export async function lancerLesPlansDeLaSemaine(lundi: string): Promise<number> 
     const r = await reglages();
     const { card, agentId } = ouvrirCarteDAgent({
       projectId: projet.id,
-      titre: `Plan marketing de la semaine — ${projet.name}`.slice(0, 80),
+      titre: `Plan des réseaux sociaux de la semaine — ${projet.name}`.slice(0, 80),
       description: `Chaque dimanche soir, l’agent marketing prépare la semaine du ${lundi} en brouillons à valider. Rien n’est programmé sans vous.`,
       labels: [LABEL_MARKETING],
       role: 'analysis',
@@ -163,7 +163,7 @@ export async function lancerLaReorganisationDuJour(maintenant = Date.now()): Pro
     const r = await reglages();
     const { card, agentId } = ouvrirCarteDAgent({
       projectId: projet.id,
-      titre: `Dates marketing réorganisées — ${projet.name}`.slice(0, 80),
+      titre: `Dates des réseaux sociaux réorganisées — ${projet.name}`.slice(0, 80),
       description: `Chaque jour, l’agent marketing replace les contenus en retard selon votre rythme réel. Rien n’est programmé sans vous.`,
       labels: [LABEL_MARKETING],
       role: 'analysis',

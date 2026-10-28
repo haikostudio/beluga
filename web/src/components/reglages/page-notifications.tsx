@@ -117,7 +117,7 @@ function AppareilsConnectes() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">
                       {appareil.nom === APPAREIL_INCONNU ? t('Appareil inconnu') : appareil.nom}
-                      {appareil.id === courantId ? <span className="text-teinte"> · {t('Cet appareil')}</span> : null}
+                      {appareil.id === courantId ? <span className="text-faint"> · {t('Cet appareil')}</span> : null}
                     </span>
                     <span className="block text-[12px] text-faint">
                       {t('Ajouté le {date}', { date: new Date(appareil.ajouteLe).toLocaleDateString(formatRegional()) })}

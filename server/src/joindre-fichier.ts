@@ -20,7 +20,7 @@ import { safeJoin } from './files.js';
 
 /**
  * LES DOSSIERS OÙ UN AGENT PEUT PRENDRE UN FICHIER — UNE SEULE DÉFINITION,
- * partagée par `attach_file` et par l'import du Studio (`outil-studio.ts`) :
+ * partagée par `attach_file` et par les autres outils qui rangent un fichier :
  * le dossier de travail de l'agent (où vit une capture prise par ses propres
  * scripts), le dépôt du projet, le dossier de données partagé de Beluga
  * Build (pièces jointes, scripts de vérification « de tous les jours »), le

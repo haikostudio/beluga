@@ -87,7 +87,11 @@ export const LigneDeConfiguration = React.forwardRef<
       type="button"
       data-ligne-configuration={nom}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md bg-surface px-3 sm:px-2.5 py-2 sm:py-1.5 text-left transition-colors hover:bg-raised',
+        /* Trois gris distincts : le bloc (`raised`), la ligne au repos posée
+           en creux (`surface`), et le survol une marche AU-DESSUS du bloc
+           (`fond-survol`) — jamais la couleur du bloc, où la ligne disparaissait.
+           Menu ouvert (`data-state`, posé par Radix), la ligne garde ce fond. */
+        'flex w-full items-center gap-2 rounded-md bg-surface px-3 sm:px-2.5 py-2 sm:py-1.5 text-left transition-colors hover:bg-fond-survol data-[state=open]:bg-fond-survol',
         className,
       )}
       {...props}

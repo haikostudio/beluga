@@ -116,7 +116,7 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
     </div>
   );
   if (rangee) {
-    const classeBouton = cn(CLASSES_BOUTON_DU_FIL, 'flex-1 gap-1.5 px-2 bg-raised text-text hover:bg-border');
+    const classeBouton = cn(CLASSES_BOUTON_DU_FIL, 'flex-1 gap-1.5 px-2 bg-raised text-text hover:bg-fond-survol');
     return (
       <>
         <div className="mb-2 rounded-lg bg-raised px-3 py-2 text-xs text-muted" data-veille={veille.etat} data-bandeau-veille>
@@ -137,7 +137,7 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
           <Button
             variant="ghost"
             size="sm"
-            className="h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0 rounded-lg bg-raised p-0 text-text hover:bg-border"
+            className="h-[43px] sm:h-9 w-[43px] sm:w-9 shrink-0 rounded-lg bg-raised p-0 text-text hover:bg-fond-survol"
             onClick={() => ouvrirLaVeilleDansLeService(carte.projectId, veille.id)}
             title={t('Voir dans Tâches récurrentes')}
             aria-label="Voir dans Tâches récurrentes"

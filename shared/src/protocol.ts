@@ -1118,11 +1118,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('coffre.dossier.restaurer'), id: z.string() }),
   /**
    * LE JUGE RAPIDE (`shared/src/jugement-rapide.ts`). `etat` rend tout ce que
-   * l'écran affiche : Laya est-il installé, quels usages sont allumés, les
-   * dernières traces et leur bilan. `usage` allume ou éteint UN usage, sans
-   * toucher aux autres.
+   * l'écran affiche : une clé est-elle rangée, quels usages sont allumés, les
+   * dernières traces et leur bilan. `tester` essaie la clé sur-le-champ.
+   * `usage` allume ou éteint UN usage, sans toucher aux autres.
    */
   z.object({ type: z.literal('juge.etat') }),
+  z.object({ type: z.literal('juge.tester') }),
   z.object({ type: z.literal('juge.usage'), usage: z.string(), allume: z.boolean() }),
   z.object({ type: z.literal('juge.traces'), limite: z.number().optional(), usage: z.string().optional() }),
   /**
@@ -1284,10 +1285,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('production.revenir'), cardId: z.string(), cle: z.string(), version: z.number().int().positive() }),
   /* Corriger une pièce écrite du suivi à la main : une nouvelle version signée « utilisateur ». */
   z.object({ type: z.literal('production.modifier'), cardId: z.string(), cle: z.string(), titre: z.string().max(200).optional(), contenu: z.string().max(20_000), depuisVersion: z.number().int().positive().optional() }),
-  /** « Utiliser cette direction » depuis le menu « Versions » de la direction retenue : une autre piste est retenue, l'ancienne écartée, l'aval à revalider. */
+  /** « Utiliser cette direction » depuis la feuille « Archives » du suivi : une autre piste est retenue, l'ancienne écartée, l'aval à revalider. */
   z.object({ type: z.literal('production.choisirDirection'), cardId: z.string(), cle: z.string() }),
   /** « Ajouter au suivi » / « Retirer du suivi » depuis le menu « … » d'un média : le fichier ne bouge jamais. */
   z.object({ type: z.literal('production.retenir'), cardId: z.string(), mediaId: z.string(), retenu: z.boolean() }),
+  /* Un média du fil inconnu de la production (autre outil, pièce envoyée, capture) : inscrit au premier geste de son menu « … ». */
+  z.object({ type: z.literal('production.inscrire'), cardId: z.string(), attachmentId: z.string() }),
+  /**
+   * PLACER UN MÉDIA DANS UN PLAN (28/10/2026) : « Valider » puis le choix du plan, ou le glisser vers une case du suivi.
+   * Le média est validé dans ce plan ; l'occupant de la case perd sa validation, ou prend la place d'origine s'il vient d'un autre plan.
+   */
+  z.object({ type: z.literal('production.placer'), cardId: z.string(), mediaId: z.string(), plan: z.string().min(1).max(200) }),
   /*
    * LE PARCOURS D'UNE CRÉATION DE MÉDIA (26/10/2026) : le bouton du bas
    * (Brief → Esquisses → Montage → Téléchargement), les panneaux du menu « … »
@@ -1317,9 +1325,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
     consigne: z.string().max(4000).optional(),
     photos: z.array(z.string()).max(8).optional(),
     cible: z.string().max(300).optional(),
+    /** « Remplacer le visage » : le visage cliqué sur l'image, et tous ceux qui y ont été repérés. */
+    visageCible: z.object({ x: z.number(), y: z.number(), largeur: z.number(), hauteur: z.number() }).optional(),
+    visages: z.array(z.object({ x: z.number(), y: z.number(), largeur: z.number(), hauteur: z.number() })).max(12).optional(),
     lumiere: z.object({ azimut: z.number(), elevation: z.number() }).optional(),
     typeDeLumiere: z.string().max(120).optional(),
-    angle: z.string().max(40).optional(),
+    /** Un angle nommé, ou la caméra du cube réglée à la main. */
+    angle: z.union([z.string().max(40), z.object({ horizontal: z.number(), vertical: z.number(), zoom: z.number() })]).optional(),
     fin: z.string().optional(),
     duree: z.number().positive().max(60).optional(),
     son: z.boolean().optional(),
@@ -1333,6 +1345,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('realisation.son.exporter'), cardId: z.string(), montage: z.unknown(), format: z.enum(['mp3', 'wav']) }),
   z.object({ type: z.literal('realisation.telechargement.lire'), cardId: z.string() }),
   z.object({ type: z.literal('medias.livres.agent'), agentId: z.string() }),
+  /* Les visages repérés sur les images d'un projet (« Remplacer le visage »). */
+  z.object({ type: z.literal('visages.lire'), projectId: z.string() }),
+  z.object({
+    type: z.literal('visages.ecrire'),
+    projectId: z.string(),
+    resultats: z.array(z.object({ attachmentId: z.string(), boites: z.array(z.object({ x: z.number(), y: z.number(), largeur: z.number(), hauteur: z.number() })).max(12) })).max(200),
+  }),
   z.object({
     type: z.literal('medias.lister'),
     projectId: z.string(),
@@ -2100,7 +2119,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     title: z.string(),
     body: z.string(),
     tag: z.string().optional(),
-    /** Une adresse de l'application (« #leads ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
+    /** Une adresse de l'application (« #<service> ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
     url: z.string().optional(),
     /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
     motif: z.string().optional(),

@@ -38,7 +38,7 @@ const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleL
   { cle: 'backups', repere: 'backups', Icone: HardDriveDownload, cleLibelle: 'Backup' },
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
   { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes' },
-  { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Marketing' },
+  { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Réseaux sociaux' },
   { cle: 'medias', repere: 'medias', Icone: Film, cleLibelle: 'Médias' },
   { cle: 'notes', repere: 'notes', Icone: NotebookPen, cleLibelle: 'Notes' },
 ];

@@ -233,7 +233,21 @@ export function planDuMedia(nom: string, plans: readonly Pick<PlanDuDecoupage, '
   return null;
 }
 
-type MediaDuPassage = Pick<MediaDuSuivi, 'id' | 'plan' | 'genre' | 'capacite' | 'etat' | 'retenuLe' | 'creeLe' | 'sourceId'>;
+type MediaDuPassage = Pick<MediaDuSuivi, 'id' | 'plan' | 'genre' | 'capacite' | 'etat' | 'retenuLe' | 'creeLe' | 'sourceId' | 'planPlace'>;
+
+/**
+ * LE PLAN OÙ VIT UN MÉDIA VALIDÉ (28/10/2026) : celui où l'utilisateur l'a
+ * PLACÉ (menu des plans de « Valider », ou glisser vers une case du suivi),
+ * sinon celui que son devis nomme. Un plan placé qui a quitté le découpage
+ * retombe sur le plan du devis.
+ */
+export function planEffectif(m: Pick<MediaDuSuivi, 'plan' | 'planPlace'>, plans: readonly Pick<PlanDuDecoupage, 'cle' | 'titre'>[]): string | null {
+  if (m.planPlace && plans.some((p) => p.cle === m.planPlace)) return m.planPlace;
+  return planDuMedia(m.plan, plans);
+}
+
+/** L'instant qui range les validés d'une case : la dernière validation (ou le dernier placement), puis la fabrication. */
+const instantDeValidation = (m: Pick<MediaDuSuivi, 'retenuLe' | 'creeLe'>): number => m.retenuLe ?? m.creeLe;
 
 /** Ce que chaque plan d'une vidéo a de validé : son image, sa séquence, et si la séquence est à refaire. */
 export interface EtatDuPlan extends PlanDuDecoupage {
@@ -246,14 +260,88 @@ export interface EtatDuPlan extends PlanDuDecoupage {
 }
 
 export function etatDesPlans(plans: readonly PlanDuDecoupage[], medias: readonly MediaDuPassage[]): EtatDuPlan[] {
-  const valides = medias.filter((m) => estRetenu(m)).sort((a, b) => b.creeLe - a.creeLe);
+  /* LA PLUS RÉCEMMENT VALIDÉE D'ABORD (28/10/2026) : une image placée à la main
+     dans une case y passe devant, même fabriquée avant celle qui l'occupait. */
+  const valides = medias.filter((m) => estRetenu(m)).sort((a, b) => instantDeValidation(b) - instantDeValidation(a) || b.creeLe - a.creeLe);
   return plans.map((p) => {
-    const duPlan = valides.filter((m) => planDuMedia(m.plan, plans) === p.cle);
+    const duPlan = valides.filter((m) => planEffectif(m, plans) === p.cle);
     const images = duPlan.filter((m) => m.genre === 'image');
     const sequence = duPlan.find((m) => m.genre === 'video') ?? null;
     const aRefaire = !!sequence?.sourceId && !images.some((i) => i.id === sequence.sourceId);
     return { ...p, images, sequence, aRefaire };
   });
+}
+
+/**
+ * CE QUI SE FABRIQUE POUR UN PLAN (27/10/2026) : les médias encore « en cours »
+ * dont le devis vise ce plan, du genre attendu par sa case (l'image, ou la
+ * séquence). La case du volet y pose le même balayage que le bloc du fil,
+ * jusqu'à l'arrivée du média. `plans` est le découpage ENTIER : un nom de plan
+ * ne se rattache qu'au plan qu'il désigne vraiment.
+ */
+export function enFabricationDuPlan(
+  cle: string,
+  plans: readonly Pick<PlanDuDecoupage, 'cle' | 'titre'>[],
+  medias: readonly Pick<MediaDuSuivi, 'id' | 'plan' | 'genre' | 'etat'>[],
+  genre: 'image' | 'video',
+): number {
+  return medias.filter((m) => m.etat === 'en-cours' && m.genre === genre && planDuMedia(m.plan, plans) === cle).length;
+}
+
+/**
+ * PLACER UN MÉDIA DANS UN PLAN (28/10/2026) — « Valider » suivi du choix du
+ * plan, ou le glisser d'une image vers une case du suivi. Règle pure : elle
+ * rend les CHANGEMENTS à écrire, et le démon les écrit d'un seul tenant.
+ *
+ *  - Une IMAGE ne va que dans la case d'image d'un plan, une VIDÉO que dans
+ *    sa case de séquence ; un son n'a pas de case.
+ *  - Le média placé est validé dans ce plan (`planPlace`), à l'instant du geste.
+ *  - LA CASE ÉTAIT PLEINE : si le média venait d'un AUTRE plan où il était
+ *    validé, l'occupant affiché PREND SA PLACE (échange) ; sinon (média du fil,
+ *    pas encore validé), l'occupant perd sa validation. Il reste dans le fil :
+ *    rien n'est jamais effacé. Les autres validés de la case, cachés derrière
+ *    l'occupant, perdent aussi la leur : la case ne garde que le média placé.
+ */
+export type PlacementDansUnPlan =
+  | {
+      ok: true;
+      /** Les médias à écrire : leur validation (`null` : retirée) et leur plan placé. */
+      changements: { id: string; retenuLe: number | null; planPlace: string | null }[];
+      /** L'occupant qui a pris la place d'origine, quand il y a eu échange. */
+      echange: string | null;
+    }
+  | { ok: false; raison: string };
+
+export function placementDansUnPlan(
+  plans: readonly PlanDuDecoupage[],
+  medias: readonly MediaDuPassage[],
+  e: { mediaId: string; planCle: string; maintenant: number },
+): PlacementDansUnPlan {
+  const m = medias.find((x) => x.id === e.mediaId);
+  if (!m) return { ok: false, raison: 'média introuvable sur cette carte' };
+  if (m.etat !== 'fini') return { ok: false, raison: 'seul un média fini se place dans un plan' };
+  if (m.genre === 'son') return { ok: false, raison: 'un son n’a pas de case de plan' };
+  const visuels = plans.filter((p) => p.visuel);
+  const cible = visuels.find((p) => p.cle === e.planCle);
+  if (!cible) return { ok: false, raison: 'ce plan n’existe pas dans le découpage' };
+  /* Les validés du même genre déjà dans la case, dans l'ordre où le volet les montre (le premier est l'occupant affiché). */
+  const occupants = medias
+    .filter((x) => x.id !== m.id && x.genre === m.genre && estRetenu(x) && planEffectif(x, plans) === cible.cle)
+    .sort((a, b) => instantDeValidation(b) - instantDeValidation(a) || b.creeLe - a.creeLe);
+  const origine = estRetenu(m) ? planEffectif(m, plans) : null;
+  const changements: { id: string; retenuLe: number | null; planPlace: string | null }[] = [
+    { id: m.id, retenuLe: e.maintenant, planPlace: cible.cle },
+  ];
+  let echange: string | null = null;
+  const [affiche, ...caches] = occupants;
+  if (affiche && origine && origine !== cible.cle && visuels.some((p) => p.cle === origine)) {
+    echange = affiche.id;
+    changements.push({ id: affiche.id, retenuLe: e.maintenant, planPlace: origine });
+  } else if (affiche) {
+    changements.push({ id: affiche.id, retenuLe: null, planPlace: null });
+  }
+  for (const x of caches) changements.push({ id: x.id, retenuLe: null, planPlace: null });
+  return { ok: true, changements, echange };
 }
 
 /* ------------------------------------------------------------------ */

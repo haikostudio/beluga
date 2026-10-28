@@ -15,7 +15,9 @@ import { Curseur } from '@/components/ui/elements-maison';
 import { FormeDOnde, useOnde } from '@/components/studio/onde';
 import { LecteurSon } from '@/components/lecteur-son';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
+import { CroixDuVolet } from '@/components/feuille-du-volet';
 import { client } from '@/lib/client';
+import { fermerLeDocument } from '@/lib/document-de-carte';
 import { useProduction } from '@/lib/production-de-carte';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -253,6 +255,7 @@ function EditeurDeSon({
         <span className="text-[12px] tabular-nums text-faint">
           {ecoute.position.toFixed(1)} / {ecoute.duree.toFixed(1)} s
         </span>
+        <CroixDuVolet genre="studio-son" onFermer={fermerLeDocument} className="-my-1 -mr-2" />
       </div>
 
       <ZoneDefilement className="min-h-0 flex-1 px-4 pb-3">
@@ -272,7 +275,7 @@ function EditeurDeSon({
                       title={muette ? t('Rétablir le son de la piste') : t('Couper la piste')}
                       onClick={() => onChanger({ ...montage, muettes: muette ? montage.muettes.filter((p) => p !== piste) : [...montage.muettes, piste] })}
                       data-couper-piste={piste}
-                      className={cn('flex h-6 w-6 items-center justify-center rounded', muette ? 'bg-teinte-plein text-white' : 'text-muted hover:bg-raised')}
+                      className={cn('flex h-6 w-6 items-center justify-center rounded', muette ? 'bg-teinte-plein text-sur-couleur' : 'text-muted hover:bg-raised')}
                     >
                       {muette ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
                     </button>

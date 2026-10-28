@@ -58,10 +58,19 @@ export function estCarteMarketing(carte: { labels?: readonly string[] | null } |
  */
 export const COLONNE_OU_PARAIT_LA_CARTE_MARKETING = 'running';
 
+/**
+ * LES LABELS DES CARTES QUI SE RANGENT DANS LEUR SERVICE, sous la même règle :
+ * celles de l'atelier Réseaux sociaux (label historique « marketing »), et
+ * celles d'un service réservé qui s'ajoute ici.
+ */
+export const LABELS_DE_CARTES_D_ATELIER: readonly string[] = [
+  LABEL_MARKETING,
+];
+
 export function carteMarketingCachee(
   carte: { labels?: readonly string[] | null; column?: string | null } | null | undefined,
 ): boolean {
-  return estCarteMarketing(carte) && carte?.column !== COLONNE_OU_PARAIT_LA_CARTE_MARKETING;
+  return !!carte?.labels?.some((l) => LABELS_DE_CARTES_D_ATELIER.includes(l)) && carte?.column !== COLONNE_OU_PARAIT_LA_CARTE_MARKETING;
 }
 
 export const NATURES_PRODUIT = ['site', 'boutique', 'app', 'saas'] as const;
@@ -1717,5 +1726,5 @@ export function demandeDeReorganisation(entree: { aujourdhui: string; rythme: Ry
 
 /** Le titre de la carte de l'agent attitré. */
 export function titreDeLAgentMarketing(nomProjet: string): string {
-  return `Marketing — ${nomProjet}`.slice(0, 80);
+  return `Réseaux sociaux — ${nomProjet}`.slice(0, 80);
 }

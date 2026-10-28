@@ -169,7 +169,7 @@ export function ecrireApplication(entree: { application?: unknown; reseau?: unkn
         valeur: entree.secret.trim(),
         projectId: null,
         dossier: DOSSIER_APPLICATIONS,
-        note: `Secret de l’application développeur ${app}, utilisé par l’atelier marketing pour relier les comptes de tous les projets.`,
+        note: `Secret de l’application développeur ${app}, utilisé par l’atelier Réseaux sociaux pour relier les comptes de tous les projets.`,
       });
     } catch (err: any) {
       return { ok: false, raison: err?.message ?? 'Secret refusé par le coffre.' };
@@ -294,7 +294,7 @@ export function enregistrerComptes(projectId: string, trouves: CompteTrouve[], m
         valeur: t.jetons.acces,
         projectId,
         dossier,
-        note: `Accès de l’atelier marketing au compte ${fiche.libelle} « ${t.nom} » du projet ${projet.name}. Renouvelé tout seul quand le réseau le permet.`,
+        note: `Accès de l’atelier Réseaux sociaux au compte ${fiche.libelle} « ${t.nom} » du projet ${projet.name}. Renouvelé tout seul quand le réseau le permet.`,
       });
       refs.set(t.jetons.acces, jetonRef);
     }
@@ -364,7 +364,7 @@ export async function renouvelerCompte(id: string): Promise<void> {
     const projet = store.getProject(l.project_id);
     const fiche = FICHES_RESEAUX[reseau];
     const dossier = dossierDuProjet(projet?.name ?? l.project_id);
-    rangerSecret({ id: l.jeton_ref, nom: `${fiche.libelle} ${l.nom} — jeton d’accès`, type: 'jeton', service: fiche.libelle, valeur: j.acces, projectId: l.project_id, dossier, note: `Accès de l’atelier marketing au compte ${fiche.libelle} « ${l.nom} ». Renouvelé tout seul.` });
+    rangerSecret({ id: l.jeton_ref, nom: `${fiche.libelle} ${l.nom} — jeton d’accès`, type: 'jeton', service: fiche.libelle, valeur: j.acces, projectId: l.project_id, dossier, note: `Accès de l’atelier Réseaux sociaux au compte ${fiche.libelle} « ${l.nom} ». Renouvelé tout seul.` });
     if (j.rafraichissement && l.rafraichissement_ref) {
       rangerSecret({ id: l.rafraichissement_ref, nom: `${fiche.libelle} ${l.nom} — jeton de renouvellement`, type: 'jeton', service: fiche.libelle, valeur: j.rafraichissement, projectId: l.project_id, dossier, note: `Sert à renouveler l’accès au compte ${fiche.libelle} « ${l.nom} ».` });
     }

@@ -98,7 +98,7 @@ export function ExplorateurDeCompetences({ rafraichir }: { rafraichir?: unknown 
               data-recherche-competences
             />
           </div>
-          <ZoneDefilement className="max-h-[420px] overflow-y-auto" fond="var(--bg)">
+          <ZoneDefilement className="max-h-[420px] overflow-y-auto" fond="hsl(var(--bg))">
             <div className="space-y-3 pb-1">
               {themes.map((theme) => (
                 <section key={theme || 'autres'} className="space-y-1">
@@ -117,7 +117,7 @@ export function ExplorateurDeCompetences({ rafraichir }: { rafraichir?: unknown 
                               setOuverte(fiche);
                             }
                           }}
-                          className="cursor-pointer rounded-lg bg-raised px-3 py-2 transition-colors hover:bg-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint/60"
+                          className="cursor-pointer rounded-lg bg-raised px-3 py-2 transition-colors hover:bg-fond-survol focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint/60"
                         >
                           <div className="flex items-baseline gap-2">
                             <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-text">{nomLisible(fiche.nom)}</span>

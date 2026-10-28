@@ -283,7 +283,7 @@ function etatDuCoffre() {
 
 import { phrasePourLEcran } from './explication-d-erreur.js';
 import { enregistrerNote, listerNotes, piecesDesNotes, supprimerNote } from './notes.js';
-import { etatDuJuge, listerLesTraces } from './jugement-rapide.js';
+import { etatDuJuge, listerLesTraces, testerLaCle } from './jugement-rapide.js';
 import {
   ajouterSite,
   listerControles,
@@ -371,8 +371,8 @@ import {
   ordreDeMoteursComplet,
 } from '@beluga/shared';
 import { createHash } from 'node:crypto';
-import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee } from '@beluga/shared';
-import { estFinie, peutEtreRangee } from '@beluga/shared';
+import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee, ligneDeFermetureDuCanal } from '@beluga/shared';
+import { estFinie, peutEtreRangee, validationNonBloquante } from '@beluga/shared';
 import { detailPourCetEcran, elargirLePerimetre } from './perimetre-ecran.js';
 import { consigneAjoutDeMoteur, rappelAjoutDeMoteur } from '@beluga/shared';
 import {
@@ -457,6 +457,26 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
        la personne déduit de son adresse — oubliée aussitôt. Rien si le partage est coupé. */
     const finDeSession = noterUneConnexion(compte, _req);
     ws.once('close', finDeSession);
+    /* CHAQUE FERMETURE LAISSE SA LIGNE : code et durée vus d'ici, pour trancher
+       la prochaine coupure inexpliquée entre le réseau du poste, la porte
+       d'entrée et le démon (enquête des décrochages, 28/10/2026). */
+    const ouvertA = Date.now();
+    // Relevée À L'OUVERTURE : à la fermeture, la prise est déjà défaite et n'a plus d'adresse.
+    const transmis = _req.headers['x-forwarded-for'];
+    const adresse = (Array.isArray(transmis) ? transmis[0] : transmis)?.split(',')[0]?.trim() || _req.socket.remoteAddress;
+    ws.once('close', (code: number, raison: Buffer) => {
+      log.info(
+        ligneDeFermetureDuCanal({
+          code,
+          raison: raison?.toString(),
+          ouvertA,
+          fermeA: Date.now(),
+          enAttente: ws.bufferedAmount,
+          adresse,
+          appareil: _req.headers['user-agent'],
+        }),
+      );
+    });
     /*
      * LE CANAL APPLIQUE LA MÊME GRILLE QUE LES COMMANDES, À L'ENVOI.
      *
@@ -690,7 +710,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         log.warn(`commande ${envelope.cmd.type}${contexteDeCommande(envelope.cmd)} refusée :`, err?.message ?? err);
         /* LE REFUS PART EN PHRASE SIMPLE : un message écrit par la machine
            (code système, sortie de git, trace) est traduit par sa famille,
-           ou par Laya s'il est inconnu (`explication-d-erreur.ts`). Le
+           ou par Jev s'il est inconnu (`explication-d-erreur.ts`). Le
            texte brut reste au journal, juste au-dessus. */
         if (envelope.id)
           repondre({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(err?.message ?? String(err), envelope.cmd.type) });
@@ -2814,6 +2834,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
           log.warn('lot de création non lancé', String((err as Error)?.message ?? err));
           return null;
         })) ?? '';
+        /* UNE VALIDATION NON BLOQUANTE (27/10/2026) : aucun tour ne l'attend, et
+           le clic a déjà tout fait — lancé, ou refusé sans rien dépenser. On ne
+           relance pas l'agent à chaque bouton : il lira l'état des lots à son
+           prochain tour, et le démon suit lui-même les générations. */
+        if (validationNonBloquante(question)) return { ok: true };
       }
 
       /*
@@ -3454,6 +3479,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     /* -------- Facturation -------- */
 
 
+
     case 'card.ecartChiffrage':
       return { ecart: ecartChiffrage(cmd.projectId) };
 
@@ -3962,10 +3988,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     /*
      * TOUT CE QUE L'ÉCRAN DU JUGE AFFICHE, EN UNE RÉPONSE. L'activation n'est
-     * pas un réglage à part : c'est la PRÉSENCE de Laya sur la machine.
+     * pas un réglage à part : c'est la PRÉSENCE d'une clé TypeSafe au coffre-fort.
      */
     case 'juge.etat':
       return etatDuJuge();
+
+    /* Le bouton « Tester la clé » : un jugement trivial, quelques dizaines de jetons. */
+    case 'juge.tester':
+      return testerLaCle();
 
     /* Éteindre UN usage ne touche jamais aux autres. */
     case 'juge.usage': {
@@ -4269,11 +4299,26 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true, deja: r.deja, aval: r.aval };
     }
 
+    case 'production.inscrire': {
+      const { inscrireUnMediaDuFil, versMediaDuSuivi } = await import('./realisation.js');
+      const r = await inscrireUnMediaDuFil(cmd.cardId, cmd.attachmentId);
+      if (!r.ok) throw new Error(r.raison);
+      return { media: versMediaDuSuivi(r.media), deja: r.deja };
+    }
+
     case 'production.retenir': {
       const { retenirUnMedia } = await import('./realisation.js');
       const r = retenirUnMedia(cmd.cardId, cmd.mediaId, cmd.retenu);
       if (!r.ok) throw new Error(r.raison);
       return { retenu: !!r.media.retenuLe, change: r.change };
+    }
+
+    case 'production.placer': {
+      /* « Valider » puis le choix du plan, ou le glisser vers une case du suivi : aucun agent n'est réveillé. */
+      const { placerUnMedia, versMediaDuSuivi } = await import('./realisation.js');
+      const r = placerUnMedia(cmd.cardId, cmd.mediaId, cmd.plan);
+      if (!r.ok) throw new Error(r.raison);
+      return { media: versMediaDuSuivi(r.media), echange: r.echange };
     }
 
     case 'realisation.passer': {
@@ -4321,6 +4366,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'realisation.telechargement.lire': {
       const { telechargementDeLaCarte } = await import('./parcours-du-media.js');
       return telechargementDeLaCarte(cmd.cardId);
+    }
+
+    case 'visages.lire': {
+      const { visagesDuProjet } = await import('./visages-des-pieces.js');
+      return { pieces: visagesDuProjet(cmd.projectId) };
+    }
+
+    case 'visages.ecrire': {
+      const { enregistrerLesVisages } = await import('./visages-des-pieces.js');
+      return { enregistres: enregistrerLesVisages(cmd.projectId, cmd.resultats) };
     }
 
     case 'medias.lister': {

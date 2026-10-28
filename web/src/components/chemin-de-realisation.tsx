@@ -6,7 +6,6 @@ import {
   type EtatDUnJalon,
   type TodoItem,
   LIBELLE_ETAPE_DE_SUIVI,
-  LIBELLES_PHASES_DE_REALISATION,
   cheminDeLaRealisation,
   estUnApercu,
   realisationDeLaCarte,
@@ -18,11 +17,13 @@ import { CLASSE_TRAIT_DE_BRANCHE } from '@/components/pastille-projet';
 import { useMediasLivres } from '@/components/medias-livres';
 import { ImageDePiece, adresseDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
-import { ouvrirLeDocument } from '@/lib/document-de-carte';
+import { ouvrirLeSuivi } from '@/lib/suivi-de-carte';
+import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { useEtapesDuMedia } from '@/lib/production-de-carte';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { ouvrirFichierSurPlace } from '@/components/visionneuse-de-lien';
 
 /** L'étape du tournage se valide comme une tâche : faite, en cours (ou prête), à venir. */
 function etatDeTache(etat: EtatDUnJalon): TodoItem['state'] {
@@ -94,6 +95,7 @@ export function CheminDeRealisation({
   taches?: React.ReactNode;
 }) {
   const chemin = cheminDeLaRealisation(carte);
+  const telephone = useTelephone();
   const auTravail = carte.column === 'running';
   /* LES QUATRE ÉTAPES DU MÉDIA (26/10/2026), les mêmes que la barre du haut et
      le volet : Brief, Esquisses, Montage, Téléchargement — plus les sept jalons
@@ -184,19 +186,24 @@ export function CheminDeRealisation({
             );
           })}
         </ol>
-          <button
-            type="button"
-            className="mt-0.5 flex h-[29px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted transition-colors hover:bg-raised hover:text-text sm:h-6"
-            title={t('Ouvrir le suivi de la production')}
-            data-ouvrir-le-suivi=""
-            onClick={(event) => {
-              event.stopPropagation();
-              ouvrirLeDocument({ cardId: carte.id, genre: 'suivi', numero: 0 });
-            }}
-          >
-            <Clapperboard className="h-3.5 w-3.5" />
-            {t('Suivi')}
-          </button>
+          {/* SUR TÉLÉPHONE SEULEMENT : sur ordinateur, le suivi s'ouvre et se ferme
+              par le bouton « Suivi » posé au-dessus de « Ce que l'agent a vu »
+              (`BoutonDuSuivi`, 28/10/2026) — deux boutons pareils feraient doublon. */}
+          {telephone ? (
+            <button
+              type="button"
+              className="mt-0.5 flex h-[29px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted transition-colors hover:bg-raised hover:text-text sm:h-6"
+              title={t('Ouvrir le suivi de la production')}
+              data-ouvrir-le-suivi=""
+              onClick={(event) => {
+                event.stopPropagation();
+                ouvrirLeSuivi(carte.id);
+              }}
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+              {t('Suivi')}
+            </button>
+          ) : null}
         </div>
       </div>
     </section>
@@ -204,19 +211,22 @@ export function CheminDeRealisation({
 }
 
 /**
- * LES PLANS FABRIQUÉS ET LE TABLEAU D'AMBIANCE DU TOURNAGE, DANS LE FIL : ils
- * défilent, sous le plan, quand le chemin lui-même est collé en bas.
+ * LES PLANS FABRIQUÉS DU TOURNAGE, DANS LE FIL : ils défilent, sous le plan,
+ * quand le chemin lui-même est collé en bas.
+ *
+ * LE TABLEAU D'AMBIANCE N'Y EST PLUS (27/10/2026, capture #ee9e : « c'est quoi
+ * ce média planté là en bas au milieu de rien ? ») : posé seul au bas du fil,
+ * il ne disait rien. Les images retenues au questionnaire vivent dans la
+ * rubrique « Ambiance » du volet Suivi, et nulle part ailleurs.
  */
 export function GaleriesDuTournage({ carte }: { carte: Card }) {
   const chemin = cheminDeLaRealisation(carte);
   const auTravail = carte.column === 'running';
   const plans = auTravail && (chemin.jalon === 'fabrication' || chemin.jalon === 'montage');
-  const ambiance = (realisationDeLaCarte(carte).ambiance ?? []).length > 0;
-  if (!plans && !ambiance) return null;
+  if (!plans) return null;
   return (
     <div className="px-4 pb-3 pt-1 [&>*:first-child]:mt-0" data-galeries-du-tournage>
-      {plans ? <PlansFabriques carte={carte} /> : null}
-      {ambiance ? <TableauDAmbiance carte={carte} /> : null}
+      <PlansFabriques carte={carte} />
     </div>
   );
 }
@@ -230,7 +240,7 @@ export function GaleriesDuTournage({ carte }: { carte: Card }) {
  * Les finis viennent de la base (`medias.livres.carte`, `useMediasLivres`) : la
  * rangée survit au rechargement et au redémarrage du démon. Les silhouettes
  * viennent de la liste en mémoire (`medias.fabrication`). Les aperçus du
- * questionnaire n'y entrent pas : ils ont leur tableau d'ambiance.
+ * questionnaire n'y entrent pas : ils vivent dans l'ambiance du volet Suivi.
  */
 function PlansFabriques({ carte }: { carte: Card }) {
   const livres = useMediasLivres({ cardId: carte.id });
@@ -257,7 +267,7 @@ function PlansFabriques({ carte }: { carte: Card }) {
               key={m.id}
               type="button"
               className="group flex min-w-0 flex-col gap-0.5 text-left"
-              onClick={() => (jointe ? setOuverte(jointe) : window.open(adresseDePiece(m.attachmentId), '_blank'))}
+              onClick={() => (jointe ? setOuverte(jointe) : ouvrirFichierSurPlace(adresseDePiece(m.attachmentId)))}
               title={legende}
               data-plan-fabrique={m.attachmentId}
               data-plan-genre={m.genre}
@@ -287,46 +297,6 @@ function PlansFabriques({ carte }: { carte: Card }) {
             <span className="block truncate text-[11px] leading-tight text-faint">{m.sujet}</span>
           </span>
         ))}
-      </div>
-      <AttachmentPreview item={ouverte} onClose={() => setOuverte(null)} galerie={galerie} onNaviguer={setOuverte} />
-    </div>
-  );
-}
-
-/**
- * LE TABLEAU D'AMBIANCE : les images retenues pendant le questionnaire (un
- * choix en images tranché, un aperçu gardé), chacune avec la rubrique qu'elle
- * illustre. Un clic l'ouvre en grand, avec la galerie des autres.
- */
-function TableauDAmbiance({ carte }: { carte: Card }) {
-  const [ouverte, setOuverte] = React.useState<Attachment | null>(null);
-  const pieces = realisationDeLaCarte(carte).ambiance ?? [];
-  const connues = usePiecesDuProjet(carte.projectId);
-  const galerie = pieces.map((p) => connues?.find((a) => a.id === p.piece)).filter(Boolean) as Attachment[];
-  return (
-    <div className="mt-3" data-tableau-ambiance={pieces.length}>
-      <p className="mb-1.5 text-[12px] uppercase tracking-wide text-faint">{t('Tableau d’ambiance')}</p>
-      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
-        {pieces.map((piece) => {
-          const jointe = galerie.find((a) => a.id === piece.piece);
-          return (
-            <button
-              key={piece.piece}
-              type="button"
-              className="group flex min-w-0 flex-col gap-0.5 text-left"
-              onClick={() => (jointe ? setOuverte(jointe) : window.open(`/api/attachment?id=${encodeURIComponent(piece.piece)}`, '_blank'))}
-              title={[piece.legende, t(LIBELLES_PHASES_DE_REALISATION[piece.phase])].filter(Boolean).join(' · ')}
-              data-piece-ambiance={piece.piece}
-            >
-              <span className="relative block aspect-square w-full overflow-hidden rounded-md bg-surface">
-                <ImageDePiece id={piece.piece} alt={piece.legende ?? ''} className="h-full w-full object-cover" />
-              </span>
-              <span className="block truncate text-[11px] leading-tight text-faint group-hover:text-muted">
-                {piece.legende ?? t(LIBELLES_PHASES_DE_REALISATION[piece.phase])}
-              </span>
-            </button>
-          );
-        })}
       </div>
       <AttachmentPreview item={ouverte} onClose={() => setOuverte(null)} galerie={galerie} onNaviguer={setOuverte} />
     </div>

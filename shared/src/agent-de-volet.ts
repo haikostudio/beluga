@@ -67,7 +67,7 @@ export function serviceDeLaCarte(
 
 /** Le nom du service sur le badge de la carte (le dictionnaire le traduit à l'affichage). */
 export const NOM_DU_SERVICE: Readonly<Record<ServiceDeCarte, string>> = {
-  marketing: 'Marketing',
+  marketing: 'Réseaux sociaux',
   surveillance: 'Surveillance',
   backups: 'Sauvegardes',
 };

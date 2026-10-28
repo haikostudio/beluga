@@ -254,7 +254,7 @@ export function AssistantGlobal() {
               <>
                 {vide ? (
                   <p className="px-4 pt-3 text-[13px] leading-snug text-muted" data-assistant-accueil>
-                    {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, marketing, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}
+                    {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, réseaux sociaux, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}
                   </p>
                 ) : null}
                 <Chat agent={agent} projectId={agent.projectId} nouveauDepart creuxReserveAilleurs libelleDuChamp={t('Écrire à l’assistant')} />

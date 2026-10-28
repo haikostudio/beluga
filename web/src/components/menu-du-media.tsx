@@ -1,17 +1,24 @@
 import * as React from 'react';
-import { Check, Clapperboard, Download, Footprints, Loader2, MessageSquarePlus, Move3d, RotateCw, ScanFace, SlidersHorizontal, SunMedium, Undo2 } from 'lucide-react';
+import { Check, ChevronLeft, Clapperboard, Download, Footprints, Loader2, MessageSquarePlus, Move3d, RotateCw, ScanFace, SlidersHorizontal, SunMedium, Undo2, X } from 'lucide-react';
 import {
   ANGLES_DE_VUE,
   PARAMETRES_DES_ANGLES,
   animationPermise,
   carteDeMedia,
   catalogueDeGeneration,
+  decoupageDuMedia,
+  etatDesPlans,
+  phaseDesEsquisses,
+  planDuMedia,
   typesDeMediaDeLaRealisation,
   heureExacte,
   estUneRetoucheDImage,
+  genreDePieceDuFil,
   informationsDuMedia,
+  planDePieceDuFil,
   type Attachment,
   type CapaciteDeGeneration,
+  type EtatDuPlan,
   type InformationDeMedia,
   type MediaDuSuivi,
 } from '@beluga/shared';
@@ -19,6 +26,9 @@ import {
   ActionTiroir,
   Button,
   Drawer,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
   EnteteDeFeuille,
   Input,
   MenuActions,
@@ -26,7 +36,8 @@ import {
   ZoneDefilement,
   ListeDeroulante,
 } from '@/components/ui';
-import { adresseDePiece } from '@/components/pastille-de-fichier';
+import { adresseDePiece, ImageDePiece } from '@/components/pastille-de-fichier';
+import { VignetteVideo } from '@/components/lecteur-video';
 import { LIBELLES_OPERATIONS_DU_PANNEAU, PanneauDuMedia, type OperationDuPanneau } from '@/components/creation/panneau-du-media';
 import { client } from '@/lib/client';
 import { joindreAuChamp } from '@/lib/joindre-au-champ';
@@ -163,10 +174,167 @@ export function InformationsDuMedia({ media, className }: { media: MediaDuSuivi;
 /** La petite marque d'un média validé, en violet (l'élément choisi). */
 export function MarqueDansLeSuivi({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded bg-teinte-plein px-1 text-[10.5px] leading-4 text-white', className)} data-media-dans-le-suivi="">
+    <span className={cn('inline-flex items-center gap-1 rounded bg-teinte-plein px-1 text-[10.5px] leading-4 text-sur-couleur', className)} data-media-dans-le-suivi="">
       <Check className="h-3 w-3" aria-hidden />
       {t('Validé')}
     </span>
+  );
+}
+
+/**
+ * RETIRER LA VALIDATION D'UN MÉDIA, EN HAUT À DROITE DE SA CASE DANS LE VOLET
+ * (27/10/2026). Même geste que « Retirer la validation » du menu « … » : le
+ * média quitte le volet des esquisses et RESTE dans la discussion — aucun
+ * fichier effacé, aucune archive.
+ */
+export function BoutonRetirerLaValidation({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
+  const [enVol, setEnVol] = React.useState(false);
+  if (!media.retenuLe) return null;
+  const retirer = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (enVol) return;
+    setEnVol(true);
+    try {
+      await client.call({ type: 'production.retenir', cardId, mediaId: media.id, retenu: false });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('La validation n’a pas pu être enregistrée'));
+    } finally {
+      setEnVol(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={(event) => void retirer(event)}
+      aria-busy={enVol}
+      disabled={enVol}
+      title={t('Retirer la validation')}
+      aria-label="Retirer la validation"
+      data-retirer-la-validation={media.id}
+      className={cn('inline-flex h-7 w-7 items-center justify-center rounded-md bg-surface/85 text-text transition-colors hover:bg-surface', className)}
+    >
+      {enVol ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Le choix du plan                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES PLANS OÙ CE MÉDIA PEUT ÊTRE PLACÉ (28/10/2026 : « quand on valide, un
+ * second menu demande dans quel plan on veut insérer cette image »). Seulement
+ * dans une création de média découpée en plans : une image va dans la case
+ * d'image d'un plan, une vidéo dans sa case de séquence — qui n'existe qu'au
+ * second temps des esquisses. Sans plans (une photo seule) ou pour un son :
+ * `null`, et « Valider » reste un seul clic.
+ */
+function usePlansPourLeMedia(cardId: string, media: Pick<MediaDuSuivi, 'genre'>): EtatDuPlan[] | null {
+  const production = useProduction(cardId);
+  const carte = useApp().cards[cardId];
+  return React.useMemo(() => {
+    if (!production || !carte || !carteDeMedia(carte) || media.genre === 'son') return null;
+    if (media.genre === 'video' && phaseDesEsquisses(typesDeMediaDeLaRealisation(carte.realisation), carte.realisation) !== 'sequences') return null;
+    const plans = etatDesPlans(decoupageDuMedia(production.elements), production.medias).filter((p) => p.visuel);
+    return plans.length ? plans : null;
+  }, [production, carte, media.genre]);
+}
+
+/**
+ * PLACER UN MÉDIA DANS UN PLAN : la demande au démon, après l'inscription d'un
+ * média du fil encore inconnu. Ne réveille aucun agent et ne coûte rien.
+ */
+export async function placerDansUnPlan(cardId: string, mediaId: string, plan: string): Promise<void> {
+  await client.call({ type: 'production.placer', cardId, mediaId, plan });
+}
+
+/**
+ * LA LISTE DES PLANS, SECOND NIVEAU DE « VALIDER » : numéro et titre de chaque
+ * plan, le plan pour lequel l'agent a fait le média marqué « prévu », et, quand
+ * la case est déjà pleine, la vignette de ce qu'on va remplacer.
+ */
+function ListeDesPlans({
+  cardId,
+  media,
+  plans,
+  assurer,
+  fermer,
+  retour,
+}: {
+  cardId: string;
+  media: MediaDuSuivi;
+  plans: EtatDuPlan[];
+  assurer: () => Promise<MediaDuSuivi>;
+  fermer: () => void;
+  /** Le retour au premier niveau, quand la liste est le second niveau d'un menu. */
+  retour?: () => void;
+}) {
+  const [enVol, setEnVol] = React.useState<string | null>(null);
+  const prevu = planDuMedia(media.plan, plans);
+  const placer = async (cle: string) => {
+    if (enVol) return;
+    setEnVol(cle);
+    try {
+      const m = await assurer();
+      await placerDansUnPlan(cardId, m.id, cle);
+      fermer();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('La validation n’a pas pu être enregistrée'));
+    } finally {
+      setEnVol(null);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-0.5" data-menu-des-plans={media.id || media.attachmentId || ''}>
+      {retour ? (
+        <ActionTiroir icone={<ChevronLeft className="h-4 w-4" />} onClick={retour} disabled={!!enVol} data-retour-des-plans="">
+          {t('Retour')}
+        </ActionTiroir>
+      ) : null}
+      <p className="px-2 pb-1 pt-1.5 text-[12px] text-faint">{media.genre === 'video' ? t('Dans quel plan placer cette séquence ?') : t('Dans quel plan placer cette image ?')}</p>
+      {plans.map((plan, i) => {
+        const occupant = media.genre === 'video' ? plan.sequence : (plan.images[0] ?? null);
+        const pleine = !!occupant && occupant.id !== media.id;
+        const piece = pleine ? (occupant as MediaDuSuivi).attachmentId : null;
+        return (
+          <ActionTiroir
+            key={plan.cle}
+            icone={
+              enVol === plan.cle ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : piece ? (
+                <span className="block h-6 w-10 overflow-hidden rounded-sm bg-raised" data-occupant-du-plan={occupant!.id}>
+                  {media.genre === 'video' ? (
+                    <VignetteVideo id={piece} nom={plan.titre} className="pointer-events-none h-full w-full object-cover" />
+                  ) : (
+                    <ImageDePiece id={piece} alt={plan.titre} className="h-full w-full object-cover" />
+                  )}
+                </span>
+              ) : (
+                <span className="block w-10 text-center text-[12px] tabular-nums">{i + 1}</span>
+              )
+            }
+            onClick={() => void placer(plan.cle)}
+            disabled={!!enVol}
+            valeur={plan.cle === prevu ? t('prévu') : undefined}
+            data-placer-dans-le-plan={plan.cle}
+            data-plan-prevu={plan.cle === prevu ? '' : undefined}
+            data-plan-plein={pleine ? '' : undefined}
+          >
+            <span className="block truncate">
+              {piece ? <span className="mr-1 tabular-nums text-faint">{i + 1}</span> : null}
+              {plan.titre}
+            </span>
+            {pleine ? (
+              <span className="block truncate text-[12px] text-faint">
+                {media.genre === 'video' ? t('remplacera la séquence actuelle') : t('remplacera l’image actuelle')}
+              </span>
+            ) : null}
+          </ActionTiroir>
+        );
+      })}
+    </div>
   );
 }
 
@@ -178,8 +346,39 @@ export function MarqueDansLeSuivi({ className }: { className?: string }) {
  */
 export function BoutonValider({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
   const [enVol, setEnVol] = React.useState(false);
+  const [plansOuverts, setPlansOuverts] = React.useState(false);
+  const plans = usePlansPourLeMedia(cardId, media);
   if (media.etat !== 'fini' || !media.attachmentId) return null;
   const valide = !!media.retenuLe;
+  /* DANS UNE VIDÉO DÉCOUPÉE EN PLANS, « VALIDER » DEMANDE LE PLAN (28/10/2026) : le clic ouvre la liste, le choix valide. */
+  if (!valide && plans) {
+    return (
+      <DropdownMenu open={plansOuverts} onOpenChange={setPlansOuverts}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            /* Ouvert au clic, pas à l'appui (`ouvertureAuClic`), et le clic ne remonte pas à la vignette qui l'ouvrirait en grand. */
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPlansOuverts(true);
+            }}
+            title={t('Valider : choisir son plan')}
+            aria-pressed={false}
+            data-valider-media={media.id}
+            data-valider-par-plan=""
+            className={cn('inline-flex h-7 items-center gap-1 rounded-md bg-surface/85 px-2 text-[12px] font-medium text-text transition-colors hover:bg-surface', className)}
+          >
+            <Check className="h-3.5 w-3.5" />
+            {t('Valider')}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" collisionPadding={8} className="min-w-[240px] sm:max-w-[min(340px,calc(100vw-16px))]">
+          <ListeDesPlans cardId={cardId} media={media} plans={plans} assurer={async () => media} fermer={() => setPlansOuverts(false)} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
   const basculer = async (event: React.MouseEvent) => {
     event.stopPropagation();
     if (enVol) return;
@@ -203,7 +402,7 @@ export function BoutonValider({ cardId, media, className }: { cardId: string; me
       data-media-valide={valide ? '' : undefined}
       className={cn(
         'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium transition-colors',
-        valide ? 'bg-teinte-plein text-white hover:opacity-90' : 'bg-surface/85 text-text hover:bg-surface',
+        valide ? 'bg-teinte-plein text-sur-couleur hover:opacity-90' : 'bg-surface/85 text-text hover:bg-surface',
         className,
       )}
     >
@@ -217,14 +416,34 @@ export function BoutonValider({ cardId, media, className }: { cardId: string; me
 /* Le menu                                                              */
 /* ------------------------------------------------------------------ */
 
-export function MenuDuMedia({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
+export function MenuDuMedia({
+  cardId,
+  media: donne,
+  inscrire,
+  className,
+}: {
+  cardId: string;
+  media: MediaDuSuivi;
+  /**
+   * UN MÉDIA DU FIL ENCORE INCONNU DE LA PRODUCTION (`id` vide) : le premier
+   * geste qui a besoin de sa ligne (valider, réglages, retouche) l'inscrit
+   * d'abord, puis s'enchaîne sur le média rendu.
+   */
+  inscrire?: () => Promise<MediaDuSuivi>;
+  className?: string;
+}) {
   const state = useApp();
   const agentDuFil = React.useContext(ContexteAgentDuFil);
   const carte = state.cards[cardId];
+  const [inscrit, setInscrit] = React.useState<MediaDuSuivi | null>(null);
+  const media = donne.id ? donne : (inscrit ?? donne);
   const agentId = agentDuFil ?? carte?.agentId ?? media.agentId ?? null;
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [reglages, setReglages] = React.useState(false);
   const [panneau, setPanneau] = React.useState<OperationDuPanneau | null>(null);
+  /* LE SECOND NIVEAU DU MENU : la liste des plans, ouverte par « Valider ». Le menu rouvert repart du premier. */
+  const [niveau, setNiveau] = React.useState<'actions' | 'plans'>('actions');
+  const plans = usePlansPourLeMedia(cardId, media);
   const pret = media.etat === 'fini' && !!media.attachmentId;
   const piece: Attachment | null = media.attachmentId
     ? (state.attachments[carte?.projectId ?? ''] ?? []).find((p: Attachment) => p.id === media.attachmentId) ??
@@ -236,12 +455,20 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
 
   /* UNE CRÉATION DE MÉDIA : la validation ne réveille pas l'agent, et chaque option qui fabrique ouvre son panneau. */
   const creation = carteDeMedia(carte);
+  /* Le média de la production : celui qu'on a, ou celui que l'inscription rend. */
+  const assurer = async (): Promise<MediaDuSuivi> => {
+    if (media.id || !inscrire) return media;
+    const r = await inscrire();
+    setInscrit(r);
+    return r;
+  };
   const basculerLeSuivi = async (fermer: () => void) => {
     if (enCours) return;
     setEnCours('suivi');
     try {
-      await client.call({ type: 'production.retenir', cardId, mediaId: media.id, retenu: !retenu });
-      if (agentId && !creation) annoncerAuSuivi(agentId, retenu ? t('Retiré du suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }) : t('Ajouté au suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }));
+      const m = await assurer();
+      await client.call({ type: 'production.retenir', cardId, mediaId: m.id, retenu: !retenu });
+      if (agentId && !creation) annoncerAuSuivi(agentId, retenu ? t('Retiré du suivi : « {media} » ({id}).', { media: legendeDuMedia(m), id: m.id }) : t('Ajouté au suivi : « {media} » ({id}).', { media: legendeDuMedia(m), id: m.id }));
       fermer();
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Le suivi n’a pas pu être mis à jour'));
@@ -249,10 +476,26 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
       setEnCours(null);
     }
   };
-  const ouvrirLePanneau = (operation: OperationDuPanneau, fermer: () => void) => {
-    fermer();
-    setPanneau(operation);
+  /* Un geste qui ouvre un panneau : le média est d'abord inscrit s'il ne l'était pas. */
+  const apresInscription = async (fermer: () => void, suite: () => void) => {
+    if (enCours) return;
+    if (media.id || !inscrire) {
+      fermer();
+      suite();
+      return;
+    }
+    setEnCours('inscription');
+    try {
+      await assurer();
+      fermer();
+      suite();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Ce média n’a pas pu être inscrit dans la production'));
+    } finally {
+      setEnCours(null);
+    }
   };
+  const ouvrirLePanneau = (operation: OperationDuPanneau, fermer: () => void) => void apresInscription(fermer, () => setPanneau(operation));
   /* L'ANIMATION ATTEND LE SECOND TEMPS D'UNE VIDÉO (toutes les images d'abord), et une image validée. */
   const animer =
     media.genre === 'image' && retenu && !!carte && typesDeMediaDeLaRealisation(carte.realisation).includes('video') && animationPermise({ types: typesDeMediaDeLaRealisation(carte.realisation), carte }).ok;
@@ -277,22 +520,34 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
 
   return (
     <>
-      <MenuActions titre={t('Options du média')} repere={`media-${media.id}`} className={cn('bg-surface/85', className)} taille="icon-sm">
-        {(fermer) => (
-          <div className="flex flex-col gap-0.5" data-menu-media={media.id}>
-            {/* « VALIDER » EN PREMIER (26/10/2026) : le média rejoint le volet et servira au montage. */}
+      <MenuActions
+        titre={t('Options du média')}
+        repere={`media-${media.id || media.attachmentId}`}
+        className={cn('bg-surface/85', className)}
+        taille="icon-sm"
+        onOuvert={(ouvert) => {
+          if (!ouvert) setNiveau('actions');
+        }}
+      >
+        {(fermer) => niveau === 'plans' && plans && !retenu ? (
+          <ListeDesPlans cardId={cardId} media={media} plans={plans} assurer={assurer} fermer={fermer} retour={() => setNiveau('actions')} />
+        ) : (
+          <div className="flex flex-col gap-0.5" data-menu-media={media.id || undefined} data-menu-media-piece={media.attachmentId ?? undefined} data-menu-media-genre={media.genre}>
+            {/* « VALIDER » EN PREMIER (26/10/2026) : le média rejoint le volet et servira au montage. Dans une
+                vidéo découpée en plans, il ouvre d'abord la liste des plans (28/10/2026). */}
             <ActionTiroir
               icone={enCours === 'suivi' ? <Loader2 className="h-4 w-4 animate-spin" /> : retenu ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-              onClick={() => void basculerLeSuivi(fermer)}
+              onClick={() => (!retenu && plans ? setNiveau('plans') : void basculerLeSuivi(fermer))}
               disabled={!!enCours}
               {...(retenu ? { 'data-media-retirer': '' } : { 'data-media-retenir': '' })}
+              {...(!retenu && plans ? { 'data-media-retenir-par-plan': '' } : {})}
             >
               {creation ? (retenu ? t('Retirer la validation') : t('Valider')) : retenu ? t('Retirer du suivi') : t('Ajouter au suivi')}
             </ActionTiroir>
             {/* LES OPTIONS QUI FABRIQUENT : chacune ouvre son panneau, prix sur le bouton. */}
             {creation
               ? operations.map((operation) => (
-                  <ActionTiroir key={operation} icone={ICONES[operation]} onClick={() => ouvrirLePanneau(operation, fermer)} {...{ [REPERES[operation]]: '' }}>
+                  <ActionTiroir key={operation} icone={ICONES[operation]} onClick={() => ouvrirLePanneau(operation, fermer)} disabled={!!enCours} {...{ [REPERES[operation]]: '' }}>
                     {LIBELLES_OPERATIONS_DU_PANNEAU[operation]()}
                   </ActionTiroir>
                 ))
@@ -310,11 +565,9 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
               </ActionTiroir>
             ) : null}
             <ActionTiroir
-              icone={<SlidersHorizontal className="h-4 w-4" />}
-              onClick={() => {
-                fermer();
-                setReglages(true);
-              }}
+              icone={enCours === 'inscription' ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
+              onClick={() => void apresInscription(fermer, () => setReglages(true))}
+              disabled={!!enCours}
               data-media-reglages=""
             >
               {t('Réglages')}
@@ -333,7 +586,7 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
         )}
       </MenuActions>
       {panneau ? <PanneauDuMedia ouvert={!!panneau} onFermer={() => setPanneau(null)} operation={panneau} cardId={cardId} media={media} /> : null}
-      <ReglagesDuMedia ouvert={reglages} onFermer={() => setReglages(false)} media={media} agentId={agentId} />
+      {media.id ? <ReglagesDuMedia ouvert={reglages} onFermer={() => setReglages(false)} media={media} agentId={agentId} /> : null}
     </>
   );
 }
@@ -514,6 +767,84 @@ export function MenuDeLaPiece({ cardId, attachmentId, className }: { cardId: str
     <div className={cn('absolute right-1 top-1 z-[1] flex items-center gap-1', className)}>
       {creation ? <BoutonValider cardId={cardId} media={media} /> : media.retenuLe ? <MarqueDansLeSuivi /> : null}
       <MenuDuMedia cardId={cardId} media={media} />
+    </div>
+  );
+}
+
+/** La carte dont le fil est affiché : les pièces des messages y trouvent leur menu « … ». */
+export const ContexteCarteDuFil = React.createContext<string | null>(null);
+
+/**
+ * LE MENU « … » DE TOUT MÉDIA DU FIL D'UNE CARTE (27/10/2026, capture #ee9e :
+ * « les médias doivent être modifiables en tout temps »). Une image rendue
+ * par un autre outil, une pièce envoyée par l'utilisateur ou une capture
+ * regardée par l'agent n'avaient pas de ligne dans la production : plus de
+ * menu du tout. Il se pose désormais sur chaque image, vidéo et son, adapté à
+ * son genre (`MenuDuMedia`) ; une pièce que la production ne connaît pas encore
+ * y est inscrite au premier geste (`production.inscrire`, idempotent).
+ * Un PDF ou un autre fichier n'a pas de menu : il se télécharge déjà d'un clic.
+ */
+export function MenuDuMediaDuFil({
+  cardId,
+  attachmentId,
+  genre,
+  nom,
+  className,
+}: {
+  cardId: string | null | undefined;
+  attachmentId: string;
+  /** Le genre connu (média livré), sinon déduit de la pièce. */
+  genre?: MediaDuSuivi['genre'] | null;
+  nom?: string;
+  className?: string;
+}) {
+  const state = useApp();
+  const media = useMediaDeProduction(cardId, { attachmentId });
+  const carte = cardId ? state.cards[cardId] : undefined;
+  const piece = carte ? (state.attachments[carte.projectId] ?? []).find((p: Attachment) => p.id === attachmentId) : undefined;
+  const genreDuFil = genre ?? genreDePieceDuFil(piece?.mime);
+  const virtuel = React.useMemo<MediaDuSuivi | null>(
+    () =>
+      genreDuFil
+        ? {
+            id: '',
+            plan: planDePieceDuFil(nom || piece?.name),
+            version: 1,
+            capacite: genreDuFil,
+            genre: genreDuFil,
+            service: 'fil',
+            etape: null,
+            etat: 'fini',
+            attachmentId,
+            prix: 0,
+            creeLe: piece?.createdAt ?? 0,
+            taille: piece?.size ?? null,
+          }
+        : null,
+    [genreDuFil, attachmentId, nom, piece?.name, piece?.createdAt, piece?.size],
+  );
+  const inscrire = React.useCallback(async () => {
+    const r = await client.call<{ media: MediaDuSuivi }>({ type: 'production.inscrire', cardId: cardId!, attachmentId });
+    return r.media;
+  }, [cardId, attachmentId]);
+  /* L'AGENT À QUI PARLENT « Redemander » et « Relancer » : celui du fil, sinon le dernier agent de la carte (une carte au cadrage n'a pas encore d'agent attitré). */
+  const agentDuFil = React.useContext(ContexteAgentDuFil);
+  const agentDeLaCarte =
+    agentDuFil ??
+    carte?.agentId ??
+    (Object.values(state.agents) as { id: string; cardId?: string | null; createdAt: number }[])
+      .filter((a) => a.cardId === cardId)
+      .sort((a, b) => b.createdAt - a.createdAt)[0]?.id ??
+    null;
+  if (!cardId || !carte) return null;
+  const montre = media ?? virtuel;
+  if (!montre) return null;
+  return (
+    <div className={cn('absolute right-0.5 top-0.5 z-[1] flex items-center gap-1', className)} data-menu-du-media-du-fil={attachmentId} data-menu-du-media-inscrit={media ? '' : undefined}>
+      {media?.retenuLe ? <MarqueDansLeSuivi /> : null}
+      <ContexteAgentDuFil.Provider value={agentDeLaCarte}>
+        <MenuDuMedia cardId={cardId} media={montre} inscrire={media ? undefined : inscrire} />
+      </ContexteAgentDuFil.Provider>
     </div>
   );
 }

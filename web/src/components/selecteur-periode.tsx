@@ -80,7 +80,7 @@ export function SelecteurPeriode({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-[38px] sm:h-8 max-w-[11rem] items-center gap-1.5 rounded-lg bg-raised px-2.5 text-[13px] text-text transition-colors hover:bg-border"
+                  className="flex h-[38px] sm:h-8 max-w-[11rem] items-center gap-1.5 rounded-lg bg-raised px-2.5 text-[13px] text-text transition-colors hover:bg-fond-survol"
                   aria-label="Période"
                   title={t('Période')}
                   data-periode-compacte

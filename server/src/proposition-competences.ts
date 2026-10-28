@@ -67,7 +67,7 @@ export interface CompetenceAProposer {
  * restreintes aux unités de compétence du classeur global ; seules comptent les
  * fiches EN SERVICE et servies à CE projet, bibliothèques comprises. La règle
  * (`retenirLesPropositions`) ne garde que celles qui se DÉTACHENT de la foule
- * et que les deux recherches classent en tête ; le juge local, s'il est allumé,
+ * et que les deux recherches classent en tête ; le juge rapide, s'il est allumé,
  * écarte encore le hors sujet.
  */
 export async function competencesAProposer(
@@ -118,7 +118,7 @@ export async function competencesAProposer(
   });
   const saillantes = retenirLesPropositions(sujets, dejaProposees);
   if (!saillantes.length) return [];
-  // Le juge local, quand son usage est allumé, écarte encore le franchement hors sujet ; sans avis, tout passe.
+  // Le juge rapide, quand son usage est allumé, écarte encore le franchement hors sujet ; sans avis, tout passe.
   const jugees = await garderLesPertinents(
     texte,
     saillantes,

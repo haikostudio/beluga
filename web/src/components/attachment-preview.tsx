@@ -595,6 +595,7 @@ export function AttachmentPreview({
   nomDuLot,
   quandDe,
   dejaVue,
+  repereDe,
   erreur,
 }: {
   item: Attachment | null;
@@ -613,6 +614,12 @@ export function AttachmentPreview({
   quandDe?: (piece: Attachment) => number | undefined;
   /** Cette pièce avait-elle déjà été ouverte en grand ? Sans réponse, aucun œil. */
   dejaVue?: (piece: Attachment) => boolean;
+  /**
+   * LE REPÈRE COURT DE LA PIÈCE (« #3d53 »), quand l'appelant en sait plus que
+   * la pièce elle-même (une capture du fil lue par son chemin). Il s'écrit sous
+   * le titre, après la date (27/10/2026).
+   */
+  repereDe?: (piece: Attachment) => string | null;
   /**
    * LA PIÈCE NE PEUT PAS S'OUVRIR, ET LA FENÊTRE LE DIT : un fichier cité
    * introuvable ou hors des dossiers du projet (`fichiers-cites.tsx`). Jamais
@@ -702,6 +709,9 @@ export function AttachmentPreview({
   const repere = feuilletable ? `${rang + 1}/${total}` : undefined;
   const quand = quandDe?.(courante) || courante.createdAt || 0;
   const vue = !!dejaVue?.(courante);
+  /* Le repère n'est pas redit quand il EST déjà le titre (une pièce jointe). */
+  const repereBrut = repereDe?.(courante) ?? (courante.alias ? `#${courante.alias}` : null);
+  const codeDeLImage = repereBrut && repereBrut !== etiquetteDePiece(courante) ? repereBrut : null;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -746,7 +756,7 @@ export function AttachmentPreview({
             <div className="flex h-[38px] sm:h-8 max-w-full items-center">
               <DialogTitle className="min-w-0 truncate text-[14.5px]">{etiquetteDePiece(courante)}</DialogTitle>
             </div>
-            {quand || vue ? (
+            {quand || vue || codeDeLImage ? (
               <p className="-mt-1.5 flex items-center gap-1 text-[12px] leading-4 tabular-nums text-faint" data-visionneuse-sous-titre>
                 {vue ? (
                   <span className="flex" title={t('Déjà vue')} data-visionneuse-vue>
@@ -757,6 +767,14 @@ export function AttachmentPreview({
                   <span title={heureExacte(quand)} data-visionneuse-date={quand}>
                     {dateHeure(quand)}
                   </span>
+                ) : null}
+                {codeDeLImage ? (
+                  <>
+                    {quand ? <span aria-hidden>·</span> : null}
+                    <span className="font-mono texte-copiable" title={t('Identifiant de l’image')} data-visionneuse-repere>
+                      {codeDeLImage}
+                    </span>
+                  </>
                 ) : null}
               </p>
             ) : null}
@@ -867,9 +885,16 @@ export function AttachmentThumb({
   className,
   compact,
   vue,
+  menu,
 }: {
   item: Attachment;
   onOpen: () => void;
+  /**
+   * LE MENU « … » DU MÉDIA, dans le fil d'une carte (27/10/2026) : posé en haut
+   * à droite de l'image ou de la vidéo, à droite de la légende d'un son. Il
+   * porte « Télécharger » : le bouton de coin de l'image s'efface devant lui.
+   */
+  menu?: React.ReactNode;
   /** Cette image a déjà été ouverte en grand par ce compte : un œil dans le coin (images seulement). */
   vue?: boolean;
   className?: string;
@@ -888,6 +913,7 @@ export function AttachmentThumb({
         onApercu={onOpen}
         compact={compact}
         vue={vue}
+        menu={menu}
         className={className}
       />
     );
@@ -902,8 +928,9 @@ export function AttachmentThumb({
    */
   if (!compact && genreDuFichier(item.mime) === 'video') {
     return (
-      <figure className={cn('w-full max-w-[480px]', className)} data-video-fil={item.id}>
+      <figure className={cn('relative w-full max-w-[480px]', className)} data-video-fil={item.id}>
         <LecteurVideo id={item.id} nom={item.name} apercu={apercu} />
+        {menu}
         <figcaption className="mt-1 min-w-0 truncate text-[12px] text-faint" title={item.name}>
           {etiquetteDePiece(item)} · {bytes(item.size)}
         </figcaption>
@@ -921,8 +948,11 @@ export function AttachmentThumb({
     return (
       <figure className={cn('w-full max-w-[480px]', className)} data-audio-fil={item.id}>
         <LecteurSon id={item.id} nom={etiquetteDePiece(item)} poids={item.size} onAgrandir={onOpen} />
-        <figcaption className="mt-1 min-w-0 truncate text-[12px] text-faint" title={item.name}>
-          {etiquetteDePiece(item)} · {bytes(item.size)}
+        <figcaption className="mt-1 flex min-w-0 items-center gap-2 text-[12px] text-faint" title={item.name}>
+          <span className="min-w-0 flex-1 truncate">
+            {etiquetteDePiece(item)} · {bytes(item.size)}
+          </span>
+          {menu}
         </figcaption>
       </figure>
     );

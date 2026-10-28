@@ -38,7 +38,7 @@ export function LectureDuCahierDeRealisation({ carte }: { carte: Card }) {
       <Button
         type="button"
         variant="ghost"
-        className="h-[43px] w-full sm:h-9 min-w-0 max-w-full justify-center gap-2 rounded-lg bg-raised px-3.5 text-[13px] font-medium text-text hover:bg-border"
+        className="h-[43px] w-full sm:h-9 min-w-0 max-w-full justify-center gap-2 rounded-lg bg-raised px-3.5 text-[13px] font-medium text-text hover:bg-fond-survol"
         onClick={() => setLecture(true)}
         data-realisation-lire
       >

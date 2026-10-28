@@ -11,6 +11,8 @@ import {
   type CaptureDuFlux,
   etiquetteDePiece,
   repereDuChemin,
+  repereDuNomSurDisque,
+  pieceDuChemin,
   type RunStep,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -20,12 +22,14 @@ import { EtiquetteDeVignette, LARGEUR_DE_VIGNETTE } from '@/components/pastille-
 import { ZoneDefilement } from '@/components/ui';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
+import { GlissableVersUnPlan } from '@/components/glisser-vers-un-plan';
 import { client } from '@/lib/client';
 import { useImagesVues } from '@/lib/use-images-vues';
 import { useApp } from '@/lib/use-app';
 import { usePref } from '@/lib/prefs';
 import { t } from '@/lib/langue';
-import { cn, heureOuDate } from '@/lib/utils';
+import { useMinute } from '@/lib/horloge';
+import { cn, ilYA } from '@/lib/utils';
 
 /**
  * CE QUE L'AGENT A VU, EN PIED DE FLUX.
@@ -40,9 +44,11 @@ import { cn, heureOuDate } from '@/lib/utils';
  * la bande. Une capture que le serveur ne sait plus servir (fichier temporaire
  * effacé) se retire d'elle-même plutôt que de laisser un cadre cassé.
  *
- * CHAQUE VIGNETTE DIT QUAND ET SI ON L'A DÉJÀ OUVERTE : en bas à droite, l'heure
- * où l'agent a regardé l'image (l'heure seule le jour même, la date courte devant
- * elle sinon — `heureOuDate`), précédée d'un œil une fois l'image affichée en grand. « Vue »
+ * CHAQUE VIGNETTE DIT QUAND ET SI ON L'A DÉJÀ OUVERTE : en bas à droite, le
+ * temps écoulé depuis que l'agent a regardé l'image, comme le fil d'une carte
+ * (« il y a 12 min », puis la date et l'heure au-delà de sept jours — `ilYA`,
+ * demande du 27/10/2026 ; l'heure exacte en infobulle), et un œil au coin haut
+ * droit une fois l'image affichée en grand. « Vue »
  * veut dire OUVERTE ou FEUILLETÉE dans la visionneuse, jamais « passée à
  * l'écran » ; c'est retenu par compte, au serveur, donc d'un appareil à l'autre.
  *
@@ -90,8 +96,12 @@ export interface GalerieDesCaptures {
   ouvrirLeChemin: (chemin: string) => boolean;
   /** Le repère court (« #1a0c ») d'une capture qui est une pièce jointe, sinon null. */
   repere: (c: CaptureDuFlux) => string | null;
+  /** Le même, pour la pièce montrée dans la visionneuse. */
+  repereDePiece: (p: Attachment) => string | null;
   /** Le même, pour une image vue dans le fil par son seul chemin. */
   repereDuChemin: (chemin: string) => string | null;
+  /** L'identifiant de la pièce jointe qu'un chemin désigne, sinon null (son menu « … »). */
+  pieceDuChemin: (chemin: string) => string | null;
   fermer: () => void;
   naviguer: (p: Attachment) => void;
 }
@@ -205,19 +215,31 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
   const fermer = React.useCallback(() => setApercu(null), []);
   /* LE REPÈRE COURT, LE MÊME QUE SOUS LA BARRE D'ÉCRITURE (#ce5d). */
   const repereParChemin = React.useCallback((chemin: string) => repereDuChemin(chemin, connues), [connues]);
+  const pieceParChemin = React.useCallback((chemin: string) => pieceDuChemin(chemin, connues)?.id ?? null, [connues]);
   const repere = React.useCallback(
     (c: CaptureDuFlux) => {
       if (c.genre === 'jointe') {
         const piece = connues?.find((p) => p.id === c.id);
         if (piece?.alias) return etiquetteDePiece(piece);
       }
-      return c.chemin ? repereParChemin(c.chemin) : null;
+      // Une pièce que l'écran ne connaît pas garde le repère écrit dans son nom sur disque.
+      return c.chemin ? repereParChemin(c.chemin) ?? repereDuNomSurDisque(c.chemin) : null;
     },
     [connues, repereParChemin],
   );
+  /* LE REPÈRE DE LA PIÈCE MONTRÉE EN GRAND : la visionneuse l'écrit sous son titre. */
+  const repereDePiece = React.useCallback(
+    (p: Attachment) => {
+      const c = captureDePiece(p);
+      return c ? repere(c) : p.alias ? etiquetteDePiece(p) : null;
+    },
+    [captureDePiece, repere],
+  );
   return {
     repere,
+    repereDePiece,
     repereDuChemin: repereParChemin,
+    pieceDuChemin: pieceParChemin,
     captures,
     source,
     perdre,
@@ -254,6 +276,8 @@ const CLE_BANDE_REPLIEE_DEPUIS = 'captures.replieeDepuis';
 export const OuvrirUneCapture = React.createContext<((chemin: string) => boolean) | null>(null);
 /** Le repère court (« #1a0c ») de l'image d'un chemin vu dans le fil, quand c'est une pièce jointe (#ce5d). */
 export const RepereDUneCapture = React.createContext<((chemin: string) => string | null) | null>(null);
+/** La pièce jointe de l'image d'un chemin vu dans le fil, quand elle en est une : son menu « … » la retravaille. */
+export const PieceDUneCapture = React.createContext<((chemin: string) => string | null) | null>(null);
 
 /** L'aperçu en grand d'une galerie, feuilletable. */
 export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures }) {
@@ -266,6 +290,7 @@ export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
       sourceDe={g.sourceDePiece}
       quandDe={g.quandDePiece}
       dejaVue={g.pieceDejaVue}
+      repereDe={g.repereDePiece}
     />
   );
 }
@@ -326,12 +351,151 @@ function VignetteDePdf({ src, nom }: { src: string; nom: string }) {
   );
 }
 
+/**
+ * LA VIGNETTE D'APERÇU D'UNE PIÈCE — LE MÊME RENDU PARTOUT (« Ce que l'agent a
+ * vu », le Brief du suivi de production…) : l'image dans sa boîte de taille
+ * fixe, son REPÈRE codé (« #cf0d ») en bas à gauche, le TEMPS ÉCOULÉ (« il y a
+ * 12 min », la date au-delà de sept jours) en bas à droite et l'œil « déjà
+ * vue » au coin haut droit, sur leur propre fond de thème — pour un son, l'œil
+ * et le temps vont ensemble en haut à droite, sur la ligne de son nom ; une vidéo montre son
+ * image d'aperçu et le bouton lecture, un PDF sa première page, un son se joue
+ * sur place (lecteur à onde). Un clic l'ouvre en grand.
+ */
+export function VignetteDeCapture({
+  cle,
+  id,
+  media,
+  src,
+  libelle,
+  repere,
+  quand,
+  vue,
+  infobulle,
+  apercuSeconde,
+  onOuvrir,
+  onPerdue,
+  className,
+}: {
+  cle: string;
+  id: string;
+  media: 'image' | 'video' | 'pdf' | 'son';
+  /** L'adresse de l'image (sans largeur) : image ou première page d'un PDF. */
+  src: string;
+  libelle: string;
+  repere?: string | null;
+  quand?: number | null;
+  vue?: boolean;
+  infobulle: string;
+  apercuSeconde?: number;
+  onOuvrir: () => void;
+  onPerdue?: () => void;
+  /** Le fond de la boîte (`bg-raised` par défaut) : il doit se détacher de ce qui la porte. */
+  className?: string;
+}) {
+  /* L'ÉTIQUETTE DU COIN : le temps écoulé, précédé de l'œil si l'image a
+     déjà été ouverte. Sur son propre fond de thème, donc lisible sur une
+     image claire comme sombre ; elle ne capte pas le clic. Toutes les
+     vignettes suivent la MÊME horloge à la minute (`useMinute`) : aucune
+     minuterie par vignette. Sur une vignette d'image (112 px), « il y a
+     12 min » et le repère « #cf0d » remplissent déjà le bas : l'œil y monte
+     seul au coin haut droit (`oeilEnHaut`) plutôt que de rogner le temps. */
+  const maintenant = useMinute();
+  const oeilEnHaut = media !== 'son';
+  const oeil = vue ? <Eye className="h-3 w-3 shrink-0" aria-hidden data-capture-vue /> : null;
+  const etiquette =
+    quand || (vue && !oeilEnHaut) ? (
+      <span
+        className={cn(
+          'pointer-events-none flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm bg-surface/85 px-1 text-[10.5px] leading-4 tabular-nums text-muted',
+          oeilEnHaut && 'min-w-0 shrink',
+        )}
+        data-capture-etiquette
+      >
+        {oeilEnHaut ? null : oeil}
+        {quand ? <span className="truncate" data-capture-heure={quand}>{ilYA(quand, maintenant)}</span> : null}
+      </span>
+    ) : null;
+  /*
+   * UN SON SE JOUE DANS LA BANDE (décision de l'utilisateur) : le lecteur
+   * à onde, lecture / pause à gauche, plus large qu'une vignette ; son
+   * bouton « agrandir » ouvre la visionneuse. Ce n'est pas un bouton
+   * (un bouton ne contient pas d'autres boutons).
+   */
+  if (media === 'son') {
+    return (
+      <div
+        data-capture-du-flux={cle}
+        data-capture-media="son"
+        title={infobulle}
+        className={cn('relative flex h-20 w-64 shrink-0 flex-col justify-between overflow-hidden rounded p-1', className ?? 'bg-raised')}
+      >
+        {/* LA LIGNE DU NOM PORTE L'ÉTIQUETTE, À DROITE ET DANS LE CADRE : posée
+            jadis dans une enveloppe sans taille, elle sortait par le haut et
+            la carte la rognait (capture #b3aa). */}
+        <div className="flex min-w-0 items-center gap-1 px-1">
+          <span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-muted">{repere ? `${repere} · ${libelle}` : libelle}</span>
+          {etiquette}
+        </div>
+        <LecteurSon id={id} nom={libelle} compact className="bg-surface" onAgrandir={onOuvrir} />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      data-capture-du-flux={cle}
+      data-capture-media={media}
+      onClick={onOuvrir}
+      title={infobulle}
+      className={cn(`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded p-1.5 sm:p-1`, className ?? 'bg-raised')}
+    >
+      {media === 'video' ? (
+        /* UNE VIDÉO : son image d'aperçu (la même règle que le lecteur)
+           et le bouton lecture AU CENTRE ; le clic l'ouvre en grand, où
+           elle démarre. */
+        <>
+          <VignetteVideo id={id} nom={libelle} seconde={apercuSeconde} className="pointer-events-none max-h-full max-w-full rounded object-contain" />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center" data-capture-lecture>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
+              <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" aria-hidden />
+            </span>
+          </span>
+        </>
+      ) : media === 'pdf' ? (
+        <VignetteDePdf src={`${src}&w=${LARGEUR_DE_VIGNETTE}`} nom={libelle} />
+      ) : (
+        <VignetteQuiReessaie src={`${src}&w=${LARGEUR_DE_VIGNETTE}`} alt={libelle} onPerdue={onPerdue ?? (() => {})} />
+      )}
+      {/* LE REPÈRE ET LE TEMPS ÉCOULÉ SE PARTAGENT LE BAS : une seule rangée,
+          le repère « #cf0d » à gauche, jamais rogné en deçà de sa moitié de
+          largeur, et l'étiquette à droite, qui s'abrège la première quand
+          « il y a 12 min » et l'œil manquent de place. */}
+      {oeil ? (
+        <span className="pointer-events-none absolute right-0.5 top-0.5 rounded-sm bg-surface/85 p-0.5 text-muted" data-capture-oeil>
+          {oeil}
+        </span>
+      ) : null}
+      {repere || etiquette ? (
+        <span className="pointer-events-none absolute inset-x-0.5 bottom-0.5 flex items-end justify-between gap-1">
+          {repere ? (
+            <EtiquetteDeVignette texte={repere} className="static max-w-[50%] shrink-0 rounded-sm px-1 text-left text-[10.5px]" />
+          ) : (
+            <span />
+          )}
+          {etiquette}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 /** La bande seule ; l'aperçu se pose à part (`ApercuDesCaptures`), une fois pour toute la carte. */
 export function BandeDesCaptures({
   galerie: g,
   className = 'mt-3',
   replieeDOffice = false,
   onDeplie,
+  onFermer,
 }: {
   galerie: GalerieDesCaptures;
   /**
@@ -342,6 +506,12 @@ export function BandeDesCaptures({
   replieeDOffice?: boolean;
   /** Un tap vient de déplier la bande : elle devient le dernier bloc ouvert du pied. */
   onDeplie?: () => void;
+  /**
+   * LA BANDE DANS LE VOLET DU BOUTON PHOTO (téléphone, `BoutonDesCaptures`) :
+   * toujours dépliée, sans badge, et son chevron referme le volet au lieu de
+   * replier la bande — le réglage de repli de l'ordinateur n'est jamais touché.
+   */
+  onFermer?: () => void;
   /** La marge de la bande : dans un message elle se pose sous le texte, collée en bas de la carte elle n'en a pas. */
   className?: string;
 }) {
@@ -352,9 +522,13 @@ export function BandeDesCaptures({
   /* Le repli d'office se lève d'un tap, pour cette question seulement. */
   const [deplieeMalgre, setDeplieeMalgre] = React.useState(false);
   React.useEffect(() => setDeplieeMalgre(false), [replieeDOffice]);
-  const repliee = replieeRetenue || (replieeDOffice && !deplieeMalgre);
+  const repliee = !onFermer && (replieeRetenue || (replieeDOffice && !deplieeMalgre));
   /* Le moment s'écrit DANS LE GESTE, avec le repli lui-même. */
   const basculer = (replier: boolean) => {
+    if (onFermer) {
+      if (replier) onFermer();
+      return;
+    }
     if (!replier) onDeplie?.();
     if (replieeDOffice && !replieeRetenue) {
       setDeplieeMalgre(!replier);
@@ -398,7 +572,10 @@ export function BandeDesCaptures({
   const [filtre, setFiltre] = React.useState(false);
   const nonVues = React.useMemo(() => capturesPasEncoreVues(captures, g.vues), [captures, g.vues]);
   const affichees = filtre ? nonVues : captures;
-  const nouvelles = React.useMemo(() => (replieeRetenue ? capturesArriveesDepuis(captures, replieeDepuis) : 0), [replieeRetenue, captures, replieeDepuis]);
+  const nouvelles = React.useMemo(
+    () => (replieeRetenue && !onFermer ? capturesArriveesDepuis(captures, replieeDepuis) : 0),
+    [replieeRetenue, onFermer, captures, replieeDepuis],
+  );
 
   if (!captures.length) return null;
 
@@ -421,7 +598,7 @@ export function BandeDesCaptures({
           type="button"
           onClick={() => basculer(!repliee)}
           aria-expanded={!repliee}
-          title={repliee ? t('Déplier les images de l’agent') : t('Replier les images de l’agent')}
+          title={onFermer ? t('Fermer') : repliee ? t('Déplier les images de l’agent') : t('Replier les images de l’agent')}
           className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-muted hover:text-text"
           data-captures-bascule
         >
@@ -475,78 +652,180 @@ export function BandeDesCaptures({
           const infobulle = [ouvrirEnGrand, c.quand ? heureExacte(c.quand) : '', vue ? t('Déjà vue') : '']
             .filter(Boolean)
             .join(' · ');
-          /* L'ÉTIQUETTE DU COIN : l'œil si l'image a déjà été ouverte, puis
-             son heure. Sur son propre fond de thème, donc lisible sur une
-             image claire comme sombre ; elle ne capte pas le clic. */
-          const etiquette =
-            c.quand || vue ? (
-              <span
-                className="pointer-events-none absolute bottom-0.5 right-0.5 flex items-center gap-1 rounded-sm bg-surface/85 px-1 text-[10.5px] leading-4 tabular-nums text-muted"
-                data-capture-etiquette
-              >
-                {vue ? <Eye className="h-3 w-3 shrink-0" aria-hidden data-capture-vue /> : null}
-                {c.quand ? <span data-capture-heure={c.quand}>{heureOuDate(c.quand)}</span> : null}
-              </span>
-            ) : null;
-          /*
-           * UN SON SE JOUE DANS LA BANDE (décision de l'utilisateur) : le lecteur
-           * à onde, lecture / pause à gauche, plus large qu'une vignette ; son
-           * bouton « agrandir » ouvre la visionneuse. Ce n'est pas un bouton
-           * (un bouton ne contient pas d'autres boutons).
-           */
-          if (c.genre === 'jointe' && c.media === 'son') {
-            return (
-              <div
-                key={c.cle}
-                data-capture-du-flux={c.cle}
-                data-capture-media="son"
-                title={infobulle}
-                className="relative flex h-20 w-64 shrink-0 flex-col justify-between overflow-hidden rounded bg-raised p-1"
-              >
-                <span className="min-w-0 truncate px-1 pr-14 text-[11px] leading-4 text-muted">{repere ? `${repere} · ${c.libelle}` : c.libelle}</span>
-                <LecteurSon id={c.id} nom={c.libelle} compact className="bg-surface" onAgrandir={() => g.ouvrir(c)} />
-                {etiquette ? <span className="pointer-events-none absolute right-0 top-0.5">{etiquette}</span> : null}
-              </div>
-            );
-          }
+          const media = c.genre === 'jointe' ? (c.media === 'son' || c.media === 'video' || c.media === 'pdf' ? c.media : 'image') : 'image';
           return (
-            <button
-              key={c.cle}
-              type="button"
-              data-capture-du-flux={c.cle}
-              data-capture-media={c.genre === 'jointe' && (c.media === 'video' || c.media === 'pdf') ? c.media : 'image'}
-              onClick={() => g.ouvrir(c)}
-              title={infobulle}
-              className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1.5 sm:p-1`}
-            >
-              {c.genre === 'jointe' && c.media === 'video' ? (
-                /* UNE VIDÉO : son image d'aperçu (la même règle que le lecteur)
-                   et le bouton lecture AU CENTRE ; le clic l'ouvre en grand, où
-                   elle démarre. */
-                <>
-                  <VignetteVideo id={c.id} nom={c.libelle} seconde={pieceVideo(c.id)?.apercuSeconde} className="pointer-events-none max-h-full max-w-full rounded object-contain" />
-                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center" data-capture-lecture>
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
-                      <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" aria-hidden />
-                    </span>
-                  </span>
-                </>
-              ) : c.genre === 'jointe' && c.media === 'pdf' ? (
-                <VignetteDePdf src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`} nom={c.libelle} />
-              ) : (
-                <VignetteQuiReessaie
-                  src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}
-                  alt={c.libelle}
-                  onPerdue={() => g.perdre(c)}
-                />
-              )}
-              {repere ? <EtiquetteDeVignette texte={repere} className="inset-x-auto left-0.5 bottom-0.5 max-w-[50%] rounded-sm px-1 text-left text-[10.5px]" /> : null}
-              {etiquette}
-            </button>
+            /* UNE PIÈCE JOINTE VUE PAR L'AGENT SE GLISSE, À LA SOURIS, VERS UNE CASE DU SUIVI (28/10/2026). */
+            <GlissableVersUnPlan key={c.cle} attachmentId={c.genre === 'jointe' ? c.id : null} genre={media} nom={c.libelle}>
+            <VignetteDeCapture
+              cle={c.cle}
+              id={c.genre === 'jointe' ? c.id : c.cle}
+              media={media}
+              src={media === 'image' || media === 'pdf' ? g.source(c) : ''}
+              libelle={c.libelle}
+              repere={repere}
+              quand={c.quand}
+              vue={vue}
+              infobulle={infobulle}
+              apercuSeconde={c.genre === 'jointe' ? pieceVideo(c.id)?.apercuSeconde : undefined}
+              onOuvrir={() => g.ouvrir(c)}
+              onPerdue={() => g.perdre(c)}
+            />
+            </GlissableVersUnPlan>
           );
         })}
       </ZoneDefilement>
       </Panneau>
+    </div>
+  );
+}
+
+/**
+ * LE MOMENT OÙ LE VOLET DU BOUTON PHOTO S'EST REFERMÉ (ms) — clé À PART de
+ * celle de l'ordinateur (`CLE_BANDE_REPLIEE_DEPUIS`) : le téléphone ne doit
+ * jamais replier la bande de l'ordinateur. Le badge compte les images arrivées
+ * depuis (`capturesArriveesDepuis`).
+ */
+const CLE_VOLET_FERME_DEPUIS = 'captures.telephone.fermeDepuis';
+/** La taille du bouton photo : celle d'une cible tactile, comme les boutons du pied. */
+const COTE_DU_BOUTON_PX = 43;
+/** La durée du morphing, ouverture comme fermeture. */
+const DUREE_DU_MORPHING_MS = 300;
+
+const moinsDeMouvement = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
+/**
+ * CE QUE L'AGENT A VU, REPLIÉ DANS UN BOUTON PHOTO (téléphone, demande du
+ * 27/10/2026).
+ *
+ * Sur téléphone, la bande ne prend plus de hauteur au pied de la carte : un
+ * ROND à l'appareil photo se pose en bas à droite du fil, collé au bord,
+ * juste au-dessus des boutons d'action (l'ancienne place de l'icône des
+ * messages en attente, devenue une barre jaune au-dessus du champ). Un BADGE
+ * violet y compte les images arrivées depuis la dernière fermeture.
+ *
+ * Un appui fait GRANDIR le rond jusqu'au volet (la même bande, `onFermer`),
+ * qui flotte PAR-DESSUS le fil sans rien déplacer : le volet est posé en
+ * entier dès le départ et sa découpe (`clip-path`) s'ouvre depuis le cercle du
+ * coin bas droit — aucun recalcul de mise en page à chaque image. La fermeture
+ * suit le chemin inverse et le rond reparaît à la fin. Avec « moins
+ * d'animations », la bascule est immédiate. Le volet se ferme par le chevron
+ * de son en-tête, par Échap, ou par un appui hors de lui (jamais quand la
+ * visionneuse est ouverte par-dessus).
+ */
+export function BoutonDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures }) {
+  const { captures } = g;
+  const [fermeDepuis, setFermeDepuis] = usePref<number>(CLE_VOLET_FERME_DEPUIS, 0);
+  /* `monte` : le volet est dans la page ; `ouvert` : sa découpe est grande ouverte. */
+  const [monte, setMonte] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(false);
+  const zone = React.useRef<HTMLDivElement | null>(null);
+  const minuteur = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(minuteur.current), []);
+
+  /* JAMAIS FERMÉ DEPUIS UN MOMENT CONNU : le moment se pose une fois, au
+     premier affichage — le badge part de zéro au lieu de compter toute la carte. */
+  const momentPose = React.useRef(false);
+  React.useEffect(() => {
+    if (fermeDepuis > 0 || momentPose.current) return;
+    momentPose.current = true;
+    setFermeDepuis(Date.now());
+  }, [fermeDepuis, setFermeDepuis]);
+
+  const nouvelles = React.useMemo(() => (fermeDepuis > 0 ? capturesArriveesDepuis(captures, fermeDepuis) : 0), [captures, fermeDepuis]);
+
+  const ouvrir = () => {
+    window.clearTimeout(minuteur.current);
+    setMonte(true);
+    /* Deux images : le volet se pose d'abord fermé (le cercle), PUIS s'ouvre. */
+    requestAnimationFrame(() => requestAnimationFrame(() => setOuvert(true)));
+  };
+  const fermer = React.useCallback(() => {
+    setOuvert(false);
+    /* Le moment s'écrit DANS LE GESTE : le badge repart de zéro. */
+    setFermeDepuis(Date.now());
+    window.clearTimeout(minuteur.current);
+    /* Un battement de plus que le morphing : la découpe finit SUR le cercle avant que le rond ne revienne. */
+    minuteur.current = window.setTimeout(() => setMonte(false), moinsDeMouvement() ? 0 : DUREE_DU_MORPHING_MS + 60);
+  }, [setFermeDepuis]);
+
+  /* UN APPUI HORS DU VOLET LE REFERME — sauf par-dessus la visionneuse, ou
+     dans une fenêtre posée au-dessus (menu « … » d'une pièce). */
+  const visionneuseOuverte = !!g.apercu;
+  React.useEffect(() => {
+    if (!ouvert) return;
+    const auPointeur = (event: PointerEvent) => {
+      const cible = event.target;
+      if (!(cible instanceof Element) || visionneuseOuverte) return;
+      if (zone.current?.contains(cible)) return;
+      /* Une fenêtre posée PAR-DESSUS le volet (menu, feuille) ; pas celle qui
+         le porte — la page de la carte, sur téléphone, en est une. */
+      const fenetre = cible.closest('[role="dialog"], [role="menu"], [data-radix-popper-content-wrapper]');
+      if (fenetre && !fenetre.contains(zone.current)) return;
+      fermer();
+    };
+    const auClavier = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !visionneuseOuverte) fermer();
+    };
+    document.addEventListener('pointerdown', auPointeur, true);
+    document.addEventListener('keydown', auClavier);
+    return () => {
+      document.removeEventListener('pointerdown', auPointeur, true);
+      document.removeEventListener('keydown', auClavier);
+    };
+  }, [ouvert, visionneuseOuverte, fermer]);
+
+  if (!captures.length) return null;
+  const cercle = `inset(calc(100% - ${COTE_DU_BOUTON_PX}px) 0 0 calc(100% - ${COTE_DU_BOUTON_PX}px) round ${COTE_DU_BOUTON_PX / 2}px)`;
+  const titreDuBadge = nouvelles === 1 ? t('Une nouvelle image depuis le repli') : t('{n} nouvelles images depuis le repli', { n: nouvelles });
+
+  return (
+    <div ref={zone} data-captures-flottantes={ouvert ? 'ouvert' : 'ferme'}>
+      {monte ? (
+        /* L'ombre se pose sur l'enveloppe (`drop-shadow`) : une découpe
+           rognerait une ombre portée par le volet lui-même. */
+        <div className="pointer-events-none absolute inset-x-4 bottom-full z-20 mb-2 drop-shadow-md" data-captures-volet>
+          <div
+            className="pointer-events-auto overflow-hidden rounded-md bg-raised transition-[clip-path] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none"
+            style={{ clipPath: ouvert ? 'inset(0 0 0 0 round 6px)' : cercle, transitionDuration: `${DUREE_DU_MORPHING_MS}ms` }}
+          >
+            <div className={cn('transition-opacity duration-200 motion-reduce:transition-none', ouvert ? 'opacity-100 delay-100' : 'opacity-0')}>
+              <BandeDesCaptures galerie={g} className="" onFermer={fermer} />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {/* LE ROND, collé au bord droit : il s'efface pendant que le volet
+          s'ouvre, et reparaît quand la découpe est revenue au cercle. Sans
+          bordure, comme tout bouton. */}
+      <button
+        type="button"
+        onClick={ouvrir}
+        aria-expanded={ouvert}
+        aria-label={t('Ce que l’agent a vu')}
+        title={t('Ce que l’agent a vu')}
+        tabIndex={monte ? -1 : 0}
+        className={cn(
+          'absolute bottom-full right-4 z-30 mb-2 flex items-center justify-center rounded-full bg-raised text-text shadow-md transition-opacity motion-reduce:transition-none',
+          monte ? 'pointer-events-none opacity-0' : 'opacity-100',
+        )}
+        style={{ width: COTE_DU_BOUTON_PX, height: COTE_DU_BOUTON_PX, transitionDuration: monte ? '120ms' : '150ms' }}
+        data-captures-bouton={captures.length}
+      >
+        <Camera className="h-5 w-5" aria-hidden />
+        {/* LE BADGE DES NOUVELLES, en coin : violet, ce sont des images du
+            travail de l'agent. Il s'efface quand le volet s'ouvre. */}
+        {nouvelles > 0 && !monte ? (
+          <span
+            className="absolute -right-1 -top-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10.5px] font-medium leading-none tabular-nums text-accent-fg"
+            title={titreDuBadge}
+            data-captures-nouvelles={nouvelles}
+          >
+            <span aria-hidden>{nouvelles > 99 ? '99+' : nouvelles}</span>
+            <span className="sr-only">{titreDuBadge}</span>
+          </span>
+        ) : null}
+      </button>
     </div>
   );
 }

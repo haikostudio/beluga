@@ -665,6 +665,11 @@ export const QUESTIONS_DU_BRIEF_PAR_TYPE: Record<TypeDeMediaDeRealisation, strin
   son: 'SON — d’abord le genre (musique, voix off ou bruitages), puis les questions de ce genre : usage, durée, ambiance, et pour une voix le texte exact et le timbre.',
 };
 
+/** La ligne des méthodes, la même dans la consigne du directeur et dans celle de la fabrication. */
+function ligneDesMethodes(methodes: readonly string[] | undefined): string {
+  return `MÉTHODES : ${methodes?.length ? `en service, ${methodes.join(' ; ')}` : 'aucune en service'}. Lis celle d’un plan avec « realiser » action « methodes » et nomme-la dans son « devis » (« methodes ») ; une fois le média fini, « avis » demande à l’utilisateur s’il le garde : son verdict note la méthode. Une amélioration se propose avec « proposer_methode » : elle n’entre en service qu’après l’accord de l’utilisateur.`;
+}
+
 /**
  * LA CONSIGNE DU DIRECTEUR ARTISTIQUE, jointe à chaque tour tant que la caméra
  * est allumée (décision de l'utilisateur du 26/10/2026 : quatre étapes fixes,
@@ -687,6 +692,8 @@ export function consigneDuQuestionnaire(e: {
   son?: { voix: boolean; musique: boolean };
   /** Le style déjà retenu (`realisation.style`). */
   style?: IdStyleDeRealisation;
+  /** Les méthodes en service, une ligne chacune (`ligneDeMethodePourConsigne`). */
+  methodes?: readonly string[];
 }): string {
   const choisis = e.medias ?? [];
   const etape = e.etape ?? 'brief';
@@ -707,15 +714,16 @@ export function consigneDuQuestionnaire(e: {
         ? `   d. LA VIDÉO SE TERMINE AU BRIEF PAR SON DÉCOUPAGE : « script » (l’histoire en tableau temps / visuel / voix off, avec le TEXTE EXACT de la voix off s’il y en a une), puis « plans » (une pièce par plan, clé « plan-1 », « plan-2 »…, titre court, puis : « Durée : <n> s », « Capacité : <capacité> », ce qu’on voit en actions observables, cadrage, mouvement, lumière, son, ce qui est GÉNÉRÉ et ce qui est MONTÉ, et le prompt complet de son image de départ). Le brief porte « voix » et « musique » (ce qu’on entend, ou « non »).`
         : '   d. Pas de découpage en plans pour ce média : le brief suffit.',
       '   e. Quand le brief est complet, dis-le en UNE phrase et invite l’utilisateur à cliquer « Passer aux esquisses » sous le champ d’écriture. Tu ne passes JAMAIS l’étape toi-même.',
+      '   f. UNE DEMANDE D’IMAGE, DE VIDÉO OU DE SON PENDANT LE BRIEF (« fais-moi l’image », « génère le plan 1 ») : réponds en UNE phrase que la carte est encore au brief et que, pour fabriquer, il faut cliquer « Passer aux esquisses » sous le champ d’écriture — en disant ce qui manque encore au brief s’il manque quelque chose. N’y pose AUCUNE question de modèle, de prix ou de nombre de variantes, et n’appelle pas « realiser » (« modeles », « devis », « lot » sont refusés au brief).',
     ].join('\n'),
     esquisses: [
       `L’ÉTAPE EN COURS EST « ESQUISSES » — tu proposes des brouillons de plus en plus affinés, l’utilisateur VALIDE d’un clic, directement sur le média, ce qu’il garde (bouton « Valider » ; un second clic retire la validation). Toi, tu ne valides jamais.`,
       video && e.phase !== 'sequences'
-        ? '   PREMIER TEMPS D’UNE VIDÉO : L’IMAGE DE CHAQUE PLAN. Une génération par plan visuel, « plan » = la CLÉ du plan (« plan-2 ») dans le devis, le prompt de départ écrit au plan. Aucune animation : l’outil la refuse tant que l’utilisateur n’a pas cliqué « Passer aux séquences vidéo » — ce bouton s’allume quand chaque plan visuel a son image validée, et dit lequel manque sinon. Ne parle ni de séquence ni de montage avant.'
+        ? '   PREMIER TEMPS D’UNE VIDÉO : L’IMAGE DE CHAQUE PLAN. Une génération par plan visuel, TOUS les plans d’un coup, « plan » = la CLÉ du plan (« plan-2 ») dans le devis, le prompt de départ écrit au plan. Aucune animation : l’outil la refuse tant que l’utilisateur n’a pas cliqué « Passer aux séquences vidéo » — ce bouton s’allume quand chaque plan visuel a son image validée, et dit lequel manque sinon. Ne parle ni de séquence ni de montage avant.'
         : video
-          ? `   SECOND TEMPS D’UNE VIDÉO : LES SÉQUENCES. Chaque plan a, dans le suivi à droite, son bouton « Animer · prix » : l’utilisateur anime lui-même un plan d’un clic (le meilleur modèle d’animation, la durée du plan, l’image validée en départ). Si on te le demande en mots, fais le devis d’animation (capacité « animation », « source » = l’image validée du plan, « plan » = sa clé, « duree » = la durée du plan) puis le lot. ${e.son?.voix ? 'Propose la VOIX OFF prévue au brief (capacité « voix », le texte exact du script). ' : ''}${e.son?.musique ? 'Propose la MUSIQUE prévue au brief (capacité « musique », la durée du film). ' : ''}« Passer au montage » s’allume quand chaque plan visuel a sa séquence validée${e.son?.voix || e.son?.musique ? ' et que la voix off et la musique prévues sont validées' : ''} ; une séquence dont l’image a changé depuis est à refaire.`
+          ? `   SECOND TEMPS D’UNE VIDÉO : LES SÉQUENCES. Chaque plan a, dans le suivi à droite, son bouton « Animer · prix » : l’utilisateur anime lui-même un plan d’un clic (le meilleur modèle d’animation, la durée du plan, l’image validée en départ). En entrant dans ce temps, pose d’un coup la validation de l’animation de CHAQUE plan dont l’image est validée : devis d’animation (capacité « animation », « source » = l’image validée du plan, « plan » = sa clé, « duree » = la durée du plan) puis son lot, un par plan. ${e.son?.voix ? 'Propose la VOIX OFF prévue au brief (capacité « voix », le texte exact du script). ' : ''}${e.son?.musique ? 'Propose la MUSIQUE prévue au brief (capacité « musique », la durée du film). ' : ''}« Passer au montage » s’allume quand chaque plan visuel a sa séquence validée${e.son?.voix || e.son?.musique ? ' et que la voix off et la musique prévues sont validées' : ''} ; une séquence dont l’image a changé depuis est à refaire.`
           : '   Propose la première génération dès ce tour, d’après le brief et ses références, puis affine selon les retours. « Passer au montage » s’allume quand au moins un élément est validé.',
-      '   CHAQUE GÉNÉRATION SE VALIDE UNE À UNE, PRIX SUR LE BOUTON : « realiser » action « devis » (« variantes » 2 à 4, 2 par défaut — autant de brouillons à départager), puis « realiser » action « lot » avec ces devis SEULEMENT (une génération par lot, jamais plusieurs plans ensemble). La question part dans le fil avec le bouton « Générer · prix » : le clic de l’utilisateur VAUT ACCORD et lance la génération ; il ARRÊTE ton tour jusqu’à lui. Puis « generer » (« lot ») et « suivre ». Aucun accord global, aucune fabrication d’office, aucun plafond.',
+      '   UNE VALIDATION PAR PLAN, POSÉES TOUTES D’UN COUP, PRIX SUR LE BOUTON : le brief définit la structure des esquisses ; pour CHAQUE plan ou élément prévu dans le temps en cours, « realiser » action « devis » (« variantes » 2 à 4, 2 par défaut — autant de brouillons à départager), puis « realiser » action « lot » avec ces devis SEULEMENT (une génération par lot, jamais plusieurs plans ensemble). Chaque lot part dans le fil avec son bouton « Valider · prix » et « Refuser » ; une validation NE T’ARRÊTE PAS : pose-les toutes dans le MÊME tour, puis termine en UNE phrase. Le clic de l’utilisateur VAUT ACCORD et lance la génération sans toi (le démon la suit) : n’appelle ni « generer » ni « suivre » pour un lot à bouton. Aucun accord global, aucune fabrication d’office, aucun plafond.',
       '   UNE PANNE NON FACTURÉE se retente UNE fois, au même modèle et au même prix : refais le « devis » à l’identique avec « reessai » = l’identifiant du média raté, puis le « lot » — il part d’office, une seule fois. Tout autre modèle ou autre prix repasse par le bouton à prix.',
       '   LES OPTIONS DU MENU « … » D’UN MÉDIA (remplacer le visage, lumière, angles, animer, gestes, consigne) ouvrent un PANNEAU chez l’utilisateur, avec le modèle et le prix : il les lance lui-même, sans toi. Une retouche demandée en MOTS passe par toi : devis (« source » = le média visé), lot, génération.',
     ].join('\n'),
@@ -743,6 +751,10 @@ export function consigneDuQuestionnaire(e: {
     style,
     fabricationServeur,
     voix,
+    /* LES MÉTHODES EN SERVICE, À TOUTES LES ÉTAPES : depuis la consigne unique
+       du directeur artistique (26/10/2026), elles ne parvenaient plus à
+       l'agent — la bibliothèque tournait à vide. */
+    `1 nonies. ${ligneDesMethodes(e.methodes)}`,
   ].join('\n');
 }
 
@@ -948,7 +960,7 @@ export function consigneDeFabrication(
     `5. LE MONTAGE, PAR TOI : appelle « realiser » action « monter » (l’étape « Montage » s’allume), puis monte le film en UNE composition « montage » : « composer », « geste » = « preparer », avec « medias » = les plans finis, la voix finale et la musique ; les plans en <video class="clip" muted> (ou data-has-audio="true" pour garder leur son), la voix et la musique en <audio class="clip" id=…>, les SOUS-TITRES AU MOT (« realiser » action « mots » sur la voix : les temps de chaque mot, deux mots au plus à l’écran, le mot dit en couleur d’accent), les titres, les vraies interfaces incrustées et l’appel à l’action, comme « Montage et incrustations » l’écrit. « rendre » avec « formats » = chaque format demandé (vertical, carré, horizontal : la même page, mise à la taille du format) : le film monté passe en livraison (niveau sonore des réseaux, lecture immédiate sur le web) et arrive dans le fil. Contrôle le résultat (montants affichés, lisibilité sur téléphone, synchronisation). Un montage fait hors composition (ffmpeg à la main) se range avec « realiser » action « ajouter ».`,
     '5 bis. ARRÊT 3 — LE FILM MONTÉ : « production » action « soumettre » avec « etape » = « rendu » et « film » = l’identifiant de la pièce jointe du film monté (rendu par « composer », ou rangé par « ajouter »). L’utilisateur le regarde depuis la question. « Retoucher » ou une précision : applique la retouche (un plan refait par un lot dans le plafond, un texte, le rythme, la musique), remonte, range la nouvelle version et soumets de nouveau. « Valider le film » : livre l’export final.',
     '6. Ta réponse finale est un RAPPORT court : le film livré et les fichiers exportés (« realiser » action « lister »), les modèles employés, ce qui a été dépensé sur le prix accordé, les pannes réparées en chemin, les défauts restants. Une retouche demandée plus tard en écrivant dans cette conversation relance la fabrication d’elle-même.',
-    `MÉTHODES : ${e.methodes?.length ? `en service, ${e.methodes.join(' ; ')}` : 'aucune en service'}. Lis celle d’un plan avec « realiser » action « methodes » et nomme-la dans son « devis » (« methodes ») ; une fois le média fini, « avis » demande à l’utilisateur s’il le garde : son verdict note la méthode. Une amélioration se propose avec « proposer_methode » : elle n’entre en service qu’après l’accord de l’utilisateur.`,
+    ligneDesMethodes(e.methodes),
     'DÉCLINER DANS UNE AUTRE LANGUE : « decliner » dit ce qui se réutilise (images, plans sans parole, musique), ce qui se refait (la voix, un audio propre par langue, « langue » dans le devis), ce qui se resynchronise (un présentateur, capacité « synchro ») et ce qui se remonte aux durées adaptées. Aucune image n’est refaite.',
     `Savoir-faire : ${COMPETENCES_DE_REALISATION}.`,
   ].join('\n');

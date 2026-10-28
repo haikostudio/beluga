@@ -53,8 +53,7 @@ import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { applyAccountEnv, pickAccount } from './accounts.js';
 import { adapterFor } from './engines/index.js';
-import { layaPret } from './laya.js';
-import { interroger, usageDuJugeAllume } from './jugement-rapide.js';
+import { interroger, jugeAllume, usageDuJugeAllume } from './jugement-rapide.js';
 import { dossiersDeDonneesOuverts } from './pieces-jointes.js';
 
 /** Le plafond d'une délégation : au-delà, le moteur consulté est coupé. */
@@ -95,7 +94,7 @@ export function surchargesDeLaCarte(card: Card): Partial<Record<RoleCreation, Af
 }
 
 function jugeDisponible(): boolean {
-  return layaPret() && usageDuJugeAllume('evaluation-creation');
+  return usageDuJugeAllume('evaluation-creation') && jugeAllume();
 }
 
 /** Le bloc du mode, prêt à partir avec la demande du tour. */
@@ -315,7 +314,7 @@ export async function deleguer(ctx: ContexteCreation, args: Record<string, unkno
 }
 
 /**
- * « evaluer » : le juge local départage des propositions. Son verdict est un
+ * « evaluer » : le juge rapide départage des propositions. Son verdict est un
  * CONSEIL ; absent ou peu sûr de lui, il le dit et le chef tranche.
  */
 export async function evaluer(ctx: ContexteCreation, args: Record<string, unknown>): Promise<ResultatCreation> {
@@ -327,7 +326,7 @@ export async function evaluer(ctx: ContexteCreation, args: Record<string, unknow
     .slice(0, PROPOSITIONS_A_DEPARTAGER_MAX);
   if (propositions.length < 2) return { ok: false, text: 'Il faut au moins deux propositions à départager.' };
   if (!jugeDisponible()) {
-    return { ok: true, text: 'Le juge local (Laya) n’est pas disponible sur ce serveur : tranche toi-même.' };
+    return { ok: true, text: 'Le juge rapide (Jev) n’est pas disponible : tranche toi-même.' };
   }
   const critere = String(args.critere ?? '').trim() || 'la meilleure qualité de rendu pour la demande';
   const criteria: Record<string, string> = {};
@@ -354,11 +353,11 @@ export async function evaluer(ctx: ContexteCreation, args: Record<string, unknow
   const verdict = reponses?.meilleure;
   const numero = verdict?.type === 'choice' ? numeroDeProposition(verdict.choice, propositions.length) : undefined;
   if (!verdict || verdict.type !== 'choice' || !numero) {
-    return { ok: true, text: 'Le juge local n’a pas su trancher avec assez d’assurance : tranche toi-même.' };
+    return { ok: true, text: 'Le juge rapide n’a pas su trancher avec assez d’assurance : tranche toi-même.' };
   }
   return {
     ok: true,
-    text: `Le juge local préfère la proposition ${numero} (confiance ${Math.round(verdict.confidence * 100)} %). C’est un conseil : tu gardes le dernier mot.`,
+    text: `Le juge rapide préfère la proposition ${numero} (confiance ${Math.round(verdict.confidence * 100)} %). C’est un conseil : tu gardes le dernier mot.`,
   };
 }
 

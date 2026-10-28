@@ -14,7 +14,7 @@
  *     passe TEL QUEL — on ne réécrit pas une phrase juste ;
  *  2. un message TECHNIQUE se range dans une FAMILLE par motifs déterministes
  *     (`familleDeLErreur`), et c'est la phrase de la famille qui s'affiche ;
- *  3. un message technique qu'aucun motif ne reconnaît est confié à Laya,
+ *  3. un message technique qu'aucun motif ne reconnaît est confié à Jev,
  *     la petite IA locale (`server/src/explication-d-erreur.ts`), qui choisit
  *     une famille ; sous son seuil de confiance, la famille reste « inconnue »
  *     et sa phrase le dit honnêtement.
@@ -136,9 +136,9 @@ export interface ExplicationDErreur {
   famille?: FamilleDErreur;
   /** Le message tel qu'il est arrivé, pour le journal et les détails techniques. */
   brut: string;
-  /** Qui a rangé l'erreur : un motif connu, Laya, ou personne (phrase gardée). */
-  source: 'telle-quelle' | 'motif' | 'laya' | 'repli';
-  /** Faut-il demander à Laya ? Vrai seulement pour un message technique non reconnu. */
+  /** Qui a rangé l'erreur : un motif connu, Jev, ou personne (phrase gardée). */
+  source: 'telle-quelle' | 'motif' | 'juge' | 'repli';
+  /** Faut-il demander à Jev ? Vrai seulement pour un message technique non reconnu. */
   aClasser: boolean;
 }
 
@@ -146,7 +146,7 @@ export interface ExplicationDErreur {
  * L'EXPLICATION SANS IA. Un message humain passe tel quel ; un message
  * technique reconnu prend la phrase de sa famille ; un message technique
  * inconnu prend la phrase honnête « erreur inattendue » et signale qu'il
- * mérite d'être confié à Laya.
+ * mérite d'être confié à Jev.
  */
 export function expliquerLErreur(brut: string | undefined): ExplicationDErreur {
   const texte = (brut ?? '').trim();
@@ -157,7 +157,7 @@ export function expliquerLErreur(brut: string | undefined): ExplicationDErreur {
   return { phrase: PHRASES_DES_FAMILLES.inconnue, famille: 'inconnue', brut: texte, source: 'repli', aClasser: true };
 }
 
-/** La même explication, une fois la famille choisie ailleurs (Laya). */
+/** La même explication, une fois la famille choisie ailleurs (Jev). */
 export function explicationDeFamille(brut: string, famille: FamilleDErreur, source: ExplicationDErreur['source']): ExplicationDErreur {
   return { phrase: PHRASES_DES_FAMILLES[famille], famille, brut, source, aClasser: false };
 }
@@ -195,7 +195,7 @@ export function familleDeReponse(reponse: ReponseDuJuge | undefined): FamilleDEr
 }
 
 /**
- * LA PHRASE D'UNE ERREUR DE TOUR À L'ÉCRAN : celle que Laya a posée s'il
+ * LA PHRASE D'UNE ERREUR DE TOUR À L'ÉCRAN : celle que Jev a posée s'il
  * en a posé une, sinon celle que les motifs donnent — et la cause brute telle
  * quelle quand c'était déjà une phrase humaine.
  */

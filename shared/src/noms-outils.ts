@@ -58,11 +58,11 @@ const LIBELLES: Record<string, string> = {
   surveillance_essai: 'Essai d’une surveillance',
   surveillance_recette: 'Enregistrement d’une surveillance',
   deleguer: 'Consultation d’un autre modèle',
-  evaluer: 'Évaluation par le juge local',
+  evaluer: 'Évaluation par le juge rapide',
   suggerer_modele: 'Suggestion d’un autre modèle',
   proposer_suites: 'Suites proposées',
   realiser: 'Réalisation audiovisuelle',
-  marketing: 'Marketing',
+  marketing: 'Réseaux sociaux',
   statistiques: 'Statistiques des visites',
 
   /* Les outils propres à l'assistant Beluga */

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronRight, CircleAlert } from 'lucide-react';
+import { ChevronRight, CircleAlert, RotateCcw } from 'lucide-react';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { CheminCliquable } from '@/lib/chemin-cliquable';
@@ -59,6 +59,23 @@ export function useTeteDEtape(): TeteDEtape | null {
   return React.useContext(ContexteTeteDEtape);
 }
 
+/**
+ * LA MARQUE D'UN ESSAI REPRIS (28/10/2026 : « le rouge doit être visible
+ * uniquement pour des erreurs »). Un geste de l'agent refusé puis repris — un
+ * outil mal nommé, un garde-fou contourné, une commande relancée — n'est pas
+ * une panne : sa ligne reste grise, et cette petite marque grise dit qu'un
+ * essai a été repris. L'erreur exacte se lit en dépliant la ligne. Le rouge ne
+ * reste qu'aux vraies pannes : un travail arrêté, une demande jamais partie,
+ * une publication qui bloque (`ton="echec"`).
+ */
+export function MarqueEssaiRepris({ className }: { className?: string }) {
+  return (
+    <span className={cn('inline-flex shrink-0 text-faint', className)} title={t('Un essai a été repris')} aria-label="Un essai a été repris" role="img" data-essai-repris="">
+      <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+    </span>
+  );
+}
+
 /** Combien de lignes un contenu long montre avant de proposer la suite. */
 const LIGNES_AVANT_REPLI = 12;
 
@@ -84,12 +101,16 @@ export function EncadreEtape({
   aDroite?: React.ReactNode;
   /** La sorte de contenu, posée en repère pour les contrôles navigateur. */
   sorte: string;
-  /** `echec` teinte le bandeau en rouge : une commande refusée se voit repliée. */
+  /** `echec` teinte le bandeau en rouge : une VRAIE panne (une publication qui bloque). */
   ton?: 'neutre' | 'echec';
   children: React.ReactNode;
 }) {
   const tete = useTeteDEtape();
-  const enEchec = ton === 'echec' || tete?.echec === true;
+  /* UNE ENTRÉE DU JOURNAL REFUSÉE PUIS REPRISE N'EST PAS UNE PANNE (28/10/2026) : son
+     bandeau reste gris, avec la marque grise de l'essai repris ; seul `ton="echec"` rougit. */
+  const panne = ton === 'echec';
+  const essaiRepris = !panne && tete?.echec === true;
+  const enEchec = panne || essaiRepris;
   /* Moins d'une seconde ne se dit pas : `duration` rendrait un tiret, qui ne
      porte aucune information et se lisait comme un bouton. */
   const duree = tete?.dureeMs !== undefined && tete.dureeMs >= 1000 ? duration(tete.dureeMs / 1000) : undefined;
@@ -102,19 +123,21 @@ export function EncadreEtape({
       <header
         className={cn(
           'flex items-center gap-1.5 px-2.5 py-1.5',
-          enEchec ? 'bg-danger/15' : 'bg-raised',
+          panne ? 'bg-danger/15' : 'bg-raised',
         )}
         data-encadre-bandeau
       >
-        {enEchec ? (
+        {panne ? (
           <CircleAlert className="h-3.5 w-3.5 shrink-0 text-danger" aria-hidden />
+        ) : essaiRepris ? (
+          <MarqueEssaiRepris />
         ) : Icone ? (
           <Icone className="h-3.5 w-3.5 shrink-0 text-faint" />
         ) : null}
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wide',
-            enEchec ? 'text-danger' : 'text-muted',
+            panne ? 'text-danger' : 'text-muted',
           )}
           data-encadre-titre
         >

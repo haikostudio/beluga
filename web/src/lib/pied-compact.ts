@@ -46,12 +46,35 @@ export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
   const [budget, setBudget] = React.useState(() =>
     typeof window === 'undefined' ? 400 : window.innerHeight * PART_DE_L_ECRAN_POUR_LE_PIED,
   );
+  /*
+   * LE BUDGET SUIT LA ZONE VISIBLE, HORS FRAPPE. Sur iPhone, seul
+   * `visualViewport` change quand la barre du navigateur bouge : la fenêtre ne
+   * reçoit aucun `resize`. Mais clavier ouvert (`--clavier`, `app.tsx`), le
+   * budget ne bouge pas : les blocs ne se replient pas pendant qu'on écrit, la
+   * barre d'écriture passe par-dessus eux (décision du 27/10/2026,
+   * `useEcritureAuClavier`). Lu une image plus tard, une fois `--clavier` posée.
+   */
   React.useEffect(() => {
     if (!actif) return;
-    const lire = () => setBudget((window.visualViewport?.height ?? window.innerHeight) * PART_DE_L_ECRAN_POUR_LE_PIED);
+    const vue = window.visualViewport;
+    let image = 0;
+    const lire = () => {
+      const clavier = parseFloat(document.documentElement.style.getPropertyValue('--clavier')) || 0;
+      if (clavier > 0) return;
+      setBudget((vue?.height ?? window.innerHeight) * PART_DE_L_ECRAN_POUR_LE_PIED);
+    };
+    const plusTard = () => {
+      window.cancelAnimationFrame(image);
+      image = window.requestAnimationFrame(lire);
+    };
     lire();
-    window.addEventListener('resize', lire);
-    return () => window.removeEventListener('resize', lire);
+    window.addEventListener('resize', plusTard);
+    vue?.addEventListener('resize', plusTard);
+    return () => {
+      window.cancelAnimationFrame(image);
+      window.removeEventListener('resize', plusTard);
+      vue?.removeEventListener('resize', plusTard);
+    };
   }, [actif]);
 
   const replies = React.useMemo(() => {

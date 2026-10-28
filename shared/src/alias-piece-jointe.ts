@@ -177,14 +177,38 @@ export function etiquetteDePiece(piece: PieceJointeIdentifiee): string {
  * une pièce jointe connue n'en a aucun : `null`, jamais un repère inventé.
  */
 export function repereDuChemin(chemin: string, pieces: readonly PieceJointeIdentifiee[] | undefined): string | null {
+  const piece = pieceDuChemin(chemin, pieces);
+  return piece?.alias ? `#${piece.alias}` : null;
+}
+
+/**
+ * LE REPÈRE COURT LU DANS LE SEUL NOM SUR DISQUE (27/10/2026) : une image rangée
+ * dans le dossier des pièces jointes s'appelle « <alias>-<nom> »
+ * (`nomSurDisque`), alias écrit à sa création. Quand la pièce n'est pas dans la
+ * liste connue de l'écran (créée pour une autre carte, par exemple), son nom
+ * suffit à retrouver le « #3d53 ». Hors de ce dossier, ou sans préfixe de cette
+ * forme : `null`, jamais un repère inventé.
+ */
+export function repereDuNomSurDisque(chemin: string): string | null {
+  if (!/piecesjointes|attachments/i.test(chemin)) return null;
+  const nom = chemin.split(/[\\/]/).pop() ?? '';
+  const trouve = /^([0-9a-f]{4,32})-./i.exec(nom);
+  return trouve && trouve[1]!.length >= LONGUEUR_ALIAS ? `#${trouve[1]!.toLowerCase()}` : null;
+}
+
+/**
+ * LA PIÈCE JOINTE QU'UN CHEMIN DÉSIGNE (« ae52-IMG_1797.jpeg » rangé sur le
+ * disque de stockage), ou `null` : c'est elle que le menu « … » d'une image
+ * regardée par l'agent retravaille (27/10/2026).
+ */
+export function pieceDuChemin<P extends PieceJointeIdentifiee>(chemin: string, pieces: readonly P[] | undefined): P | null {
   if (!pieces?.length) return null;
   const nom = chemin.split(/[\\/]/).pop() ?? '';
   const tiret = nom.indexOf('-');
   if (tiret < LONGUEUR_ALIAS) return null;
   const prefixe = nom.slice(0, tiret);
   const reste = nom.slice(tiret + 1);
-  const piece = pieces.find((p) => p.alias === prefixe && p.name === reste) ?? pieces.find((p) => p.alias === prefixe);
-  return piece?.alias ? `#${piece.alias}` : null;
+  return pieces.find((p) => p.alias === prefixe && p.name === reste) ?? pieces.find((p) => p.alias === prefixe) ?? null;
 }
 
 /**

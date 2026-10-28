@@ -573,7 +573,7 @@ export function modifierUnePieceDeLaCarte(
 
 /**
  * RETENIR UNE AUTRE DIRECTION APRÈS COUP (`production.choisirDirection`,
- * 25/10/2026) : depuis le menu « Versions » de la direction retenue, une piste
+ * 25/10/2026) : depuis la feuille « Archives » du suivi, une piste
  * écartée est reprise. Elle passe « validée », l'ancienne « écartée » ; le
  * brief reste validé ; l'aval (scénario, storyboard, plans) est à revalider,
  * comme pour une correction à la main. Idempotent : la piste déjà retenue

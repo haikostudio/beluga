@@ -2408,8 +2408,8 @@ function markActive(list: AccountQuota[]): void {
       .filter((q) => q.engine === engine && !q.disabled)
       .sort((a, b) => a.priority - b.priority);
     // « Celui qui sert » doit être celui que `pickAccount` retiendra vraiment :
-    // le compte de plus petit rang (priorité) tant qu'il a de la place, puis
-    // le suivant dans l'ordre réglé.
+    // la même règle pure, fenêtre entamée d'abord entre comptes semblables,
+    // ordre réglé entre les autres.
     const aPlace = candidates.filter((q) => q.available);
     const chosen =
       compteQuiRecoitLeTravail(
@@ -2419,6 +2419,7 @@ function markActive(list: AccountQuota[]): void {
           priority: q.priority,
           sessionPct: q.session?.usedPct,
           weeklyPct: q.weekly?.usedPct,
+          sessionFinit: q.session?.resetsAt,
           jumeauDe: signatures.get(q.id),
           fenetreOuverte: q.engine === 'claude' ? fenetreOuverte({ sessionPct: q.session?.usedPct, derniereAmorce: q.derniereAmorce }, Date.now()) : undefined,
         })),
@@ -2538,11 +2539,12 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
   const quotas = await quotasPourChoisirUnCompte(accounts);
 
   /*
-   * L'ORDRE RÉGLÉ D'ABORD, LA PLACE RESTANTE POUR DÉPARTAGER. La règle pure
-   * (`shared/src/choix-de-compte.ts`) suit le rang (priorité) réglé sur chaque
-   * compte, et ne regarde la place restante que pour deux comptes du même
-   * rang. Un compte sans quota lu du tout garde sa place : on ne l'écarte pas
-   * sur une lecture manquante.
+   * FINIR LA FENÊTRE ENTAMÉE, PUIS L'ORDRE RÉGLÉ. La règle pure
+   * (`shared/src/choix-de-compte.ts`) fait finir, entre deux comptes de même
+   * taille, la fenêtre de cinq heures qui se remet à zéro le plus tôt ; entre
+   * tailles différentes, l'ordre réglé décide (le plus gros à rang égal).
+   * Un compte sans quota lu du tout garde sa place : on ne l'écarte pas sur
+   * une lecture manquante.
    */
   /*
    * DEUX COMPTES AU MÊME RELEVÉ NE COMPTENT QUE POUR UN. Leurs coffres
@@ -2561,6 +2563,9 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
       priority: account.priority,
       sessionPct: quota?.session?.usedPct,
       weeklyPct: quota?.weekly?.usedPct,
+      /* FINIR LA FENÊTRE ENTAMÉE : entre deux comptes semblables, celle qui
+         se remet à zéro le plus tôt sert d'abord (`classerComptesPourLeTravail`). */
+      sessionFinit: quota?.session?.resetsAt,
       disabled: quota?.disabled,
       jumeauDe: signatures.get(account.id),
       /* LE TRAVAIL VA D'ABORD OÙ LA FENÊTRE TOURNE : réveiller un compte Claude
@@ -2591,6 +2596,7 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
       priority: account.priority,
       sessionPct: quota?.session?.usedPct,
       weeklyPct: quota?.weekly?.usedPct,
+      sessionFinit: quota?.session?.resetsAt,
       disabled: quota?.disabled,
       jumeauDe: signatures.get(account.id),
       account,

@@ -17,6 +17,7 @@ import { BulleInfo, Button, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { canalEspace } from './canal-espace';
 import { heureCourte, jourDe } from './formats';
+import { ouvrirFichierSurPlace } from '@/components/visionneuse-de-lien';
 
 export function VoletBackups({ projectId, onFermer }: { projectId: string; onFermer?: () => void }) {
   const [sites, setSites] = React.useState<BackupsDuSiteVisibles[] | null>(null);
@@ -43,7 +44,7 @@ export function VoletBackups({ projectId, onFermer }: { projectId: string; onFer
     setEnCours(pointId);
     try {
       const reponse = await canalEspace.demander<{ token: string }>({ type: 'espace.backups.telecharger', pointId });
-      window.location.href = `/api/download?token=${encodeURIComponent(reponse.token)}`;
+      ouvrirFichierSurPlace(`/api/download?token=${encodeURIComponent(reponse.token)}`);
     } catch (err: any) {
       setErreur(err?.message ?? t('Le téléchargement n’a pas pu démarrer.'));
     } finally {

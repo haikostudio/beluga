@@ -447,7 +447,6 @@ export function VignetteProposition({
                 /* Dépliée, la description défile DANS la vignette : le bandeau
                    garde sa hauteur, il ne mange jamais la conversation. */
                 <ZoneDefilement
-                  fond="hsl(var(--base))"
                   classeEnveloppe={cn('mt-1 flex-none', repliable && 'max-h-[min(28vh,160px)]')}
                   className="pr-1"
                 >

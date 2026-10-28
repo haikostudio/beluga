@@ -18,6 +18,9 @@
  */
 import * as React from 'react';
 import { X } from 'lucide-react';
+import { t } from '@/lib/langue';
+import { useTelephone } from '@/lib/telephone';
+import { cn } from '@/lib/utils';
 
 /** La hauteur de la feuille : haute, mais elle laisse voir la page au-dessus. */
 const HAUTEUR_DE_FEUILLE = 'calc(92dvh - var(--clavier, 0px))';
@@ -136,5 +139,33 @@ export function PoigneeDuVolet({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * LA CROIX D'UN VOLET DE DROITE, SUR ORDINATEUR (28/10/2026 : « un bouton pour
+ * fermer le volet, et ça doit être le cas pour tous les volets que tu ouvres à
+ * droite »). La même que celle du plan (`data-fermer-le-plan`), posée au bout
+ * de la ligne de titre du suivi, des studios photo et son et de la page
+ * Téléchargement. Sur téléphone, le volet est une feuille du bas dont la bande
+ * porte déjà sa croix (`PoigneeDuVolet`) : celle-ci ne s'y montre pas.
+ */
+export function CroixDuVolet({ genre, onFermer, className }: { genre: string; onFermer: () => void; className?: string }) {
+  const telephone = useTelephone();
+  if (telephone) return null;
+  return (
+    <button
+      type="button"
+      onClick={onFermer}
+      title={t('Fermer le volet')}
+      aria-label="Fermer le volet"
+      data-croix-du-volet={genre}
+      className={cn(
+        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text',
+        className,
+      )}
+    >
+      <X className="h-4 w-4" />
+    </button>
   );
 }

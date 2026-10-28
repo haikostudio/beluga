@@ -76,7 +76,8 @@ type EcranDeBase =
   | { vue: 'memoire'; porteeId?: string; ficheId?: string; uniteId?: string }
   | { vue: 'backups'; siteId?: string }
   | { vue: 'surveillance'; siteId?: string }
-  /* L'atelier marketing, ouvert sur UN projet : « #marketing/<projet> ». */
+  /* L'atelier Réseaux sociaux, ouvert sur UN projet : « #reseaux-sociaux/<projet> » (vue interne « marketing » ;
+     l'ancienne adresse « #marketing/<projet> » reste LUE, pour les liens déjà partis). */
   | { vue: 'marketing'; projectId?: string }
   /* Le service Statistiques, ouvert sur UN site mesuré : « #statistiques/<espace> ». */
   | { vue: 'statistiques'; siteId?: string }
@@ -139,6 +140,13 @@ function couperLesTiroirs(complet: string): { base: string; noms: string[] } {
   if (rang < 0) return { base: complet, noms: [] };
   return { base: morceaux.slice(0, rang).join('/'), noms: morceaux.slice(rang + 1) };
 }
+
+/**
+ * LE MOT DE L'ADRESSE DE L'ATELIER RÉSEAUX SOCIAUX (27/10/2026) : l'atelier a
+ * changé de nom, pas d'identifiant. Il s'écrit « reseaux-sociaux » ; l'ancien
+ * mot « marketing » reste lu comme un alias (`lireFragment`).
+ */
+export const ADRESSE_RESEAUX_SOCIAUX = 'reseaux-sociaux';
 
 /** La vue d'adresse qui correspond à chaque destination de la colonne. */
 const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
@@ -245,9 +253,11 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
     case 'surveillance':
       return ecran.siteId ? `surveillance/${encodeURIComponent(ecran.siteId)}` : 'surveillance';
     case 'marketing':
-      return ecran.projectId ? `marketing/${encodeURIComponent(ecran.projectId)}` : 'marketing';
+      /* « <projet> », « <projet>/<rubrique> » ou « <projet>/canaux/<canal> » : chaque morceau son segment. */
+      return ecran.projectId ? `${ADRESSE_RESEAUX_SOCIAUX}/${ecran.projectId.split('/').map(encodeURIComponent).join('/')}` : ADRESSE_RESEAUX_SOCIAUX;
     case 'statistiques':
-      return ecran.siteId ? `statistiques/${encodeURIComponent(ecran.siteId)}` : 'statistiques';
+      /* « <site> », « <site>/parcours » ou « liste/<groupe> » : chaque morceau son segment. */
+      return ecran.siteId ? `statistiques/${ecran.siteId.split('/').map(encodeURIComponent).join('/')}` : 'statistiques';
     case 'medias':
       return ecran.projectId ? `medias/${encodeURIComponent(ecran.projectId)}` : 'medias';
     case 'taches-recurrentes': {
@@ -385,12 +395,14 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const siteId = decodeSegment(morceaux[1] ?? '');
     return siteId ? { vue: 'surveillance', siteId } : { vue: 'surveillance' };
   }
-  if (tete === 'marketing') {
-    const projectId = decodeSegment(morceaux[1] ?? '');
+  if (tete === ADRESSE_RESEAUX_SOCIAUX || tete === 'marketing') {
+    /* LE PROJET, PUIS SA RUBRIQUE ET LE CANAL OUVERT : relus en un seul chemin, l'écran le découpe. */
+    const projectId = morceaux.slice(1, 4).map((m) => decodeSegment(m)).filter(Boolean).join('/');
     return projectId ? { vue: 'marketing', projectId } : { vue: 'marketing' };
   }
   if (tete === 'statistiques') {
-    const siteId = decodeSegment(morceaux[1] ?? '');
+    /* LE SITE, PUIS SON ONGLET (« parcours »), OU LE GROUPE DE LA LISTE (« liste/<groupe> ») : relus en un seul chemin. */
+    const siteId = morceaux.slice(1, 3).map((m) => decodeSegment(m)).filter(Boolean).join('/');
     return siteId ? { vue: 'statistiques', siteId } : { vue: 'statistiques' };
   }
   if (tete === 'medias') {
@@ -749,3 +761,4 @@ export function ecranDeLaVue(etat: {
       };
   }
 }
+

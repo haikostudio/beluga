@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { formeDeJour, formeHeureCourte, heureDeLEvenement, heureExacte } from '@beluga/shared';
+import { formeDeJour, formeDepuis, formeHeureCourte, heureDeLEvenement, heureExacte } from '@beluga/shared';
 import { formatRegional, t } from './langue';
 
 export function cn(...inputs: ClassValue[]): string {
@@ -177,12 +177,44 @@ export function dateHeure(at: number): string {
 /**
  * L'HEURE SEULE, À LA MINUTE (« 15:27 »), dans le format régional en vigueur.
  *
- * Pour une place très étroite — le coin d'une vignette de la bande « Ce que
- * l'agent a vu » — où la date ne tient pas : elle se lit dans la visionneuse
- * (`dateHeure`) et dans l'infobulle (`heureExacte`).
+ * Pour une place étroite où la date ne tiendrait pas : elle se lit dans la
+ * visionneuse (`dateHeure`) et dans l'infobulle (`heureExacte`). Les vignettes
+ * de « Ce que l'agent a vu » disent, elles, le temps écoulé (`ilYA`).
  */
 export function heureSeule(at: number): string {
   return new Date(at).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * « IL Y A … » (`formeDepuis`, shared/src/heure-message.ts) : « à l'instant »,
+ * « il y a 15 min », « il y a 1 h », « il y a 3 jours », puis la date et
+ * l'heure au-delà d'une semaine (`heureOuDate`).
+ */
+export function ilYA(at: number, maintenant = Date.now()): string {
+  const forme = formeDepuis(at, maintenant);
+  if (forme.genre === 'instant') return t('à l’instant');
+  if (forme.genre === 'minutes') return t('il y a {n} min', { n: forme.n });
+  if (forme.genre === 'heures') return t('il y a {n} h', { n: forme.n });
+  if (forme.genre === 'jours') return forme.n > 1 ? t('il y a {n} jours', { n: forme.n }) : t('il y a 1 jour');
+  return heureOuDate(at, maintenant);
+}
+
+/**
+ * L'HEURE DU FIL D'UNE CARTE (27/10/2026, captures #ae52 et #3c8a) : le temps
+ * écoulé, puis la durée du travail quand elle a été mesurée —
+ * « il y a 26 min · 51 s » —, la date et l'heure au-delà de sept jours
+ * (`ilYA`). Jamais « 0 s » : sans durée mesurée, le temps écoulé seul.
+ * L'heure exacte reste en infobulle. Les discussions hors carte gardent leur
+ * forme (`heureDuMessage`), le volet de publication la sienne (`heureEtDuree`).
+ */
+export function ilYAEtDuree(at?: number, dureeMs?: number, maintenant = Date.now()): { libelle: string; infobulle: string } | null {
+  if (!at) return null;
+  const depuis = ilYA(at, maintenant);
+  const duree = dureeMs !== undefined && dureeMs >= 0 ? dureeFine(dureeMs / 1000) : null;
+  return {
+    libelle: duree ? `${depuis} · ${duree}` : depuis,
+    infobulle: duree ? `${heureExacte(at)} · ${duree}` : heureExacte(at),
+  };
 }
 
 /**

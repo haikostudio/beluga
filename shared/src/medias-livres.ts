@@ -2,13 +2,15 @@ import { z } from 'zod';
 import { GENRES_DE_MEDIA_EN_FABRICATION } from './media-en-fabrication.js';
 
 /**
- * LES MÉDIAS LIVRÉS PAR UNE DISCUSSION (décision du 20/10/2026).
+ * LES MÉDIAS LIVRÉS PAR UNE DISCUSSION (décision du 20/10/2026, revue le
+ * 26/10/2026, capture #e9bd).
  *
- * À la fin de toute discussion qui a fabriqué des images, des vidéos ou des
- * sons, la réponse finale les montre TOUS, versions comprises — l'utilisateur
- * choisit lui-même — dans un bloc sous la réponse, chacun téléchargeable, avec
- * un « Tout télécharger ». Un média se rattache à la réponse qui CLÔT le tour
- * pendant lequel il a été livré : la première réponse rendue après lui.
+ * Toute image, vidéo ou son fini par une discussion est gardé, versions
+ * comprises. CHAQUE MÉDIA EST UNE LIGNE DU FIL, À SON HEURE, comme une capture
+ * de l'agent : une phrase qui dit ce qui a été rendu (`phraseDuMediaLivre`),
+ * puis le média dessous. Plus de rangée de vignettes sous la réponse ni au bas
+ * du fil (« on dirait que c'est flanqué là nulle part ») : un média se pose
+ * après ce qui l'a précédé dans le temps (`placerLesMediasDansLeFil`).
  */
 
 export const MediaLivre = z.object({
@@ -23,6 +25,8 @@ export const MediaLivre = z.object({
   version: z.number().int().positive(),
   sujet: z.string().default(''),
   outil: z.string().default(''),
+  /** La phrase de l'agent : ce qu'il a rendu et pourquoi. Vide : elle s'écrit d'après le sujet. */
+  legende: z.string().default(''),
   livreLe: z.number(),
 });
 export type MediaLivre = z.infer<typeof MediaLivre>;
@@ -54,21 +58,98 @@ export function mediasLivres<T extends Pick<MediaLivre, 'groupe' | 'version' | '
 }
 
 /**
- * CHAQUE MÉDIA SOUS LA RÉPONSE QUI CLÔT SON TOUR : la première réponse rendue
- * à son heure ou après. Un média livré après la dernière réponse (le tour
- * travaille encore) n'est encore sous aucune : le bloc de fabrication le montre.
+ * CHAQUE MÉDIA À SA PLACE DANS LE TEMPS : après le dernier repère du fil
+ * (message, mot de la discussion, passage) arrivé à son heure ou avant. Un
+ * média plus ancien que tous les repères va dans `avant` (en tête du fil).
+ * Dans chaque place, les médias se suivent dans l'ordre où ils ont été livrés.
+ * Les repères n'ont pas à être triés ; un repère sans heure est ignoré.
  */
-export function repartirLesMediasLivres<T extends Pick<MediaLivre, 'livreLe' | 'groupe' | 'version'>>(
+export function placerLesMediasDansLeFil<T extends Pick<MediaLivre, 'livreLe' | 'version'>>(
   medias: readonly T[],
-  reponses: readonly { cle: string; at: number }[],
-): Map<string, T[]> {
-  const triees = [...reponses].sort((a, b) => a.at - b.at);
-  const parReponse = new Map<string, T[]>();
-  for (const m of medias) {
-    const cible = triees.find((r) => r.at >= m.livreLe);
-    if (!cible) continue;
-    parReponse.set(cible.cle, [...(parReponse.get(cible.cle) ?? []), m]);
+  reperes: readonly { cle: string; at?: number | null }[],
+): { avant: T[]; apres: Map<string, T[]> } {
+  const tries = reperes
+    .filter((r): r is { cle: string; at: number } => typeof r.at === 'number' && Number.isFinite(r.at))
+    .map((r, rang) => ({ ...r, rang }))
+    .sort((a, b) => a.at - b.at || a.rang - b.rang);
+  const avant: T[] = [];
+  const apres = new Map<string, T[]>();
+  const chronologie = [...medias].sort((a, b) => a.livreLe - b.livreLe || a.version - b.version);
+  for (const m of chronologie) {
+    let cible: string | null = null;
+    for (const r of tries) {
+      if (r.at > m.livreLe) break;
+      cible = r.cle;
+    }
+    if (cible === null) avant.push(m);
+    else apres.set(cible, [...(apres.get(cible) ?? []), m]);
   }
-  for (const [cle, liste] of parReponse) parReponse.set(cle, mediasLivres(liste));
-  return parReponse;
+  return { avant, apres };
+}
+
+/**
+ * LA PHRASE D'UN MÉDIA DU FIL : celle que l'agent a donnée en le rendant,
+ * sinon une phrase construite d'après le sujet et la version. Rend le motif
+ * à traduire et ses valeurs — l'écran passe par son dictionnaire.
+ */
+export function phraseDuMediaLivre(m: Pick<MediaLivre, 'legende' | 'sujet' | 'version' | 'genre'>): {
+  texte?: string;
+  motif?: string;
+  valeurs?: Record<string, string | number>;
+} {
+  const legende = String(m.legende ?? '').trim();
+  if (legende) return { texte: legende };
+  const sujet = String(m.sujet ?? '').trim();
+  /* Les phrases ENTIÈRES, telles que le dictionnaire les connaît (jamais recollées). */
+  const motifs = {
+    image: { sujet: ['J’ai rendu l’image « {v0} »', 'J’ai rendu l’image « {v0} » · version {v1}'], seul: ['J’ai rendu une image', 'J’ai rendu une image · version {v1}'] },
+    video: { sujet: ['J’ai rendu la vidéo « {v0} »', 'J’ai rendu la vidéo « {v0} » · version {v1}'], seul: ['J’ai rendu une vidéo', 'J’ai rendu une vidéo · version {v1}'] },
+    son: { sujet: ['J’ai rendu le son « {v0} »', 'J’ai rendu le son « {v0} » · version {v1}'], seul: ['J’ai rendu un son', 'J’ai rendu un son · version {v1}'] },
+  } as const;
+  const [simple, versionnee] = motifs[m.genre][sujet ? 'sujet' : 'seul'];
+  return m.version > 1 ? { motif: versionnee, valeurs: { v0: sujet, v1: m.version } } : { motif: simple, valeurs: { v0: sujet } };
+}
+
+/*
+ * UN MÉDIA DU FIL INSCRIT DANS LA PRODUCTION (27/10/2026) : tout média de la
+ * discussion d'une carte porte son menu « … », même une pièce que la
+ * production ne connaissait pas (image d'un autre outil, pièce envoyée,
+ * capture regardée). Au premier geste, le démon l'inscrit ; ces règles disent
+ * son genre, son nom de plan et son format.
+ */
+
+/** Le genre d'une pièce du fil qui se retravaille, ou `null` (PDF, texte…). */
+export function genreDePieceDuFil(mime: string | null | undefined): 'image' | 'video' | 'son' | null {
+  const m = String(mime ?? '').toLowerCase();
+  if (m.startsWith('image/') && m !== 'image/svg+xml') return 'image';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'son';
+  return null;
+}
+
+/** Le nom de plan d'une pièce inscrite : son sujet, sans extension, borné à 80 signes. */
+export function planDePieceDuFil(nom: string | null | undefined): string {
+  const sans = String(nom ?? '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (sans || 'media').slice(0, 80).trim();
+}
+
+const FORMATS_DU_FIL = [
+  { format: '16:9', ratio: 16 / 9 },
+  { format: '9:16', ratio: 9 / 16 },
+  { format: '1:1', ratio: 1 },
+  { format: '4:5', ratio: 4 / 5 },
+] as const;
+
+/** Le format de création le plus proche des dimensions mesurées ; sans mesure, celui donné. */
+export function formatLePlusProche<D extends '16:9' | '9:16' | '1:1' | '4:5'>(
+  largeur: number | null | undefined,
+  hauteur: number | null | undefined,
+  defaut: D,
+): '16:9' | '9:16' | '1:1' | '4:5' {
+  if (!largeur || !hauteur || largeur <= 0 || hauteur <= 0) return defaut;
+  const r = Math.log(largeur / hauteur);
+  return [...FORMATS_DU_FIL].sort((a, b) => Math.abs(Math.log(a.ratio) - r) - Math.abs(Math.log(b.ratio) - r))[0]!.format;
 }

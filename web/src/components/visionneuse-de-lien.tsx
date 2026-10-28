@@ -70,6 +70,38 @@ async function enregistrer(fichier: FichierRecu): Promise<boolean> {
   return true;
 }
 
+/** L'événement par lequel un GESTE (pas un lien) demande d'ouvrir un fichier sur place. */
+const EVENEMENT_OUVRIR = 'beluga:ouvrir-sur-place';
+
+/**
+ * OUVRIR UN FICHIER DEPUIS UN GESTE (un bouton « Télécharger » qui demande
+ * d'abord un jeton, par exemple) — LA SEULE PORTE pour le faire.
+ *
+ * Trois applications de suite ont été cassées de la même façon : un bouton qui
+ * écrivait `window.location.href = '/api/download?…'` (ou `window.open`)
+ * ne passe par AUCUN lien, donc la capture des clics ci-dessous ne le voit
+ * pas. Dans l'application installée sur iPhone, tout l'écran devenait la page
+ * « Ouvrir dans Aperçu » du système, sans bouton pour revenir. Un contrôle de
+ * `npm test` refuse désormais toute navigation de ce genre ailleurs qu'ici.
+ *
+ * Installée : la fenêtre refermable de l'application s'ouvre. Dans un
+ * navigateur ordinaire : un téléchargement simple, sans quitter la page.
+ */
+export function ouvrirFichierSurPlace(adresse: string, nom?: string): void {
+  if (estInstallee()) {
+    const absolue = new URL(adresse, window.location.origin).href;
+    window.dispatchEvent(new CustomEvent<LienSurPlace>(EVENEMENT_OUVRIR, { detail: nom ? { adresse: absolue, nom } : { adresse: absolue } }));
+    return;
+  }
+  const ancre = document.createElement('a');
+  ancre.href = adresse;
+  ancre.download = nom ?? '';
+  ancre.setAttribute(HORS_VISIONNEUSE, '');
+  document.body.appendChild(ancre);
+  ancre.click();
+  ancre.remove();
+}
+
 /**
  * LA FENÊTRE QUI OUVRE LES LIENS SUR PLACE, POSÉE UNE FOIS POUR TOUTE
  * L'APPLICATION.
@@ -124,9 +156,18 @@ export function VisionneuseDeLien() {
         /* Le fichier n'a pas pu être reçu : la fenêtre s'ouvre et le dit. */
         .catch(() => setLien(surPlace));
     };
+    /* UN GESTE SANS LIEN passe par `ouvrirFichierSurPlace`, qui prévient ici. */
+    const surDemande = (event: Event) => {
+      const demande = (event as CustomEvent<LienSurPlace>).detail;
+      if (demande?.adresse) setLien({ ...demande });
+    };
     /* EN CAPTURE : avant tout autre geste, et avant que le lien ne navigue. */
     document.addEventListener('click', surClic, true);
-    return () => document.removeEventListener('click', surClic, true);
+    window.addEventListener(EVENEMENT_OUVRIR, surDemande);
+    return () => {
+      document.removeEventListener('click', surClic, true);
+      window.removeEventListener(EVENEMENT_OUVRIR, surDemande);
+    };
   }, []);
 
   React.useEffect(() => {

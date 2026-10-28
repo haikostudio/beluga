@@ -24,7 +24,7 @@ import { t } from '@/lib/langue';
  *
  * IL EST TOUJOURS LÀ TANT QUE LA CARTE SE DISCUTE : trois barres éteintes
  * tant qu'aucune note n'est rendue (`data-indicateur-comprehension="0"`), puis
- * la note de Laya, redonnée à chaque échange — la jauge se remplit à
+ * la note de Jev, redonnée à chaque échange — la jauge se remplit à
  * mesure que la discussion avance. Il ne s'efface qu'une fois le travail parti.
  *
  * IL NE BLOQUE JAMAIS LE LANCEMENT (`DEC-239`) : il n'éteint aucun bouton,

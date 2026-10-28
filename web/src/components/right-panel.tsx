@@ -43,6 +43,7 @@ import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { lancerIntervalleVisible } from '@/lib/veille';
+import { ouvrirFichierSurPlace } from '@/components/visionneuse-de-lien';
 
 /** Ce que montre le tiroir : l'arborescence du projet, ou ses pièces jointes. */
 export type VueFichiers = 'fichiers' | 'pieces';
@@ -142,7 +143,7 @@ function FilesTab({ projectId }: { projectId: string }) {
       client.pushToast('error', raison);
       throw new Error(raison);
     }
-    window.location.href = `/api/download?token=${encodeURIComponent(data.token)}`;
+    ouvrirFichierSurPlace(`/api/download?token=${encodeURIComponent(data.token)}`);
   };
 
   return (

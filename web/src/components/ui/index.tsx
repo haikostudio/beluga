@@ -57,9 +57,9 @@ const buttonVariants = cva(
         // `bg-controle` vaut la TRANSPARENCE dans les deux thèmes d'origine — ce
         // bouton ne bouge donc pas d'un pixel — et un voile translucide dans les
         // thèmes plats, où la bordure ne dessine plus rien (styles.css).
-        outline: 'border border-transparent bg-controle hover:bg-border text-text',
+        outline: 'border border-transparent bg-controle hover:bg-fond-survol text-text',
         ghost: 'hover:bg-raised text-muted hover:text-text',
-        subtle: 'bg-raised text-text hover:bg-border',
+        subtle: 'bg-raised text-text hover:bg-fond-survol',
         danger: 'bg-danger text-sur-etat hover:opacity-90',
         success: 'bg-success text-sur-etat hover:opacity-90',
         /*
@@ -70,7 +70,7 @@ const buttonVariants = cva(
          * deviendrait foncé en sombre. Aucun trait : un bouton ne porte jamais
          * de bordure, c'est son fond qui le dessine.
          */
-        arret: 'bg-danger text-white hover:opacity-90',
+        arret: 'bg-danger text-sur-couleur hover:opacity-90',
         /* Le geste qui CRÉE : le même aplat d'encre que `CLASSE_BOUTON_DE_CREATION`. */
         creation: CLASSE_BOUTON_DE_CREATION,
         /*
@@ -334,7 +334,7 @@ export const ChampMotDePasse = React.forwardRef<
             aria-label="Générer un mot de passe"
             disabled={props.disabled}
             onClick={generer}
-            className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-50"
+            className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-fond-survol hover:text-text disabled:opacity-50"
           >
             <WandSparkles className="h-3.5 w-3.5" />
           </button>
@@ -346,7 +346,7 @@ export const ChampMotDePasse = React.forwardRef<
           aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
           aria-pressed={visible}
           onClick={() => basculer(!visible)}
-          className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text"
+          className="grid h-[34px] sm:h-7 w-[34px] sm:w-7 place-items-center rounded-md text-muted transition-colors hover:bg-fond-survol hover:text-text"
         >
           {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
@@ -644,9 +644,54 @@ export const TabsContent = TabsPrimitive.Content;
 const COUCHES_FLOU = [25, 50, 75, 100];
 const FLOU_PAR_COUCHE = 2;
 
+/**
+ * L'OMBRE DU FONDU EST UN CRAN PLUS FONCÉE QUE SON FOND, en clair comme en
+ * sombre : la couleur du conteneur, mêlée de ce pourcentage de noir. Le
+ * contenu s'enfonce alors dans le fond au lieu de s'effacer dans un voile de
+ * la même teinte — ou, pire, dans un blanc venu de la page quand le conteneur
+ * est un panneau gris (#590c). Réglé ICI seulement : tous les fondus de
+ * l'application, `fond=` explicites compris, passent par ce mélange.
+ */
+const ASSOMBRISSEMENT_FONDU = 6;
+
+/** La couleur de l'ombre : le fond donné, assombri d'un cran. */
+const ombreDuFondu = (fond: string) =>
+  `color-mix(in srgb, ${fond} ${100 - ASSOMBRISSEMENT_FONDU}%, black)`;
+
 /** La courbe d'extinction de l'ombre : douce au départ, longue à la fin. */
 const OMBRE_COURBE =
   'rgb(0 0 0 / 1) 0%, rgb(0 0 0 / 0.92) 18%, rgb(0 0 0 / 0.7) 38%, rgb(0 0 0 / 0.42) 58%, rgb(0 0 0 / 0.18) 78%, rgb(0 0 0 / 0) 100%';
+
+/**
+ * L'OMBRE S'EFFACE PRÈS DE SES BORDS, COINS ARRONDIS (décision du 27/10/2026,
+ * capture #0d70) : pleine largeur et d'une même force jusqu'au bord, elle
+ * finissait sur une coupure nette quand rien de coloré ne la prolongeait. Elle
+ * garde sa force sur toute la largeur et ne s'éteint que sur cette bande, en
+ * PIXELS — la même sur téléphone et sur ordinateur, jamais une tache au milieu
+ * d'un grand écran. Le flou, lui, reste pleine largeur : rogné sur les côtés,
+ * il laisserait reparaître une ligne nette au bord (#2d5b).
+ */
+const BORD_ARRONDI_PX = 24;
+
+/** Le fondu de l'ombre vers ses côtés : doux contre le bord, plein ensuite. */
+const BORD_COURBE = (sens: 'right' | 'bottom') =>
+  `linear-gradient(to ${sens}, rgb(0 0 0 / 0) 0, rgb(0 0 0 / 0.35) ${BORD_ARRONDI_PX * 0.35}px, rgb(0 0 0 / 0.8) ${BORD_ARRONDI_PX * 0.7}px, black ${BORD_ARRONDI_PX}px, black calc(100% - ${BORD_ARRONDI_PX}px), rgb(0 0 0 / 0.8) calc(100% - ${BORD_ARRONDI_PX * 0.7}px), rgb(0 0 0 / 0.35) calc(100% - ${BORD_ARRONDI_PX * 0.35}px), rgb(0 0 0 / 0) 100%)`;
+
+/**
+ * Le masque de l'ombre : son extinction depuis le bord de la zone (`sens`),
+ * MULTIPLIÉE par le fondu de ses côtés (`intersect`, `source-in` sous Safari).
+ * Sans cette composition, deux masques s'additionnent et rien ne s'efface.
+ */
+const masqueDeLOmbre = (sens: 'top' | 'bottom' | 'left' | 'right'): React.CSSProperties => {
+  const cotes = BORD_COURBE(sens === 'top' || sens === 'bottom' ? 'right' : 'bottom');
+  const image = `${cotes}, linear-gradient(to ${sens}, ${OMBRE_COURBE})`;
+  return {
+    maskImage: image,
+    WebkitMaskImage: image,
+    maskComposite: 'intersect',
+    WebkitMaskComposite: 'source-in',
+  } as React.CSSProperties;
+};
 
 /** Une barre dessinée s'éteint après ce temps d'immobilité. */
 const REPOS_BARRE_MS = 800;
@@ -750,6 +795,14 @@ export const ZoneDefilement = React.forwardRef<
    * sans rendu React à chaque cran de défilement.
    */
   const [deborde, setDeborde] = React.useState(false);
+  /**
+   * LE FONDU DU BAS SE POSE AU-DESSUS D'UNE BARRE COLLÉE AU BAS DE LA ZONE
+   * (`data-pied-colle`, la barre « Répondre / Joindre / Annuler » d'une
+   * question, capture #2e5f) : c'est le contenu qui défile qui s'estompe,
+   * jamais les boutons qui restent fixes. La hauteur de la barre collée se
+   * relit à chaque mesure ; un nombre, donc aucun rendu de plus s'il ne bouge pas.
+   */
+  const [retraitFin, setRetraitFin] = React.useState(0);
   const [enMouvement, setEnMouvement] = React.useState(false);
   const piste = React.useRef<HTMLDivElement | null>(null);
   const pouceRef = React.useRef<HTMLDivElement | null>(null);
@@ -764,6 +817,19 @@ export const ZoneDefilement = React.forwardRef<
     const total = horizontal ? zone.scrollWidth : zone.scrollHeight;
     setDebut(position > 4);
     setFin(position + vue < total - 4);
+    if (!horizontal) {
+      let retrait = 0;
+      const pieds = zone.querySelectorAll<HTMLElement>('[data-pied-colle]');
+      if (pieds.length) {
+        const basDeLaZone = zone.getBoundingClientRect().bottom;
+        for (const pied of pieds) {
+          // Collée au bas (à la marge près), elle repousse le fondu jusqu'à son HAUT réel.
+          const cadre = pied.getBoundingClientRect();
+          if (cadre.height && basDeLaZone - cadre.bottom < 24 && cadre.bottom <= basDeLaZone + 2) retrait = Math.max(retrait, Math.round(basDeLaZone - cadre.top));
+        }
+      }
+      setRetraitFin(retrait);
+    }
     if (!barre) return;
     const part = total > 0 ? Math.min(1, vue / total) : 1;
     const course = Math.max(0, total - vue);
@@ -943,7 +1009,7 @@ export const ZoneDefilement = React.forwardRef<
               : '-bottom-px',
           visible ? 'opacity-100' : 'opacity-0',
         )}
-        style={horizontal ? { width: hauteur + 1 } : { height: hauteur + 1 }}
+        style={horizontal ? { width: hauteur + 1 } : cote === 'fin' && retraitFin ? { height: hauteur + 1, bottom: retraitFin - 1 } : { height: hauteur + 1 }}
       >
         {/*
          * Un flou PROGRESSIF, et non une bande floue posée d'un bloc : un seul
@@ -966,15 +1032,15 @@ export const ZoneDefilement = React.forwardRef<
           />
         ))}
         {/*
-         * L'ombre, par-dessus : la couleur du fond s'efface selon une courbe
-         * douce. Un dégradé droit se voit finir ; celui-ci s'éteint.
+         * L'ombre, par-dessus : la couleur du fond, un cran plus foncée,
+         * s'efface selon une courbe douce. Un dégradé droit se voit finir ;
+         * celui-ci s'éteint — et ses côtés aussi (`masqueDeLOmbre`).
          */}
         <div
           className="absolute inset-0"
           style={{
-            background: fond,
-            maskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
-            WebkitMaskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
+            background: ombreDuFondu(fond),
+            ...masqueDeLOmbre(sens),
           }}
         />
       </div>
@@ -3739,7 +3805,7 @@ export function ListeDeroulante({
         variante === 'champ'
           ? /* La tenue d'un champ de saisie (`Input`) : un fond, aucun trait au
                repos ; ouverte, le même filet discret qu'un champ qui a le focus. */
-            'h-[38px] sm:h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-border'
+            'h-[38px] sm:h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-fond-survol'
           : 'h-[34px] sm:h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
         ouvert && variante === 'champ' && 'border-faint/60',
         className,
@@ -3911,6 +3977,7 @@ export function MenuActions({
   className,
   empile,
   taille: tailleVoulue,
+  onOuvert,
 }: {
   titre: string;
   repere: string;
@@ -3930,12 +3997,20 @@ export function MenuActions({
   /** Sans effet depuis que c'est un menu : il s'ancre à son bouton, il ne s'empile sur rien. */
   empile?: boolean;
   taille?: ButtonProps['size'];
+  /** Prévenu à chaque ouverture et fermeture — un menu à deux niveaux y revient à son premier. */
+  onOuvert?: (ouvert: boolean) => void;
 }) {
   void empile;
   const dansUneBarre = React.useContext(DansUneBarreDEnTete);
   const taille = tailleVoulue ?? (dansUneBarre ? 'icon-barre' : 'icon-sm');
-  const [ouvert, setOuvert] = React.useState(false);
-  const fermer = React.useCallback(() => setOuvert(false), []);
+  const [ouvert, setOuvertSeul] = React.useState(false);
+  const surOuverture = React.useRef(onOuvert);
+  surOuverture.current = onOuvert;
+  const setOuvert = React.useCallback((valeur: boolean) => {
+    setOuvertSeul(valeur);
+    surOuverture.current?.(valeur);
+  }, []);
+  const fermer = React.useCallback(() => setOuvert(false), [setOuvert]);
 
   /*
    * LE CLAVIER ATTEINT AUSSI CE QUI N'EST PAS UNE ENTRÉE. Un menu retient la

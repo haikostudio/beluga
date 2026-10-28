@@ -106,7 +106,7 @@ export function VignetteInitialisationProduction({
         className={cn(
           formatCarte
             ? CLASSE_CADRE_SYSTEME
-            : 'relative z-10 cursor-pointer rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-border',
+            : 'relative z-10 cursor-pointer rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-fond-survol',
           auTravail && 'rounded-b-none',
         )}
       >

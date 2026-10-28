@@ -187,7 +187,7 @@ export function BoutonLireLeCahier({ carte, groupe }: { carte: Card; groupe: boo
         type="button"
         variant="ghost"
         className={cn(
-          'h-[43px] sm:h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 py-0 text-[13px] font-medium text-text hover:bg-border',
+          'h-[43px] sm:h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 py-0 text-[13px] font-medium text-text hover:bg-fond-survol',
           groupe && 'rounded-r-none',
         )}
         onClick={() => setLecture(true)}

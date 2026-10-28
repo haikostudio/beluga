@@ -1,20 +1,21 @@
 import * as React from 'react';
-import { Check, ImagePlus, Loader2, Send } from 'lucide-react';
+import { Check, Loader2, Send } from 'lucide-react';
 import {
-  ANGLES_DE_VUE,
-  PARAMETRES_DES_ANGLES,
   arrondi,
   decoupageDuMedia,
   estRetenu,
   planDuMedia,
+  type AngleDeVue,
   type Attachment,
+  type BoiteDeVisage,
   type DirectionDeLumiere,
   type MediaDuSuivi,
 } from '@beluga/shared';
-import { Button, Drawer, EnteteDeFeuille, Input, Switch, Textarea, ZoneDefilement } from '@/components/ui';
+import { Button, Drawer, EnteteDeFeuille, ListeDeroulante, Switch, Textarea, ZoneDefilement } from '@/components/ui';
 import { BoutonsRadio, Curseur } from '@/components/ui/elements-maison';
 import { ImageDePiece } from '@/components/pastille-de-fichier';
-import { SphereDeLumiere } from '@/components/sphere-de-lumiere';
+import { CubeDAngle, CubeDeLumiere } from '@/components/scene-3d';
+import { ChoixDuVisage } from '@/components/creation/choix-du-visage';
 import { client } from '@/lib/client';
 import { useProduction } from '@/lib/production-de-carte';
 import { useApp } from '@/lib/use-app';
@@ -26,22 +27,27 @@ import { cn } from '@/lib/utils';
  * 26/10/2026 : « ça devrait m'ouvrir un drawer qui me demande l'image target,
  * et ensuite envoyer ») — une FEUILLE DU BAS par option, avec le composant qui
  * lui convient :
- *  - « Remplacer le visage » : les photos du visage (celles de la carte, ou
- *    ajoutées) et la personne à remplacer ;
- *  - « Changer la lumière » : la sphère de lumière ;
- *  - « Autres angles » : l'angle voulu ;
+ *  - « Remplacer le visage » : l'image d'origine à gauche, ses visages
+ *    repérés à cliquer ; à droite le visage à poser, pris dans la
+ *    bibliothèque (seulement des photos de visage) ou envoyé
+ *    (`choix-du-visage.tsx`, 26/10/2026) ;
+ *  - « Changer la lumière » : le cube 3D de lumière, personnage au centre ;
+ *  - « Autres angles » : le cube 3D d'angle, la caméra tournée à la main, et
+ *    le menu des angles nommés (`scene-3d/`, 26/10/2026) ;
  *  - « Animer ce plan » : l'image de fin (facultative), la durée, le son ;
  *  - « Reprendre ses gestes » : l'image du personnage, l'orientation ;
  *  - « Redemander avec une consigne » : la consigne.
- * Le MEILLEUR MODÈLE est choisi d'office (`realisation.panneau.chiffrer`) ; un
- * second n'est proposé que s'il se vaut vraiment. On choisit 2 à 4 variantes.
+ * TOUS LES MODÈLES qui savent faire l'opération sont dans le menu « Modèle »,
+ * avec leur qualité et leur prix ; le MEILLEUR est choisi d'office
+ * (`realisation.panneau.chiffrer`, décision du 26/10/2026). On choisit 2 à 4
+ * variantes.
  * Le bouton « Envoyer · prix » PORTE LE PRIX et VAUT ACCORD : la génération part
  * aussitôt (`realisation.panneau.lancer`), sans que l'agent repose de question,
  * et les brouillons arrivent au bas de la conversation.
  *
  * La feuille du bas, réservée jusqu'ici au déploiement, sert ici par demande
- * explicite de l'utilisateur ; elle se tire par sa SEULE poignée — la sphère
- * capture son pointeur et ne la ferme pas.
+ * explicite de l'utilisateur ; elle se tire par sa SEULE poignée — les cubes
+ * capturent leur pointeur et ne la ferment pas.
  */
 
 export type OperationDuPanneau = 'visage' | 'lumiere' | 'angles' | 'animer' | 'gestes' | 'consigne';
@@ -57,9 +63,9 @@ export const LIBELLES_OPERATIONS_DU_PANNEAU: Record<OperationDuPanneau, () => st
 };
 
 const DESCRIPTIONS_OPERATIONS_DU_PANNEAU: Record<OperationDuPanneau, () => string> = {
-  visage: () => t('Choisissez les photos du visage à poser, puis la personne à remplacer.'),
-  lumiere: () => t('Déplacez le point : la lumière viendra de là.'),
-  angles: () => t('Choisissez l’angle de vue : sujet, style et lumière restent les mêmes.'),
+  visage: () => t('Cliquez le visage à remplacer, puis choisissez celui à poser.'),
+  lumiere: () => t('Déplacez la lumière autour du personnage : elle viendra de là.'),
+  angles: () => t('Tournez la caméra autour du personnage : sujet, style et lumière restent les mêmes.'),
   animer: () => t('L’image validée du plan est l’image de départ ; une image de fin est facultative.'),
   gestes: () => t('Le personnage d’une image refait les gestes de cette vidéo.'),
   consigne: () => t('Dites ce qui doit changer : le reste est gardé.'),
@@ -75,6 +81,9 @@ interface ModeleDuPanneau {
   fin?: boolean;
   sources?: number;
   lumiere?: 'libre' | { azimut: number; elevation: number; libelle: string }[];
+  /** Autres angles : la hauteur de caméra acceptée. */
+  verticalMin?: number;
+  verticalMax?: number;
 }
 
 /** Les pièces jointes du projet, demandées une fois si l'écran ne les a pas encore. */
@@ -117,7 +126,7 @@ function ChoixDImages({
           >
             <ImageDePiece id={image.piece} alt={image.legende} className="h-full w-full object-cover" />
             {choisie ? (
-              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-teinte-plein text-white">
+              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-teinte-plein text-sur-couleur">
                 <Check className="h-3 w-3" strokeWidth={3} />
               </span>
             ) : null}
@@ -158,9 +167,9 @@ export function PanneauDuMedia({
   const [modele, setModele] = React.useState<string | null>(null);
   const [variantes, setVariantes] = React.useState(2);
   const [photos, setPhotos] = React.useState<string[]>([]);
-  const [cible, setCible] = React.useState('');
+  const [cible, setCible] = React.useState<{ choisi: BoiteDeVisage | null; tous: BoiteDeVisage[]; aChoisir: boolean }>({ choisi: null, tous: [], aChoisir: false });
   const [lumiere, setLumiere] = React.useState<DirectionDeLumiere | null>(null);
-  const [angle, setAngle] = React.useState<string>(ANGLES_DE_VUE[0]!);
+  const [angle, setAngle] = React.useState<AngleDeVue & { nom: string | null }>({ horizontal: 0, vertical: 0, zoom: 5, nom: 'face' });
   const [fin, setFin] = React.useState<string | null>(null);
   const [son, setSon] = React.useState(true);
   const [personnage, setPersonnage] = React.useState<string | null>(null);
@@ -169,7 +178,6 @@ export function PanneauDuMedia({
   const [envoi, setEnvoi] = React.useState(false);
   const [erreur, setErreur] = React.useState<string | null>(null);
   const [envoiPhoto, setEnvoiPhoto] = React.useState(false);
-  const champPhoto = React.useRef<HTMLInputElement>(null);
 
   /* LA DURÉE DU PLAN, écrite au découpage : c'est elle que l'animation reprend. */
   const plans = React.useMemo(() => decoupageDuMedia(production?.elements ?? []), [production?.elements]);
@@ -183,7 +191,7 @@ export function PanneauDuMedia({
     setModele(null);
     setVariantes(2);
     setPhotos([]);
-    setCible('');
+    setCible({ choisi: null, tous: [], aChoisir: false });
     setFin(null);
     setPersonnage(null);
     setConsigne('');
@@ -211,14 +219,15 @@ export function PanneauDuMedia({
   const choisi = chiffre?.modeles.find((m) => m.modele === modele) ?? null;
   const validees = (production?.medias ?? []).filter((m) => estRetenu(m) && m.genre === 'image' && !!m.attachmentId && m.id !== media.id);
   const imagesDeLaCarte = validees.map((m) => ({ id: m.id, piece: m.attachmentId!, legende: `${m.plan} v${m.version}` }));
-  /* Les photos du visage : les images jointes au projet par l'utilisateur, et celles de la carte. */
-  const photosPossibles = [
-    ...imagesDeLaCarte,
+  /* LA BIBLIOTHÈQUE DES VISAGES (décision du 26/10/2026) : les images de cette
+     création et celles du projet ; `ChoixDuVisage` n'en garde que celles où un
+     visage est repéré, les plus récentes en tête. */
+  const imagesDeLaCreation = (production?.medias ?? []).filter((m) => m.genre === 'image' && !!m.attachmentId && m.id !== media.id);
+  const candidatsDeVisage = [
+    ...imagesDeLaCreation.map((m) => ({ id: m.id, piece: m.attachmentId!, legende: `${m.plan} v${m.version}`, quand: m.creeLe ?? 0 })),
     ...piecesDuProjet
-      .filter((p) => p.mime.startsWith('image/') && p.id !== media.attachmentId && !validees.some((m) => m.attachmentId === p.id))
-      .slice(-24)
-      .reverse()
-      .map((p) => ({ id: p.id, piece: p.id, legende: p.name })),
+      .filter((p) => p.mime.startsWith('image/') && p.id !== media.attachmentId && !imagesDeLaCreation.some((m) => m.attachmentId === p.id))
+      .map((p) => ({ id: p.id, piece: p.id, legende: p.name, quand: p.createdAt ?? 0 })),
   ];
   const plafondPhotos = choisi?.sources ?? 3;
 
@@ -247,7 +256,9 @@ export function PanneauDuMedia({
   const manque =
     !choisi
       ? null
-      : operation === 'visage' && !photos.length
+      : operation === 'visage' && cible.aChoisir
+        ? t('Cliquez sur l’image le visage à remplacer.')
+        : operation === 'visage' && !photos.length
         ? t('Choisissez au moins une photo du visage.')
         : operation === 'gestes' && !personnage
           ? t('Choisissez l’image du personnage.')
@@ -271,9 +282,12 @@ export function PanneauDuMedia({
         modele: choisi.modele,
         variantes,
         ...(consigne.trim() ? { consigne: consigne.trim() } : {}),
-        ...(operation === 'visage' ? { photos, cible: cible.trim() || t('la personne principale de l’image') } : {}),
+        /* Le visage cliqué part en cadre : le démon le dit en mots au modèle. Sans visage repéré, la personne principale. */
+        ...(operation === 'visage'
+          ? { photos, ...(cible.choisi ? { visageCible: cible.choisi, visages: cible.tous } : { cible: 'the main person in the image' }) }
+          : {}),
         ...(operation === 'lumiere' && lumiere ? { lumiere: { azimut: lumiere.azimut, elevation: lumiere.elevation } } : {}),
-        ...(operation === 'angles' ? { angle } : {}),
+        ...(operation === 'angles' ? { angle: angle.nom ?? { horizontal: angle.horizontal, vertical: angle.vertical, zoom: angle.zoom } } : {}),
         ...(operation === 'animer' ? { duree, son, ...(fin ? { fin } : {}) } : {}),
         ...(operation === 'gestes' && personnage ? { image: personnage, orientation } : {}),
       });
@@ -299,34 +313,23 @@ export function PanneauDuMedia({
             <p className="min-w-0 truncate text-[13px] text-muted">{media.plan}</p>
           </div>
 
-          {operation === 'visage' ? (
-            <>
-              <Rubrique titre={t('Photos du visage')}>
-                <ChoixDImages
-                  images={photosPossibles}
-                  choisies={photos}
-                  onBasculer={(id) => setPhotos((avant) => (avant.includes(id) ? avant.filter((x) => x !== id) : avant.length >= plafondPhotos ? avant : [...avant, id]))}
-                  vide={t('Aucune photo pour l’instant : ajoutez-en une.')}
-                  repere="photos-du-visage"
-                />
-                <div className="flex items-center gap-2">
-                  <Button type="button" size="sm" variant="ghost" className="gap-1.5" disabled={envoiPhoto} onClick={() => champPhoto.current?.click()} data-ajouter-photo="">
-                    {envoiPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-                    {t('Ajouter une photo')}
-                  </Button>
-                  <span className="text-[12px] text-faint">{t('{n} au plus', { n: plafondPhotos })}</span>
-                </div>
-                <input ref={champPhoto} type="file" accept="image/*" multiple className="hidden" onChange={(event) => void ajouterUnePhoto(event.target.files)} />
-              </Rubrique>
-              <Rubrique titre={t('Personne à remplacer')}>
-                <Input value={cible} onChange={(e) => setCible(e.target.value)} placeholder={t('la personne principale de l’image')} data-cible-du-visage="" />
-              </Rubrique>
-            </>
+          {operation === 'visage' && carte ? (
+            <ChoixDuVisage
+              projectId={carte.projectId}
+              source={media.attachmentId ?? null}
+              candidats={candidatsDeVisage}
+              photos={photos}
+              plafond={plafondPhotos}
+              onBasculerPhoto={(id) => setPhotos((avant) => (avant.includes(id) ? avant.filter((x) => x !== id) : avant.length >= plafondPhotos ? avant : [...avant, id]))}
+              onEnvoyer={(fichiers) => void ajouterUnePhoto(fichiers)}
+              envoiEnCours={envoiPhoto}
+              onCible={setCible}
+            />
           ) : null}
 
           {operation === 'lumiere' && choisi ? (
             <Rubrique titre={t('Direction de la lumière')}>
-              <SphereDeLumiere
+              <CubeDeLumiere
                 key={choisi.modele}
                 sphere={{ directions: choisi.lumiere ?? 'libre', modele: choisi.nom, ...(media.attachmentId ? { image: media.attachmentId } : {}) }}
                 onChange={setLumiere}
@@ -336,13 +339,10 @@ export function PanneauDuMedia({
 
           {operation === 'angles' ? (
             <Rubrique titre={t('Angle de vue')}>
-              <BoutonsRadio
-                libelle={t('Angle de vue')}
-                valeur={angle}
-                onChoisir={setAngle}
-                options={ANGLES_DE_VUE.map((a) => ({ valeur: a, libelle: t(PARAMETRES_DES_ANGLES[a].libelle) }))}
-                className="grid grid-cols-2 gap-1"
-                data-angles-du-panneau=""
+              <CubeDAngle
+                key={choisi?.modele ?? 'sans-modele'}
+                bornes={{ verticalMin: choisi?.verticalMin ?? -30, verticalMax: choisi?.verticalMax ?? 90 }}
+                onChange={setAngle}
               />
             </Rubrique>
           ) : null}
@@ -411,22 +411,21 @@ export function PanneauDuMedia({
               </p>
             ) : chiffre && !chiffre.modeles.length ? (
               <p className="text-[13px] text-muted">{chiffre.raison ? t(chiffre.raison) : t('Aucun modèle disponible.')}</p>
-            ) : chiffre && chiffre.modeles.length === 1 ? (
-              <p className="text-[13px] text-text" data-modele-du-panneau={chiffre.modeles[0]!.modele}>
-                {chiffre.modeles[0]!.nom}
-                <span className="text-faint"> · {t('qualité {q}/5', { q: chiffre.modeles[0]!.qualite })} · {chiffre.modeles[0]!.prix === null ? t('prix non publié') : t('{prix} par variante', { prix: `${arrondi(chiffre.modeles[0]!.prix)} $` })}</span>
-              </p>
             ) : chiffre ? (
-              <BoutonsRadio
-                libelle={t('Modèle')}
+              /* UN VRAI CHOIX (26/10/2026) : tous les modèles qui savent faire l'opération, le meilleur d'office. */
+              <ListeDeroulante
+                titre={t('Modèle')}
                 valeur={modele ?? ''}
                 onChoisir={setModele}
+                empile
+                className="h-9"
+                data-modeles-du-panneau={chiffre.modeles.length}
+                data-modele-du-panneau={modele ?? ''}
                 options={chiffre.modeles.map((m) => ({
                   valeur: m.modele,
-                  libelle: m.nom,
+                  libelle: m.modele === chiffre.recommande ? t('{nom} (recommandé)', { nom: m.nom }) : m.nom,
                   detail: `${t('qualité {q}/5', { q: m.qualite })} · ${m.prix === null ? t('prix non publié') : t('{prix} par variante', { prix: `${arrondi(m.prix)} $` })}`,
                 }))}
-                data-modeles-du-panneau=""
               />
             ) : null}
           </Rubrique>
@@ -440,7 +439,7 @@ export function PanneauDuMedia({
                   role="radio"
                   aria-checked={variantes === n}
                   onClick={() => setVariantes(n)}
-                  className={cn('h-8 min-w-10 rounded-md px-3 text-[13px] tabular-nums transition-colors', variantes === n ? 'bg-teinte-plein text-white' : 'bg-raised text-text hover:bg-raised/70')}
+                  className={cn('h-8 min-w-10 rounded-md px-3 text-[13px] tabular-nums transition-colors', variantes === n ? 'bg-teinte-plein text-sur-couleur' : 'bg-raised text-text hover:bg-raised/70')}
                 >
                   {n}
                 </button>

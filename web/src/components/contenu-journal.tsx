@@ -560,7 +560,8 @@ function VueOutil({ vue, libelle }: { vue: Extract<VueDEntree, { sorte: 'outil' 
         tete?.echec ? (
           <div data-encadre-refus>
             <Etiquette>{t('Refus')}</Etiquette>
-            <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-danger texte-copiable">{vue.texte}</p>
+            {/* Le refus d'un geste repris se lit en gris : ce n'est pas une panne (28/10/2026). */}
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-muted texte-copiable">{vue.texte}</p>
           </div>
         ) : (
           <BlocReplie titre={t('Données récupérées')} texte={vue.texte} repere="data-encadre-donnees" />

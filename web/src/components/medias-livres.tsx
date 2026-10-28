@@ -1,27 +1,33 @@
 import * as React from 'react';
-import { Download, Loader2, Music } from 'lucide-react';
-import { ROUTE_ARCHIVE_DES_IMAGES, type CorpsDArchive, type LotDArchive, type MediaLivre } from '@beluga/shared';
+import { Clapperboard, Image as ImageIcon, Music, Play, type LucideIcon } from 'lucide-react';
+import { etiquetteDePiece, heureExacte, phraseDuMediaLivre, type Attachment, type MediaLivre } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { LecteurSon } from '@/components/lecteur-son';
-import { EnTeteDePanneau, Panneau } from '@/components/panneau';
-import { adresseDePiece, LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
-import { InformationsDeLaPiece, MenuDeLaPiece } from '@/components/menu-du-media';
-import { Button } from '@/components/ui';
+import { VignetteVideo } from '@/components/lecteur-video';
+import { adresseDePiece, EtiquetteDeVignette, estUnPdf } from '@/components/pastille-de-fichier';
+import { MenuDuMediaDuFil } from '@/components/menu-du-media';
+import { useSourceDuGlisser } from '@/components/glisser-vers-un-plan';
 import { client } from '@/lib/client';
-import { useTelechargement } from '@/lib/telechargement';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
-import { cn } from '@/lib/utils';
+import { HeureDuFil } from '@/components/heure-du-fil';
+import { cn, heureEtDuree } from '@/lib/utils';
 
 /**
- * LES MÉDIAS LIVRÉS, SOUS LA RÉPONSE FINALE (décision du 20/10/2026).
+ * LES MÉDIAS LIVRÉS, DANS LE FIL (décision du 20/10/2026, revue le 26/10/2026,
+ * capture #e9bd : « il faut que les images soient rendues les unes sous les
+ * autres… avec un petit texte qui m'explique ce qui a été rendu »).
  *
- * À la fin de toute discussion qui a fabriqué des images, des vidéos ou des
- * sons, la réponse finale les montre TOUS — versions comprises, pour que
- * l'utilisateur choisisse — dans un bloc à deux étages (en-tête + panneau, le
- * même cadre que « Ce que l'agent a vu »). Chaque média a son bouton
- * « Télécharger » ; l'en-tête porte « Tout télécharger » (une archive .zip,
- * préparée par le serveur comme celle de la visionneuse).
+ * CHAQUE MÉDIA EST UNE LIGNE DU FIL, À SON HEURE, comme une capture de
+ * l'agent : sa phrase (`phraseDuMediaLivre` — celle de l'agent, sinon d'après
+ * le sujet et la version), le média dessous au gabarit des captures
+ * (`max-h-40`, repère court « #cf0d »), puis l'heure en dernier. Le fil d'une carte et celui
+ * d'un agent sans carte la posent après ce qui l'a précédée dans le temps
+ * (`placerLesMediasDansLeFil`). Plus aucune rangée de vignettes ; le bloc
+ * « Médias fabriqués » (en-tête, panneau, « Tout télécharger ») reste refusé
+ * (capture #3bb3). Un clic ouvre la visionneuse, qui feuillette TOUS les
+ * médias de la discussion (`GalerieDesMediasLivres`) ; le menu « … » garde
+ * « Valider » et les gestes qui refabriquent.
  *
  * La liste vient de la base (`medias.livres.*`) : elle survit au message
  * suivant et au redémarrage. Elle se relit quand une fabrication de la
@@ -57,109 +63,142 @@ export function useMediasLivres(ou: { cardId?: string | null; agentId?: string |
   return cle ? medias : [];
 }
 
-export function MediasLivres({ medias, className }: { medias: readonly MediaLivre[]; className?: string }) {
-  if (!medias.length) return null;
+/** L'icône de la ligne d'un média, dans la colonne de gauche. */
+export function iconeDuMediaLivre(m: Pick<MediaLivre, 'genre'>): LucideIcon {
+  return m.genre === 'video' ? Clapperboard : m.genre === 'son' ? Music : ImageIcon;
+}
+
+/** La pièce jointe d'un média, ou un remplaçant tant que la liste des pièces n'est pas arrivée. */
+function pieceDuMedia(m: MediaLivre, pieces: readonly Attachment[] | undefined): Attachment {
   return (
-    <section className={cn('min-w-0', className)} data-medias-livres={medias.length}>
-      <EnTeteDePanneau className="flex items-center gap-2 font-normal" data-medias-livres-en-tete="">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
-          {t('Médias fabriqués ({n})', { n: medias.length })}
-        </span>
-        {medias.length > 1 ? <ToutTelecharger medias={medias} /> : null}
-      </EnTeteDePanneau>
-      <Panneau className="px-2 py-2">
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
-          {medias.map((m) => (
-            <MediaDuBloc key={m.id} media={m} />
-          ))}
-        </ul>
-      </Panneau>
-    </section>
+    pieces?.find((p) => p.id === m.attachmentId) ?? {
+      id: m.attachmentId,
+      projectId: m.projectId,
+      name: m.sujet || 'media',
+      mime: '',
+      size: 0,
+      sha: m.attachmentId,
+      createdAt: m.livreLe ?? 0,
+    }
   );
 }
 
-function MediaDuBloc({ media }: { media: MediaLivre }) {
+const OuvrirUnMediaLivre = React.createContext<((attachmentId: string) => void) | null>(null);
+
+/**
+ * LA VISIONNEUSE DES MÉDIAS D'UNE DISCUSSION : posée une fois autour du fil,
+ * elle feuillette tous ses médias livrés, dans l'ordre où ils ont été rendus.
+ */
+export function GalerieDesMediasLivres({ medias, children }: { medias: readonly MediaLivre[]; children: React.ReactNode }) {
   const state = useApp();
-  const piece = (state.attachments[media.projectId] ?? []).find((p) => p.id === media.attachmentId);
-  const [ouverte, setOuverte] = React.useState(false);
-  const nom = piece?.name ?? media.sujet ?? 'media';
-  const { etat, lancer } = useTelechargement([{ adresse: adresseDePiece(media.attachmentId, true), nom }]);
-  const legende = `${media.sujet || t('Média')}${media.version > 1 ? ` · v${media.version}` : ''}`;
+  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const projectId = medias[0]?.projectId ?? '';
+  const pieces = state.attachments[projectId];
+  const manquantes = !!projectId && !pieces;
+  React.useEffect(() => {
+    if (manquantes) client.send({ type: 'attachments.list', projectId });
+  }, [manquantes, projectId]);
+  const galerie = React.useMemo(
+    () => [...medias].sort((a, b) => a.livreLe - b.livreLe).map((m) => pieceDuMedia(m, pieces)),
+    [medias, pieces],
+  );
   return (
-    <li className="flex min-w-0 flex-col gap-1" data-media-livre={media.attachmentId} data-media-livre-genre={media.genre}>
-      <div className="relative overflow-hidden rounded-lg bg-raised">
-        <MenuDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} />
-        {media.genre === 'image' ? (
-          <button type="button" className="block aspect-video w-full" onClick={() => setOuverte(true)} title={t('Ouvrir en grand')}>
-            <img src={adresseDePiece(media.attachmentId, false, LARGEUR_DE_VIGNETTE)} alt={legende} className="h-full w-full object-contain" loading="lazy" />
-          </button>
-        ) : media.genre === 'video' ? (
-          <video src={adresseDePiece(media.attachmentId)} controls preload="metadata" className="block aspect-video w-full bg-raised" data-media-livre-video />
-        ) : (
-          <div className="flex aspect-video flex-col justify-center gap-2 p-2" data-media-livre-son>
-            <Music className="h-4 w-4 text-faint" aria-hidden />
-            <LecteurSon id={media.attachmentId} nom={legende} poids={piece?.size} compact className="bg-surface" onAgrandir={piece ? () => setOuverte(true) : undefined} />
-          </div>
-        )}
-      </div>
-      <div className="flex min-w-0 items-center gap-1">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted" title={legende}>
-          {legende}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          aria-label="Télécharger ce média"
-          onClick={lancer}
-          disabled={etat === 'reception'}
-          data-media-livre-telecharger
-        >
-          {etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-        </Button>
-      </div>
-      <InformationsDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} />
-      {piece ? <AttachmentPreview item={ouverte ? piece : null} onClose={() => setOuverte(false)} /> : null}
-    </li>
+    <OuvrirUnMediaLivre.Provider value={setOuverte}>
+      {children}
+      {medias.length ? (
+        <AttachmentPreview
+          item={ouverte ? galerie.find((p) => p.id === ouverte) ?? null : null}
+          galerie={galerie}
+          onNaviguer={(p) => setOuverte(p.id)}
+          onClose={() => setOuverte(null)}
+        />
+      ) : null}
+    </OuvrirUnMediaLivre.Provider>
   );
 }
 
-/** « Tout télécharger » : une archive .zip, préparée par le serveur (la liste part dans le corps, jamais dans l'adresse). */
-function ToutTelecharger({ medias }: { medias: readonly MediaLivre[] }) {
-  const ids = medias.map((m) => m.attachmentId);
-  const archive = React.useMemo(
-    () => ({
-      adresse: `${ROUTE_ARCHIVE_DES_IMAGES}#medias-livres:${ids.join(',')}`,
-      nom: 'medias.zip',
-      preparer: async (signal: AbortSignal) => {
-        const corps: CorpsDArchive = { ids, chemins: [], nom: 'medias' };
-        const reponse = await fetch(ROUTE_ARCHIVE_DES_IMAGES, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(corps),
-          signal,
-        });
-        const rendu = (await reponse.json().catch(() => ({}))) as Partial<LotDArchive> & { error?: string };
-        if (!reponse.ok || !rendu.adresse) throw new Error(rendu.error ?? String(reponse.status));
-        return rendu.adresse;
-      },
-    }),
-    [ids.join(',')],
-  );
-  const { etat, lancer } = useTelechargement([archive]);
+/**
+ * UNE LIGNE DE MÉDIA, COMME UNE LIGNE DE CAPTURE : la phrase qui dit ce qui a
+ * été rendu, le média dessous, borné comme une capture, puis son heure en
+ * dernier (« il y a 26 min »). Le menu « … » (Valider, retouches, réglages…)
+ * se pose en haut à droite du média, quel que soit l'outil qui l'a rendu. Sans
+ * `GalerieDesMediasLivres` autour, le clic ouvre une visionneuse à lui.
+ */
+export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
+  const state = useApp();
+  const ouvrirDansLaGalerie = React.useContext(OuvrirUnMediaLivre);
+  const [seule, setSeule] = React.useState(false);
+  const piece = pieceDuMedia(media, state.attachments[media.projectId]);
+  const phrase = phraseDuMediaLivre(media);
+  const texte = phrase.texte ?? t(phrase.motif!, phrase.valeurs);
+  const quand = media.livreLe || piece.createdAt || undefined;
+  const heure = media.cardId ? null : heureEtDuree(quand);
+  const repere = piece.alias ? etiquetteDePiece(piece) : null;
+  const libelle = `${media.sujet || t('Média')}${media.version > 1 ? ` · v${media.version}` : ''}`;
+  const infobulle = [libelle, t('Ouvrir en grand'), quand ? heureExacte(quand) : ''].filter(Boolean).join(' · ');
+  const ouvrir = () => (ouvrirDansLaGalerie ? ouvrirDansLaGalerie(media.attachmentId) : setSeule(true));
+  const genre = media.genre === 'video' ? 'video' : media.genre === 'son' ? 'son' : estUnPdf(piece.mime) ? 'pdf' : 'image';
+  /* À LA SOURIS, LE MÉDIA SE GLISSE VERS UNE CASE DU SUIVI (28/10/2026) ; inconnu de la production, il y est inscrit au dépôt. */
+  const sourceDuGlisser = useSourceDuGlisser(genre === 'image' || genre === 'video' ? { attachmentId: media.attachmentId, genre, nom: libelle } : null);
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-[34px] sm:h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
-      onClick={lancer}
-      disabled={etat === 'reception'}
-      title={t('Télécharger tous les médias en une archive (.zip)')}
-      data-medias-livres-tout-telecharger
-    >
-      {etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-      {t('Tout télécharger ({n})', { n: medias.length })}
-    </Button>
+    <div className="min-w-0" data-media-livre={media.attachmentId} data-media-livre-genre={media.genre} data-media-livre-version={media.version}>
+      <p className="min-w-0 break-words text-[14.5px] leading-relaxed text-text texte-copiable" data-media-livre-phrase={phrase.texte ? 'agent' : 'construite'}>
+        {texte}
+      </p>
+      {/* Un son garde son menu À DROITE du lecteur : posé dessus, il couvrait le bouton « agrandir ». */}
+      <div className={cn('relative mt-1 w-fit max-w-full', genre === 'son' && 'flex items-center gap-1')}>
+        {genre === 'son' ? (
+          <div className="w-72 max-w-full rounded-md bg-raised p-1" title={infobulle}>
+            <LecteurSon id={media.attachmentId} nom={libelle} compact className="bg-surface" onAgrandir={ouvrir} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={ouvrir}
+            title={infobulle}
+            {...sourceDuGlisser}
+            data-media-livre-ouvrir={media.attachmentId}
+            className="relative block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
+          >
+            {genre === 'video' ? (
+              <>
+                <VignetteVideo
+                  id={media.attachmentId}
+                  nom={libelle}
+                  seconde={piece.apercuSeconde}
+                  className="pointer-events-none max-h-40 max-w-[min(320px,100%)] rounded object-contain"
+                />
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
+                    <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" />
+                  </span>
+                </span>
+              </>
+            ) : (
+              <img
+                src={adresseDePiece(media.attachmentId, false, 640)}
+                alt={texte}
+                loading="lazy"
+                className="max-h-40 max-w-[min(320px,100%)] rounded object-contain object-left-top"
+              />
+            )}
+            {repere ? <EtiquetteDeVignette texte={repere} /> : null}
+          </button>
+        )}
+        {/* LE MENU « … » SE POSE SUR CHAQUE MÉDIA LIVRÉ, même rendu par un autre outil que la production (#dca9) : inscrit au premier geste. */}
+        <MenuDuMediaDuFil cardId={media.cardId} attachmentId={media.attachmentId} genre={media.genre} nom={media.sujet} className={genre === 'son' ? 'static' : undefined} />
+      </div>
+      {/* L'HEURE SOUS LE MÉDIA, JAMAIS ENTRE LA PHRASE ET LUI (captures #ae52 et #3c8a). */}
+      {media.cardId ? (
+        <HeureDuFil at={quand} data-media-livre-heure={quand} />
+      ) : heure ? (
+        /* Hors carte, la conversation d'un agent garde son heure d'avant. */
+        <span title={heure.infobulle} className="mt-1 block text-[12.5px] leading-snug text-faint tabular-nums" data-media-livre-heure={quand}>
+          {heure.libelle}
+        </span>
+      ) : null}
+      {seule ? <AttachmentPreview item={piece} onClose={() => setSeule(false)} /> : null}
+    </div>
   );
 }
+

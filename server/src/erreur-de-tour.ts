@@ -54,14 +54,14 @@ export function poserDecisionErreurDeTour(entree: { messageId: string; agent: Ag
 
 /**
  * UNE CAUSE ÉCRITE PAR LA MACHINE ET INCONNUE DES MOTIFS est confiée à
- * Laya, APRÈS coup : la décision est déjà posée et affichée, la phrase
+ * Jev, APRÈS coup : la décision est déjà posée et affichée, la phrase
  * simple la rejoint une seconde plus tard. Rien n'attend ce classement.
  */
 async function poserLaPhraseSimple(messageId: string, cause: string): Promise<void> {
   try {
     if (!expliquerLErreur(cause).aClasser) return;
     const explication = await expliquerPourLEcran(cause, 'erreur de tour');
-    if (explication.source !== 'laya') return;
+    if (explication.source !== 'juge') return;
     const message = store.getMessage(messageId);
     if (!message?.erreurDeTour) return;
     const retenu = store.saveMessage({

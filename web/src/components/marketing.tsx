@@ -513,21 +513,22 @@ export function Marketing({
 }) {
   const state = useApp();
   const [vue, setVue] = React.useState<{ projets: LigneProjetMarketing[]; jours: string[] } | null>(null);
-  const projectId = vise ?? null;
+  /* L'ADRESSE PORTE LE PROJET, SA RUBRIQUE ET LE CANAL OUVERT (refonte du 28/10/2026) :
+     « #reseaux-sociaux/<projet>/canaux/<canal> ». Précédent ramène à la rubrique quittée. */
+  const [projetVise, rubriqueVisee, canalVise] = (vise ?? '').split('/');
+  const projectId = projetVise || null;
   /* LA RUBRIQUE OUVERTE DU PROJET VIT ICI (11/10/2026), plus dans
      `EspaceDuProjet` : la page doit la connaître pour choisir sa largeur. Elle
      survit au changement de projet — `key={projectId}` remonte l'espace, pas
      cet état : passer d'un projet à l'autre garde la rubrique ouverte. De
      retour à la vue d'ensemble, elle retombe sur le défaut : un projet ouvert
      par son adresse arrive sur le Calendrier. */
-  const [onglet, setOnglet] = React.useState<Onglet>(ONGLET_PAR_DEFAUT);
-  React.useEffect(() => {
-    if (!projectId) setOnglet(ONGLET_PAR_DEFAUT);
-  }, [projectId]);
+  const onglet: Onglet = rubriqueVoulue(rubriqueVisee);
+  const cheminDe = (id: string, o: Onglet, canal?: string | null) => (o === ONGLET_PAR_DEFAUT && !canal ? id : canal ? `${id}/${o}/${canal}` : `${id}/${o}`);
+  const setOnglet = (o: Onglet) => projectId && onVise?.(cheminDe(projectId, o));
   /** Ouvre un projet : sur « Contenus » depuis la rangée « En cours », sinon sur le défaut. */
   const ouvrir = (id: string, voulu?: Onglet) => {
-    setOnglet(rubriqueVoulue(voulu));
-    onVise?.(id);
+    onVise?.(cheminDe(id, rubriqueVoulue(voulu)));
   };
   /* Les projets sont-ils dans la colonne de gauche ? Sinon (téléphone, colonne
      pas encore posée), la page garde ses deux tableaux. */
@@ -572,8 +573,10 @@ export function Marketing({
           projectId={projectId}
           onglet={onglet}
           onOnglet={setOnglet}
+          canal={onglet === 'canaux' ? canalVise || null : null}
+          onCanal={(c) => onVise?.(cheminDe(projectId, 'canaux', c))}
           onRetour={() => onVise?.(null)}
-          onChangerProjet={(id) => onVise?.(id)}
+          onChangerProjet={(id) => onVise?.(cheminDe(id, onglet))}
           onOuvrirCarte={onOuvrirCarte}
         />
       ) : (
@@ -583,16 +586,16 @@ export function Marketing({
               ne se dessine que sur ordinateur — sur téléphone le nom de la
               page est déjà dans la barre. */}
           <div className="flex min-w-0 shrink-0 items-start gap-2">
-          <TitreDePage className="min-w-0 flex-1">{t('Marketing')}</TitreDePage>
+          <TitreDePage className="min-w-0 flex-1">{t('Réseaux sociaux')}</TitreDePage>
           <GestesDePage className="pb-0 pt-0.5">
             <ActionsEntete
               info={{
-                titre: t('Marketing'),
+                titre: t('Réseaux sociaux'),
                 contenu: (
                   <>
                     <p>
                       {t(
-                        'Chaque projet a son agent marketing. Il comprend le produit, rédige ce qui sert à le vendre, et mesure ce que chaque publication rapporte. Rien ne part sans votre accord.',
+                        'Chaque projet a son agent des réseaux sociaux. Il comprend le produit, rédige ce qui sert à le vendre, et mesure ce que chaque publication rapporte. Rien ne part sans votre accord.',
                       )}
                     </p>
                     <p>{t('Le tableau de bord réunit tous les projets : les visites des quatre dernières semaines, ce qui attend votre validation, et l’avancement de chacun.')}</p>
@@ -703,7 +706,7 @@ function AjouterUnProjet({ inactifs, onOuvrir }: { inactifs: LigneProjetMarketin
           libelle={t('Ajouter un projet')}
           disabled={!!envoi}
           enCours={!!envoi}
-          title={t('Rallumer le suivi marketing d’un projet inactif')}
+          title={t('Rallumer le suivi des réseaux sociaux d’un projet inactif')}
           data-marketing-ajouter-projet={inactifs.length}
           data-marketing-ajout-en-cours={envoi ?? undefined}
         />
@@ -821,7 +824,7 @@ function TableauDeBordMarketing({
           <TableauDesProjets
             groupe="actifs"
             titre={t('Projets actifs')}
-            vide={t('Aucun projet suivi : rallumez le suivi marketing depuis la page d’un projet.')}
+            vide={t('Aucun projet suivi : rallumez le suivi des réseaux sociaux depuis la page d’un projet.')}
             cleReglage={CLE_REGLAGE_TABLEAU}
             projets={projets}
             onOuvrir={onOuvrir}
@@ -1631,11 +1634,16 @@ function EspaceDuProjet({
   onRetour,
   onChangerProjet,
   onOuvrirCarte,
+  canal,
+  onCanal,
 }: {
   projectId: string;
   /** La rubrique ouverte, tenue par `Marketing` : la page en tire sa largeur. */
   onglet: Onglet;
   onOnglet: (onglet: Onglet) => void;
+  /** Le canal ouvert, tenu par l'adresse (« …/canaux/<canal> »). */
+  canal: string | null;
+  onCanal: (canal: string | null) => void;
   onRetour: () => void;
   /** Passe à un autre projet actif ; la rubrique ouverte est gardée. */
   onChangerProjet: (projectId: string) => void;
@@ -1654,10 +1662,8 @@ function EspaceDuProjet({
   /* LE CANAL OUVERT EST UN CRAN DU FIL D'ARIANE (demande du 20/10/2026) :
      « Marketing › Projet › Canaux › Instagram » — « Canaux » ramène à la liste,
      sans bouton de retour dans la page. Changer de rubrique le referme. */
-  const [canalOuvert, setCanalOuvert] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    if (onglet !== 'canaux') setCanalOuvert(null);
-  }, [onglet]);
+  const canalOuvert = canal;
+  const setCanalOuvert = onCanal;
   const canalDuFil = onglet === 'canaux' && canalOuvert ? CATALOGUE_CANAUX.find((c) => c.cle === canalOuvert) ?? null : null;
   const [creation, setCreation] = React.useState(false);
   useTiroirAdresse('nouveau-contenu-marketing', creation, setCreation);
@@ -1675,7 +1681,7 @@ function EspaceDuProjet({
       .then((r) => vivant && setDonnees(r))
       .catch((err: any) => {
         if (!vivant) return;
-        client.pushToast('error', err?.message ?? t('Espace marketing illisible'));
+        client.pushToast('error', err?.message ?? t('Espace réseaux sociaux illisible'));
         onRetour();
       });
     return () => {
@@ -1698,7 +1704,7 @@ function EspaceDuProjet({
   }, [version]);
   const projetsDeLApp = state.projects;
   const iconeDe = (id: string, nom: string) => <PastilleProjet project={projetsDeLApp.find((p) => p.id === id) ?? { name: nom, favicon: undefined }} />;
-  const nomDuProjet = donnees?.nom ?? voisins.find((v) => v.projectId === projectId)?.nom ?? t('Marketing');
+  const nomDuProjet = donnees?.nom ?? voisins.find((v) => v.projectId === projectId)?.nom ?? t('Réseaux sociaux');
 
   const agent = useAgentMarketing(projectId, donnees?.espace);
   /** « Lancez son analyse » : le geste du bouton du haut tant qu'il n'y a rien à demander ; sinon, l'assistant. */
@@ -1710,7 +1716,7 @@ function EspaceDuProjet({
   /* UN SEUL ROBOT (demande du 20/10/2026) : « demander à l'agent » ouvre
      l'assistant de l'application, une amorce dans son champ qui nomme le
      projet. L'agent marketing du projet reste en coulisse (`AgentEnCoulisse`). */
-  const ouvrirChat = () => void ouvrirLAssistant(t('Marketing de « {projet} » : ', { projet: nomDuProjet }));
+  const ouvrirChat = () => void ouvrirLAssistant(t('Réseaux sociaux de « {projet} » : ', { projet: nomDuProjet }));
   const contenu = donnees?.contenus.find((c) => c.id === contenuOuvert) ?? null;
   const action = donnees?.actions?.find((a) => a.id === actionOuverte) ?? null;
   // Le voile n'attend que les DONNÉES de l'espace : avant elles, on ne sait pas
@@ -1804,10 +1810,10 @@ function EspaceDuProjet({
         projectId={projectId}
         suivi={agent}
         info={{
-          titre: t('L’atelier marketing'),
+          titre: t('L’atelier Réseaux sociaux'),
           contenu: (
             <>
-              <p>{t('L’agent marketing étudie le projet, puis rédige ce qui sert à le vendre. Vous relisez et validez : rien ne part sans vous.')}</p>
+              <p>{t('L’agent des réseaux sociaux étudie le projet, puis rédige ce qui sert à le vendre. Vous relisez et validez : rien ne part sans vous.')}</p>
               <p>{t('Il travaille en coulisse : son état se lit dans le bouton du haut, son rapport s’y ouvre. Pour lui demander quelque chose — modifier le calendrier, écrire un contenu —, parlez à l’assistant, le robot en bas à droite.')}</p>
             </>
           ),
@@ -1890,7 +1896,7 @@ function EspaceDuProjet({
                 <Sparkles className="h-5 w-5 text-accent" />
                 <p className="text-[15px] font-medium leading-snug text-text">{t('Ce projet n’est pas encore initialisé')}</p>
                 <p className="text-[13px] leading-relaxed text-muted">
-                  {t('L’agent marketing va étudier le projet et vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
+                  {t('L’agent des réseaux sociaux va étudier le projet et vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
                 </p>
                 <Button onClick={() => void agent.lancer('initialiser')} disabled={agent.envoi} data-marketing-voile-bouton>
                   {agent.envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -2593,7 +2599,7 @@ function OngletContenus({
             <p>{t('Les posts, courriels et annonces du projet. L’agent les écrit en brouillon puis les dépose « À valider » ; vous les relisez, les programmez puis les marquez comme publiés.')}</p>
             <p>{t('Glissez un contenu d’une colonne à l’autre : seuls les sens qui ont du sens sont permis, et un contenu publié ne bouge plus. Déposé dans « Programmés », il vous demande la date, et l’heure si vous voulez.')}</p>
             <p>{t('« Programmé » est un repère pour le calendrier : rien n’est publié tout seul, c’est vous qui marquez un contenu comme publié.')}</p>
-            <p>{t('La dernière colonne montre le travail de l’agent marketing : ses analyses et ses plans ne paraissent plus sur le tableau du projet.')}</p>
+            <p>{t('La dernière colonne montre le travail de l’agent des réseaux sociaux : ses analyses et ses plans ne paraissent plus sur le tableau du projet.')}</p>
             <p>{t('Dès que 10 contenus ou plus attendent votre relecture, l’agent cesse d’en produire tout seul. « Générer la suite » lui demande, quand vous le voulez, d’étudier ce qui existe, d’archiver ce qui est périmé et de préparer la suite à votre rythme. Chaque jour, il replace aussi les dates en retard.')}</p>
           </PointInfo>
         </div>

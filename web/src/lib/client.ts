@@ -91,6 +91,7 @@ import {
   canalAAbandonner,
   DELAI_PING_SANS_REPONSE,
   DELAI_OUVERTURE_DU_CANAL,
+  DELAI_ATTENTE_DE_L_OUVERTURE,
   DELAI_SONDE_DE_RESEAU,
   delaiRestantAvantAbandonDeLOuverture,
   sondeAuRetourNecessaire,
@@ -791,6 +792,7 @@ class Client {
     this.notifyHandlers.add(handler);
     return () => this.notifyHandlers.delete(handler);
   }
+
 
 
 
@@ -2087,6 +2089,7 @@ class Client {
         break;
 
 
+
       default:
         break;
     }
@@ -2461,7 +2464,7 @@ class Client {
    * veille, le canal est fermé par nous : rien à dire. La remontée borne
    * elle-même le nombre d'envois par page.
    */
-  private tracerLeGesteNonParti(cmd: ClientCommand): void {
+  private tracerLeGesteNonParti(cmd: ClientCommand, attenteMs?: number): void {
     if (estEnVeille() || cmd.type === 'ping') return;
     signalerErreur(
       rapportDuGesteNonParti(
@@ -2475,23 +2478,75 @@ class Client {
           enVeille: estEnVeille(),
           pageCachee: pageCachee(),
           enLigne: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+          attenteMs,
         },
         Date.now(),
       ),
     );
   }
 
+  /**
+   * LE CANAL S'OUVRE ENCORE : ON L'ATTEND, ON NE REFUSE PAS. Rend vrai dès que
+   * le canal courant est ouvert, faux à la fermeture, à la veille ou passé
+   * `DELAI_ATTENTE_DE_L_OUVERTURE`. Un canal abandonné puis refait pendant
+   * l'attente est suivi à son tour, dans le même délai. Les écouteurs passent
+   * par `addEventListener` : `onopen` (le `hello`) part donc AVANT le geste.
+   */
+  private attendreLOuverture(depuis: number): Promise<boolean> {
+    return new Promise<boolean>((rendre) => {
+      const suivre = () => {
+        const socket = this.socket;
+        if (estEnVeille() || !socket) return rendre(false);
+        if (socket.readyState === WebSocket.OPEN) return rendre(true);
+        const reste = depuis + DELAI_ATTENTE_DE_L_OUVERTURE - Date.now();
+        if (socket.readyState !== WebSocket.CONNECTING || reste <= 0) return rendre(false);
+        let fini = false;
+        const conclure = (suite: () => void) => {
+          if (fini) return;
+          fini = true;
+          window.clearTimeout(minuteur);
+          socket.removeEventListener('open', surOuverture);
+          socket.removeEventListener('close', surFermeture);
+          suite();
+        };
+        const surOuverture = () => conclure(() => rendre(this.socket === socket));
+        // Fermé ou remplacé : on regarde s'il y a un nouveau canal à attendre.
+        const surFermeture = () => conclure(suivre);
+        const minuteur = window.setTimeout(() => conclure(suivre), reste);
+        socket.addEventListener('open', surOuverture);
+        socket.addEventListener('close', surFermeture);
+      };
+      suivre();
+    });
+  }
+
+  private refusFauteDeCanal(cmd: ClientCommand, attenteMs?: number): Error {
+    /* LE GESTE N'EST JAMAIS PARTI, et l'erreur le DIT d'elle-même : un
+       drapeau posé sur l'objet, jamais une comparaison de texte — la phrase
+       est traduite, et un motif de texte se casserait dès la première
+       langue changée. */
+    const erreur = new Error(t('non connecté'));
+    (erreur as Error & { canalFerme?: boolean }).canalFerme = true;
+    this.tracerLeGesteNonParti(cmd, attenteMs);
+    return erreur;
+  }
+
   call<T = any>(cmd: ClientCommand, timeoutMs = 120000): Promise<T> {
+    /* UN GESTE LANCÉ PENDANT L'OUVERTURE DU CANAL attend qu'il soit prêt
+       (chargement de la page, retour de veille, reconnexion) au lieu d'être
+       déclaré perdu. Jamais le `ping` : c'est lui qui juge le canal, il ne
+       doit pas attendre ce qu'il mesure. */
+    if (this.socket?.readyState === WebSocket.CONNECTING && cmd.type !== 'ping') {
+      const debut = Date.now();
+      return this.attendreLOuverture(debut).then((ouvert) => {
+        if (!ouvert || this.socket?.readyState !== WebSocket.OPEN)
+          throw this.refusFauteDeCanal(cmd, Date.now() - debut);
+        return this.call<T>(cmd, timeoutMs);
+      });
+    }
     return new Promise<T>((resolve, reject) => {
       if (this.socket?.readyState !== WebSocket.OPEN) {
-        /* LE GESTE N'EST JAMAIS PARTI, et l'erreur le DIT d'elle-même : un
-           drapeau posé sur l'objet, jamais une comparaison de texte — la phrase
-           est traduite, et un motif de texte se casserait dès la première
-           langue changée. */
-        const erreur = new Error(t('non connecté'));
-        (erreur as Error & { canalFerme?: boolean }).canalFerme = true;
-        this.tracerLeGesteNonParti(cmd);
-        reject(erreur);
+        reject(this.refusFauteDeCanal(cmd));
         return;
       }
       const id = Math.random().toString(36).slice(2);

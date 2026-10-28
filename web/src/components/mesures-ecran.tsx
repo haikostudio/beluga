@@ -139,7 +139,7 @@ export function MesuresEcran() {
       data-mesures-ecran
     >
       {/* Un repère rouge collé au bord haut RÉEL de la page : on voit d'un coup d'œil où elle commence. */}
-      <div className="fixed inset-x-0 top-0 z-10 h-[3px] bg-red-500" aria-hidden />
+      <div className="fixed inset-x-0 top-0 z-10 h-[3px] bg-danger" aria-hidden />
       <div className="mx-auto max-w-xl pb-10 pt-6">
         <h1 className="text-base font-semibold">Mesures de l'écran</h1>
         <p className="mt-1 text-xs text-faint">

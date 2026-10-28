@@ -158,8 +158,8 @@ export async function creerLeVisuel(contenuId: string): Promise<{ card: Card; ag
   const { basculerLaRealisation } = await import('./realisation-questionnaire.js');
   const { ouvrirLeCadrage } = await import('./cadrage.js');
   const neuve = createCard(contenu.projectId, {
-    title: `Visuel — ${contenu.titre || 'contenu Marketing'}`.slice(0, 120),
-    description: `Le visuel du contenu Marketing « ${contenu.titre} », créé par le directeur artistique. Le média validé revient au contenu.`,
+    title: `Visuel — ${contenu.titre || 'contenu Réseaux sociaux'}`.slice(0, 120),
+    description: `Le visuel du contenu Réseaux sociaux « ${contenu.titre} », créé par le directeur artistique. Le média validé revient au contenu.`,
     origin: 'user',
     cadrage: true,
   } as Parameters<typeof createCard>[1]);

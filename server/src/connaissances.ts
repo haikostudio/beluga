@@ -1414,18 +1414,45 @@ function vecteursDesUnites(): VecteurDUnite[] {
 
 let calculEnCours: Promise<number> | null = null;
 
+/** Les unités relues d'un seul tenant avant de rendre la main au démon. */
+const TRANCHE_DES_VECTEURS = 250;
+
 /** Calcule les vecteurs des unités qui n'en ont pas, ou dont le texte a changé. Un seul calcul à la fois. */
 export function completerLesVecteurs(): Promise<number> {
   if (calculEnCours) return calculEnCours;
   if (!vectoriseurDisponible()) return Promise.resolve(0);
   calculEnCours = (async () => {
-    const lignes = getDb()
-      .prepare('SELECT c.num, c.titre, c.resume, c.detail, v.empreinte FROM connaissances c LEFT JOIN connaissance_vecteurs v ON v.num = c.num')
-      .all() as { num: number; titre: string; resume: string; detail: string; empreinte: string | null }[];
-    const manquants = lignes
-      .map((l) => ({ num: l.num, texte: texteDUniteAVectoriser(l), avant: l.empreinte }))
-      .map((l) => ({ ...l, empreinte: empreinteDuTexte(l.texte) }))
-      .filter((l) => l.empreinte !== l.avant);
+    /*
+     * PAR TRANCHES, EN RENDANT LA MAIN ENTRE DEUX (28/10/2026). Relire les
+     * 6 400 unités, nettoyer leur détail et hacher chaque texte d'un seul
+     * tenant figeait le démon plus d'une seconde (`blocages.log`). Une tranche
+     * de `TRANCHE_DES_VECTEURS` unités, puis `setImmediate` : le reste du démon
+     * passe entre deux. Le verrou `calculEnCours` empêche deux passes de se
+     * chevaucher.
+     */
+    const page = getDb().prepare(
+      `SELECT c.num, c.titre, c.resume, c.detail, v.empreinte FROM connaissances c
+         LEFT JOIN connaissance_vecteurs v ON v.num = c.num
+        WHERE c.num > ? ORDER BY c.num LIMIT ?`,
+    );
+    const manquants: { num: number; texte: string; empreinte: string }[] = [];
+    for (let depuis = -Infinity; ; ) {
+      const lignes = page.all(depuis, TRANCHE_DES_VECTEURS) as {
+        num: number;
+        titre: string;
+        resume: string;
+        detail: string;
+        empreinte: string | null;
+      }[];
+      if (!lignes.length) break;
+      for (const l of lignes) {
+        const texte = texteDUniteAVectoriser(l);
+        const empreinte = empreinteDuTexte(texte);
+        if (empreinte !== l.empreinte) manquants.push({ num: l.num, texte, empreinte });
+      }
+      depuis = lignes[lignes.length - 1].num;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
     const poser = getDb().prepare(
       `INSERT INTO connaissance_vecteurs (num, empreinte, modele, vecteur, at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(num) DO UPDATE SET empreinte = excluded.empreinte, modele = excluded.modele, vecteur = excluded.vecteur, at = excluded.at`,
@@ -1437,8 +1464,12 @@ export function completerLesVecteurs(): Promise<number> {
       getDb().transaction(() => lot.forEach((x, j) => poser.run(x.num, x.empreinte, MODELE_VECTEURS, Buffer.from(vecteurs[j].buffer), Date.now())))();
       faits += lot.length;
     }
-    cacheDesVecteurs = null;
-    if (faits) log.info(`base de connaissances : ${faits} unité(s) vectorisée(s)`);
+    /* Rien de recalculé : le cache reste bon. Le vider relisait 6 400 vecteurs
+       à la recherche suivante, sur le chemin d'un tour. */
+    if (faits) {
+      cacheDesVecteurs = null;
+      log.info(`base de connaissances : ${faits} unité(s) vectorisée(s)`);
+    }
     return faits;
   })()
     .catch((err) => {

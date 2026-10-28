@@ -591,7 +591,7 @@ export function RubriqueMarketing({ debut, fin }: ProprietesDeRubrique) {
               cle={(l) => l.projectId}
               taille={taille}
               onTaille={setTaille}
-              vide={t('Aucune activité marketing sur la période.')}
+              vide={t('Aucune activité sur les réseaux sociaux sur la période.')}
               colonnes={[
                 { cle: 'projet', libelle: t('Projet'), valeur: (l) => l.nom },
                 { cle: 'contenus', libelle: t('Contenus'), valeur: (l) => l.contenus, droite: true },

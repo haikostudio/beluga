@@ -143,7 +143,7 @@ import { useSecousseRepetee } from '@/lib/secousse-repetee';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { FriseDeSuivi } from '@/components/frise-de-suivi';
 import { useMinute } from '@/lib/horloge';
-import { cn, relativeTime } from '@/lib/utils';
+import { cn, dateHeure, ilYA, relativeTime } from '@/lib/utils';
 import {
   DeployPanel,
   BoutonInfosPublication,
@@ -151,6 +151,7 @@ import {
   AlerteTravailSansCarte,
 } from '@/components/deploy-panel';
 import { BandeauProductionGroupe } from '@/components/bandeau-production-groupe';
+import { DeploiementDeGroupe } from '@/components/deploiement-de-groupe';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { t, formatRegional } from '@/lib/langue';
@@ -1334,7 +1335,11 @@ export function Board({
   const panneauDeDeploiement = (column: ColumnKey, columnCards: Card[], enTete: boolean) =>
     /* LA MISE EN LIGNE SE DONNE PROJET PAR PROJET (« Déployer » dans la grille
        d'un accès tiers) : sans ce droit, le geste ne se dessine pas (le serveur le refuse aussi). */
-    !aLeNiveauSurLeProjet(state, projectId, 'deployer') ? null : (
+    !aLeNiveauSurLeProjet(state, projectId, 'deployer') ? null : column === 'to_deploy' && membresDuGroupe.length && projetOuvert ? (
+    /* UN REGROUPEMENT NE SE DÉPLOIE PAS LUI-MÊME : son « Déployer » liste ses
+       projets à cocher et lance chacun (`deploiement-de-groupe.tsx`). */
+    <DeploiementDeGroupe groupe={projetOuvert} membres={membresDuGroupe} enTete={enTete} enMenu={!enTete} />
+  ) : (
     <DeployPanel
       projectId={projectId}
       cards={columnCards}
@@ -1611,7 +1616,6 @@ export function Board({
               axe="vertical"
               voile
               barre
-              fond="hsl(var(--surface))"
               classeEnveloppe="min-h-0 w-full flex-1"
               data-bande-cartes={column}
               className={cn(
@@ -2343,9 +2347,10 @@ export function CardTile({
    * (compréhension, plan, rapport) et ne dépend jamais de la lecture
    * (`shared/src/travail-rendu.ts`).
    */
+  const renduLe = instantDuRendu(card, agent);
   const nonConsultee = carteNonLue({
     colonne: card.column,
-    renduA: instantDuRendu(card, agent),
+    renduA: renduLe,
     luA: card.lastReadAt,
   });
   const etape = etapeDeCarte({ colonne: card.column, doneAt: card.doneAt, parcours: card.parcours });
@@ -2611,8 +2616,8 @@ export function CardTile({
         </div>
         {/* LA FRISE DES CINQ ÉTAPES, seulement sur « Tableaux de bord », juste
             sous le corps à hauteur fixe : elle tombe au même endroit sur
-            toutes les cartes, bande de travail en pied ou non. Elle est le
-            dernier mot de la tuile : rien n'est écrit dessous. */}
+            toutes les cartes, bande de travail en pied ou non. Dessous, seule
+            l'heure du rendu, à gauche. */}
         {enRoute ? (
           <FriseDeSuivi
             cardId={card.id}
@@ -2632,10 +2637,19 @@ export function CardTile({
             )}
           />
         ) : null}
-        {/* L'ANCIENNETÉ n'est écrite qu'au tableau d'un projet. Sur « Tableaux
-            de bord » elle a disparu (demande du 12/10/2026, « gagner un peu en
-            hauteur ») : la tête de la carte dit déjà quand l'agent a rendu, et
-            la frise juste au-dessus est le dernier mot de la tuile. */}
+        {/* L'HEURE DU RENDU, EN BAS À GAUCHE, SOUS LA FRISE (26/10/2026,
+            capture #c866 : « savoir quand elles ont été rendues ») : « il y a
+            15 min », « il y a 1 h », « il y a 3 jours », puis la date et
+            l'heure au-delà d'une semaine (`ilYA`) ; la date entière au survol.
+            Elle loge dans l'air que la hauteur fixe garde pour la bande de
+            travail (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`) : quand cette bande est
+            là, l'heure se tait (la bande dit déjà ce qui tourne). Au tableau
+            d'un projet, le pied garde son ancienneté. */}
+        {enRoute && renduLe && !preparation && !travailActuel && !restant ? (
+          <div className="mt-2 flex h-4 shrink-0 items-center text-[12px] leading-4 tabular-nums text-faint" data-heure-de-rendu={renduLe}>
+            <DepuisLeRendu at={renduLe} />
+          </div>
+        ) : null}
         {enRoute ? null : (
           <div className="mt-1.5 text-[12px] text-faint">
             <span className="shrink-0">{relativeTime(card.updatedAt)}</span>
@@ -2869,4 +2883,10 @@ function RepereCahier({ card }: { card: Card }) {
       </span>
     </div>
   );
+}
+
+/** « Il y a 15 min » sous la frise d'une carte rendue : il avance à la minute (`useMinute`), la date entière au survol. */
+function DepuisLeRendu({ at }: { at: number }) {
+  useMinute();
+  return <span title={t('Rendue le {v0}', { v0: dateHeure(at) })}>{ilYA(at)}</span>;
 }

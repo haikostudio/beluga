@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { noterDansLeJournalDesDecrochages } from './decrochages.js';
 import {
   EtatDemon,
   MESSAGE_REDEMARRAGE_FORCE,
@@ -248,7 +249,11 @@ export function arretParSignal(signal: string): boolean {
     agents: agentsActifs().length,
     agentsDetail: agentsActifsDetail(),
   });
-  if (decision.arreter) return true;
+  if (decision.arreter) {
+    // Un arrêt voulu, noté pour que ses coupures ne passent pas pour une panne (`decrochages.ts`).
+    noterDansLeJournalDesDecrochages('arret-par-signal', signal);
+    return true;
+  }
   redemarrageEnAttente = true;
   log.warn(raisonSignalRetenu(signal, decision.raison));
   bus.toast(
@@ -266,6 +271,7 @@ export function arretParSignal(signal: string): boolean {
  */
 export function redemarrerDemon(): void {
   log.info('redémarrage demandé depuis l’interface');
+  noterDansLeJournalDesDecrochages('relance-voulue', 'redémarrage demandé depuis l’interface');
   bus.toast('info', 'Le serveur redémarre — l’application se reconnectera toute seule.');
   /*
    * Le redémarrage coupe tout pendant quelques secondes : le dire évite de

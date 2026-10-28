@@ -103,6 +103,11 @@
     --intensite-calme: var(--faint);
     --intensite-chargee: var(--text);
     --fond-plan: 0 0% 17%;
+    /* LA ZONE DE CONVERSATION D'UNE PAGE DE SERVICE : un panneau PLUS
+       SOMBRE que la page, pour que le champ d'écriture (`--raised`) s'y
+       détache nettement (demande du 27/10/2026 : `--fond-plan`, 17 %, était
+       trop proche du champ). */
+    --fond-conversation-service: 0 0% 10%;
     /* LE VOILE qui assombrit la page derrière une fenêtre. */
     --voile: 0 0% 0%;
     /* LE TEXTE POSÉ SUR UN APLAT D'ÉTAT (bouton, pastille) : l'aplat est clair
@@ -117,10 +122,20 @@
     --ligne-active: 0 0% 19%;
     --bandeau-etape: 0 0% 18%;
     --bloc-etapes: 0 0% 17%;
-    /* LE DÉCROCHÉ — le bandeau d'activité qui sort de sous le champ
-       d'écriture : un gris posé ENTRE le fond de la page et celui du champ
-       (`--raised`), un peu plus clair que ce dernier. */
-    --decroche: 0 0% 17%;
+    /* LES DEUX DÉCROCHÉS empilés sur le champ d'écriture finissent leur
+       dégradé (`.decroche-degrade`) dans ces gris, choisis pour TRANCHER sur
+       la barre posée dessous (demande du 27/10/2026) :
+       - `--decroche`, le bas de la liste des tâches, 6 points sous le champ
+         (`--raised`) — c'est aussi le fond de la liste dépliée ;
+       - `--decroche-attente`, le bas des messages en attente : le gris de
+         la liste des tâches posée dessous, un tout petit peu plus FONCÉ
+         (décision du 27/10/2026 : un gris clair de 25 % jurait). */
+    --decroche: 0 0% 15%;
+    --decroche-attente: 0 0% 12.5%;
+    /* LE SURVOL D'UN ÉLÉMENT POSÉ SUR `--raised` (une ligne dans un bloc en
+       relief) : une marche franche AU-DESSUS du plus haut des trois fonds,
+       pour qu'un survol ne retombe jamais sur la couleur de son support. */
+    --fond-survol: 0 0% 27%;
     /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
        (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
        qu'on a dans l'application, avec parcimonie mais intelligemment »). Il
@@ -150,6 +165,9 @@
        l'assistant de démarrage (demande du 18/10/2026), et le bouton
        « Annuler » / « Suspendre » d'un agent au travail (24/10/2026). */
     --teinte-plein: 262 60% 56%;
+    /* LE BLANC POSÉ SUR UN APLAT DE COULEUR (violet plein, rouge d'erreur) :
+       un jeton, pour que l'écran n'écrive jamais `text-white` (28/10/2026). */
+    --sur-couleur: 0 0% 100%;
     /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
        bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre
        c'est un GRIS soutenu, jamais le blanc de l'accent : une bulle ou une
@@ -255,6 +273,7 @@
     --travail: 0 0% 5%;
     --termine-fg: 0 0% 100%;
     --fond-plan: 0 0% 96.5%;
+    --fond-conversation-service: 0 0% 96.5%;
     --voile: 0 0% 0%;
     /* En clair l'aplat d'état est foncé : le texte y est blanc. */
     --sur-etat: 0 0% 100%;
@@ -264,7 +283,13 @@
     --ligne-active: 0 0% 93%;
     --bandeau-etape: 0 0% 95.5%;
     --bloc-etapes: 0 0% 96.5%;
-    --decroche: 0 0% 97%;
+    /* En clair, la liste des tâches est plus légère (demande du 28/10/2026,
+       capture #42a5 : « le gris est trop foncé ») : 2 points sous le champ.
+       Les messages en attente finissent dans un gris un peu plus soutenu,
+       que leur violet, plus franc en clair, colore nettement. */
+    --decroche: 0 0% 93%;
+    --decroche-attente: 0 0% 91%;
+    --fond-survol: 0 0% 90%;
     --teinte: 262 68% 50%;
     --comprehension: 40 95% 26%;
     --comprehension-fond: 45 95% 48% / 0.16;
@@ -274,6 +299,7 @@
     --teinte-fond: 262 68% 50% / 0.1;
     --teinte-trait: 262 68% 50% / 0.5;
     --teinte-plein: 262 68% 50%;
+    --sur-couleur: 0 0% 100%;
     --encre: 0 0% 5%;
     --encre-fg: 0 0% 100%;
     --graphe-1: 214 88% 48%;
@@ -581,6 +607,70 @@
     @apply border-t border-border;
   }
 
+  /* LES DEUX DÉCROCHÉS EN DÉGRADÉ VERTICAL (demande du 27/10/2026) : les
+     messages en attente en VIOLET, la liste des tâches en GRIS. Fond et
+     bordure partent de la couleur en haut et s'éteignent vers le bas : le
+     fond finit dans le gris de la barre (`--gris-du-decroche`), qui tranche
+     sur celle posée dessous ; la bordure finit transparente.
+     DEUX FONDS au lieu d'un `border-image`, qui ignore l'arrondi du haut :
+     le dégradé du trait peint toute la boîte (`border-box`), le fond OPAQUE
+     le recouvre à l'intérieur (`padding-box`) — il ne reste visible que dans
+     le filet transparent d'un pixel. Le fond doit donc rester opaque : la
+     couleur s'y MÉLANGE au gris (`color-mix`), elle n'y est jamais posée en
+     transparence. Pas de trait en bas : ce bord passe sous la barre suivante.
+     Le dégradé tient sur `--hauteur-du-degrade`, la hauteur VISIBLE de
+     l'entête (les 12 px de recouvrement et la liste dépliée restent sur le
+     gris du bas). */
+  .decroche-degrade {
+    border: 1px solid transparent;
+    border-bottom-width: 0;
+    background:
+      linear-gradient(
+          to bottom,
+          color-mix(in srgb, var(--couleur-du-decroche) var(--part-de-couleur), var(--gris-du-decroche)),
+          var(--gris-du-decroche) var(--hauteur-du-degrade)
+        )
+        padding-box,
+      linear-gradient(to bottom, var(--couleur-du-decroche), transparent var(--hauteur-du-degrade)) border-box;
+  }
+  /* LES MESSAGES EN ATTENTE EN VIOLET (demande du 27/10/2026, capture
+     #312b : « le bleu devient du violet »). La couleur suit le jeton
+     `--teinte`, le violet de l'interface, que CHAQUE palette déclare : plus
+     aucune couleur fixe, plus d'exception à l'interface monochrome + violet. */
+  .decroche-violet {
+    --couleur-du-decroche: hsl(var(--teinte));
+    --gris-du-decroche: hsl(var(--decroche-attente));
+    --part-de-couleur: 26%;
+  }
+  html:not(.dark) .decroche-violet {
+    --part-de-couleur: 30%;
+    /* En clair, le bas du dégradé garde lui aussi une pointe de violet : le fond entier se lit violet, jamais gris. */
+    --gris-du-decroche: color-mix(in srgb, hsl(var(--teinte)) 12%, hsl(var(--decroche-attente)));
+  }
+  /* Le survol, à la souris seulement (au doigt il restait collé) : un violet
+     un peu plus franc, sans casser le dégradé. */
+  @media (hover: hover) {
+    .decroche-violet:hover {
+      --part-de-couleur: 36%;
+    }
+    html:not(.dark) .decroche-violet:hover {
+      --part-de-couleur: 38%;
+    }
+  }
+  /* LA LISTE DES TÂCHES EN GRIS (demande du 27/10/2026, capture #40a9) :
+     même dégradé et même bordure, mais partis d'un gris (`--faint`) — seule
+     la barre des messages en attente garde une couleur, le violet. La liste
+     qui défile dedans fond dans le gris du bas, pas dans la page. */
+  .decroche-gris {
+    --couleur-du-decroche: hsl(var(--faint));
+    --gris-du-decroche: hsl(var(--decroche));
+    --part-de-couleur: 20%;
+    --fond-zone-defilement: hsl(var(--decroche));
+  }
+  html:not(.dark) .decroche-gris {
+    --part-de-couleur: 9%;
+  }
+
   /* LE FOND D'UN BLOC DU FIL (cadrage, analyse, question). Par défaut
      `--bloc-etapes`, la teinte dédiée déclarée par les douze palettes. Mais
      posé sous une BARRE D'ONGLETS, un bloc doit reprendre la couleur de
@@ -869,18 +959,21 @@
   }
 
   /* UNE PIÈCE ÉCRITE DU SUIVI DE PRODUCTION (brief, direction, scénario, plan) :
-     le Markdown à la taille du volet — 12,5 px, interligne serré —, chaque
-     intitulé en titre au-dessus de son contenu (`blocsDePiece`, l'écart entre
-     deux blocs vient de la colonne), un tableau qui défile CHEZ LUI au lieu
-     d'élargir la carte sur téléphone. Classe LOCALE : `.prose-hd` ne bouge pas. */
+     le Markdown à la taille du volet — 12,5 px, interligne AÉRÉ (20 px : la
+     ligne que le fil de l'arbre du Brief vise, `MILIEU_DE_LIGNE`) et un vrai
+     espace entre deux paragraphes (26/10/2026 : « aucune marge de paragraphe,
+     ce pavé est illisible ») —, chaque intitulé en titre au-dessus de son
+     contenu (`blocsDePiece`, l'écart entre deux blocs vient de la colonne), un
+     tableau qui défile CHEZ LUI au lieu d'élargir la carte sur téléphone.
+     Classe LOCALE : `.prose-hd` ne bouge pas. */
   .piece-du-suivi .prose-hd {
-    @apply text-[12.5px] leading-snug text-muted;
+    @apply text-[12.5px] leading-5 text-muted;
   }
   .piece-du-suivi .prose-hd p {
-    @apply mb-1.5;
+    @apply mb-2.5;
   }
   .piece-du-suivi .prose-hd ul {
-    @apply mb-1.5 space-y-1 pl-0;
+    @apply mb-2.5 space-y-1.5 pl-0;
   }
   .piece-du-suivi .prose-hd li {
     @apply gap-1.5;
@@ -1090,12 +1183,54 @@ html[data-terminal-ouvert] body {
     transition: none;
   }
 }
+/* CLAVIER OUVERT, LA BARRE D'ÉCRITURE PASSE PAR-DESSUS LE PIED (décision du
+   27/10/2026, `useEcritureAuClavier`). L'écran de la carte rogne ce qui
+   déborde, et la barre COLLE à son bas (`sticky`) : quand le fil, déjà réduit
+   à rien, ne suffit plus, elle remonte par-dessus les blocs du pied au lieu de
+   glisser sous le clavier. Les blocs ne bougent pas : recouverts, ils
+   reparaissent dès que le champ est quitté. Quand il y a la place, `sticky` ne
+   déplace rien. La barre ne dépasse jamais la hauteur de l'écran ; si elle
+   manque de place, c'est la rangée d'action qui cède, jamais le champ. */
+[data-ecriture-au-clavier] {
+  overflow: hidden !important;
+}
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] {
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 30 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  max-height: var(--hauteur-ecran-au-clavier, 100%) !important;
+  overflow: hidden !important;
+}
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > * {
+  flex-shrink: 0 !important;
+}
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] [data-champ-d-ecriture] textarea {
+  max-height: var(--hauteur-max-du-champ, 180px) !important;
+}
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-rangee-principale] {
+  flex-shrink: 1 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  /* Rognée par le HAUT : le bas de la rangée reste collé au champ. */
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
+}
+/* CLAVIER OUVERT, LE BOUTON PHOTO ET SON VOLET S'EFFACENT : ils flottent
+   au-dessus du pied, que la barre d'écriture recouvre alors ; ils reparaissent
+   dès que le champ est quitté (`BoutonDesCaptures`). */
+[data-ecriture-au-clavier] [data-captures-flottantes] {
+  display: none !important;
+}
 /* LE TERMINAL EST NOIR DANS LES DOUZE PALETTES : ses jetons sont redonnés ici,
    pour son entête, ses boutons et son menu de comptes. */
 .terminal-noir {
   --bg: 0 0% 4%;
   --surface: 0 0% 4%;
   --raised: 0 0% 14%;
+  --fond-survol: 0 0% 20%;
   --border: 0 0% 18%;
   --text: 0 0% 92%;
   --muted: 0 0% 72%;
@@ -1173,11 +1308,13 @@ html[data-terminal-ouvert] body {
    13 % ; les cartes (16,5 %) et leur survol (21 %) restent au-dessus. */
 html:not(.dark) .fond-de-colonne-tableau {
   --fond-zone: 0 0% 97.5%;
+  --fond-zone-defilement: hsl(var(--fond-zone));
   background-color: hsl(var(--fond-zone));
 }
 html.dark .fond-de-colonne-tableau,
 html[data-theme='sombre'] .fond-de-colonne-tableau {
   --fond-zone: 0 0% 9%;
+  --fond-zone-defilement: hsl(var(--fond-zone));
   background-color: hsl(var(--fond-zone));
 }
 /* Sombre : le bloc des sous-cartes (« Tableaux de bord ») se cale à 60 % du
@@ -1215,8 +1352,14 @@ html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau:hover {
 .en-tete-de-panneau {
   background-color: color-mix(in srgb, hsl(var(--text)) 9%, hsl(var(--fond-plan)));
 }
+/* UN PANNEAU DONNE SA COULEUR AU FONDU DE CE QUI DÉFILE EN LUI
+   (`--fond-zone-defilement`, lue par `ZoneDefilement`) : sans elle, la bande
+   « Ce que l'agent a vu » et les suggestions de carte reprenaient le fond de
+   la zone — blanc en clair sur un panneau gris (#590c). */
 .panneau {
-  background-color: color-mix(in srgb, hsl(var(--text)) 3%, hsl(var(--fond-plan)));
+  --fond-du-panneau: color-mix(in srgb, hsl(var(--text)) 3%, hsl(var(--fond-plan)));
+  --fond-zone-defilement: var(--fond-du-panneau);
+  background-color: var(--fond-du-panneau);
 }
 /* UN BLOC POSÉ DANS UN PANNEAU MONTE D'UNE MARCHE. Les encadrés « Comment » /
    « Résultat » vivent dans le panneau de la compréhension : au même fond que
@@ -1225,7 +1368,7 @@ html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau:hover {
    qu'entre un en-tête et son panneau — mesuré par
    `verif-comprehension-en-points.mjs` dans les douze palettes. */
 .panneau .panneau {
-  background-color: color-mix(in srgb, hsl(var(--text)) 9%, hsl(var(--fond-plan)));
+  --fond-du-panneau: color-mix(in srgb, hsl(var(--text)) 9%, hsl(var(--fond-plan)));
 }
 .panneau .en-tete-de-panneau {
   background-color: color-mix(in srgb, hsl(var(--text)) 15%, hsl(var(--fond-plan)));
@@ -1234,11 +1377,49 @@ html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau:hover {
 /* LA BANDE DE TITRE D'UNE PIÈCE ÉCRITE DU SUIVI DE PRODUCTION (brief,
    direction, scénario, scène, plan) : le titre se pose sur une bande pleine
    largeur, en haut du bloc, pour que l'œil sépare les pièces d'un coup. Même
-   recette que `.en-tete-de-panneau` : le fond de la pièce (`--surface`)
-   POUSSÉ VERS LE TEXTE, donc plus clair en sombre et plus foncé en clair, dans
-   les douze palettes, sans jeton nouveau, sans trait ni couleur d'accent. */
+   recette que `.en-tete-de-panneau` : un voile de texte sur le fond de la
+   pièce (un `.encart-du-suivi`), donc plus clair en sombre et plus foncé en
+   clair, dans les douze palettes, sans jeton nouveau ni couleur d'accent. */
 .bande-de-titre-de-piece {
-  background-color: color-mix(in srgb, hsl(var(--text)) 10%, hsl(var(--surface)));
+  background-color: color-mix(in srgb, hsl(var(--text)) 6%, transparent);
+}
+
+/* LES ÉTAGES DU VOLET DE SUIVI (demande du 26/10/2026 : « des fonds sur le
+   même fond », sommaire sans fond en sombre ; puis « beaucoup trop
+   contrasté » : des contrastes LÉGERS MAIS PERCEPTIBLES). Chaque étage se
+   détache de celui qui le porte, AUTANT EN SOMBRE QU'EN CLAIR — rapport mesuré
+   entre 1,06 et 1,18 dans les deux, par `verif-responsable-creatif.mjs` :
+   - l'ÉTAPE : un voile de texte sur le fond du volet, plus marqué pour
+     l'étape en cours ;
+   - sa TÊTE : un voile de plus, PERMANENT (ouverte ou fermée, pas seulement
+     au survol), qui fonce d'un cran au survol ;
+   - les ENCARTS posés dans une étape (sommaire, cadre d'une image, plan,
+     pièce écrite hors Brief) : creusés au fond de la page (`--bg`), donc à
+     l'opposé de la tête — jamais la même teinte que ce qui les porte. */
+.etape-du-suivi {
+  background-color: color-mix(in srgb, hsl(var(--text)) 4%, transparent);
+}
+.etape-du-suivi[data-etape-courante] {
+  background-color: color-mix(in srgb, hsl(var(--text)) 5%, transparent);
+}
+.entete-d-etape {
+  background-color: color-mix(in srgb, hsl(var(--text)) 4%, transparent);
+}
+.entete-d-etape:hover {
+  background-color: color-mix(in srgb, hsl(var(--text)) 7%, transparent);
+}
+.encart-du-suivi {
+  background-color: hsl(var(--bg));
+}
+/* Ce qui se pose DANS un encart (case d'attente d'un plan) : un voile de texte. */
+.fond-dans-encart {
+  background-color: color-mix(in srgb, hsl(var(--text)) 5%, transparent);
+}
+/* Le survol d'un geste du suivi (ligne du sommaire, « Versions », « Modifier »…) :
+   un voile de texte, visible sur l'étape comme sur un encart. */
+.survol-du-suivi:hover,
+.survol-du-suivi[data-state='open'] {
+  background-color: color-mix(in srgb, hsl(var(--text)) 6%, transparent);
 }
 
 /* LE BLOC DES SOUS-CARTES D'UNE PILE DÉPLIÉE (page « En route »). Il pose un
@@ -1411,4 +1592,28 @@ html.en-veille *::after {
    déclaré en sombre comme en clair : aucune couleur en dur. */
 .cadre-de-question {
   border: 1px solid hsl(var(--cadre-question));
+}
+
+/* UN SURVOL NE RETOMBE JAMAIS SUR LA COULEUR DE SON SUPPORT (demande du
+   26/10/2026). `hover:bg-raised` — le survol du bouton « ghost » et de
+   180 éléments — se dessine en `--raised` ; posé SUR un bloc `bg-raised` (la
+   barre d'écriture, le bloc « Configuration de l'agent »), il prenait la
+   couleur exacte du bloc et ne se voyait plus. Chaque enfant d'un fond peint
+   reçoit donc le gris qu'un survol doit prendre SUR CE FOND : `--raised` sur
+   la page, une zone ou `bg-surface`, `--fond-survol` (une marche au-dessus)
+   sur `bg-raised`. Héritée, la variable suit toujours le fond peint le plus
+   PROCHE ; elle se résout sur l'enfant, donc dans la palette où il vit (le
+   terminal noir garde la sienne). Rien ne bouge là où le survol se voyait. */
+[data-zone] > *,
+[class~='bg-bg'] > *,
+[class~='bg-surface'] > * {
+  --survol-sur-support: var(--raised);
+}
+[class~='bg-raised'] > * {
+  --survol-sur-support: var(--fond-survol);
+}
+/* `html` en tête : Tailwind pose ses variantes (`hover:…`) à la FIN de la
+   feuille, après ce bloc — à poids égal, la sienne l'emportait. */
+html [class~='hover:bg-raised']:hover {
+  background-color: hsl(var(--survol-sur-support, var(--raised)));
 }

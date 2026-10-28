@@ -1,6 +1,4 @@
-import { arreterLaya } from './laya.js';
 import { demarrerLesVeilles } from './veille-de-carte.js';
-import { veillerSurLaNuitDeLaya } from './laya-nuit.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
 import path from 'node:path';
 import { titreDuProcessus } from '@beluga/shared';
@@ -67,6 +65,7 @@ import { arreterLeVectoriseur } from './vectoriseur.js';
 import { planifierCompactage } from './compactage.js';
 import { planifierMiseAJourDesMoteurs } from './mise-a-jour-moteurs.js';
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
+import { demarrerLaVeilleDesDecrochages } from './decrochages.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
@@ -435,6 +434,12 @@ async function main(): Promise<void> {
   // La veille des sources de compétences : une fois par semaine, dimanche vers 1 h,
   // un agent d'analyse cherche sur GitHub et le web et PROPOSE, sans rien importer.
   const veilleDesCompetencesTimer = planifierLaVeilleDesCompetences();
+  /*
+   * LES DÉCROCHAGES DU SERVEUR : le démarrage est noté, le surveillant remis à
+   * jour depuis le dépôt, et une enquête s'ouvre seule quand ils se répètent
+   * (`decrochages.ts`).
+   */
+  const decrochagesTimer = demarrerLaVeilleDesDecrochages();
   // Les deux courriels : le point du matin à Haiko, celui du lundi aux clients.
   const recapitulatifTimer = planifierLesCourriels();
   /*
@@ -510,8 +515,6 @@ async function main(): Promise<void> {
    * fait qu'écouter (`server/src/juge-des-cartes.ts`).
    */
   const arreterLeJuge = veillerSurLesCartes();
-  /* L'entraînement de Laya, entre 3 h et 7 h (`server/src/laya-nuit.ts`). */
-  const arreterLaNuitDeLaya = veillerSurLaNuitDeLaya();
   // Qui fige le démon ? Le fil principal bat, un gardien relève la pile d'un blocage (`sonde-de-blocage.ts`).
   const arreterLaSonde = demarrerLaSondeDeBlocage();
   /*
@@ -567,6 +570,7 @@ async function main(): Promise<void> {
     clearInterval(rattrapageTimer);
     clearInterval(autoAmeliorationTimer);
     clearInterval(veilleDesCompetencesTimer);
+    if (decrochagesTimer) clearInterval(decrochagesTimer);
     clearInterval(recapitulatifTimer);
     clearInterval(menageDesCompetencesTimer);
     clearInterval(compactageTimer);
@@ -578,11 +582,9 @@ async function main(): Promise<void> {
     arreterLesTitresHumains();
     arreterLaRelecture();
     arreterLeVectoriseur();
-    arreterLaya();
     clearInterval(faviconTimer);
     clearInterval(miseAJourMoteursTimer);
     arreterLeJuge();
-    arreterLaNuitDeLaya();
     arreterLaSonde();
     arreterLesMeres();
     server.close(() => process.exit(0));

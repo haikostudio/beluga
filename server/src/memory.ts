@@ -153,8 +153,8 @@ export interface BriefingSepare {
 /**
  * LES MODES D'EMPLOI UTILES À CE TRAVAIL, SELON LE JUGE LOCAL.
  *
- * Rend les NOMS des fiches annoncées que Laya ne juge pas hors sujet, ou
- * `undefined` sans avis (Laya absent, endormi, usage éteint, pool trop petit
+ * Rend les NOMS des fiches annoncées que Jev ne juge pas hors sujet, ou
+ * `undefined` sans avis (Jev sans clé, en panne, usage éteint, pool trop petit
  * pour valoir un tri) : le briefing retombe alors sur le classement par les
  * mots. Express : un lancement n'attend jamais un modèle qui dort.
  */
@@ -218,7 +218,7 @@ export function briefingSepare(
    * d'orchestre —, la liste entière part.
    */
   travail = '',
-  /** Les compétences jugées utiles par le juge local, par nom (`texteDesCompetences`). */
+  /** Les compétences jugées utiles par le juge rapide, par nom (`texteDesCompetences`). */
   competencesPertinentes?: ReadonlySet<string>,
   /**
    * LES COMPÉTENCES À NE JAMAIS SERVIR à cet agent, par nom : l'agent d'une

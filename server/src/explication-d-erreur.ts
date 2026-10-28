@@ -9,7 +9,7 @@ import { log } from './logger.js';
  * La règle vit dans `shared/src/familles-d-erreur.ts` : un message humain passe
  * tel quel, un message technique reconnu prend la phrase de sa famille. Ici,
  * le seul geste qui demande la machine : un message technique qu'AUCUN motif
- * ne reconnaît est confié à Laya (usage « famille-erreur » du juge rapide),
+ * ne reconnaît est confié à Jev (usage « famille-erreur » du juge rapide),
  * qui choisit entre deux familles larges.
  *
  * GARDE-FOUS — l'explication ne peut ni retarder ni casser une réponse :
@@ -44,11 +44,11 @@ export async function expliquerPourLEcran(brut: string | undefined, contexte = '
   if (deja) return deja;
   try {
     const famille = await classerLaFamilleDeLErreur(premier.brut);
-    const explication = famille ? explicationDeFamille(premier.brut, famille, 'laya') : premier;
+    const explication = famille ? explicationDeFamille(premier.brut, famille, 'juge') : premier;
     log.info(
-      `erreur ${contexte ? `(${contexte}) ` : ''}classée ${famille ? `« ${famille} » par laya` : '« inconnue » (laya sans verdict sûr)'} : ${premier.brut.slice(0, 300)}`,
+      `erreur ${contexte ? `(${contexte}) ` : ''}classée ${famille ? `« ${famille} » par Jev` : '« inconnue » (Jev sans verdict sûr)'} : ${premier.brut.slice(0, 300)}`,
     );
-    /* Un « sans verdict » n'est pas gardé : Laya dormait peut-être, la même
+    /* Un « sans verdict » n'est pas gardé : Jev était peut-être injoignable, la même
        erreur aura sa chance au prochain passage. */
     return famille ? retenir(cle, explication) : explication;
   } catch {

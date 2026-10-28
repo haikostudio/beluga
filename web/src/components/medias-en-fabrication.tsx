@@ -11,6 +11,7 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
 import { InformationsDeLaPiece, MenuDeLaPiece } from '@/components/menu-du-media';
+import { useSourceDuGlisser } from '@/components/glisser-vers-un-plan';
 import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
 import { t } from '@/lib/langue';
@@ -86,6 +87,10 @@ function BlocDeMedia({ media }: { media: MediaEnFabrication }) {
   const prixAffiche = media.prix === null ? t('prix non publié') : media.prix === 0 ? t('gratuit') : prixDuMedia(media.prix);
   const Icone = media.genre === 'video' ? Clapperboard : media.genre === 'son' ? Music : ImageIcon;
   const fini = media.etat === 'fini' && piece;
+  /* À LA SOURIS, LE MÉDIA FINI SE GLISSE VERS UNE CASE DU SUIVI (28/10/2026). */
+  const sourceDuGlisser = useSourceDuGlisser(
+    fini && media.attachmentId && (media.genre === 'image' || media.genre === 'video') ? { attachmentId: media.attachmentId, genre: media.genre, nom: media.sujet } : null,
+  );
 
   return (
     <figure
@@ -93,6 +98,7 @@ function BlocDeMedia({ media }: { media: MediaEnFabrication }) {
       data-media-etat={media.etat}
       className="relative min-w-0 max-w-full"
       style={{ width: largeur }}
+      {...sourceDuGlisser}
     >
       {fini ? <MenuDeLaPiece cardId={media.cardId} attachmentId={media.attachmentId} /> : null}
       {fini && piece.mime.startsWith('image/') ? (

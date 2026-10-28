@@ -168,6 +168,15 @@ export function canalAAbandonner(lecture: { battementsManques: number; silence: 
 
 /** Une ouverture qui n'aboutit pas en ce délai est abandonnée, puis refaite. */
 export const DELAI_OUVERTURE_DU_CANAL = 12_000;
+/**
+ * UN GESTE LANCÉ PENDANT QUE LE CANAL S'OUVRE ATTEND JUSQU'À CE DÉLAI avant
+ * d'être déclaré « non parti ». Au chargement d'une page, l'écran demande ses
+ * premières données avant que le canal soit prêt : sans cette attente, chaque
+ * ouverture semait des « geste non parti » que l'enquête des décrochages
+ * prenait pour des pannes (carte « Décrochages du serveur : enquête », 28/10/2026).
+ * Plus court que l'abandon de l'ouverture : passé ce délai, c'est une vraie panne.
+ */
+export const DELAI_ATTENTE_DE_L_OUVERTURE = 10_000;
 /** La preuve de vie qu'on exige d'un canal « ouvert » après un changement de réseau. */
 export const DELAI_SONDE_DE_RESEAU = 6_000;
 /** Au retour à l'écran, un canal resté muet plus longtemps que ceci est mis à l'épreuve. */

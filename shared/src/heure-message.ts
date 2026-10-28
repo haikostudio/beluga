@@ -88,6 +88,34 @@ export function formeHeureCourte(at: number, maintenant = Date.now()): FormeHeur
   return { genre: 'dateEtHeure' };
 }
 
+/** La forme d'un « il y a… » qui bascule vers la date au-delà d'une semaine. */
+export type FormeDepuis =
+  | { genre: 'instant' }
+  | { genre: 'minutes'; n: number }
+  | { genre: 'heures'; n: number }
+  | { genre: 'jours'; n: number }
+  | { genre: 'dateEtHeure' };
+
+/** Au-delà de ce nombre de jours, « il y a … » laisse place à la date et l'heure. */
+export const JOURS_AVANT_LA_DATE = 7;
+
+/**
+ * DEPUIS QUAND, EN MOTS (26/10/2026, capture #c866 : « il y a une heure, il y a
+ * 15 minutes, il y a trois jours ») : moins d'une minute, « à l'instant » ;
+ * puis les minutes, les heures, les jours écoulés ; à partir de
+ * `JOURS_AVANT_LA_DATE` jours, la date et l'heure.
+ */
+export function formeDepuis(at: number, maintenant = Date.now()): FormeDepuis {
+  const minutes = Math.floor((maintenant - at) / 60_000);
+  if (minutes < 1) return { genre: 'instant' };
+  if (minutes < 60) return { genre: 'minutes', n: minutes };
+  const heures = Math.floor(minutes / 60);
+  if (heures < 24) return { genre: 'heures', n: heures };
+  const jours = Math.floor(heures / 24);
+  if (jours < JOURS_AVANT_LA_DATE) return { genre: 'jours', n: jours };
+  return { genre: 'dateEtHeure' };
+}
+
 /**
  * L'heure exacte, en toutes lettres, pour l'infobulle : le jour puis l'heure à
  * la minute. On ne la met jamais à la place de l'heure courte — elle la complète.

@@ -4,7 +4,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
   AlertTriangle,
   Copy,
   Info,
@@ -47,8 +46,7 @@ import {
   estCarteDuRendezVousDeNuit,
   avancementDuLancement,
   blocDeFinAViser,
-  blocDeFinDuPassage,
-  repartirLesMediasLivres,
+  placerLesMediasDansLeFil,
   type MediaLivre,
   sujetsDuCadrage,
   decouperAvantLePlan,
@@ -67,6 +65,7 @@ import {
   rangerLaComprehension,
   recitDuPoint,
   segmenterLeRecit,
+  type SegmentDuRecit,
   entreesDeLaSorte,
   tempsDuPassage,
   toursSansBulleParPoint,
@@ -91,7 +90,7 @@ import { ContenuDeLEntree, EncadreQuestion, TexteDeLaDemande } from '@/component
 import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
 import { PointsDuCadrage } from '@/components/points-du-cadrage';
-import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
+import { GalerieDesMediasLivres, iconeDuMediaLivre, LigneDeMediaLivre, useMediasLivres } from '@/components/medias-livres';
 import { BULLE_DE_L_AGENT, RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
@@ -104,7 +103,11 @@ import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
 import { CompetenceDuFlux } from '@/components/encadre-competence';
-import { ApercuDesCaptures, OuvrirUneCapture, RepereDUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
+import { ApercuDesCaptures, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
+import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
+import { GlissableVersUnPlan } from '@/components/glisser-vers-un-plan';
+import { MarqueEssaiRepris } from '@/components/encadre-etape';
+import { HeureDuFil } from '@/components/heure-du-fil';
 import { EtiquetteDeVignette } from '@/components/pastille-de-fichier';
 import { useTelephone } from '@/lib/telephone';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
@@ -589,22 +592,21 @@ export function FluxEnPoints({
     [flux],
   );
   /*
-   * LES MÉDIAS LIVRÉS, CHACUN SOUS LA RÉPONSE QUI CLÔT SON TOUR : la réponse, la
-   * compréhension, le plan ou le compte rendu rendu juste après lui.
+   * LES MÉDIAS LIVRÉS, CHACUN DANS LE PASSAGE OÙ IL A ÉTÉ RENDU (décision du
+   * 26/10/2026, capture #e9bd) : le dernier passage commencé à son heure ou
+   * avant. Le passage les pose ensuite parmi ses lignes, à leur heure
+   * (`PointDuFlux`). « Configuration » est toujours caché : il n'en reçoit pas.
    */
   const tousLesMediasLivres = useMediasLivres({ cardId: carte.id });
   const mediasParPassage = React.useMemo(() => {
-    const reponses: { cle: string; at: number }[] = [];
-    for (const passage of passages) {
-      const bloc = blocDeFinDuPassage(passage);
-      const entree = bloc
-        ? passage.reponse?.id === bloc.cle
-          ? passage.reponse
-          : passage.moments.find((m) => m.entree.id === bloc.cle)?.entree
-        : passage.moments.find((m) => m.sorte === 'rapport' && m.dernier)?.entree;
-      if (entree) reponses.push({ cle: passage.ancre, at: entree.at });
-    }
-    return repartirLesMediasLivres(tousLesMediasLivres, reponses);
+    const visibles = passages.filter((passage) => passage.etape !== 'configuration');
+    const { avant, apres } = placerLesMediasDansLeFil(
+      tousLesMediasLivres,
+      visibles.map((passage) => ({ cle: passage.ancre, at: passage.debut })),
+    );
+    const premier = visibles.find((passage) => passage.debut !== undefined)?.ancre;
+    if (avant.length && premier) apres.set(premier, [...avant, ...(apres.get(premier) ?? [])]);
+    return apres;
   }, [passages, tousLesMediasLivres]);
   /* LES VERSIONS QUE LA CARTE CONNAÎT : un plan connu ne se cache jamais, même
      quand son jalon manque au journal affiché. */
@@ -707,6 +709,10 @@ export function FluxEnPoints({
       <ContexteDesActionsDeLaCarte.Provider value={actionsDeLaCarte}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
       <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
+      <PieceDUneCapture.Provider value={galerieDesCaptures.pieceDuChemin}>
+      {/* TOUT MÉDIA DU FIL DE LA CARTE PORTE SON MENU « … » (27/10/2026) : les pièces des messages lisent la carte ici. */}
+      <ContexteCarteDuFil.Provider value={carte.id}>
+      <GalerieDesMediasLivres medias={tousLesMediasLivres}>
       <div className="px-4 pb-6 pt-4" data-flux-points={carte.id}>
         {/* UNE COLONNE DE DISCUSSION : les passages se suivent, séparés par de
             l'air. Plus de ligne verticale (`mesures.ligne` vaut `hidden`). */}
@@ -741,6 +747,9 @@ export function FluxEnPoints({
         </ol>
         {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
       </div>
+      </GalerieDesMediasLivres>
+      </ContexteCarteDuFil.Provider>
+      </PieceDUneCapture.Provider>
       </RepereDUneCapture.Provider>
       </OuvrirUneCapture.Provider>
       </ContexteDesActionsDeLaCarte.Provider>
@@ -848,7 +857,7 @@ function PointDuFlux({
   carte: Card;
   /** Les cartes suggérées pendant ce passage : le repère qui rouvre leur rangée. */
   suggestions?: GroupeDeSuggestions[];
-  /** Les médias livrés pendant le tour que ce passage clôt : rendus sous sa réponse. */
+  /** Les médias livrés pendant ce passage : une ligne chacun, à son heure. */
   mediasLivres?: readonly MediaLivre[];
   projectId?: string;
   /** Tous les passages du flux : le point « Plan » y lit s'il s'écrit encore. */
@@ -907,7 +916,14 @@ function PointDuFlux({
     point.questions.length > 0 ||
     point.memoire.length > 0 ||
     !!point.competences?.length ||
-    point.erreurs.length > 0;
+    point.erreurs.length > 0 ||
+    !!mediasLivres?.length;
+
+  /* LES MÉDIAS RENDUS PENDANT CE PASSAGE se posent parmi les lignes du récit, à
+     leur heure, quand la carte du passage est ouverte ; fermée (ou sans carte),
+     ils restent à l'écran, une ligne chacun, sous elle. */
+  const aDesTracesDansLaCarte = point.traces.length > 0 || point.memoire.length > 0 || !!point.competences?.length;
+  const mediasDansLaCarte = ouvert && aDesTracesDansLaCarte;
 
   /* CE QUE L'AGENT A FAIT (le récit) et CE QU'IL A RENDU (le carton) : deux
      blocs, dont l'ORDRE change au point « Plan » seulement. */
@@ -916,7 +932,13 @@ function PointDuFlux({
       {/* LA RÉFLEXION SE REPLIE DEVANT CE QUE LE TOUR A RENDU (`reflexionRepliee`) :
           une réponse ou une compréhension se lit en tête, les actions restent
           à un clic. Rouverte à la main, elle le reste tant que le passage vit. */}
-      <BlocsRacontes point={point} projectId={projectId} repliable={reflexionRepliee(point)} porteSesReglages={!!reglages} />
+      <BlocsRacontes
+        point={point}
+        projectId={projectId}
+        repliable={reflexionRepliee(point)}
+        porteSesReglages={!!reglages}
+        medias={mediasDansLaCarte ? mediasLivres : undefined}
+      />
     </ModeTechniqueContexte.Provider>
   );
   /* LE PASSAGE « PLAN » COUPE SON CARTON EN DEUX. Ce qui a DEMANDÉ la version
@@ -1192,7 +1214,7 @@ function PointDuFlux({
               {rapportRendu ? (
                 <span className="flex flex-wrap items-baseline gap-x-2 text-[14.5px] leading-relaxed" data-point-phrase data-rapport-titre>
                   <span className="font-medium text-text">{t('Compte rendu')}</span>
-                  <span className="text-[12.5px] text-faint">{dateHeure(rapportRendu.entree.at)}</span>
+                  <HeureDuFil at={rapportRendu.entree.at} className="mt-0 inline" />
                 </span>
               ) : (
                 <span
@@ -1307,6 +1329,15 @@ function PointDuFlux({
         </div>
       ) : null}
 
+      {/* 5 bis. LES MÉDIAS DU PASSAGE, quand sa carte est fermée : une ligne
+          chacun, à son heure, comme une capture (capture #e9bd). Ouverte, la
+          carte les pose parmi les mots de la discussion. */}
+      {mediasLivres?.length && !mediasDansLaCarte ? (
+        <ol className="flex flex-col gap-3" data-point-medias={mediasLivres.length}>
+          <LignesDeMediasLivres medias={mediasLivres} />
+        </ol>
+      ) : null}
+
       {/* 6. LA COMPRÉHENSION, DÉTACHÉE DU BLOC : un texte posé sous le bloc de
           travail (et sous la réponse qui la précède dans le tour), sur le fond
           de la page, sans cadre ni en-tête — comme un message. Le bloc à points
@@ -1352,9 +1383,6 @@ function PointDuFlux({
         <RepereDeSuggestions key={groupe.messageId} carteId={carte.id} groupe={groupe} />
       ))}
 
-      {/* 8. LES MÉDIAS LIVRÉS PAR CE TOUR, TOUS, sous sa réponse finale
-          (décision du 20/10/2026) : chacun téléchargeable, et tous d'un coup. */}
-      {mediasLivres?.length ? <MediasLivres medias={mediasLivres} className={LARGEUR_DE_L_AGENT} /> : null}
     </li>
   );
 }
@@ -1672,6 +1700,7 @@ function PanneauDuPlan({ titre, children }: { titre: string; children: React.Rea
           onClick={fermerLeDocument}
           title={t('Fermer le plan')}
           data-fermer-le-plan
+          data-croix-du-volet="plan"
           className="flex h-[38px] sm:h-8 w-[38px] sm:w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text"
         >
           <X className="h-4 w-4" />
@@ -1848,9 +1877,7 @@ function Moment({
             <span className="transition-opacity survol:opacity-0 group-hover/bulle:survol:opacity-100">
               <BoutonCopierLaDemande entree={entree} projectId={projectId} />
             </span>
-            <span className="text-[12px] text-faint" title={moment.premiere ? t('Votre demande') : t('Précision')}>
-              {dateHeure(entree.at)}
-            </span>
+            <HeureDuFil at={entree.at} className="mt-0 text-[12px]" data-heure-demande="" />
           </div>
           {/* CE QUE L'AGENT A VRAIMENT REÇU, à un clic sous votre message. */}
           <LienPromptDeLaDemande entree={entree} className={cn('w-full self-start', LARGEUR_DE_L_AGENT)} />
@@ -1861,7 +1888,8 @@ function Moment({
     case 'plan-demande':
       return (
         <p className="text-[12.5px] text-faint" data-moment="plan-demande">
-          {t('Plan demandé')} · {dateHeure(entree.at)} · {(entree.resultat ?? '').trim()}
+          {t('Plan demandé')} · {(entree.resultat ?? '').trim()}
+          <HeureDuFil at={entree.at} />
         </p>
       );
     case 'plan': {
@@ -1871,9 +1899,9 @@ function Moment({
         <div data-moment="plan">
           <p className="mb-1 text-[12.5px] font-medium uppercase tracking-wide text-faint">
             {moment.version ? t('Plan rendu · version {numero}', { numero: moment.version }) : t('Plan proposé')}
-            <span className="ml-2 normal-case tracking-normal">{dateHeure(entree.at)}</span>
           </p>
           <PlanRapport contenu={texte} courant={false} onToggleEvolution={onToggleEvolution} onToggleAll={onToggleAll} />
+          <HeureDuFil at={entree.at} />
         </div>
       );
     }
@@ -1974,7 +2002,7 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
           )}
         </div>
       </div>
-      <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
+      <HeureDuFil at={entree.at} className="pl-1 text-[12px]" />
     </div>
   );
 }
@@ -2026,7 +2054,7 @@ function MomentDeReponse({
         <DocumentsProduits chemins={documents} />
         <SuitesProposees suites={suites} onBasculer={onToggleEvolution} cible={{ entreeId: entree.id }} />
       </div>
-      <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
+      <HeureDuFil at={entree.at} className="pl-1 text-[12px]" />
     </div>
   );
 }
@@ -2094,7 +2122,7 @@ function MomentDeRapport({
           data-rapport-bascule
         >
           <span className="text-[12.5px] font-semibold text-text">{t('Compte rendu précédent')}</span>
-          <span className="text-[12.5px] text-faint">{dateHeure(entree.at)}</span>
+          <HeureDuFil at={entree.at} className="mt-0 inline" />
           <span className="flex-1" />
           <ChevronRight className={cn('h-3.5 w-3.5 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
         </button>
@@ -2382,6 +2410,7 @@ function BlocsRacontes({
   projectId,
   repliable = false,
   porteSesReglages = false,
+  medias,
 }: {
   point: PointDuParcours;
   projectId?: string;
@@ -2389,6 +2418,8 @@ function BlocsRacontes({
   repliable?: boolean;
   /** Le point montre déjà le bloc des réglages (« Configuration ») : il n'est pas vide. */
   porteSesReglages?: boolean;
+  /** Les médias rendus pendant ce passage : une ligne chacun, parmi les autres, à son heure. */
+  medias?: readonly MediaLivre[];
 }) {
   const entrees = React.useMemo(
     () => [...point.traces, ...point.questions.map((q) => q.entree)].sort((a, b) => a.rang - b.rang),
@@ -2407,6 +2438,23 @@ function BlocsRacontes({
   const aDeLaDiscussion = segments.some((segment) => segment.sorte === 'discussion');
   const actions = React.useMemo(() => (repliable ? recitDuPoint(entreesDActions).blocs.length : 0), [repliable, entreesDActions]);
   const dernierSegmentDActions = segments.map((segment) => segment.sorte).lastIndexOf('actions');
+  /* CHAQUE MÉDIA APRÈS LA SUITE COMMENCÉE AVANT LUI (`placerLesMediasDansLeFil`).
+     Replié, le récit ne montre que les mots de la discussion : les médias se
+     rangent entre eux, et ceux d'avant le premier mot suivent « Réflexions ». */
+  const replie = repliable && (actions > 0 || aDeLaDiscussion);
+  const segmentsRepere = React.useMemo(
+    () => (replie ? segments.filter((segment) => segment.sorte === 'discussion') : segments),
+    [replie, segments],
+  );
+  const placement = React.useMemo(
+    () =>
+      placerLesMediasDansLeFil(
+        medias ?? [],
+        segmentsRepere.map((segment) => ({ cle: segment.entrees[0]?.id ?? '', at: segment.entrees[0]?.at })),
+      ),
+    [medias, segmentsRepere],
+  );
+  const mediasApres = (segment: SegmentDuRecit) => placement.apres.get(segment.entrees[0]?.id ?? '');
 
   /* « RÉFLEXIONS » EST UN TITRE DE POINT, PAS UN LIEN GRIS. Le repli s'écrivait
      en 12,5 px `--faint`, chevron en tête : posé juste au-dessus du titre de la
@@ -2447,10 +2495,11 @@ function BlocsRacontes({
             ) : null}
           </SousPointDuFlux>
         ) : null}
+        <LignesDeMediasLivres medias={placement.avant} />
         {segments
           .filter((segment) => segment.sorte === 'discussion')
           .map((segment) => (
-            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
+            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} medias={mediasApres(segment)} />
           ))}
       </>
     );
@@ -2459,6 +2508,7 @@ function BlocsRacontes({
   /* RIEN N'EST ARRIVÉ ICI : on le DIT, sauf quand le passage porte déjà son
      carton — un plan seul n'a pas besoin qu'on lui annonce un vide. */
   if (!entrees.length) {
+    if (medias?.length) return <LignesDeMediasLivres medias={medias} />;
     if (point.moments.length || point.erreurs.length || porteSesReglages) return null;
     return (
       <li className={cn('text-[12.5px] text-faint', retrait)} data-blocs-racontes="0">
@@ -2471,7 +2521,12 @@ function BlocsRacontes({
      point de la liste de tâches, puis les actions sous chacun. Les autres
      passages gardent leurs deux niveaux. */
   if (point.etape === 'travail') {
-    return <TravailEnSousPoints entrees={entrees} projectId={projectId} />;
+    return (
+      <>
+        <TravailEnSousPoints entrees={entrees} projectId={projectId} />
+        <LignesDeMediasLivres medias={medias} />
+      </>
+    );
   }
 
   /* PENDANT LE TRAVAIL, LE FIL SE LIT DANS L'ORDRE : une suite d'actions, puis
@@ -2480,24 +2535,45 @@ function BlocsRacontes({
   if (aDeLaDiscussion) {
     return (
       <>
+        <LignesDeMediasLivres medias={placement.avant} />
         {segments.map((segment, rang) =>
           segment.sorte === 'discussion' ? (
-            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
+            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} medias={mediasApres(segment)} />
           ) : (
-            <RecitDuPassage
-              key={segment.entrees[0]?.id}
-              entrees={segment.entrees}
-              projectId={projectId}
-              total={rang === dernierSegmentDActions}
-              dureeSur={entrees}
-            />
+            <React.Fragment key={segment.entrees[0]?.id}>
+              <RecitDuPassage entrees={segment.entrees} projectId={projectId} total={rang === dernierSegmentDActions} dureeSur={entrees} />
+              <LignesDeMediasLivres medias={mediasApres(segment)} />
+            </React.Fragment>
           ),
         )}
       </>
     );
   }
 
-  return <RecitDuPassage entrees={entrees} projectId={projectId} total />;
+  return (
+    <>
+      <RecitDuPassage entrees={entrees} projectId={projectId} total />
+      <LignesDeMediasLivres medias={medias} />
+    </>
+  );
+}
+
+/**
+ * LES MÉDIAS RENDUS, UNE LIGNE CHACUN (décision du 26/10/2026, capture #e9bd) :
+ * l'icône de leur genre dans la colonne de gauche, la phrase qui dit ce qui a
+ * été rendu, l'heure, puis le média dessous — comme une capture de l'agent.
+ */
+function LignesDeMediasLivres({ medias }: { medias?: readonly MediaLivre[] }) {
+  if (!medias?.length) return null;
+  return (
+    <>
+      {medias.map((media) => (
+        <SousPointDuFlux key={media.id} icone={iconeDuMediaLivre(media)} attrs={{ 'data-sous-point-flux': 'media' }}>
+          <LigneDeMediaLivre media={media} />
+        </SousPointDuFlux>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -2548,14 +2624,23 @@ export function TravailDUnTourSansCarte({ entrees, projectId }: { entrees: Entre
  * vient lire. Une question sans réponse n'est pas ici, elle attend dans le
  * panneau de décision.
  */
-function MotsDeLaDiscussion({ entrees, projectId }: { entrees: EntreeJournal[]; projectId?: string }) {
+function MotsDeLaDiscussion({ entrees, projectId, medias }: { entrees: EntreeJournal[]; projectId?: string; medias?: readonly MediaLivre[] }) {
   const recit = React.useMemo(() => recitDuPoint(entrees, { montres: Number.MAX_SAFE_INTEGER }), [entrees]);
+  /* Un média rendu entre deux questions se lit entre elles. */
+  const placement = React.useMemo(
+    () => placerLesMediasDansLeFil(medias ?? [], recit.blocs.map((bloc) => ({ cle: bloc.cle, at: bloc.debutAt }))),
+    [medias, recit.blocs],
+  );
   return (
     <>
+      <LignesDeMediasLivres medias={placement.avant} />
       {recit.blocs.map((bloc) => (
-        <SousPointDuFlux key={bloc.cle} icone={ICONE_DU_GENRE[bloc.genre]} attrs={{ 'data-discussion-bloc': bloc.genre }}>
-          <UnBlocRaconte bloc={bloc} projectId={projectId} />
-        </SousPointDuFlux>
+        <React.Fragment key={bloc.cle}>
+          <SousPointDuFlux icone={ICONE_DU_GENRE[bloc.genre]} attrs={{ 'data-discussion-bloc': bloc.genre }}>
+            <UnBlocRaconte bloc={bloc} projectId={projectId} />
+          </SousPointDuFlux>
+          <LignesDeMediasLivres medias={placement.apres.get(bloc.cle)} />
+        </React.Fragment>
       ))}
     </>
   );
@@ -2631,7 +2716,8 @@ function RecitDuPassage({
         return (
           <SousPointDuFlux
             key={bloc.cle}
-            ton={bloc.enEchec ? 'erreur' : 'neutre'}
+            /* UN ESSAI REPRIS N'EST PAS UNE PANNE (28/10/2026) : la ligne reste grise, sa marque le dit. */
+            ton="neutre"
             icone={ICONE_DU_GENRE[bloc.genre]}
             /* LE REPÈRE DU RÉCIT SE POSE SUR SON PREMIER SOUS-POINT : c'est
                lui qui situe le récit dans l'ordre du passage, et c'est ce que
@@ -2727,7 +2813,6 @@ function TravailEnSousPoints({ entrees, projectId }: { entrees: EntreeJournal[];
 
 /** Le ton du point d'un sous-point : rouge en échec, orange en cours, gris sinon. */
 function tonDuSousPoint(sousPoint: SousPointDuTravail): TonDuPoint {
-  if (sousPoint.enEchec) return 'erreur';
   if (sousPoint.sorte !== 'reflexion' && sousPoint.etat === 'running') return 'en-cours';
   return 'neutre';
 }
@@ -2769,9 +2854,11 @@ function UnSousPointDuTravail({
         data-sous-point-bascule={sousPoint.cle}
         className="flex w-full items-baseline gap-2 text-left"
       >
-        <span className={cn('min-w-0 flex-1 text-[14.5px] leading-relaxed', sousPoint.enEchec ? 'text-danger' : 'text-text')}>
+        <span className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-text">
           {sousPoint.traduire ? t(sousPoint.libelle) : sousPoint.libelle}
         </span>
+        {/* Une action refusée puis reprise : la marque grise, jamais le rouge (28/10/2026). */}
+        {sousPoint.enEchec ? <MarqueEssaiRepris className="self-center" /> : null}
         {/* LE NOMBRE D'ACTIONS PUIS LA DURÉE : c'est ce couple qui montre où un
             tour a passé son temps, sans rien déplier. */}
         {aDesActions ? (
@@ -2804,21 +2891,15 @@ function UnSousPointDuTravail({
 }
 
 /**
- * QUAND UN GESTE A COMMENCÉ, ET COMBIEN DE TEMPS IL A PRIS : « 16:34 (1 min 32 s) ».
+ * QUAND UN GESTE A COMMENCÉ, ET COMBIEN DE TEMPS IL A PRIS : « il y a 26 min · 51 s ».
  *
- * LA MÊME ÉCRITURE QUE LES ÉTAPES D'UNE MISE EN LIGNE (`heureEtDuree`), pour
- * qu'une durée se lise pareil d'un bout à l'autre de l'application. Elle reste
- * au SECOND PLAN — 12,5 px, `--faint` — parce qu'on vient lire la phrase, pas
- * l'horloge ; les chiffres sont en `tabular-nums` pour que la colonne s'aligne
- * d'un geste à l'autre.
+ * EN DERNIER DANS SON BLOC (27/10/2026, captures #ae52 et #3c8a) : posée
+ * contre la phrase, elle coupait en deux la question posée ou l'image qui
+ * suivait. Elle descend désormais sous tout ce que le bloc montre — question,
+ * capture, détail ouvert. Un SEUL nœud, sur téléphone comme sur grand écran.
  *
- * SUR TÉLÉPHONE, ELLE PASSE SOUS LA PHRASE. À droite, sur une colonne de
- * 360 px, elle volait la moitié de la largeur du texte. Un SEUL nœud le fait :
- * c'est le conteneur qui passe de la colonne à la ligne au point de rupture
- * `sm:` (640 px, le seuil « téléphone » du projet) — rendre la mention deux
- * fois la donnerait deux fois aux contrôles et aux lecteurs d'écran.
- *
- * Rien quand la durée n'a pas été mesurée : l'heure seule, jamais « 0 s ».
+ * Rien quand la durée n'a pas été mesurée : le temps écoulé seul, jamais « 0 s ».
+ * Hors du fil d'une carte, l'écriture d'avant reste (« 16:34 (1 min 32 s) »).
  */
 function MentionDeTemps({
   debutAt,
@@ -2832,14 +2913,13 @@ function MentionDeTemps({
   marque?: string;
   className?: string;
 }) {
+  const carteDuFil = React.useContext(ContexteCarteDuFil);
+  if (carteDuFil) return <HeureDuFil at={debutAt} dureeMs={dureeMs} className={className} data-duree-bloc={marque ?? ''} />;
+  /* HORS CARTE (le travail d'un agent sans carte), l'écriture d'avant : « 16:34 (1 min 32 s) ». */
   const quand = heureEtDuree(debutAt, dureeMs);
   if (!quand) return null;
   return (
-    <span
-      data-duree-bloc={marque}
-      title={quand.infobulle}
-      className={cn('mt-0.5 text-[12.5px] leading-snug text-faint tabular-nums sm:mt-0 sm:shrink-0', className)}
-    >
+    <span data-duree-bloc={marque} title={quand.infobulle} className={cn('mt-1 block text-[12.5px] leading-snug text-faint tabular-nums', className)}>
       {quand.libelle}
     </span>
   );
@@ -2876,6 +2956,9 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
      bande ne connaît pas cette image. */
   const ouvrirDansLaGalerie = React.useContext(OuvrirUneCapture);
   const repereDuChemin = React.useContext(RepereDUneCapture);
+  const pieceDuChemin = React.useContext(PieceDUneCapture);
+  const carteDuFil = React.useContext(ContexteCarteDuFil);
+  const pieceDeLaVignette = vignette ? (pieceDuChemin?.(vignette) ?? null) : null;
   const agrandir = () => {
     if (vignette && ouvrirDansLaGalerie?.(vignette)) return;
     setEnFenetre(true);
@@ -3029,7 +3112,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   if (technique) {
     return (
       <div
-        className={cn('rounded-xl border bg-raised/40 px-3 py-2', bloc.enEchec ? 'border-danger/40' : 'border-transparent')}
+        className="rounded-xl border border-transparent bg-raised/40 px-3 py-2"
         data-bloc-raconte={bloc.cle}
         data-bloc-raconte-genre={bloc.genre}
         data-bloc-raconte-vue="technique"
@@ -3041,15 +3124,14 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
               <p
                 className={cn(
                   'flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] font-medium uppercase tracking-wide',
-                  bloc.enEchec ? 'text-danger' : 'text-faint',
+                  'text-faint',
                 )}
                 data-bloc-raconte-titre
                 title={bloc.sujets.slice(0, 8).join(' · ') || undefined}
               >
-                {bloc.enEchec ? <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+                {bloc.enEchec ? <MarqueEssaiRepris /> : null}
                 {titre}
               </p>
-              <MentionDeTemps debutAt={bloc.debutAt} dureeMs={bloc.dureeMs} marque={bloc.cle} />
             </div>
             {question}
           </div>
@@ -3083,6 +3165,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           ) : null}
         </div>
         {detail}
+        <MentionDeTemps debutAt={bloc.debutAt} dureeMs={bloc.dureeMs} marque={bloc.cle} />
         {fenetre}
       </div>
     );
@@ -3122,14 +3205,13 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           <p
             className={cn(
               'flex min-w-0 flex-1 items-start gap-1.5 break-words text-[14.5px] leading-relaxed texte-copiable',
-              bloc.enEchec ? 'text-danger' : 'text-text',
+              'text-text',
             )}
             data-bloc-raconte-phrase={phrase.dit}
           >
-            {bloc.enEchec ? <CircleAlert className="mt-1 h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+            {bloc.enEchec ? <MarqueEssaiRepris className="mt-1" /> : null}
             <span className="min-w-0">{diteAffichee}</span>
           </p>
-          <MentionDeTemps debutAt={bloc.debutAt} dureeMs={bloc.dureeMs} marque={bloc.cle} className="sm:mt-[3px]" />
         </div>
         {aDuDetail ? (
           <button
@@ -3156,12 +3238,14 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           taille reste BORNÉE : une capture en pleine largeur écraserait le
           fil, et le clic l'ouvre en grand de toute façon. */}
       {source ? (
+        <GlissableVersUnPlan attachmentId={carteDuFil ? pieceDeLaVignette : null} genre="image" nom={dite}>
+        <div className="relative mt-1 w-fit max-w-full">
         <button
           type="button"
           data-bloc-raconte-vignette={bloc.cle}
           onClick={agrandir}
           title={t('Voir la capture en grand')}
-          className="relative mt-1 block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
+          className="relative block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
         >
           <img
             src={source}
@@ -3173,9 +3257,15 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           {/* LE REPÈRE COURT DE LA PIÈCE, comme sous la barre d'écriture (#ce5d). */}
           {vignette && repereDuChemin?.(vignette) ? <EtiquetteDeVignette texte={repereDuChemin(vignette)!} /> : null}
         </button>
+        {/* UNE IMAGE REGARDÉE QUI EST UNE PIÈCE JOINTE se retravaille comme les autres médias du fil. */}
+        {carteDuFil && pieceDeLaVignette ? <MenuDuMediaDuFil cardId={carteDuFil} attachmentId={pieceDeLaVignette} /> : null}
+        </div>
+        </GlissableVersUnPlan>
       ) : null}
 
       {detail}
+      {/* L'HEURE EN DERNIER : sous la question, la capture et le détail, jamais entre eux. */}
+      <MentionDeTemps debutAt={bloc.debutAt} dureeMs={bloc.dureeMs} marque={bloc.cle} />
       {fenetre}
     </div>
   );

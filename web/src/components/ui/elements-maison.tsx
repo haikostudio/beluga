@@ -24,7 +24,7 @@ const CLASSE_PANNEAU =
 
 /** Le champ déclencheur commun : la même tenue qu'un `Input`. */
 const CLASSE_CHAMP =
-  'flex h-10 sm:h-9 w-full min-w-0 items-center gap-2 rounded-lg bg-raised px-3 text-left text-[14px] text-text transition-colors hover:bg-border/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:cursor-default disabled:opacity-50';
+  'flex h-10 sm:h-9 w-full min-w-0 items-center gap-2 rounded-lg bg-raised px-3 text-left text-[14px] text-text transition-colors hover:bg-fond-survol focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:cursor-default disabled:opacity-50';
 
 /* ------------------------------------------------------------------ */
 /* Case à cocher                                                        */
@@ -63,7 +63,7 @@ export const CaseACocher = React.forwardRef<
       className={cn(
         'relative inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-faint disabled:cursor-default disabled:opacity-50',
         "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-[''] sm:after:h-8 sm:after:w-8",
-        checked ? 'bg-teinte-plein text-white' : 'bg-faint/35 hover:bg-faint/50',
+        checked ? 'bg-teinte-plein text-sur-couleur' : 'bg-faint/35 hover:bg-faint/50',
         className,
       )}
     >
@@ -171,7 +171,7 @@ export function PastilleRadio({ choisie, className }: { choisie: boolean; classN
         className,
       )}
     >
-      {choisie ? <span className="h-[7px] w-[7px] rounded-full bg-white" /> : null}
+      {choisie ? <span className="h-[7px] w-[7px] rounded-full bg-sur-couleur" /> : null}
     </span>
   );
 }
@@ -439,7 +439,7 @@ export function ChoixDeDate({
                   onClick={() => choisir(d)}
                   className={cn(
                     'flex h-9 items-center justify-center rounded-md text-[13px] tabular-nums transition-colors disabled:cursor-default disabled:opacity-30',
-                    estChoisie ? 'bg-teinte-plein font-semibold text-white' : 'hover:bg-raised',
+                    estChoisie ? 'bg-teinte-plein font-semibold text-sur-couleur' : 'hover:bg-raised',
                     !estChoisie && (duMois ? 'text-text' : 'text-faint'),
                     !estChoisie && texte === aujourdHui && 'font-semibold underline decoration-faint underline-offset-4',
                   )}
@@ -521,7 +521,7 @@ export function ChoixDHeure({
           data-choix-heure-valeur={`${repere}:${deuxChiffres(n)}`}
           className={cn(
             'flex h-9 shrink-0 items-center justify-center rounded-md text-[13.5px] tabular-nums transition-colors',
-            n === courante ? 'bg-teinte-plein font-semibold text-white' : 'text-text hover:bg-raised',
+            n === courante ? 'bg-teinte-plein font-semibold text-sur-couleur' : 'text-text hover:bg-raised',
           )}
         >
           {deuxChiffres(n)}

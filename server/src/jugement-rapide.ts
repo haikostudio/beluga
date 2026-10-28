@@ -26,13 +26,24 @@ import {
   questionsProposition,
   signatureDuDossier,
   tronquer,
-  MODELE_LAYA,
   PERTINENCE_MAX,
   SEUIL_DOUBLON,
-  SEUIL_LAYA,
-  DELAI_LAYA_MS,
+  SEUIL_JUGE,
+  DELAI_JUGE_MS,
+  ENDPOINT_JUGE,
+  REPRISES_JUGE,
+  type EtatDeLaCle,
+  type LectureDuJuge,
+  adresseDuJuge as adresseDansLesFiches,
+  cleDuJuge as cleDansLesFiches,
+  comprehensionParRegles,
+  construireLaDemande,
+  etatDepuisLeCode,
+  ficheDuJuge,
+  lireLaReponse,
+  meriteUneReprise,
+  reponseRetenue,
   usageAllume,
-  reponseDepuisLaya,
   verdictComprehension,
   verdictInteret,
   verdictUrgence,
@@ -41,47 +52,71 @@ import {
   type ReglageDUsage,
 } from '@beluga/shared';
 import crypto from 'node:crypto';
-import { interrogerLaya, layaPret } from './laya.js';
-import { etatDeLaNuit, type EtatDeLaNuit } from './laya-nuit.js';
+import { listerAcces } from './coffre-fort.js';
 import { getDb } from './db.js';
+import { log } from './logger.js';
 import { getSettings } from './store.js';
 
 /**
  * LE JUGE RAPIDE — le chemin d'appel, et lui seul.
  *
  * Une SEULE brique par laquelle passent tous les jugements, et un SEUL juge :
- * Laya, le modèle de décision posé sur cette machine (`server/src/laya.ts`).
- * Rien ne part sur le réseau, rien n'est facturé, aucune clé n'est lue. Les
- * garde-fous communs ne sont pas négociables :
+ * Jev, le modèle de décision de TypeSafe, appelé par son API. Rien ne se charge
+ * sur cette machine. Les garde-fous communs ne sont pas négociables :
  *
- *  1. UN DÉLAI, tenu par `interrogerLaya` lui-même — un par usage, et les
- *     appels passent un par un sur la machine. Un usage « express » (sur le
- *     chemin d'un tour) n'attend jamais un modèle qui dort.
- *  2. UN REPLI SYSTÉMATIQUE : tout échec — usage éteint, modèle absent, lent,
- *     peu sûr de lui, réponse hors liste — rend `undefined`. AUCUNE exception
- *     ne remonte : une fonction d'ici ne peut pas faire échouer un lancement,
- *     une fin de tour ni une nuit d'analyse.
- *  3. UN PLAFOND sur ce qui est posé : de quoi juger, jamais le dépôt.
+ *  1. UN DÉLAI COURT (`DELAI_JUGE_MS`, ou celui de l'usage), tenu par un
+ *     `AbortController`.
+ *  2. UNE SEULE REPRISE, et seulement sur un à-coup (réseau, 429, 5xx).
+ *  3. UN REPLI SYSTÉMATIQUE : tout échec — usage éteint, clé absente ou
+ *     refusée, service lent ou en panne, réponse peu sûre ou hors liste — rend
+ *     `undefined`. AUCUNE exception ne remonte : une fonction d'ici ne peut pas
+ *     faire échouer un lancement, une fin de tour ni une nuit d'analyse.
+ *  4. UN PLAFOND sur ce qui part : de quoi juger, jamais le dépôt.
  *
- * L'ACTIVATION est la PRÉSENCE de Laya sur la machine (`layaPret`), puis
- * l'interrupteur de chaque usage. `scripts/verif-jugement-rapide.mjs` prouve
- * qu'aucune requête réseau ne part.
+ * L'ACTIVATION est la PRÉSENCE d'une fiche TypeSafe au coffre-fort, puis
+ * l'interrupteur de chaque usage. Sans fiche, AUCUNE requête ne part.
+ * L'adresse lue sur la fiche permet aux contrôles de viser un faux serveur
+ * (`scripts/verif-jugement-rapide.mjs`).
  *
- * Les règles pures (questions, seuils, lecture des verdicts, tri) vivent dans
- * `shared/src/jugement-rapide.ts`, la lecture des réponses de Laya dans
- * `shared/src/laya.ts` — testables sans modèle.
+ * Les règles pures (questions, seuils, lecture des réponses, note par règles)
+ * vivent dans `shared/src/jugement-rapide.ts` — testables sans réseau.
  */
 
 /* ------------------------------------------------------------------ */
 /* L'ACTIVATION                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Le juge est-il allumé ? Autrement dit : Laya est-il posé sur cette machine ? */
-export function jugeAllume(): boolean {
+/** La clé rangée au coffre, ou rien. Rien = le juge est éteint. */
+export function cleDuJuge(): string | undefined {
   try {
-    return layaPret();
+    return cleDansLesFiches(listerAcces());
+  } catch (err) {
+    log.warn(`juge rapide : coffre illisible (${(err as Error).message})`);
+    return undefined;
+  }
+}
+
+/** L'adresse du service, telle que la fiche du coffre la donne. */
+export function adresseDuJuge(): string {
+  try {
+    return adresseDansLesFiches(listerAcces());
   } catch {
-    return false;
+    return ENDPOINT_JUGE;
+  }
+}
+
+/** Le juge est-il allumé ? La question ne coûte qu'une lecture du coffre. */
+export function jugeAllume(): boolean {
+  return Boolean(cleDuJuge());
+}
+
+/** La fiche du coffre qui porte la clé, pour que l'écran sache laquelle corriger. */
+export function ficheDuJugeAuCoffre(): { id: string; nom: string } | undefined {
+  try {
+    const fiche = ficheDuJuge(listerAcces());
+    return fiche ? { id: fiche.id, nom: fiche.nom } : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -239,58 +274,89 @@ function etatPourLaTrace(etat: unknown, plafond = PLAFOND_ETAT_TRACE): unknown {
 
 /** La question telle que la trace la garde : un JSON valide, état réduit. */
 function questionPourLaTrace(etat: unknown, questions: Record<string, QuestionDuJuge>): string {
-  return JSON.stringify({ state: etatPourLaTrace(etat), model: MODELE_LAYA, questions });
+  return JSON.stringify({ ...construireLaDemande(etatPourLaTrace(etat), questions) });
 }
 
+type IssueDuJugement =
+  | { reponses: Record<string, ReponseDuJuge>; jetonsEntree: number; jetonsSortie: number }
+  | { motif: string; jetonsEntree?: number; jetonsSortie?: number };
+
 /**
- * JUGER ICI, SANS RÉSEAU ET SANS FACTURE.
+ * DEMANDER À JEV.
  *
- * Toutes les questions d'un jugement partent en UN passage : Laya les lit
+ * Toutes les questions d'un jugement partent en UN appel : Jev les lit
  * ensemble sur le même état. TOUT OU RIEN par défaut — si une seule question
  * reste sans réponse exploitable (confiance sous le seuil, valeur hors liste),
  * on rend un MOTIF d'échec, jamais un verdict à moitié rendu. Un usage
  * `partiel` (la pertinence, une question par document) garde au contraire les
  * réponses sûres et laisse les autres de côté.
  */
-async function jugerEnLocal(
+async function jugerParJev(
   etat: unknown,
   questions: Record<string, QuestionDuJuge>,
   reglage: ReglageDUsage = {},
-): Promise<{ reponses: Record<string, ReponseDuJuge> } | { motif: string }> {
-  if (!layaPret()) return { motif: 'Laya n’est pas installé sur cette machine' };
+): Promise<IssueDuJugement> {
   if (!Object.keys(questions).length) return { motif: 'aucune question posée' };
-  const brutes = await interrogerLaya({
-    etat,
-    questions,
-    delaiMs: reglage.delaiMs ?? DELAI_LAYA_MS,
-    express: reglage.express,
-  });
-  if (!brutes) {
-    return {
-      motif: reglage.express
-        ? 'Laya n’a pas répondu à temps (modèle en cours de chargement, ou file occupée)'
-        : 'aucune réponse de Laya (délai, mémoire trop juste ou modèle indisponible)',
-    };
-  }
-  const reponses: Record<string, ReponseDuJuge> = {};
-  for (const [cle, question] of Object.entries(questions)) {
-    const reponse = reponseDepuisLaya(question, brutes[cle], reglage.seuil ?? SEUIL_LAYA);
-    if (reponse) reponses[cle] = reponse;
-    else if (!reglage.partiel) {
-      const brute = brutes[cle];
-      return {
-        motif: `question « ${cle} » : réponse « ${brute?.choice ?? brute?.score ?? brute?.noul ?? '—'} » sous le seuil ou hors liste`,
-      };
+  const cle = cleDuJuge();
+  if (!cle) return { motif: 'aucune clé TypeSafe au coffre-fort : le juge est éteint' };
+  const adresse = adresseDuJuge();
+  const corps = JSON.stringify(construireLaDemande(etat, questions));
+  const delai = reglage.delaiMs ?? DELAI_JUGE_MS;
+  let motif = 'aucune réponse';
+  let lu: LectureDuJuge | undefined;
+
+  for (let essai = 0; essai <= REPRISES_JUGE && !lu; essai += 1) {
+    const stop = new AbortController();
+    const minuterie = setTimeout(() => stop.abort(), delai);
+    try {
+      const reponse = await fetch(adresse, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+        body: corps,
+        signal: stop.signal,
+      });
+      if (!reponse.ok) {
+        const texte = await reponse.text().catch(() => '');
+        motif = `HTTP ${reponse.status} ${texte.slice(0, 300)}`.trim();
+        // Une clé refusée ne se retente pas : la seconde tentative serait refusée aussi.
+        if (!meriteUneReprise(reponse.status)) break;
+        continue;
+      }
+      lu = lireLaReponse(await reponse.json().catch(() => null));
+      if (!lu) {
+        motif = 'réponse illisible';
+        break;
+      }
+    } catch (err) {
+      motif = stop.signal.aborted ? `délai de ${delai} ms dépassé` : (err as Error).message;
+      // Un délai dépassé ne se retente pas : on doublerait l'attente pour rien.
+      if (stop.signal.aborted) break;
+    } finally {
+      clearTimeout(minuterie);
     }
   }
-  if (!Object.keys(reponses).length) return { motif: 'aucune réponse assez sûre' };
-  return { reponses };
+  if (!lu) return { motif };
+
+  const jetons = { jetonsEntree: lu.jetonsEntree, jetonsSortie: lu.jetonsSortie };
+  const reponses: Record<string, ReponseDuJuge> = {};
+  for (const [cleQuestion, question] of Object.entries(questions)) {
+    const brute = lu.reponses[cleQuestion];
+    const reponse = reponseRetenue(question, brute, reglage.seuil ?? SEUIL_JUGE);
+    if (reponse) reponses[cleQuestion] = reponse;
+    else if (!reglage.partiel) {
+      const valeur =
+        brute?.type === 'choice' ? brute.choice : brute?.type === 'score' ? brute.score : brute?.type === 'noul' ? brute.noul : '—';
+      return { motif: `question « ${cleQuestion} » : réponse « ${valeur} » sous le seuil ou hors liste`, ...jetons };
+    }
+  }
+  if (!Object.keys(reponses).length) return { motif: 'aucune réponse assez sûre', ...jetons };
+  return { reponses, ...jetons };
 }
 
 /**
  * UN APPEL, UN VERDICT — OU RIEN.
  *
- * Rend les réponses de Laya, ou `undefined` si quoi que ce soit s'est mal
+ * Rend les réponses de Jev, ou `undefined` si quoi que ce soit s'est mal
  * passé. Ne lance JAMAIS : chaque appelant a son chemin « pas de réponse =
  * comportement d'avant », et ce contrat doit tenir même sur une panne.
  */
@@ -299,13 +365,13 @@ export async function interroger(
   questions: Record<string, QuestionDuJuge>,
   ctx: ContexteDuJugement,
 ): Promise<Record<string, ReponseDuJuge> | undefined> {
-  // LA PORTE — l'usage est-il allumé ? Éteint, Laya n'est même pas sollicité.
+  // LA PORTE — l'usage est-il allumé ? Éteint, on ne lit même pas le coffre.
   if (!usageDuJugeAllume(ctx.usage)) return undefined;
 
   const depart = Date.now();
-  let issue: { reponses: Record<string, ReponseDuJuge> } | { motif: string };
+  let issue: IssueDuJugement;
   try {
-    issue = await jugerEnLocal(etat, questions, REGLAGES_DES_USAGES[ctx.usage]);
+    issue = await jugerParJev(etat, questions, REGLAGES_DES_USAGES[ctx.usage]);
   } catch (err) {
     issue = { motif: (err as Error)?.message || 'erreur inattendue' };
   }
@@ -319,9 +385,8 @@ export async function interroger(
       latenceMs: Date.now() - depart,
       suite: ctx.suite ?? '',
       issue: 'repondu',
-      /* Aucun jeton facturé : le modèle tourne sur cette machine. */
-      jetonsEntree: 0,
-      jetonsSortie: 0,
+      jetonsEntree: issue.jetonsEntree,
+      jetonsSortie: issue.jetonsSortie,
       cardId: ctx.cardId,
       projectId: ctx.projectId,
       at: Date.now(),
@@ -337,13 +402,53 @@ export async function interroger(
     latenceMs: Date.now() - depart,
     suite: 'repli : comportement d’avant, rien n’est bloqué',
     issue: 'echec',
-    jetonsEntree: 0,
-    jetonsSortie: 0,
+    /* Une réponse jugée trop peu sûre a quand même été facturée : on la compte. */
+    jetonsEntree: issue.jetonsEntree ?? 0,
+    jetonsSortie: issue.jetonsSortie ?? 0,
     cardId: ctx.cardId,
     projectId: ctx.projectId,
     at: Date.now(),
   });
   return undefined;
+}
+
+/**
+ * TESTER LA CLÉ, SUR-LE-CHAMP : acceptée, refusée, injoignable — ou absente
+ * quand rien n'est rangé. L'appel est un jugement trivial : quelques dizaines
+ * de jetons.
+ */
+export async function testerLaCle(): Promise<{ etat: EtatDeLaCle; detail?: string }> {
+  const cle = cleDuJuge();
+  if (!cle) return { etat: 'absente' };
+  const stop = new AbortController();
+  const minuterie = setTimeout(() => stop.abort(), DELAI_JUGE_MS);
+  try {
+    const reponse = await fetch(adresseDuJuge(), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        construireLaDemande('Un essai de connexion, sans autre contenu.', {
+          essai: {
+            type: 'noul',
+            instructions: 'Ce texte est-il un essai de connexion ?',
+            criteria: { true: 'C’est un essai', false: 'Ce n’est pas un essai' },
+          },
+        }),
+      ),
+      signal: stop.signal,
+    });
+    const etat = etatDepuisLeCode(reponse.status);
+    if (etat === 'acceptee') return { etat };
+    const texte = await reponse.text().catch(() => '');
+    return { etat, detail: `HTTP ${reponse.status} ${texte.slice(0, 200)}`.trim() };
+  } catch (err) {
+    return {
+      etat: 'injoignable',
+      detail: stop.signal.aborted ? `aucune réponse en ${DELAI_JUGE_MS} ms` : (err as Error).message,
+    };
+  } finally {
+    clearTimeout(minuterie);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -363,21 +468,24 @@ export function empreinte(texte: string): string {
  * les hypothèses assumées, la découpe technique préparée — jamais sur le champ
  * « description » de la carte, qui n'est qu'un résumé et souvent vide.
  *
- * Rendu `undefined` = pas d'indicateur du tout, et le lancement se comporte
- * exactement comme avant. Un verdict à une barre n'empêche JAMAIS de lancer.
+ * QUAND JEV SE TAIT — clé absente, panne, délai, confiance sous le palier —,
+ * la note vient des RÈGLES (`comprehensionParRegles`) : une compréhension
+ * rendue n'est jamais laissée sans barres. L'interrupteur de l'usage reste la
+ * seule façon d'éteindre la jauge. Un verdict à une barre n'empêche JAMAIS de
+ * lancer.
  */
 export async function jugerLaComprehension(
   carte: { id: string; projectId: string },
   dossier: DossierAJuger,
 ): Promise<JugementsDeCarte['comprehension']> {
+  if (!usageDuJugeAllume('comprehension-carte')) return undefined;
   const reponses = await interroger(dossier, questionComprehension(), {
     usage: 'comprehension-carte',
     cardId: carte.id,
     projectId: carte.projectId,
     suite: 'indicateur à trois barres dans la barre d’écriture ; le lancement reste possible',
   });
-  const verdict = verdictComprehension(reponses?.score, reponses?.motif, Date.now());
-  if (!verdict) return undefined;
+  const verdict = verdictComprehension(reponses?.score, reponses?.motif, Date.now()) ?? comprehensionParRegles(dossier, Date.now());
   return { ...verdict, empreinte: empreinte(signatureDuDossier(dossier)) };
 }
 
@@ -491,8 +599,8 @@ export async function proposerUnNiveau(
  * 7. CE PREMIER MESSAGE EST-IL UNE QUESTION OU UN TRAVAIL ?
  *
  * Rend une INDICATION à glisser dans la demande du cadrage — le cadrage garde
- * la décision (règle « Un tour de cadrage a DEUX fins »). Express : si Laya
- * dort, rien, tout de suite.
+ * la décision (règle « Un tour de cadrage a DEUX fins »). Délai court :
+ * si Jev traîne, rien.
  */
 export async function indiquerLaNatureDeLaDemande(
   texte: string,
@@ -512,7 +620,7 @@ export async function indiquerLaNatureDeLaDemande(
  * 8. CETTE CARTE PROPOSÉE DOUBLE-T-ELLE UNE CARTE OUVERTE ?
  *
  * Les candidates sont déjà PRÉSÉLECTIONNÉES par l'appelant (quelques cartes
- * proches) : Laya ne compare que des paires. Rend la première carte jugée
+ * proches) : Jev ne compare que des paires. Rend la première carte jugée
  * faire le même travail au-dessus de `SEUIL_DOUBLON`, ou rien.
  */
 export async function chercherUnDoublon<T extends { id: string; title: string; description: string }>(
@@ -595,15 +703,15 @@ export async function garderLesPertinents<T>(
 /* ------------------------------------------------------------------ */
 
 export interface EtatDuJuge {
-  /** Laya est-il installé ? C'est CELA, l'interrupteur général. */
+  /** Une clé TypeSafe est-elle rangée au coffre ? C'est CELA, l'interrupteur général. */
   allume: boolean;
+  /** La fiche du coffre qui porte la clé, pour la corriger depuis l'écran. */
+  fiche?: { id: string; nom: string };
   /** Les usages, avec leur interrupteur. */
   usages: { cle: string; titre: string; explication: string; allume: boolean }[];
   /** Les dernières traces et leur bilan : de quoi juger le juge. */
   traces: TraceDeJugement[];
   bilan: ReturnType<typeof bilanDesTraces>;
-  /** L'entraînement de nuit : la version en service, et le compte rendu de la dernière nuit. */
-  nuit: EtatDeLaNuit;
 }
 
 /** Tout ce que l'écran du juge affiche, en une seule lecture. */
@@ -612,6 +720,7 @@ export function etatDuJuge(limiteDesTraces = 50): EtatDuJuge {
   const traces = listerLesTraces(limiteDesTraces);
   return {
     allume: jugeAllume(),
+    fiche: ficheDuJugeAuCoffre(),
     usages: FICHES_DES_USAGES.map((fiche) => ({
       cle: fiche.cle,
       titre: fiche.titre,
@@ -620,6 +729,5 @@ export function etatDuJuge(limiteDesTraces = 50): EtatDuJuge {
     })),
     traces,
     bilan: bilanDesTraces(traces),
-    nuit: etatDeLaNuit(),
   };
 }

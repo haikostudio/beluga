@@ -57,6 +57,7 @@ import {
   retirerLeBlocDeProcessus,
   phraseDeLErreurDeTour,
   sansBlocDeChiffrage,
+  validationNonBloquante,
 } from '@beluga/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
@@ -475,7 +476,7 @@ export function MessageView({
               <a
                 key={offer.id}
                 href={`/api/download?token=${encodeURIComponent(offer.id)}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[14.5px] text-text hover:bg-border"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-raised px-2 py-1 text-[14.5px] text-text hover:bg-fond-survol"
               >
                 <Download className="h-3 w-3" />
                 {offer.label}
@@ -777,7 +778,8 @@ export function QuestionCard({
          jaune, et le liseré intérieur n'était qu'un second cadre. */
       variante={sansEntete ? 'contraste' : 'attention'}
       entete={
-        sansEntete ? undefined : (
+        /* Une validation de dépense n'arrête pas l'agent : rien à dire de plus que ses deux boutons. */
+        sansEntete || validationNonBloquante(question) ? undefined : (
           <p className="flex items-start gap-1.5 text-[14.5px] leading-relaxed text-text">
             <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
             <span className="min-w-0">{t('L’agent attend votre réponse')}</span>
@@ -1223,7 +1225,7 @@ export function ErreurDeTourCard({ message }: { message: Message }) {
       </p>
       {/* LA PHRASE SIMPLE D'ABORD : un message de machine (code système,
           sortie de git, trace) se lit par sa famille ou par le classement de
-          Laya ; le texte brut reste à un clic, pour qui veut le voir. */}
+          Jev ; le texte brut reste à un clic, pour qui veut le voir. */}
       <p className="mt-1 text-[14.5px] leading-relaxed text-muted" data-erreur-phrase>
         {t(phraseDeLErreurDeTour(erreur))}
       </p>

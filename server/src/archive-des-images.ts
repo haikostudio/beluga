@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import yazl from 'yazl';
-import { MAX_IMAGES_PAR_ARCHIVE, nomDArchiveDImages, nomsSansDoublon, type Attachment } from '@beluga/shared';
+import { MAX_IMAGES_PAR_ARCHIVE, MAX_SIGNES_PAR_TEXTE_D_ARCHIVE, MAX_TEXTES_PAR_ARCHIVE, cheminSurDansLArchive, nomDArchiveDImages, nomsSansDoublon, type Attachment } from '@beluga/shared';
 
 /**
  * « TOUT TÉLÉCHARGER » DE LA VISIONNEUSE : les images qu'elle parcourt, en UNE
@@ -36,6 +36,10 @@ export interface DemandeDArchive {
   /** Les captures d'étape, toutes du même projet. */
   captures?: { projet: string; chemins: string[] };
   nom?: string | null;
+  /** Le chemin de chaque pièce dans l'archive (id → « images/photo.png »), quand l'écran le fixe (brief téléchargé). */
+  nomsDansLArchive?: Record<string, string>;
+  /** Des textes posés à la racine (« brief.md »). */
+  textes?: { nom: string; contenu: string }[];
 }
 
 export interface AccesDeLArchive {
@@ -47,15 +51,17 @@ export interface AccesDeLArchive {
   refus: string;
 }
 
-type Entree = { chemin: string; nom: string };
+type Entree = { chemin: string; nom: string } | { contenu: Buffer; nom: string };
 type Refus = { ok: false; statut: 400 | 403 | 404; raison: string };
 
 /** TOUT CE QUI REFUSE UNE ARCHIVE, vérifié AVANT d'en écrire un octet : sert au dépôt du lot comme au zip. */
 export function verifierArchive(demande: DemandeDArchive, acces: AccesDeLArchive): { ok: true; entrees: Entree[] } | Refus {
   const ids = [...new Set(demande.ids.filter(Boolean))];
   const chemins = [...new Set(demande.captures?.chemins.filter(Boolean) ?? [])];
+  const textes = demande.textes ?? [];
   const total = ids.length + chemins.length;
-  if (!total) return { ok: false, statut: 400, raison: 'aucune image demandée' };
+  if (!total && !textes.length) return { ok: false, statut: 400, raison: 'aucune image demandée' };
+  if (textes.length > MAX_TEXTES_PAR_ARCHIVE) return { ok: false, statut: 400, raison: 'trop de textes dans l’archive' };
   if (total > MAX_IMAGES_PAR_ARCHIVE) {
     return { ok: false, statut: 400, raison: `plus de ${MAX_IMAGES_PAR_ARCHIVE} images à la fois : téléchargez-les séparément` };
   }
@@ -67,7 +73,7 @@ export function verifierArchive(demande: DemandeDArchive, acces: AccesDeLArchive
     if (!piece || !acces.peutLire(piece)) return { ok: false, statut: 403, raison: acces.refus };
     const chemin = acces.cheminDe(piece);
     if (!fs.existsSync(chemin)) return { ok: false, statut: 404, raison: `le fichier « ${piece.name} » est absent du disque` };
-    entrees.push({ chemin, nom: path.basename(piece.name) || 'image' });
+    entrees.push({ chemin, nom: cheminSurDansLArchive(demande.nomsDansLArchive?.[id]) ?? (path.basename(piece.name) || 'image') });
   }
   if (chemins.length) {
     if (!acces.trouverCapture || !demande.captures) return { ok: false, statut: 403, raison: acces.refus };
@@ -76,6 +82,14 @@ export function verifierArchive(demande: DemandeDArchive, acces: AccesDeLArchive
       if (!fichier) return { ok: false, statut: 404, raison: 'une capture n’existe plus' };
       entrees.push({ chemin: fichier, nom: path.basename(fichier) });
     }
+  }
+  /* LES TEXTES (le brief en Markdown) : un nom sûr, un poids borné. */
+  for (const texte of textes) {
+    const nom = cheminSurDansLArchive(texte?.nom);
+    if (!nom || typeof texte.contenu !== 'string' || texte.contenu.length > MAX_SIGNES_PAR_TEXTE_D_ARCHIVE) {
+      return { ok: false, statut: 400, raison: 'un texte de l’archive est illisible' };
+    }
+    entrees.push({ contenu: Buffer.from(texte.contenu, 'utf8'), nom });
   }
   return { ok: true, entrees };
 }
@@ -87,7 +101,7 @@ export function archiveDesImages(demande: DemandeDArchive, acces: AccesDeLArchiv
 
   const noms = nomsSansDoublon(entrees.map((e) => e.nom));
   const zip = new yazl.ZipFile();
-  entrees.forEach((e, i) => zip.addFile(e.chemin, noms[i]!, { compress: false }));
+  entrees.forEach((e, i) => ('contenu' in e ? zip.addBuffer(e.contenu, noms[i]!, { compress: false }) : zip.addFile(e.chemin, noms[i]!, { compress: false })));
   // Les types de yazl taisent l'argument du rappel : c'est le poids final calculé (-1 s'il est inconnu).
   const finir = zip.end.bind(zip) as unknown as (options: object, poidsCalcule: (octets: number) => void) => void;
   const poids = new Promise<number>((resolve) => finir({}, resolve));

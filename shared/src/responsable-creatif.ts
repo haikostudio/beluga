@@ -536,18 +536,7 @@ export function briefCorrige(markdown: string): string {
   return briefEnMarkdown(champs, notes.join('\n'));
 }
 
-/**
- * L'ÉTIQUETTE « CORRIGER AVEC L'AGENT » : la phrase que le bouton d'une pièce
- * du suivi dépose dans la barre d'écriture. Elle nomme la pièce par son titre
- * ET par sa clé stable, que la consigne du responsable créatif sait lire
- * (`REGLE_DE_LA_PIECE_DESIGNEE`) ; ses espaces sont insécables, elle ne se
- * coupe pas en fin de ligne.
- */
-export function etiquetteDeCorrection(titre: string, cle: string): string {
-  return `[pièce: ${titre.replace(/[\[\]\n]/g, ' ').trim()} · ${cle}]`.replace(/ /g, '\u00A0');
-}
-
-/** La consigne qui va avec l'étiquette, servie au responsable créatif. */
+/** La consigne d'une pièce désignée par « [pièce: Titre · clé] » dans un message, servie au responsable créatif. */
 export const REGLE_DE_LA_PIECE_DESIGNEE =
   'UNE PIÈCE DÉSIGNÉE : un message qui porte « [pièce: Titre · clé] » vise CETTE pièce du suivi. Relis-la en entier (« production » action « lire », « cle »), applique la correction demandée avec l’action « modifier » sur la même clé (texte ENTIER de la nouvelle version), sans réécrire l’étape ni les autres pièces, puis dis en une phrase ce qui a changé et quelles étapes sont à revalider. Une version écrite « par vous » dans le suivi est une correction de l’utilisateur : elle fait foi, ne la défais jamais.';
 

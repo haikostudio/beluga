@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import {
   ADRESSE_DU_RELAIS,
   COMPTE_DES_TICKETS,
@@ -106,16 +107,130 @@ function ecrireIdentite(identite: IdentiteAuRelais): void {
   }
 }
 
+/**
+ * LA VERSION D'UNE INSTALLATION NE PART JAMAIS VIDE (28/10/2026). Le format
+ * reste « AAAA-MM-JJ <sha court> », celui de `git log -1 --format=%cs %h`.
+ * Constat au central : une installation (FI) envoyait une version vide —
+ * `git` absent du chemin du service, dépôt d'un autre compte (« dubious
+ * ownership »), code téléchargé en ZIP ou en archive, sans `.git`. Trois
+ * replis, du plus précis au plus pauvre :
+ *   1. `git`, avec `safe.directory` levé pour CE dossier seulement ;
+ *   2. le `.git` lu à la main (HEAD → réf → sha ; date du commit si son objet
+ *      est encore libre, sinon celle du fichier de réf) ;
+ *   3. sans `.git` : la date de `package.json` (une archive GitHub ou un
+ *      `tar -xzf` gardent la date du commit), seule — « AAAA-MM-JJ ».
+ */
 let versionConnue: string | null = null;
 export async function versionDeLInstallation(): Promise<string> {
   if (versionConnue !== null) return versionConnue;
   try {
-    const { stdout } = await execFileAsync('git', ['-C', CONFIG.selfPath, 'log', '-1', '--format=%cs %h'], { timeout: 8000 });
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-c', `safe.directory=${CONFIG.selfPath}`, '-C', CONFIG.selfPath, 'log', '-1', '--format=%cs %h'],
+      { timeout: 8000 },
+    );
     versionConnue = stdout.trim().slice(0, 80);
   } catch {
     versionConnue = '';
   }
+  if (!versionConnue) versionConnue = versionLueSurLeDisque(CONFIG.selfPath);
   return versionConnue;
+}
+
+const SHA = /^[0-9a-f]{40,64}$/;
+
+function jourEnUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Le dossier `.git` réel (un `.git` FICHIER renvoie à `gitdir: …`), ou null. */
+function dossierGit(racine: string): string | null {
+  const point = path.join(racine, '.git');
+  try {
+    const st = fs.statSync(point);
+    if (st.isDirectory()) return point;
+    const lien = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(point, 'utf8'))?.[1]?.trim();
+    return lien ? path.resolve(racine, lien) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Le sha d'une réf : fichier libre d'abord, puis `packed-refs`. */
+function shaDeLaRef(dossiers: string[], ref: string): { sha: string; fichier?: string } | null {
+  for (const d of dossiers) {
+    const fichier = path.join(d, ref);
+    try {
+      const sha = fs.readFileSync(fichier, 'utf8').trim();
+      if (SHA.test(sha)) return { sha, fichier };
+    } catch {
+      /* réf tassée, ou dans l'autre dossier */
+    }
+  }
+  for (const d of dossiers) {
+    try {
+      for (const ligne of fs.readFileSync(path.join(d, 'packed-refs'), 'utf8').split('\n')) {
+        const [sha, nom] = ligne.trim().split(' ');
+        if (nom === ref && SHA.test(sha)) return { sha };
+      }
+    } catch {
+      /* pas de packed-refs ici */
+    }
+  }
+  return null;
+}
+
+/** La date (jour du commiteur, dans SON fuseau, comme `%cs`) d'un objet commit libre. */
+function jourDuCommitLibre(dossiers: string[], sha: string): string | null {
+  for (const d of dossiers) {
+    try {
+      const brut = zlib.inflateSync(fs.readFileSync(path.join(d, 'objects', sha.slice(0, 2), sha.slice(2)))).toString('utf8');
+      const m = /^committer .* (\d+) ([+-])(\d{2})(\d{2})$/m.exec(brut);
+      if (!m) continue;
+      const decalage = (m[2] === '-' ? -1 : 1) * (Number(m[3]) * 60 + Number(m[4])) * 60_000;
+      return jourEnUtc(Number(m[1]) * 1000 + decalage);
+    } catch {
+      /* objet tassé, ou dans l'autre dossier */
+    }
+  }
+  return null;
+}
+
+/** La version lue sans `git` (voir `versionDeLInstallation`). Rend '' si rien ne se lit. */
+export function versionLueSurLeDisque(racine: string): string {
+  const git = dossierGit(racine);
+  if (git) {
+    let commun = git;
+    try {
+      commun = path.resolve(git, fs.readFileSync(path.join(git, 'commondir'), 'utf8').trim());
+    } catch {
+      /* dépôt ordinaire */
+    }
+    const dossiers = commun === git ? [git] : [git, commun];
+    try {
+      const tete = fs.readFileSync(path.join(git, 'HEAD'), 'utf8').trim();
+      const ref = /^ref:\s*(\S+)$/.exec(tete)?.[1];
+      const trouve = ref ? shaDeLaRef(dossiers, ref) : SHA.test(tete) ? { sha: tete, fichier: path.join(git, 'HEAD') } : null;
+      if (trouve) {
+        let jour = jourDuCommitLibre(dossiers, trouve.sha);
+        if (!jour) {
+          try {
+            jour = jourEnUtc(fs.statSync(trouve.fichier ?? path.join(commun, 'packed-refs')).mtimeMs);
+          } catch {
+            jour = null;
+          }
+        }
+        return `${jour ?? ''} ${trouve.sha.slice(0, 7)}`.trim();
+      }
+    } catch {
+      /* HEAD illisible : on tombe sur la date du code */
+    }
+  }
+  try {
+    return jourEnUtc(fs.statSync(path.join(racine, 'package.json')).mtimeMs);
+  } catch {
+    return '';
+  }
 }
 
 /** L'adresse du premier administrateur actif qui en a une. */

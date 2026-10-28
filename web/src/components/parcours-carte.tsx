@@ -46,6 +46,7 @@ import {
   decisionDePlanOuverte,
   travailDeLaCarteDejaLance,
   decisionsDuParcours,
+  validationNonBloquante,
   differencesDeTexte,
   etatVisuelCarte,
   gesteCarte,
@@ -95,6 +96,7 @@ import { t } from '@/lib/langue';
 import { BoutonLireLeCahier, cahierALire } from '@/components/cahier-des-charges';
 import { studioDuMedia, useBoutonDuMedia } from '@/lib/production-de-carte';
 import { ouvrirLeDocument } from '@/lib/document-de-carte';
+import { CadreDuPanneau } from '@/lib/cadre-de-question';
 
 /**
  * L'ÉCRAN D'UNE CARTE, DE HAUT EN BAS : LA BARRE, LE FLUX EN POINTS, LA
@@ -382,7 +384,14 @@ export function PanneauDeDecision({
   const estUneCompetence = (d: DecisionDuParcours) =>
     d.sorte === 'question' && !!parId.get(d.messageId)?.questions.find((q) => q.id === d.questionId)?.competence;
   const decisions = toutesLesDecisions.filter((d) => !estUneCompetence(d));
-  const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
+  const toutesLesQuestions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
+  /* LES VALIDATIONS DE GÉNÉRATION SE LISENT TOUTES À LA FOIS (27/10/2026) : une
+     par plan, posées d'un coup, chacune tranchée par son bouton, dans l'ordre
+     qu'on veut. Le carrousel ne garde que les questions à rédiger. */
+  const estUneValidation = (d: DecisionDuParcours) =>
+    d.sorte === 'question' && validationNonBloquante(parId.get(d.messageId)?.questions.find((q) => q.id === d.questionId));
+  const validations = toutesLesQuestions.filter(estUneValidation);
+  const questions = toutesLesQuestions.filter((d) => !estUneValidation(d));
   const autres = decisions.filter((d) => d.sorte !== 'question');
   const [replie, setReplie] = React.useState(false);
   /* Le rang de la question montrée vit ICI : ses flèches sont dans l'entête,
@@ -410,15 +419,20 @@ export function PanneauDeDecision({
   }
 
   const intitule = titreDeLaDecision(decisions[0], parId);
+  const enErreur = decisions.some((d) => d.sorte === 'erreur' || d.sorte === 'incident');
 
   return (
     <>
       {questionsDeLaCarte}
       <div className={CLASSE_BLOC_DU_PIED} data-panneau-decision={decisions.length}>
         <div
+          /* LE CADRE JAUNE ENTOURE LE PANNEAU ENTIER (demande du 27/10/2026,
+             capture #f4a2), titre compris, et la question qu'il contient perd
+             le sien (`CadreDuPanneau`). Une erreur garde son trait rouge — et
+             ses questions leur jaune. */
           className={cn(
             'overflow-hidden rounded-2xl border bg-bloc-fil',
-            decisions.some((d) => d.sorte === 'erreur' || d.sorte === 'incident') ? 'border-danger/40' : 'border-transparent',
+            enErreur ? 'border-danger/40' : 'cadre-de-question',
           )}
           data-panneau-etat={replie ? 'replie' : 'deploye'}
         >
@@ -473,12 +487,37 @@ export function PanneauDeDecision({
           {replie ? null : (
             /* LE DÉFILEMENT RESTE DANS LE PANNEAU (`overscroll-contain`) : arrivé à
                son bout, il ne passe plus au fil derrière lui. */
+            <CadreDuPanneau.Provider value={!enErreur}>
             <ZoneDefilement
               classeEnveloppe="max-h-[45vh]"
               fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
-              className="space-y-2 overscroll-contain px-2.5 pb-2.5"
+              /* SANS MARGE BASSE DÈS QU'UNE QUESTION PORTE SA BARRE COLLÉE
+                 (capture #0f56, 28/10/2026) : la barre « Répondre / Joindre /
+                 Annuler » colle au bord intérieur de la zone, et la marge
+                 laissait passer « Plus de choix » dessous en allongeant le
+                 panneau d'autant. */
+              className={cn('space-y-2 overscroll-contain px-2.5', questions.length ? 'pb-0' : 'pb-2.5')}
               data-panneau-corps
             >
+              {validations.length ? (
+                <div className="space-y-2" data-validations-du-panneau={validations.length}>
+                  {validations.map((item) => {
+                    const message = parId.get(item.messageId);
+                    const question = message?.questions.find((q) => q.id === item.questionId);
+                    if (!message || !question) return null;
+                    return (
+                      <QuestionCard
+                        key={item.questionId}
+                        messageId={message.id}
+                        agentId={message.agentId}
+                        projectId={projectId}
+                        question={question}
+                        sansEntete
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
               {questions.length ? (
                 <EmplacementDeLaPagination.Provider value={questions.length === 1 ? emplacementDesFleches : null}>
                 <CarouselQuestions
@@ -525,6 +564,7 @@ export function PanneauDeDecision({
                 return <RepriseDeCompteCard key={message.id} message={message} />;
               })}
             </ZoneDefilement>
+            </CadreDuPanneau.Provider>
           )}
         </div>
       </div>
@@ -744,10 +784,10 @@ function BoutonDeGeste({
                du travail de l'agent, plus le rouge d'une erreur. */
             geste.possible
               ? arretRouge
-                ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:opacity-90'
+                ? 'bg-teinte-plein text-sur-couleur hover:bg-teinte-plein hover:opacity-90'
                 : principal
                   ? 'bg-accent text-accent-fg hover:opacity-90'
-                  : 'bg-raised text-text hover:bg-border'
+                  : 'bg-raised text-text hover:bg-fond-survol'
               : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
           )}
         >
@@ -1000,10 +1040,10 @@ function IconeDesReglages({
             'w-[43px] sm:w-9 shrink-0 rounded-lg p-0 sm:px-0',
             colle && 'ml-px rounded-l-none',
             colle === 'arret'
-              ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:text-white hover:opacity-90'
+              ? 'bg-teinte-plein text-sur-couleur hover:bg-teinte-plein hover:text-sur-couleur hover:opacity-90'
               : colle === 'accent'
                 ? 'bg-accent text-accent-fg hover:bg-accent hover:opacity-90'
-                : 'bg-raised text-text hover:bg-border',
+                : 'bg-raised text-text hover:bg-fond-survol',
           )}
         >
           {/* À LA TAILLE DES AUTRES ICÔNES DE LA BARRE (capture #a9f8 : à 14 px, elle se perdait). */}
@@ -1389,7 +1429,7 @@ function BoutonDeployerLeLot({
             ? 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint'
             : seul
               ? 'bg-accent text-accent-fg hover:opacity-90'
-              : 'bg-raised text-text hover:bg-border',
+              : 'bg-raised text-text hover:bg-fond-survol',
         )}
       >
         <Rocket className="h-3.5 w-3.5 shrink-0" />

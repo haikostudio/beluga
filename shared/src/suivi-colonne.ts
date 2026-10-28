@@ -766,6 +766,49 @@ export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null }
 export const RAISON_TOUR_SANS_ISSUE =
   'Le travail s’est terminé sans que la carte soit rangée : elle passe en « À déployer » plutôt que de rester bloquée en « Travail ».';
 
+/**
+ * LE LANCEMENT QUI N'A JAMAIS ATTEINT LE MOTEUR.
+ *
+ * Le clic « Lancer » pose la carte en « En cours », prépare sa branche et son
+ * agent, puis envoie la demande d'exécution. Si la préparation de ce tour reste
+ * pendue (constaté le 27/10/2026 sur la carte InVia « Deux extensions à mettre
+ * à jour » : démon entier figé dans ses préparations pendant vingt minutes),
+ * la veille la referme au bout de cinq minutes. Jusqu'ici, rien ne ramenait la
+ * carte : la fermeture la croyait « répondue » (la dernière bulle était celle
+ * du cadrage, d'un tour PRÉCÉDENT), et le balayage la rangeait dans « À
+ * déployer » comme un travail fini — sans une ligne écrite.
+ *
+ * Une carte dont le tour de LANCEMENT n'a jamais démarré n'a rien fait : elle
+ * retourne d'où elle vient (« Planifié »), avec cette phrase, et « Lancer »
+ * la refait partir avec tout son dossier.
+ */
+export const RAISON_LANCEMENT_NON_ABOUTI =
+  'Le lancement n’a pas abouti : la préparation de l’agent est restée bloquée avant le démarrage du moteur, et rien n’a été fait. Cliquez sur « Lancer » pour repartir.';
+
+/**
+ * Où va une carte dont le tour de lancement est refermé AVANT le moteur ?
+ * `null` : on n'y touche pas — elle a bougé entre-temps, un autre agent la
+ * tient, ou elle porte déjà du code (une reprise, pas un premier départ : son
+ * travail ne se jette pas en « Planifié »).
+ */
+export function colonneApresLancementManque(etat: {
+  colonne: ColumnKey;
+  /** L'agent inscrit sur la carte est-il celui dont le tour vient d'être refermé ? */
+  memeAgent: boolean;
+  dejaEnregistre: boolean;
+  /** La colonne d'où le clic l'a fait partir. */
+  colonneAvant?: ColumnKey;
+}): ColumnKey | null {
+  if (etat.colonne !== 'running') return null;
+  if (!etat.memeAgent) return null;
+  if (etat.dejaEnregistre) return null;
+  const retour = etat.colonneAvant && etat.colonneAvant !== 'running' ? etat.colonneAvant : 'planned';
+  return COLONNES_DE_CLOTURE_OU_RANGEMENT.includes(retour) ? 'planned' : retour;
+}
+
+/* Un lancement ne repart jamais vers une colonne de clôture : il n'a rien livré. */
+const COLONNES_DE_CLOTURE_OU_RANGEMENT: readonly ColumnKey[] = ['to_deploy', 'archived'];
+
 /** Ce qu'il faut savoir d'une carte pour dire si elle est OUBLIÉE. */
 export interface CarteOubliee {
   colonne: ColumnKey;

@@ -475,7 +475,7 @@ export async function rendezVousDAutoAmelioration(): Promise<{
   }
 
   /*
-   * LE JUGE RAPIDE NOTE D'ABORD, LA NUIT POSE ENSUITE. Sans Laya installé, cet
+   * LE JUGE RAPIDE NOTE D'ABORD, LA NUIT POSE ENSUITE. Sans clé Jev au coffre, cet
    * appel ne fait rien du tout et les cartes naissent dans l'ordre d'écriture,
    * comme avant (`server/src/jugement-rapide.ts`).
    */

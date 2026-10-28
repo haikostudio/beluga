@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Bot, Camera, Check, ChevronRight, Circle, Loader2, X, MinusCircle } from 'lucide-react';
+import { Bot, Camera, Check, ChevronRight, Circle, Loader2, MinusCircle, RotateCcw } from 'lucide-react';
 import { EntreeJournal, RunStep, estUneAide } from '@beluga/shared';
 import { ContenuDeLEntree } from '@/components/contenu-journal';
 import { cn, duration } from '@/lib/utils';
@@ -110,7 +110,8 @@ export function Steps({
         ) : enCours ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
         ) : failed ? (
-          <X className="h-3 w-3 shrink-0 text-danger" />
+          /* UNE ÉTAPE REFUSÉE PUIS REPRISE N'EST PAS UNE PANNE (28/10/2026) : sa marque est grise, le rouge reste aux vraies erreurs. */
+          <RotateCcw className="h-3 w-3 shrink-0 text-faint" aria-label="Un essai a été repris" data-essai-repris="" />
         ) : (
           <Check className="h-3 w-3 shrink-0 text-termine" />
         )}
@@ -162,7 +163,7 @@ export function Steps({
                     ) : step.state === 'done' ? (
                       <Check className="h-3 w-3 text-termine" />
                     ) : step.state === 'failed' ? (
-                      <X className="h-3 w-3 text-danger" />
+                      <RotateCcw className="h-3 w-3 text-faint" aria-label="Un essai a été repris" data-essai-repris="" />
                     ) : step.state === 'skipped' ? (
                       <MinusCircle className="h-3 w-3 text-faint" />
                     ) : (
@@ -173,7 +174,7 @@ export function Steps({
                     className={cn(
                       'flex-1 text-[13.5px] leading-snug',
                       step.state === 'failed'
-                        ? 'text-danger'
+                        ? 'text-muted'
                         : aide
                           ? 'text-teinte'
                           : step.state === 'done'

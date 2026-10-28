@@ -119,8 +119,13 @@ const DUREE_FONDU_ANNEAU_MS = 700;
  * transparaît. Ce n'est ni une bordure ni un trait posé sur le bouton. Éteint,
  * le chevron s'atténue comme le libellé (`opacity-40`, même mécanisme), pour
  * que les deux parties gardent exactement la même teinte.
+ *
+ * `sm:px-0` N'EST PAS UN DOUBLON : la taille `sm` du bouton pose `px-3.5
+ * sm:px-3`, et `px-0` seul n'écrase que la première. Sur ordinateur il restait
+ * 2 × 12 px de marge dans 28 px de large, et l'icône, comprimée à 4 px, ne
+ * montrait plus qu'un point — en clair comme en sombre.
  */
-const CLASSE_CHEVRON_REUNI = 'w-7 shrink-0 rounded-l-none px-0';
+const CLASSE_CHEVRON_REUNI = 'w-7 shrink-0 rounded-l-none px-0 sm:px-0';
 /** Chevron d'un lancement éteint : la MÊME atténuation que `disabled:opacity-40` du libellé. */
 const CLASSE_CHEVRON_PALI = 'opacity-40 hover:opacity-100';
 
@@ -1340,7 +1345,7 @@ export function DeployPanel({
           title={t('Voir le déroulé de la mise en ligne')}
           onClick={() => setProcessOuvert((v) => !v)}
         >
-          <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
+          <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', processOuvert && 'rotate-180')} />
         </Button>
         </div>
 
@@ -1549,7 +1554,7 @@ export function DeployPanel({
           title={t('Voir le déroulé de la mise en ligne')}
           onClick={() => setProcessOuvert((v) => !v)}
         >
-          <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
+          <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', processOuvert && 'rotate-180')} />
         </Button>
       </div>
 

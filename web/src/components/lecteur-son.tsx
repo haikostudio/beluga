@@ -225,7 +225,7 @@ export function LecteurSon({
         {hauteurs.map((h, i) => (
           <span
             key={i}
-            className={cn('min-w-0 flex-1 rounded-full', (i + 0.5) / hauteurs.length <= part ? 'bg-teinte' : 'bg-faint/40')}
+            className={cn('min-w-0 flex-1 rounded-full', (i + 0.5) / hauteurs.length <= part ? 'bg-text' : 'bg-faint/40')}
             style={{ height: `${Math.round(h * 100)}%` }}
           />
         ))}

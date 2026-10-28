@@ -1093,7 +1093,7 @@ export const JugementPose = z.object({
 export type JugementPose = z.infer<typeof JugementPose>;
 
 /**
- * LES JUGEMENTS RANGÉS SUR UNE CARTE. Tous facultatifs : sans Laya installé,
+ * LES JUGEMENTS RANGÉS SUR UNE CARTE. Tous facultatifs : sans clé Jev au coffre,
  * aucun n'existe jamais, et la carte se comporte exactement comme avant. Ils
  * vivent dans le blob `data` — aucune migration, et une carte d'avant ne les a
  * simplement pas.
@@ -1112,6 +1112,8 @@ export const JugementDeComprehension = z.object({
   motif: z.string().optional(),
   /** La signature du dossier jugé : inchangé, on ne rejuge pas. */
   empreinte: z.string().optional(),
+  /** Qui a noté : Jev, ou les règles quand il s'est tu (`comprehensionParRegles`). */
+  source: z.enum(['jev', 'regles']).optional(),
   at: z.number(),
 });
 export type JugementDeComprehension = z.infer<typeof JugementDeComprehension>;
@@ -1982,7 +1984,7 @@ export const ErreurDeTour = z.object({
   demandeARejouer: z.string().optional(),
   /**
    * LA PHRASE SIMPLE, quand la cause est un message de machine qu'aucun motif
-   * ne reconnaît et que Laya l'a rangée dans une famille
+   * ne reconnaît et que Jev l'a rangée dans une famille
    * (`server/src/explication-d-erreur.ts`). Absente, l'écran calcule lui-même
    * la phrase de famille (`phraseDeLErreurDeTour`). `cause` reste le brut.
    */
@@ -2935,7 +2937,7 @@ export const Settings = z.object({
   cadrageThinking: z.string().optional(),
   /**
    * LES USAGES DU JUGE RAPIDE ÉTEINTS À LA MAIN. Un usage absent de cette
-   * liste suit sa fiche (`parDefaut`) — mais il ne s'exerce que si Laya, le
+   * liste suit sa fiche (`parDefaut`) — mais il ne s'exerce que si Jev, le
    * modèle local, est installé sur cette machine : sans lui, aucun jugement
    * n'est rendu, quelle que soit cette liste (`shared/src/jugement-rapide.ts`).
    */

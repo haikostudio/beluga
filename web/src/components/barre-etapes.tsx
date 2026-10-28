@@ -164,3 +164,90 @@ export function BarreDEtapes({
     </ol>
   );
 }
+
+/** Une étape d'une rangée générique : sa clé, son nom, son rond, et si on peut y aller. */
+export interface EtapeDeRangee {
+  cle: string;
+  libelle: string;
+  forme: FormeDuRondDEtape;
+  /** Atteinte : son nom s'écrit en plein et on peut y aller ; sinon pâle, « à venir ». */
+  atteinte: boolean;
+}
+
+/**
+ * LA MÊME BARRE, POUR UN AUTRE PARCOURS que celui d'une carte : les ronds de
+ * `RondDEtape`, le nom écrit à côté, un trait plein jusqu'où l'on est arrivé,
+ * la version compacte sous `LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS` (seul le nom
+ * de l'étape affichée s'écrit). Le service qui l'emploie donne ses étapes et
+ * ses repères (`donnees`), sans rien savoir de la frise des cartes.
+ */
+export function RangeeDEtapes({
+  etapes,
+  active,
+  onAller,
+  libelle,
+  donnees,
+  classeActive = 'text-text',
+  ...reste
+}: {
+  etapes: EtapeDeRangee[];
+  active: string;
+  onAller: (cle: string) => void;
+  /** Le nom de la rangée, lu à voix haute. */
+  libelle: string;
+  /** Les repères posés sur le bouton de chaque étape. */
+  donnees?: (e: EtapeDeRangee) => Record<string, string | undefined>;
+  /** La teinte du nom de l'étape AFFICHÉE : le service qui l'emploie la choisit (sa couleur d'élément choisi). */
+  classeActive?: string;
+} & Omit<React.HTMLAttributes<HTMLOListElement>, 'onChange'>) {
+  const [liste, setListe] = React.useState<HTMLOListElement | null>(null);
+  const [compacte, setCompacte] = React.useState(false);
+  React.useEffect(() => {
+    if (!liste) return;
+    const seuil = etapes.length > 5 ? LARGEUR_DE_LA_BARRE_POUR_SIX_NOMS : LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS;
+    const mesurer = () => setCompacte(liste.clientWidth < seuil);
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(liste);
+    return () => observateur.disconnect();
+  }, [liste, etapes.length]);
+  return (
+    <ol ref={setListe} className="flex items-center gap-2 sm:gap-3" aria-label={libelle} data-barre-compacte={compacte ? '' : undefined} {...reste}>
+      {etapes.map((e, i) => {
+        const estActive = e.cle === active;
+        const dernier = i === etapes.length - 1;
+        return (
+          <li key={e.cle} className={cn('flex min-w-0 items-center gap-2 sm:gap-3', dernier ? 'shrink-0' : compacte ? 'flex-auto' : 'flex-auto sm:flex-1')}>
+            <button
+              type="button"
+              aria-current={estActive ? 'step' : undefined}
+              aria-disabled={!e.atteinte || undefined}
+              onClick={() => e.atteinte && onAller(e.cle)}
+              title={e.atteinte ? e.libelle : `${e.libelle} · ${t('à venir')}`}
+              className={cn('group flex min-w-0 items-center gap-2 py-1.5 sm:py-1', !compacte && 'sm:shrink-0', !e.atteinte && 'cursor-default')}
+              {...(donnees?.(e) ?? {})}
+            >
+              <RondDEtape forme={e.forme} />
+              <span
+                className={cn(
+                  'min-w-0 truncate text-[12px] leading-normal transition-colors sm:text-[13px] sm:leading-none',
+                  /* Le survol n'éteint jamais la teinte de l'étape affichée (la souris y reste après le clic). */
+                  e.atteinte && !estActive && 'group-hover:text-text',
+                  !compacte && 'sm:overflow-visible',
+                  /* L'étape AFFICHÉE porte la teinte que le service choisit ; toutes les autres se lisent en noir et blanc. */
+                  estActive ? cn('font-medium', classeActive) : e.atteinte ? 'font-medium text-text' : 'text-faint',
+                  !estActive && (compacte ? 'hidden' : 'max-sm:hidden'),
+                )}
+                data-rangee-libelle
+              >
+                {e.libelle}
+              </span>
+            </button>
+            {/* Un trait qui porte une information suit `--faint`, jamais `--border`. */}
+            {dernier ? null : <span aria-hidden className={cn('h-px min-w-2 flex-1', e.forme === 'faite' ? 'bg-text/60' : 'bg-faint/40')} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

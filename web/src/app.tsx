@@ -234,7 +234,7 @@ const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, str
   'espace-client': 'Messagerie',
   backups: 'Backup',
   surveillance: 'Surveillance',
-  marketing: 'Marketing',
+  marketing: 'Réseaux sociaux',
   notes: 'Notes',
   medias: 'Médias',
   'taches-recurrentes': 'Tâches récurrentes',
@@ -1680,7 +1680,7 @@ export function App() {
                 </PanneauALaDemande>
               </Filet>
             ) : vueCentrale === 'marketing' ? (
-              <Filet zone="Marketing">
+              <Filet zone="Réseaux sociaux">
                 <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteMarketing /></AttenteEcran>}>
                   <Marketing
                     open

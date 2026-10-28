@@ -3,7 +3,7 @@
  *
  * REA (`rea-agents`, ~230 Mo de modules, plus le JAR JADX) ne vit PAS dans le
  * dépôt : il s'installe une fois sous `outils/rea/` (`scripts/installer-rea.mjs`),
- * comme Laya. Un serveur sans REA n'est pas en panne : l'agent du clonage n'a
+ * comme Jev. Un serveur sans REA n'est pas en panne : l'agent du clonage n'a
  * simplement pas ses outils, et analyse la source par les pages publiques et
  * les captures.
  *

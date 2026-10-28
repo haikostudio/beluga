@@ -1472,7 +1472,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
             onPick('');
             setOpen(false);
           }}
-          className="mt-2 w-full rounded bg-raised px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12px] text-muted transition-colors hover:bg-border hover:text-text"
+          className="mt-2 w-full rounded bg-raised px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12px] text-muted transition-colors hover:bg-fond-survol hover:text-text"
         >
           {t('Aucune couleur')}</button>
       </DropdownMenuContent>
@@ -2126,7 +2126,7 @@ function LigneEspaceDev({
 const CLASSE_LIGNE_DE_PROJET =
   'group relative flex h-9 w-full items-center gap-1 rounded-lg text-[14px] text-text transition-[transform,background-color] duration-150 motion-reduce:transition-none sm:gap-1.5';
 const CLASSE_OUTIL_DE_LIGNE =
-  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-border hover:text-text survol:opacity-0 group-hover:survol:opacity-100';
+  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-fond-survol hover:text-text survol:opacity-0 group-hover:survol:opacity-100';
 
 function ProjectRow({
   project,

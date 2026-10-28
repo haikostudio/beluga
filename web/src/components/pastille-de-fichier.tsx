@@ -228,10 +228,13 @@ export function VignetteDImage({
   grande,
   vue,
   etiquette,
+  menu,
   className,
 }: {
   id: string;
   nom?: string;
+  /** Le menu « … » du média (fil d'une carte) : il prend le coin haut droit, et porte le téléchargement. */
+  menu?: React.ReactNode;
   /** Le repère court (« #1a0c »), montré en bande au bas de la vignette. */
   etiquette?: string;
   /** Le vrai nom du fichier, sous lequel l'image se télécharge. */
@@ -267,6 +270,10 @@ export function VignetteDImage({
           </span>
         ) : null}
       </button>
+      {menu ? (
+        menu
+      ) : (
+      <>
       {/* LE TÉLÉCHARGEMENT D'UNE IMAGE TIENT EN UN CLIC, LUI AUSSI. Le bouton
           reste discret — il ne se remplit qu'au survol — mais il existe toujours
           au clavier et sur un écran tactile, où il n'y a pas de survol. */}
@@ -285,6 +292,8 @@ export function VignetteDImage({
       >
         <Download className="h-3 w-3" />
       </a>
+      </>
+      )}
     </span>
   );
 }

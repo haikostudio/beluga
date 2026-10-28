@@ -128,6 +128,31 @@ function annexesDeLaFiche(dossier: string): string[] {
   return trouves.sort();
 }
 
+/** Ce que le démon tire du texte d'un `SKILL.md` : son en-tête et ses anomalies. */
+interface FicheLue {
+  entete: ReturnType<typeof enTeteDeCompetence>;
+  anomalies: ReturnType<typeof anomaliesDeLaFiche>;
+}
+
+/**
+ * UN `SKILL.md` INCHANGÉ NE SE RELIT PAS (28/10/2026). `lirePool` est appelé
+ * à chaque briefing et par plusieurs outils : relire et réanalyser les 267
+ * fiches à chaque fois figeait le démon (`blocages.log`). Un fichier inchangé
+ * se reconnaît par sa TAILLE et sa DATE ; le texte n'est relu que si l'une
+ * bouge. Les annexes, elles, se recomptent toujours : elles vivent à côté.
+ */
+const fichesLues = new Map<string, { taille: number; date: number; lu: FicheLue }>();
+
+function lireLaFiche(fichier: string): FicheLue {
+  const etat = fs.statSync(fichier);
+  const connu = fichesLues.get(fichier);
+  if (connu && connu.taille === etat.size && connu.date === etat.mtimeMs) return connu.lu;
+  const texte = fs.readFileSync(fichier, 'utf8');
+  const lu = { entete: enTeteDeCompetence(texte), anomalies: anomaliesDeLaFiche(texte) };
+  fichesLues.set(fichier, { taille: etat.size, date: etat.mtimeMs, lu });
+  return lu;
+}
+
 /**
  * LE POOL, LU EN ENTIER — fiches gardées et entrées REFUSÉES, chacune avec sa
  * cause. Jamais d'exception : au pire, un pool vide et un refus dit.
@@ -166,16 +191,16 @@ export function lirePool(dossier = dossierDesCompetences()): PoolLu {
     }
 
     const fichier = path.join(chemin, FICHIER_COMPETENCE);
-    let texte: string;
+    let lu: FicheLue;
     try {
-      texte = fs.readFileSync(fichier, 'utf8');
+      lu = lireLaFiche(fichier);
     } catch (err) {
       const cause = fs.existsSync(fichier) ? 'illisible' : 'sans-mode-d-emploi';
       refus.push({ nom, cause, detail: cause === 'illisible' ? (err as Error).message : undefined });
       continue;
     }
 
-    const entete = enTeteDeCompetence(texte);
+    const { entete, anomalies } = lu;
     const provenance = provenanceDepuisEnTete(entete);
     const nomDeclare = entete.nom?.trim() || nom;
     fiches.push({
@@ -190,7 +215,7 @@ export function lirePool(dossier = dossierDesCompetences()): PoolLu {
       etend: entete.etend?.trim() || undefined,
       provenance,
       annexes: annexesDeLaFiche(chemin),
-      anomalies: anomaliesDeLaFiche(texte),
+      anomalies: [...anomalies],
       // L'en-tête d'une fiche importée le dit ; une fiche ADOPTÉE (un lien vers
       // le coffre personnel, qu'on ne réécrit pas) le dit par le registre.
       bibliotheque:

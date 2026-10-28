@@ -234,7 +234,7 @@ export async function ouvrirLeDepannage(
   /*
    * CETTE PANNE PRESSE-T-ELLE ? Un avis pour ORDONNER ce qui attend : l'enquête
    * s'ouvre exactement comme avant, avec ou sans lui
-   * (`server/src/juge-des-cartes.ts`). Sans Laya installé : rien.
+   * (`server/src/juge-des-cartes.ts`). Sans clé Jev au coffre : rien.
    */
   jugerLUrgenceEnFond(card.id, 'panne-de-site');
   // LA DATE DE LANCEMENT EST POSÉE AVANT LE TOUR : un tour qui tombe ne relance

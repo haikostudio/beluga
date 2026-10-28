@@ -110,7 +110,8 @@ export function resumeDeLUniteDeCompetence(fiche: Pick<Competence, 'nom' | 'desc
 export function detailDeLUniteDeCompetence(fiche: Competence, texteDuSkill: string): string {
   const sections: string[] = [];
 
-  const quand: string[] = [fiche.description.replace(/\s+/g, ' ').trim()];
+  // La description est déjà le résumé de l'unité : on ne la recopie pas ici.
+  const quand: string[] = [];
   if (fiche.symptomes.length) quand.push(`Symptômes : ${fiche.symptomes.join(', ')}.`);
   if (fiche.themes.length) quand.push(`Thèmes : ${fiche.themes.join(', ')}.`);
   quand.push(fiche.projets.length ? `Projets : ${fiche.projets.join(', ')}.` : 'Vaut pour tous les projets.');

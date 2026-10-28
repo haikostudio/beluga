@@ -1,11 +1,12 @@
 /**
- * LE JUGE RAPIDE — les règles pures, sans modèle ni base.
+ * LE JUGE RAPIDE — les règles pures, sans réseau ni base.
  *
  * Le juge rend des JUGEMENTS TYPÉS sur un état qu'on lui donne, en une
- * fraction de seconde. Il tourne sur CETTE machine : Laya, un modèle de décision
- * local, sans compte, sans clé et sans facture (`server/src/laya.ts`). Il ne
- * tient pas de conversation, n'écrit pas de code et ne peut exécuter aucune
- * carte : ce n'est donc PAS un quatrième moteur (`server/src/engines/`, contrat
+ * fraction de seconde. C'est Jev, le modèle de décision de TypeSafe, appelé
+ * par une API distante : aucune mémoire prise sur cette machine, une clé rangée
+ * au coffre-fort, quelques jetons facturés par jugement. Il ne tient pas de
+ * conversation, n'écrit pas de code et ne peut exécuter aucune carte : ce n'est
+ * donc PAS un quatrième moteur (`server/src/engines/`, contrat
  * `EngineAdapter`) — c'est un chemin SÉPARÉ, sans rapport avec le catalogue des
  * moteurs ni avec les quotas.
  *
@@ -14,19 +15,52 @@
  *  - CHOICE : un choix dans une liste, avec sa distribution et sa confiance.
  *  - SCORE  : une position sur une échelle décrite niveau par niveau.
  *
- * Ce fichier porte ce qui se décide sans modèle : la forme des questions et des
- * réponses, les seuils, la liste des usages et leurs interrupteurs. La
- * lecture des réponses de Laya vit dans `laya.ts` ; l'appel, ses garde-fous et
- * la trace dans `server/src/jugement-rapide.ts`.
+ * Ce fichier porte ce qui se décide sans réseau : la forme des questions et des
+ * réponses, la lecture de ce que Jev rend, les seuils, la liste des usages et
+ * leurs interrupteurs, et la NOTE PAR RÈGLES de la jauge quand Jev ne répond
+ * pas. L'appel, ses garde-fous et la trace vivent dans
+ * `server/src/jugement-rapide.ts`.
+ *
+ * Laya, le modèle local qui l'avait remplacé (1,8 Go de mémoire vive, jamais
+ * endormi en journée, 693 échecs pour 317 réponses sur la jauge), a été retiré
+ * le 28/10/2026 : Jev répondait 251 fois sur 251 en 0,8 s.
  *
  * INVARIANT : chaque jugement est CONSULTATIF. Il propose et signale ; il ne
- * supprime, ne refuse et ne lance jamais rien. Un modèle absent, lent ou peu
- * sûr de lui rend `undefined`, et l'appelant retombe sur le comportement
- * d'avant. UNE SEULE EXCEPTION, bornée : une carte proposée par l'agent
- * d'ANALYSE (personne n'a discuté avec lui) est rendue à réécrire quand elle
- * double une carte ouverte (`doublon-carte`). Un geste humain — et la
- * proposition d'une conversation — n'est jamais refusé.
+ * supprime, ne refuse et ne lance jamais rien. Un service éteint, lent, en
+ * panne, qui refuse la clé ou reste peu sûr de lui rend `undefined`, et
+ * l'appelant retombe sur le comportement d'avant. UNE SEULE EXCEPTION, bornée :
+ * une carte proposée par l'agent d'ANALYSE (personne n'a discuté avec lui) est
+ * rendue à réécrire quand elle double une carte ouverte (`doublon-carte`). Un
+ * geste humain — et la proposition d'une conversation — n'est jamais refusé.
  */
+
+/** L'unique point d'entrée de l'API. */
+export const ENDPOINT_JUGE = 'https://api.typesafe.ai/v1/systemone';
+
+/** Le modèle appelé. `jev-latest` suit la dernière version publiée. */
+export const MODELE_JUGE = 'jev-latest';
+
+/**
+ * LE DÉLAI D'ATTENTE PAR DÉFAUT. La latence mesurée tourne autour de 0,2 à
+ * 0,8 s ; 4 s laissent une marge large sans qu'aucun chemin de l'application
+ * n'attende visiblement ce service. Un usage sur le chemin d'un tour porte un
+ * délai plus court (`REGLAGES_DES_USAGES`).
+ */
+export const DELAI_JUGE_MS = 4000;
+
+/** Le délai d'un usage sur le chemin d'un tour : un conseil ne retarde pas un agent. */
+export const DELAI_JUGE_EXPRESS_MS = 2500;
+
+/** Une seule reprise, et seulement sur un à-coup (réseau, 429 ou 5xx). */
+export const REPRISES_JUGE = 1;
+
+/**
+ * LE SEUIL DE CONFIANCE PAR DÉFAUT. La confiance lue est celle que Jev rend
+ * pour un choix ou une note, et la probabilité de la réponse retenue pour un
+ * oui/non : 0,5 est le hasard sur un oui/non ou sur deux choix. Chaque usage
+ * peut porter le sien (`REGLAGES_DES_USAGES`).
+ */
+export const SEUIL_JUGE = 0.6;
 
 /* ------------------------------------------------------------------ */
 /* LES TROIS USAGES, ET LEUR INTERRUPTEUR                              */
@@ -65,6 +99,7 @@ export const USAGES_JUGE = [
   'doublon-carte',
   'pertinence-competences',
   'pertinence-memoire',
+  'pertinence-analyses-marketing',
 ] as const;
 
 export type UsageDuJuge = (typeof USAGES_JUGE)[number];
@@ -77,19 +112,21 @@ export interface FicheDUsage {
   /**
    * ALLUMÉ SANS QUE PERSONNE N'Y TOUCHE ? Un usage qui DÉCIDE ou qui ÉCRIT
    * quelque chose de visible ne l'est que si sa PREUVE CHIFFRÉE passe
-   * (`node scripts/preuve-laya.mjs`, MEM-3232) : il répond sur au moins la
-   * moitié des cas, et il a raison neuf fois sur dix. Mesure du 25.09.2026,
-   * Laya multilingue sans réentraînement : AUCUN ne passe (genre 73 %, famille
-   * d'erreur 67 %, question/travail 86 %, urgence 80 %, doublon 57 %, niveau
-   * 48 % ; les tris de pertinence gardent l'utile mais n'écartent que 8 à 22 %
-   * du reste). Ils naissent donc éteints, et l'écran du juge les rallume.
+   * (MEM-3232) : il répond sur au moins la moitié des cas, et il a raison neuf
+   * fois sur dix. Aucune mesure ne l'a encore prouvé (la dernière, du
+   * 25.09.2026, portait sur un modèle local depuis retiré) : ils naissent donc
+   * éteints, et l'écran du juge les rallume.
    *
    * Trois usages restent allumés : ils ne décident de rien et n'écrivent aucun
-   * mot. La note de compréhension (74 % d'accord avec l'ancien juge payant,
-   * contre 8 % pour Needle 3) nourrit une jauge qui doit être notée à chaque
-   * échange (MEM-3393) ; le tri des idées de la nuit et le départage du mode
-   * Création ne font qu'ordonner ou conseiller, et n'ont aucune vérité en base
-   * contre laquelle se mesurer.
+   * mot. La note de compréhension nourrit une jauge qui doit être notée à
+   * chaque échange (MEM-3393) — et qui l'est par des règles quand Jev ne
+   * répond pas (`comprehensionParRegles`) ; le tri des idées de la nuit et le
+   * départage du mode Création ne font qu'ordonner ou conseiller, et n'ont
+   * aucune vérité en base contre laquelle se mesurer.
+   *
+   * Un quatrième l'est sur demande expresse de l'utilisateur (28/10/2026) : la
+   * pertinence des analyses Marketing pose une mention « peu pertinent » sous
+   * un curseur, sans rien retirer, réordonner ni chiffrer.
    */
   parDefaut: boolean;
 }
@@ -172,6 +209,15 @@ export const FICHES_DES_USAGES: readonly FicheDUsage[] = [
       'Écarte des recherches dans la mémoire du projet les fiches sans rapport avec la demande. Les règles vitales passent toujours.',
     parDefaut: false,
   },
+  {
+    /* Allumé d'office : il ne décide rien (rien n'est retiré, réordonné ni
+       chiffré) et l'utilisateur l'a demandé le 28/10/2026. */
+    cle: 'pertinence-analyses-marketing',
+    titre: 'Analyses Marketing peu pertinentes',
+    explication:
+      'Après un pré-diagnostic Marketing, pose plusieurs questions précises sur chaque analyse possible et signale sous son curseur celles qui servent peu ce client. Rien n’est retiré : vous décidez.',
+    parDefaut: true,
+  },
 ];
 
 /**
@@ -232,6 +278,171 @@ export type ReponseDuJuge =
       probabilities: Record<string, number>;
       confidence: number;
     };
+
+/* ------------------------------------------------------------------ */
+/* LA CLÉ : elle vit au coffre-fort, jamais dans un fichier du dépôt   */
+/* ------------------------------------------------------------------ */
+
+/** Ce qu'une fiche du coffre montre d'elle-même, vu d'ici. */
+export interface FicheDAcces {
+  id: string;
+  nom: string;
+  type: string;
+  champs: Record<string, string>;
+}
+
+/**
+ * LA PRÉSENCE D'UNE FICHE AU COFFRE EST L'INTERRUPTEUR GÉNÉRAL. Pas de clé
+ * rangée = le juge est éteint, et RIEN ne part vers le service.
+ *
+ * Une fiche compte si c'est une clé d'API dont le service — ou, à défaut, le
+ * nom — nomme TypeSafe, et dont la valeur n'est pas vide.
+ */
+export function ficheDuJuge(acces: readonly FicheDAcces[] | undefined): FicheDAcces | undefined {
+  const nomme = (texte: string | undefined) => (texte ?? '').toLowerCase().includes('typesafe');
+  return (acces ?? []).find(
+    (fiche) =>
+      fiche.type === 'cle-api' &&
+      (nomme(fiche.champs?.service) || nomme(fiche.nom)) &&
+      Boolean((fiche.champs?.cle ?? '').trim()),
+  );
+}
+
+/** La clé rangée, ou rien. */
+export function cleDuJuge(acces: readonly FicheDAcces[] | undefined): string | undefined {
+  return ficheDuJuge(acces)?.champs?.cle?.trim() || undefined;
+}
+
+/**
+ * L'ADRESSE DU SERVICE, LUE SUR LA FICHE DU COFFRE. Le point d'entrée public
+ * (`ENDPOINT_JUGE`) est le défaut ; une fiche qui porte une autre adresse la
+ * fait gagner — c'est ainsi que les tests et `scripts/verif-jugement-rapide.mjs`
+ * visent un faux serveur local, sans jamais appeler le service réel.
+ */
+export function adresseDuJuge(acces: readonly FicheDAcces[] | undefined): string {
+  return ficheDuJuge(acces)?.champs?.adresse?.trim() || ENDPOINT_JUGE;
+}
+
+/* ------------------------------------------------------------------ */
+/* CE QUI PART, ET CE QUI REVIENT                                      */
+/* ------------------------------------------------------------------ */
+
+export interface DemandeAuJuge {
+  state: unknown;
+  model: string;
+  questions: Record<string, QuestionDuJuge>;
+}
+
+/** Le corps envoyé au service : toutes les questions d'un jugement, en un appel. */
+export function construireLaDemande(etat: unknown, questions: Record<string, QuestionDuJuge>): DemandeAuJuge {
+  return { state: etat, model: MODELE_JUGE, questions };
+}
+
+export interface LectureDuJuge {
+  modele: string;
+  reponses: Record<string, ReponseDuJuge>;
+  jetonsEntree: number;
+  jetonsSortie: number;
+}
+
+/**
+ * LIT LA RÉPONSE DU SERVICE. Une réponse mal formée n'est pas une exception :
+ * elle rend `undefined`, et l'appelant retombe sur son comportement d'avant.
+ * Seule la FORME est lue ici ; le seuil et la liste offerte se jugent ensuite,
+ * question par question (`reponseRetenue`).
+ */
+export function lireLaReponse(brut: unknown): LectureDuJuge | undefined {
+  if (!brut || typeof brut !== 'object') return undefined;
+  const corps = brut as Record<string, unknown>;
+  const reponses = corps.answers;
+  if (!reponses || typeof reponses !== 'object') return undefined;
+  const usage = (corps.usage ?? {}) as Record<string, unknown>;
+  const propres: Record<string, ReponseDuJuge> = {};
+  for (const [cle, valeur] of Object.entries(reponses as Record<string, unknown>)) {
+    if (!valeur || typeof valeur !== 'object') continue;
+    const reponse = valeur as Record<string, unknown>;
+    const confiance = typeof reponse.confidence === 'number' ? reponse.confidence : 0;
+    if (reponse.type === 'noul' && typeof reponse.noul === 'number') {
+      propres[cle] = { type: 'noul', noul: reponse.noul };
+    } else if (reponse.type === 'choice' && typeof reponse.choice === 'string') {
+      propres[cle] = {
+        type: 'choice',
+        choice: reponse.choice,
+        probabilities: (reponse.probabilities as Record<string, number>) ?? {},
+        confidence: confiance,
+      };
+    } else if (reponse.type === 'score' && typeof reponse.score === 'number' && Number.isFinite(reponse.score)) {
+      propres[cle] = {
+        type: 'score',
+        score: reponse.score,
+        legend: (reponse.legend as Record<string, string>) ?? {},
+        probabilities: (reponse.probabilities as Record<string, number>) ?? {},
+        confidence: confiance,
+      };
+    }
+  }
+  if (!Object.keys(propres).length) return undefined;
+  return {
+    modele: typeof corps.model === 'string' ? corps.model : MODELE_JUGE,
+    reponses: propres,
+    jetonsEntree: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
+    jetonsSortie: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+  };
+}
+
+/** La confiance d'une réponse : celle que Jev rend, ou la probabilité du côté retenu d'un oui/non. */
+export function confianceDeLaReponse(reponse: ReponseDuJuge | undefined): number {
+  if (!reponse) return 0;
+  if (reponse.type === 'noul') return Math.max(reponse.noul, 1 - reponse.noul);
+  return reponse.confidence;
+}
+
+/**
+ * UNE RÉPONSE QU'ON PEUT SUIVRE, OU RIEN.
+ *
+ * Rien n'est rendu quand Jev a répondu d'un autre genre que la question,
+ * choisi hors de la liste offerte, ou reste sous le seuil : l'appelant retombe
+ * sur son comportement d'avant. Une note est ramenée dans son échelle plutôt
+ * que jetée (Jev rend une ESPÉRANCE, 1,62 entre deux niveaux : chaque lecteur
+ * arrondit).
+ */
+export function reponseRetenue(
+  question: QuestionDuJuge,
+  reponse: ReponseDuJuge | undefined,
+  seuil = SEUIL_JUGE,
+): ReponseDuJuge | undefined {
+  if (!reponse || reponse.type !== question.type) return undefined;
+  if (confianceDeLaReponse(reponse) < seuil) return undefined;
+  if (reponse.type === 'choice') {
+    const criteres = (question as { criteria?: Record<string, string | null> }).criteria ?? {};
+    return reponse.choice in criteres ? reponse : undefined;
+  }
+  if (reponse.type === 'score') {
+    const max = Math.max(0, ((question as { criteria?: string[] }).criteria?.length ?? 1) - 1);
+    return { ...reponse, score: Math.min(max, Math.max(0, reponse.score)) };
+  }
+  return reponse;
+}
+
+/* ------------------------------------------------------------------ */
+/* LE TEST DE LA CLÉ                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Les réponses possibles du bouton « tester », et rien d'autre. */
+export type EtatDeLaCle = 'acceptee' | 'refusee' | 'injoignable' | 'absente';
+
+/** Un code HTTP se lit en état de clé : 401/403 = refusée, 2xx = acceptée. */
+export function etatDepuisLeCode(code: number): EtatDeLaCle {
+  if (code === 401 || code === 403) return 'refusee';
+  if (code >= 200 && code < 300) return 'acceptee';
+  return 'injoignable';
+}
+
+/** Une panne passagère (réseau, 5xx, 429) mérite la seule reprise permise. */
+export function meriteUneReprise(code: number | undefined): boolean {
+  if (code === undefined) return true;
+  return code === 429 || code >= 500;
+}
 
 /* ------------------------------------------------------------------ */
 /* CE QU'ON ENVOIE : de quoi juger, jamais le projet entier            */
@@ -321,7 +532,7 @@ export function phraseDuMotif(motif: string | undefined): string {
  * déjà rendue : la jauge se remplit à mesure que l'échange avance.
  *
  * DES REPÈRES ÉCRITS, PAS À DEVINER. L'ancien juge (Needle 3) routait sans
- * inférer (MEM-3232) ; Laya infère, mais un repère écrit reste plus sûr qu'une
+ * inférer (MEM-3232) ; Jev infère, mais un repère écrit reste plus sûr qu'une
  * déduction. Chaque niveau et chaque motif est
  * donc décrit par des REPÈRES qu'il trouve ÉCRITS en tête du dossier
  * (`reperesDuDossier`) : « Compréhension rendue : non », « Risques identifiés :
@@ -383,8 +594,8 @@ export function questionsProposition(): Record<string, QuestionDuJuge> {
 /** « Cette demande presse-t-elle vraiment ? » */
 export function questionUrgence(): Record<string, QuestionDuJuge> {
   return {
-    /* Formulation mesurée le 25.09.2026 (`scripts/preuve-laya.mjs`) : des MOTS
-       de panne dans les critères, plutôt qu'une description abstraite — Laya
+    /* Formulation mesurée le 25.09.2026 : des MOTS de panne dans les
+       critères, plutôt qu'une description abstraite — un juge rapide
        rapproche le vocabulaire bien mieux qu'il ne déduit. */
     urgente: {
       type: 'noul',
@@ -430,7 +641,7 @@ export function verdictComprehension(
   const barres = Math.min(3, Math.max(1, Math.round(score.score) + 1)) as 1 | 2 | 3;
   const nomme =
     motif?.type === 'choice' && motif.choice in MOTIFS_DE_COMPREHENSION ? motif.choice : undefined;
-  return { barres, confiance: score.confidence, motif: nomme, at };
+  return { barres, confiance: score.confidence, motif: nomme, source: 'jev', at };
 }
 
 /** Le verdict « demande pressante », prêt à ranger. */
@@ -591,7 +802,7 @@ export const PHRASE_JAUGE_VIDE =
  *
  * Il ne disparaît plus faute de note : une carte encore en cadrage montre sa
  * jauge dès l'ouverture, trois barres éteintes (`barres: 0`), puis la note de
- * Laya à chaque échange. Il ne s'efface qu'une fois le travail parti — une
+ * Jev — ou des règles, s'il se tait — à chaque échange. Il ne s'efface qu'une fois le travail parti — une
  * note sur un dossier qu'on ne peut plus corriger n'éclaire aucune décision.
  */
 export function indicateurDeComprehension(carte: {
@@ -632,6 +843,13 @@ export interface DossierAJuger {
   taches: string[];
   faits: string[];
   risques: string;
+  /**
+   * Hors signature et hors repères : ce que seules les RÈGLES lisent
+   * (`comprehensionParRegles`). Le cahier dit-il à quoi reconnaître la
+   * réussite ? Combien de questions posées attendent encore leur réponse ?
+   */
+  criteresDeReussite?: boolean;
+  questionsOuvertes?: number;
 }
 
 /** Le nombre de lignes retenues par rubrique : de quoi juger, pas un journal. */
@@ -675,6 +893,8 @@ export function dossierAJuger(
           faits?: string[];
           risques?: string;
         };
+        cahierDesCharges?: { titre: string; contenu: string }[];
+        questionsEnAttente?: { reponse?: string }[];
       };
     };
   },
@@ -704,7 +924,48 @@ export function dossierAJuger(
     faits: (technique?.faits ?? []).slice(0, DOSSIER_MAX.faits).map((fait) => tronquer(fait, 400)),
     risques: tronquer(technique?.risques ?? '', 2000),
   };
-  return { reperes: reperesDuDossier(sansReperes), ...sansReperes };
+  return {
+    reperes: reperesDuDossier(sansReperes),
+    ...sansReperes,
+    criteresDeReussite: (comprise?.cahierDesCharges ?? []).some(
+      (rubrique) => /r[ée]ussite|crit[èe]re|termin[ée]/i.test(rubrique.titre) && rubrique.contenu.trim().length > 0,
+    ),
+    questionsOuvertes: (comprise?.questionsEnAttente ?? []).filter((q) => !q.reponse?.trim()).length,
+  };
+}
+
+/** Au-delà, les hypothèses assumées pèsent plus que ce qui a été tranché. */
+export const HYPOTHESES_EN_TROP = 6;
+/** En deçà, un texte compris sans découpe ne délimite rien. */
+export const COMPREHENSION_TROP_COURTE = 160;
+
+/**
+ * LA NOTE PAR RÈGLES, QUAND JEV SE TAIT.
+ *
+ * La jauge ne reste jamais sans barres après une compréhension rendue : clé
+ * absente, panne, délai ou confiance sous le palier, ces règles notent à la
+ * place, à partir de ce que le dossier PORTE vraiment — et dans la même liste
+ * fermée de motifs, pour que la phrase du survol reste traduisible. Une règle
+ * se lit en entier ; la première qui s'applique décide.
+ */
+export function comprehensionParRegles(dossier: DossierAJuger, at: number): JugementDeComprehension {
+  const note = (barres: 1 | 2 | 3, motif: MotifDeComprehension): JugementDeComprehension => ({
+    barres,
+    confiance: 1,
+    motif,
+    source: 'regles',
+    at,
+  });
+  const texte = dossier.comprehension.trim();
+  if (!texte) return note(1, 'discussion-naissante');
+  if (texte.length < COMPREHENSION_TROP_COURTE && !dossier.taches.length) return note(1, 'objectif-flou');
+  if ((dossier.questionsOuvertes ?? 0) > 0) return note(2, 'objectif-flou');
+  if (!dossier.taches.length || !dossier.risques.trim()) return note(2, 'contraintes-absentes');
+  if (dossier.hypotheses.length >= HYPOTHESES_EN_TROP && !dossier.questions.length) {
+    return note(2, 'hypotheses-trop-nombreuses');
+  }
+  if (!dossier.criteresDeReussite) return note(2, 'resultat-non-dit');
+  return note(3, 'rien-ne-manque');
 }
 
 /**
@@ -896,7 +1157,7 @@ function motsPleins(texte: string): Set<string> {
 export const RECOUVREMENT_MIN_DOUBLON = 0.2;
 
 /**
- * LES CARTES À COMPARER, AVANT LE JUGE. Laya compare des PAIRES : on ne lui
+ * LES CARTES À COMPARER, AVANT LE JUGE. Le juge compare des PAIRES : on ne lui
  * montre que les cartes ouvertes (hors « Archivé ») qui partagent assez de
  * mots avec la proposée, les plus proches d'abord, au plus `max`.
  */
@@ -926,24 +1187,22 @@ export function candidatsDeDoublon<T extends { title: string; description: strin
 /* LE RÉGLAGE DE CHAQUE USAGE                                          */
 /* ------------------------------------------------------------------ */
 
-import { DELAI_LAYA_ERREUR_MS, DELAI_LAYA_EXPRESS_MS } from './laya.js';
 import { SEUIL_CONFIANCE_TRI } from './tri-automatique-moteur.js';
 
 /**
  * LE SEUIL ET LE DÉLAI PROPRES À UN USAGE (MEM-3380).
  *
- * La confiance lue est la probabilité de la réponse retenue. Le seuil commun
- * (`SEUIL_LAYA`, 0,6) vaut pour ce qui DÉCIDE (un moteur, une famille
- * d'erreur). La note de compréhension et le départage du mode Création ne
- * décident de rien — ils allument des barres ou conseillent — et portent le
+ * Le seuil commun (`SEUIL_JUGE`, 0,6) vaut pour ce qui DÉCIDE (un moteur, une
+ * famille d'erreur). La note de compréhension et le départage du mode Création
+ * ne décident de rien — ils allument des barres ou conseillent — et portent le
  * palier de la compréhension (0,4, au-dessus du hasard sur trois niveaux).
  *
- * `express` : sur le chemin d'un tour, Laya n'est jamais attendu s'il dort.
+ * Le délai court (`DELAI_JUGE_EXPRESS_MS`) tient les usages posés sur le
+ * chemin d'un tour : un conseil ne retarde jamais un agent.
  */
 export interface ReglageDUsage {
   seuil?: number;
   delaiMs?: number;
-  express?: boolean;
   partiel?: boolean;
 }
 
@@ -952,17 +1211,19 @@ export const REGLAGES_DES_USAGES: Partial<Record<UsageDuJuge, ReglageDUsage>> = 
   'evaluation-creation': { seuil: SEUILS.confianceDeLaComprehension },
   'tri-propositions': { seuil: SEUILS.confianceDeLaComprehension },
   'urgence-demande': { seuil: 0.5 },
-  'genre-carte-auto': { seuil: SEUIL_CONFIANCE_TRI, delaiMs: 12_000 },
-  /* Une explication d'erreur ne retient pas une réponse : si Laya dort, la
-     phrase honnête « erreur inattendue » part tout de suite. */
-  'famille-erreur': { seuil: SEUIL_CONFIANCE_TRI, delaiMs: DELAI_LAYA_ERREUR_MS, express: true },
-  /* Suggéré pendant un appel d'outil du cadrage : jamais d'attente d'un modèle qui dort. */
-  'niveau-carte': { seuil: 0.5, delaiMs: 4_000, express: true },
-  'nature-demande': { seuil: 0.6, delaiMs: DELAI_LAYA_EXPRESS_MS, express: true },
-  'doublon-carte': { seuil: 0.5, delaiMs: 15_000, partiel: true },
+  'genre-carte-auto': { seuil: SEUIL_CONFIANCE_TRI },
+  /* Une explication d'erreur ne retient pas une réponse : la phrase honnête
+     « erreur inattendue » part si Jev traîne. */
+  'famille-erreur': { seuil: SEUIL_CONFIANCE_TRI, delaiMs: DELAI_JUGE_EXPRESS_MS },
+  /* Suggéré pendant un appel d'outil du cadrage. */
+  'niveau-carte': { seuil: 0.5, delaiMs: DELAI_JUGE_EXPRESS_MS },
+  'nature-demande': { seuil: 0.6, delaiMs: DELAI_JUGE_EXPRESS_MS },
+  'doublon-carte': { seuil: 0.5, partiel: true },
   /* Un oui/non incertain (probabilité entre 0,4 et 0,6) reste sans réponse,
      donc GARDÉ : seul un « non » franc écarte un document. */
-  'pertinence-competences': { seuil: 0.6, delaiMs: DELAI_LAYA_EXPRESS_MS, express: true, partiel: true },
-  'pertinence-memoire': { seuil: 0.6, delaiMs: DELAI_LAYA_EXPRESS_MS, express: true, partiel: true },
+  'pertinence-competences': { seuil: 0.6, delaiMs: DELAI_JUGE_EXPRESS_MS, partiel: true },
+  'pertinence-memoire': { seuil: 0.6, delaiMs: DELAI_JUGE_EXPRESS_MS, partiel: true },
+  /* Hors du chemin d'un tour (après un pré-diagnostic) : le délai normal. Seul
+     un « oui » ou un « non » franc compte ; les incertains restent muets. */
+  'pertinence-analyses-marketing': { seuil: 0.7, partiel: true },
 };
-

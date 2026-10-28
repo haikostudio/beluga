@@ -156,6 +156,32 @@ export interface CorpsDArchive {
   project?: string;
   chemins: string[];
   nom: string;
+  /**
+   * LE NOM DE CHAQUE PIÈCE DANS L'ARCHIVE (facultatif, id → « images/photo.png ») :
+   * le brief téléchargé pointe exactement vers ces chemins. Un seul sous-dossier
+   * permis, jamais « .. ».
+   */
+  nomsDansLArchive?: Record<string, string>;
+  /** DES TEXTES À POSER À LA RACINE (« brief.md »), au plus quelques-uns. */
+  textes?: { nom: string; contenu: string }[];
+}
+
+/** Au plus autant de textes dans une archive, et autant de signes par texte. */
+export const MAX_TEXTES_PAR_ARCHIVE = 4;
+export const MAX_SIGNES_PAR_TEXTE_D_ARCHIVE = 500_000;
+
+/**
+ * UN CHEMIN SÛR DANS UNE ARCHIVE : « nom » ou « dossier/nom », sans « .. », sans
+ * racine, sans caractère interdit ; null sinon.
+ */
+export function cheminSurDansLArchive(brut: unknown): string | null {
+  if (typeof brut !== 'string') return null;
+  const parts = brut.split('/');
+  if (parts.length > 2) return null;
+  for (const part of parts) {
+    if (!part || part === '.' || part === '..' || part.length > 120 || /[\\:*?"<>|\u0000-\u001f]/.test(part)) return null;
+  }
+  return parts.join('/');
 }
 
 /** Ce que le serveur rend quand l'archive est prête : son adresse courte. */

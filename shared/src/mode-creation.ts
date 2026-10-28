@@ -6,7 +6,7 @@ import { aLaFormeDUnMoteur, nomCourtDuMoteur, type IdDeMoteur } from './registre
  * CARTE (`parcours.creationSouhaitee`) et éteint à la naissance. Allumé, l'agent
  * de la carte devient CHEF D'ORCHESTRE : il confie le texte à un moteur, le code
  * à un autre, demande des avis complémentaires aux moteurs installés sur le
- * serveur, et fait départager les propositions par le juge local (Laya).
+ * serveur, et fait départager les propositions par le juge rapide (Jev).
  *
  * Ce fichier décide QUI répond à quel rôle, à partir du réglage global
  * (`Settings.creation`) et du catalogue RÉEL des moteurs (`catalogueMoteurs`,
@@ -233,10 +233,10 @@ export function surchargesAcceptees(
 }
 
 /* ------------------------------------------------------------------ */
-/* L'ÉVALUATION : départager des propositions par le juge local        */
+/* L'ÉVALUATION : départager des propositions par le juge rapide        */
 /* ------------------------------------------------------------------ */
 
-/** Au plus cinq propositions départagées d'un coup : au-delà, le juge local se perd. */
+/** Au plus cinq propositions départagées d'un coup : au-delà, le juge rapide se perd. */
 export const PROPOSITIONS_A_DEPARTAGER_MAX = 5;
 
 /** La clé de la proposition n (1, 2…) telle que le juge la choisit. */
@@ -285,7 +285,7 @@ export function consigneDuModeCreation(options: {
     `- texte (rédaction, formulation, contenu éditorial) : ${ligneDAffectation(texte)}`,
     `- code (programmation) : ${ligneDAffectation(code)}`,
     `- avis complémentaires (au plus ${reglage.plafondAvis} par tour) : ${lignesAvis}`,
-    `- évaluation : ${options.jugeDisponible ? 'Laya, le juge local' : 'juge local absent — tranche toi-même'}`,
+    `- évaluation : ${options.jugeDisponible ? 'Jev, le juge rapide' : 'juge rapide absent — tranche toi-même'}`,
     'Méthode :',
     '1. Pour chaque morceau de texte ou de code qui compte, demande une proposition au rôle concerné avec l’outil « deleguer » (rôle, consigne précise, fichiers utiles). Le moteur consulté LIT la copie de travail mais n’écrit rien : c’est toi seul qui modifies les fichiers.',
     '2. Sur un choix créatif ou une solution discutable, demande un ou deux regards neufs avec « deleguer » au rôle « avis ».',

@@ -2392,6 +2392,40 @@ export function attenteDeLaDemande(ctx: ContexteDeLAttente): AttenteDeLaDemande 
   return undefined;
 }
 
+/** L'écho local d'une demande cliquée (`chat.tsx`), et la demande de file qui le porte. */
+export interface EchoLocalDeLaDemande {
+  texte: string;
+  at: number;
+  /** La demande de file où cet envoi a atterri (agent occupé ou arrêté sur sa question). */
+  fileId?: string;
+}
+
+/**
+ * L'ÉCHO LOCAL SUIT LA FILE (27/10/2026). Un envoi qui atterrit en file
+ * (agent occupé, ou arrêté sur sa question — DEC-086) puis qu'on RETIRE de la
+ * file n'aura jamais de jalon « Demande » : son écho restait affiché pour
+ * toujours, sous « Demande envoyée — l'agent va la prendre ».
+ *
+ * L'écho s'accroche donc à la demande de file qui porte son texte (par son
+ * IDENTIFIANT, qui survit à une modification du texte), suit son texte, et
+ * s'efface dès que cette demande quitte la file. Si elle en sort pour partir,
+ * le vrai jalon arrive juste après et prend le relais. Un envoi qui n'est
+ * jamais passé par la file reste intact.
+ */
+export function echoLocalSelonLaFile(
+  echo: EchoLocalDeLaDemande | null,
+  file: readonly { id: string; text: string }[],
+): EchoLocalDeLaDemande | null {
+  if (!echo) return null;
+  if (echo.fileId) {
+    const item = file.find((x) => x.id === echo.fileId);
+    if (!item) return null;
+    return item.text === echo.texte ? echo : { ...echo, texte: item.text };
+  }
+  const item = file.find((x) => x.text.trim() === echo.texte.trim());
+  return item ? { ...echo, fileId: item.id } : echo;
+}
+
 /** Ce que l'écran écrit sous le point « Demande », selon l'attente. */
 export const PHRASES_DE_L_ATTENTE: Record<SorteDAttente, string> = {
   quota: 'En attente d’un compte disponible : la demande partira dès qu’un quota se libère.',

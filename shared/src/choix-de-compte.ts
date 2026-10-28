@@ -1,21 +1,27 @@
 /**
- * QUEL COMPTE REÇOIT LE TRAVAIL — UN ORDRE FIXE ENTRE LES COMPTES.
+ * QUEL COMPTE REÇOIT LE TRAVAIL — FINIR LA FENÊTRE ENTAMÉE, PUIS L'ORDRE RÉGLÉ.
  *
  * La règle a d'abord comparé les PLANS lus sur le coffre (Pro avant Max x20),
- * pour éviter qu'un petit abonnement, payé lui aussi, ne dorme pendant qu'un
- * gros absorbait tout. Mais deux comptes du MÊME plan (deux « Max x5», par
- * exemple) n'avaient plus aucun ordre entre eux : la priorité ne départageait
- * que les ex æquo, et comme les deux comptes Claude du serveur portent le même
- * plan et la même priorité par défaut, le départage se faisait sur la place
- * RESTANTE — donc le travail alternait sans cesse entre les deux comptes d'un
- * même utilisateur, ce qu'aucun des deux ne voulait.
+ * puis, pour que deux comptes du même plan cessent d'alterner, la PRIORITÉ
+ * réglée par l'utilisateur avec les flèches de « Comptes et quotas »
+ * (`ordonnerComptes`) : le compte de plus petit rang recevait tout.
  *
- * La règle compare maintenant d'abord la PRIORITÉ de chaque compte, réglée par
- * l'utilisateur avec les flèches de « Comptes et quotas » (`ordonnerComptes`) :
- * le compte de plus petit rang (« 1er ») reçoit tout le travail tant qu'il a de la place, et le suivant ne sert qu'une fois le premier à sa
- * limite. La place restante ne sert plus qu'à départager deux comptes du MÊME
- * rang — elle ne fait plus la loi entre deux comptes rangés différemment,
- * quelle que soit la taille de leur plan respectif.
+ * Mais entre deux comptes SEMBLABLES (même moteur, même taille de forfait),
+ * suivre le rang gâchait du quota : le compte n° 1 revenu à zéro reprenait la
+ * main alors que le n° 2 avait une fenêtre de cinq heures entamée (80 %, par
+ * exemple) qui allait se perdre à sa remise à zéro (demande du 27/10/2026).
+ * D'où l'ordre actuel :
+ *
+ *  1. Les comptes de MÊME TAILLE forment un lot, qui prend la place de son
+ *     mieux rangé dans l'ordre réglé. Entre deux lots de tailles différentes,
+ *     l'ORDRE RÉGLÉ décide ; à rang égal seulement, le PLUS GROS passe devant
+ *     (décision de l'utilisateur, 27/10/2026).
+ *  2. DANS un lot, on FINIT LA FENÊTRE ENTAMÉE : celle qui se remet à zéro
+ *     le plus tôt d'abord (son reste serait perdu), puis la plus consommée,
+ *     et le rang ne départage qu'ensuite. Le travail colle donc au même
+ *     compte jusqu'à sa limite : pas d'alternance.
+ *  3. Un compte au repos (fenêtre pas encore ouverte) ne sert qu'en dernier
+ *     recours (`compteQuiRecoitLeTravail`).
  *
  * Règle PURE : ni disque, ni base, ni réseau. Elle décide d'un ORDRE, jamais
  * d'une dépense.
@@ -32,6 +38,11 @@ export interface CompteAClasser {
   sessionPct?: number;
   /** Part consommée de la fenêtre de sept jours, en pour cent. */
   weeklyPct?: number;
+  /**
+   * L'INSTANT (ms) OÙ LA FENÊTRE DE CINQ HEURES SE REMET À ZÉRO, quand elle
+   * tourne. Absent ou déjà passé : aucune fenêtre entamée connue.
+   */
+  sessionFinit?: number;
   /** Compte coupé à la main : il ne reçoit plus rien. */
   disabled?: boolean;
   /**
@@ -97,21 +108,39 @@ export function placeRestante(compte: CompteAClasser): number {
   return tailleDuPlan(compte.plan) * libre;
 }
 
+/** Une fin de fenêtre exploitable : connue et pas encore passée. */
+function finDeFenetre(compte: CompteAClasser, maintenant: number): number {
+  const fin = compte.sessionFinit;
+  return typeof fin === 'number' && Number.isFinite(fin) && fin > maintenant ? fin : Number.POSITIVE_INFINITY;
+}
+
 /**
- * L'ORDRE RÉELLEMENT SUIVI PAR LES DÉPARTS : la priorité réglée à la main
- * d'abord (le plus petit rang reçoit tout le travail tant qu'il a de la
- * place), la place restante ensuite — mais seulement pour départager deux
- * comptes du MÊME rang, jamais pour faire passer un compte moins prioritaire
- * devant. Le plan lu sur le coffre (Pro, Max x5, Max x20…) ne pèse plus dans
- * ce classement : seul `placeRestante` s'en sert encore, pour comparer deux
- * plans différents à taille réelle égale.
+ * L'ORDRE RÉELLEMENT SUIVI PAR LES DÉPARTS (voir l'en-tête) : les lots de
+ * comptes de même taille dans l'ordre réglé (le plus gros à rang égal), puis,
+ * dans un lot, la fenêtre de cinq heures qui finit le plus tôt, la plus
+ * consommée, le rang, l'identifiant. `maintenant` écarte une fin de fenêtre
+ * déjà passée (relevé périmé).
  */
-export function classerComptesPourLeTravail<T extends CompteAClasser>(comptes: readonly T[]): T[] {
+export function classerComptesPourLeTravail<T extends CompteAClasser>(comptes: readonly T[], maintenant = Date.now()): T[] {
+  const rangDuLot = new Map<number, number>();
+  for (const compte of comptes) {
+    const taille = tailleDuPlan(compte.plan);
+    rangDuLot.set(taille, Math.min(rangDuLot.get(taille) ?? Number.POSITIVE_INFINITY, compte.priority ?? 100));
+  }
   return [...comptes].sort((a, b) => {
+    const tailleA = tailleDuPlan(a.plan);
+    const tailleB = tailleDuPlan(b.plan);
+    if (tailleA !== tailleB) {
+      const lot = rangDuLot.get(tailleA)! - rangDuLot.get(tailleB)!;
+      return lot || tailleB - tailleA;
+    }
+    const finA = finDeFenetre(a, maintenant);
+    const finB = finDeFenetre(b, maintenant);
+    if (finA !== finB) return finA < finB ? -1 : 1;
+    const consomme = (b.sessionPct ?? 0) - (a.sessionPct ?? 0);
+    if (Math.abs(consomme) > 0.0001) return consomme;
     const rang = (a.priority ?? 100) - (b.priority ?? 100);
     if (rang) return rang;
-    const place = placeRestante(b) - placeRestante(a);
-    if (Math.abs(place) > 0.0001) return place;
     return a.id.localeCompare(b.id);
   });
 }
@@ -120,11 +149,11 @@ export function classerComptesPourLeTravail<T extends CompteAClasser>(comptes: r
  * Le compte qui doit recevoir le prochain tour, ou rien du tout. Un compte
  * COUPÉ à la main ne reçoit jamais rien ; un compte sans place non plus.
  */
-export function compteQuiRecoitLeTravail<T extends CompteAClasser>(comptes: readonly T[]): T | undefined {
+export function compteQuiRecoitLeTravail<T extends CompteAClasser>(comptes: readonly T[], maintenant = Date.now()): T | undefined {
   const ouverts = comptes.filter((compte) => !compte.disabled && placeRestante(compte) > 0);
   // Le classement passe D'ABORD : entre deux jumeaux, on garde celui que la
   // règle aurait retenu de toute façon, jamais le premier de la liste reçue.
-  const classes = sansDoublonDAbonnement(classerComptesPourLeTravail(ouverts));
+  const classes = sansDoublonDAbonnement(classerComptesPourLeTravail(ouverts, maintenant));
   // UN COMPTE AU REPOS EN DERNIER RECOURS : tant qu'un compte dont la fenêtre
   // tourne a de la place, il passe devant, quel que soit son rang. Le travail
   // n'attend jamais : sans lui, le compte au repos sert quand même.

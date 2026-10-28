@@ -56,7 +56,7 @@ export function MenuSlash({
         // dans le conteneur du champ), bord bas absent, et 12 px de
         // recouvrement — le rayon du champ, sous lequel il passe vraiment.
         'relative z-0 -mb-3 flex shrink-0 flex-col rounded-t-lg',
-        'border border-b-0 border-border bg-bloc-etapes',
+        'border border-b-0 border-border bg-bloc-etapes [--fond-zone-defilement:hsl(var(--bloc-etapes))]',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
     >

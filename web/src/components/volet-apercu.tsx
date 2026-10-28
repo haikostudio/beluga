@@ -281,7 +281,7 @@ export function VoletApercu({
         <div className="flex shrink-0 items-center gap-1.5 px-2 py-1.5">
           <Tooltip label={t('Recharger')}>
             <Button variant="ghost" size="icon-barre" aria-label="Recharger" onClick={() => setTour((n) => n + 1)} data-apercu-recharger="">
-              {charge ? <RotateCw className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin text-teinte" />}
+              {charge ? <RotateCw className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin text-muted" />}
             </Button>
           </Tooltip>
           <form
@@ -320,7 +320,7 @@ export function VoletApercu({
           {/* Sur téléphone, c'est la flèche de l'en-tête qui referme l'aperçu. */}
           {telephone ? null : (
             <Tooltip label={t('Fermer l’aperçu')}>
-              <Button variant="ghost" size="icon-barre" aria-label="Fermer l’aperçu" onClick={onFermer} data-apercu-fermer="">
+              <Button variant="ghost" size="icon-barre" aria-label="Fermer l’aperçu" onClick={onFermer} data-apercu-fermer="" data-croix-du-volet="apercu">
                 <X className="h-4 w-4" />
               </Button>
             </Tooltip>
@@ -385,7 +385,7 @@ export function VoletApercu({
           {lent && !charge ? (
             <div className="absolute inset-x-3 bottom-3 mx-auto w-fit rounded-2xl bg-raised px-3 py-1.5 text-center text-[13px] text-muted">
               {t('Le site tarde à s’afficher ? Il refuse peut-être d’être affiché ici :')}{' '}
-              <a href={cible} target="_blank" rel="noreferrer" className="text-teinte underline">
+              <a href={cible} target="_blank" rel="noreferrer" className="text-text underline">
                 {t('ouvrez-le dans un onglet')}
               </a>
             </div>

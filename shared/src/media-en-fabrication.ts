@@ -45,6 +45,8 @@ export const MediaEnFabrication = z.object({
   attachmentId: z.string().optional(),
   /** La raison d'un échec, courte. */
   echec: z.string().optional(),
+  /** La phrase de l'agent à la fin : ce qu'il a rendu et pourquoi (la ligne du média dans le fil). */
+  legende: z.string().optional(),
   /**
    * QUI FERME LE BLOC. « agent » : annoncé par l'agent lui-même ; un tour qui se
    * termine sans l'avoir fermé le passe en échec (rien ne reste « en cours »

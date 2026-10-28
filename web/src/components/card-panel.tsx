@@ -108,6 +108,8 @@ import { SilhouetteTiroirCarte } from '@/components/silhouettes';
 import { client, donneesDeCarteRecues } from '@/lib/client';
 import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
+import { useSuiviFerme } from '@/lib/suivi-de-carte';
+import { FournisseurGlisserVersUnPlan } from '@/components/glisser-vers-un-plan';
 import { estTelephone, useTabletteOuTelephone, useTelephone } from '@/lib/telephone';
 import { usePref } from '@/lib/prefs';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
@@ -699,26 +701,38 @@ function CardPanelBody({
   const documentEnFeuille = !!documentOuvert && telephone;
   const feuilleDuDocument = useFeuilleDuVolet(documentEnFeuille, fermerLeDocument);
   /*
-   * LE VOLET DE SUIVI D'UNE PRODUCTION (studio créatif) : sur ordinateur, il est
-   * TOUJOURS OUVERT dès que le chemin du tournage paraît, et ne se ferme pas
-   * (décision du 25/10/2026). Un autre document de la carte (plan, montage) peut
-   * prendre sa place ; refermé, le suivi revient aussitôt. Sur téléphone, il ne
-   * s'ouvre qu'au bouton « Suivi », en feuille du bas : celui que l'ordinateur
-   * avait ouvert DE LUI-MÊME se referme quand l'écran passe en largeur de
-   * téléphone, pour ne pas couvrir la conversation d'une feuille qu'on n'a pas
-   * demandée.
+   * LE VOLET DE SUIVI D'UNE PRODUCTION (studio créatif) : sur ordinateur, il
+   * S'OUVRE DE LUI-MÊME dès que le chemin du tournage paraît — une nouvelle
+   * production s'ouvre donc avec lui. SA CROIX ET LE BOUTON « SUIVI » LE
+   * FERMENT, ET LA CARTE S'EN SOUVIENT (décision du 28/10/2026, qui remplace
+   * « toujours ouvert, sans croix » du 25/10/2026) : il ne revient plus tout
+   * seul sur cette carte, rechargement et autre appareil compris
+   * (`suivi.fermes`, `shared/src/suivi-ferme.ts`). Rien ne s'ouvre avant que les
+   * réglages du compte soient arrivés (`pret`) : un suivi fermé ne paraît pas
+   * une fraction de seconde avant de disparaître. Un autre document de la carte
+   * (plan, studios) peut prendre sa place ; refermé, le suivi revient s'il
+   * n'était pas fermé. Sur téléphone, il ne s'ouvre qu'au bouton « Suivi », en
+   * feuille du bas : celui que l'ordinateur avait ouvert DE LUI-MÊME se referme
+   * quand l'écran passe en largeur de téléphone.
    */
   const suiviPossible = cheminDeRealisationVisible(card);
   const aucunDocument = !documentOuvert;
+  const suiviFerme = useSuiviFerme(card.id);
+  const reglagesArrives = state.pret;
   const suiviOuvertSeul = React.useRef(false);
   React.useEffect(() => {
-    if (suiviPossible && !telephone && aucunDocument) {
+    if (suiviPossible && !telephone && aucunDocument && reglagesArrives && !suiviFerme) {
       ouvrirLeSuiviSiRienNestOuvert(card.id);
       suiviOuvertSeul.current = true;
     }
-  }, [suiviPossible, telephone, card.id, aucunDocument]);
+  }, [suiviPossible, telephone, card.id, aucunDocument, reglagesArrives, suiviFerme]);
+  /* Le suivi ouvert seul cesse de l'être quand il QUITTE l'écran — jamais au montage de la page,
+     où il vient justement de s'ouvrir (une page rechargée l'ouvre dès son premier rendu). */
+  const genrePrecedent = React.useRef(documentOuvert?.genre);
   React.useEffect(() => {
-    if (documentOuvert?.genre !== 'suivi') suiviOuvertSeul.current = false;
+    const avant = genrePrecedent.current;
+    genrePrecedent.current = documentOuvert?.genre;
+    if (avant === 'suivi' && documentOuvert?.genre !== 'suivi') suiviOuvertSeul.current = false;
   }, [documentOuvert?.genre]);
   React.useEffect(() => {
     if (telephone && suiviOuvertSeul.current && documentOuvert?.genre === 'suivi') {
@@ -811,15 +825,15 @@ function CardPanelBody({
             <span data-titre-carte="ouvert">{card.title}</span>
           )
         }
-        /* LA BRANCHE DE LA TÂCHE, entre le projet et le nom de la tâche : la
-           voir, la gérer, suivre son parcours vers la mise en ligne
-           (`BoutonDeBranche`). Pas pour le cahier des charges, qui n'a pas de
-           branche. */
-        avantTitre={
+        /* LA BRANCHE DE LA TÂCHE, EN DERNIER CRAN DU FIL, après le nom de la
+           tâche (demande du 27/10/2026, capture #f625) : la voir, la gérer,
+           suivre son parcours vers la mise en ligne (`BoutonDeBranche`). Pas
+           pour le cahier des charges, qui n'a pas de branche. */
+        suite={
           voletDuCahier ? undefined : (
             <>
-              <BoutonDeBranche card={card} />
               <SeparateurDuFil />
+              <BoutonDeBranche card={card} />
             </>
           )
         }
@@ -952,6 +966,8 @@ function CardPanelBody({
       <MentionDeRedaction card={card} />
 
       <ContexteEmplacementDuDocument.Provider value={emplacementDuDocument}>
+      {/* LE GLISSER D'UNE IMAGE VERS UN PLAN couvre la conversation ET le volet de droite (28/10/2026). */}
+      <FournisseurGlisserVersUnPlan cardId={card.id}>
       <div ref={setRangee} className="flex min-h-0 flex-1">
       <Tabs
         key={card.id}
@@ -960,13 +976,18 @@ function CardPanelBody({
         onScrollCapture={surDefilement}
         onTouchMoveCapture={noterLeGeste}
         onWheelCapture={noterLeGeste}
+        data-colonne-de-conversation=""
         style={apercuOuvert && !apercuEnFeuille ? { width: largeurDuChat.width } : undefined}
         className={cn(
           'flex min-h-0 flex-col',
           apercuOuvert && !apercuEnFeuille
             ? 'shrink-0'
-            : documentOuvert && !documentEnFeuille
-              ? 'min-w-0 flex-1'
+            : /* UN VOLET OUVERT À DROITE NE DÉLARGIT PAS LA CONVERSATION (28/10/2026) :
+                 elle garde sa colonne de 820 px, centrée dans la place qui reste
+                 (les marges automatiques se partagent ce qui dépasse, après la
+                 croissance), et le volet garde la largeur réglée à sa poignée. */
+              documentOuvert && !documentEnFeuille
+              ? cn('mx-auto w-full min-w-0 flex-1', CLASSE_COLONNE_DE_CARTE)
               : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
         )}
       >
@@ -1122,7 +1143,7 @@ function CardPanelBody({
           )}
         />
         {documentOuvert?.genre === 'suivi' && emplacementDuDocument ? createPortal(
-              /* Les gestes du suivi qui parlent à l'agent (« Corriger avec l'agent », « Redemander ») visent l'agent de CETTE conversation. */
+              /* Les gestes du suivi qui parlent à l'agent (« Redemander ») visent l'agent de CETTE conversation. */
               <ContexteAgentDuFil.Provider value={agent?.id ?? null}>
                 <VoletDeSuivi card={card} />
               </ContexteAgentDuFil.Provider>,
@@ -1130,6 +1151,7 @@ function CardPanelBody({
             ) : null}
       </div>
       </div>
+      </FournisseurGlisserVersUnPlan>
       </ContexteEmplacementDuDocument.Provider>
 
     </div>

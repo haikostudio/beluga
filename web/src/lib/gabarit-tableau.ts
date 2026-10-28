@@ -27,7 +27,8 @@ export const LARGEUR_CARTE_PX = 268;
  * 156 px. Le 25/10/2026 (« aérer les cartes ») : plus de demande sous le
  * titre, un titre sur deux lignes, plus d'espace intérieur et une frise plus
  * fine — la carte passe à 150 px : son contenu (120 px) plus la bande de
- * travail (30 px) y tiennent sans rien écraser. Elle reste FIXE : la silhouette de chargement a la même
+ * travail (30 px) y tiennent sans rien écraser. Le 26/10/2026, l'heure du rendu (24 px) se
+ * pose dans cet air, sous la frise, quand il n'y a pas de bande. Elle reste FIXE : la silhouette de chargement a la même
  * hauteur, et rien ne saute à l'arrivée des cartes.
  */
 export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[150px]';

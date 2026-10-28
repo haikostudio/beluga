@@ -166,7 +166,7 @@ export type OrigineSansUtilisateur = keyof typeof ORIGINES_SANS_UTILISATEUR;
  * et l'enquête ouverte seule après une panne répétée. L'avis sert à ORDONNER ce
  * qui attend — il ne lance rien, ne change aucune colonne et ne saute aucune
  * validation. Rien n'est attendu : l'appel part et la réponse HTTP repart tout
- * de suite. Sans Laya installé, il ne fait rien du tout.
+ * de suite. Sans clé Jev au coffre, il ne fait rien du tout.
  */
 export function jugerLUrgenceEnFond(cardId: string, origine: OrigineSansUtilisateur): void {
   if (!usageDuJugeAllume('urgence-demande')) return;

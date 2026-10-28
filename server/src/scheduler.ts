@@ -950,7 +950,16 @@ function chronoDeLancement() {
 async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: string }> {
   let card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
-  if (card.agentId && isRunning(card.agentId)) return { ok: true };
+  /*
+   * DÉJÀ PARTIE ? Seulement si c'est son agent d'EXÉCUTION qui tourne. L'agent
+   * inscrit sur une carte qu'on vient de cadrer est son agent de CADRAGE, qui
+   * range encore sa réponse (compression du contexte) une à deux minutes après
+   * l'avoir rendue : le clic « Lancer » répondait alors « c'est parti » sans
+   * rien lancer du tout. Il démarre désormais pour de bon — un autre agent
+   * prend le relais quand le cadrage tourne encore (`agentUnique`).
+   */
+  const agentInscrit = card.agentId ? store.getAgent(card.agentId) : null;
+  if (agentInscrit && agentInscrit.role !== 'cadrage' && isRunning(agentInscrit.id)) return { ok: true };
 
   const project = store.getProject(card.projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -1378,6 +1387,10 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
 
   void sendPrompt(agent.id, prompt, {
     silent: true,
+    /* Un tour de lancement mort AVANT le moteur ramène sa carte d'où elle
+       vient, au lieu de la laisser au balayage, qui la rangeait en « À
+       déployer » sans une ligne écrite (`ramenerLeLancementManque`). */
+    lancementDeCarte: { cardId: running.id, colonneAvant, etaitLeCadrage: !!agentUnique && !agentGarde },
     context: contexteHeritePourExecution(card),
     // Une carte lancée est une vraie tâche : elle mérite le compte rendu entier.
     ampleur: 'complete',

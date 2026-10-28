@@ -290,7 +290,7 @@ export function MicButton({
        * la variante « outline » des boutons (`bg-controle`, un voile), et
        * comme eux AUCUN trait.
        */
-      className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-40"
+      className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-fond-survol hover:text-text disabled:opacity-40"
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
     </button>

@@ -23,6 +23,8 @@ import {
   CONSIGNE_DES_ATTENTES,
   CONSIGNE_DE_LA_VEILLE,
   Card,
+  RAISON_LANCEMENT_NON_ABOUTI,
+  colonneApresLancementManque,
   DeployRun,
   ETAPE_PONT,
   ETAPE_PONT_ID,
@@ -455,7 +457,40 @@ export function runningAgentIds(): string[] {
  * constate alors que le jeton n'est plus le sien et se retire sans rien toucher,
  * au lieu de poser son moteur sur l'agent d'un autre ou de refermer son tour.
  */
-const demarrant = new Map<string, { depuis: number; jeton: number }>();
+const demarrant = new Map<
+  string,
+  {
+    depuis: number;
+    jeton: number;
+    /**
+     * Ce tour est le LANCEMENT d'une carte (`PromptOptions.lancementDeCarte`) :
+     * s'il est refermé avant le moteur, la carte retourne en « Planifié »
+     * (`ramenerLeLancementManque`) au lieu d'être rangée comme finie.
+     */
+    lancement?: LancementDeCarte;
+    /**
+     * L'ÉTAPE où la préparation se trouve. Le 27/10/2026, toutes les
+     * préparations du démon sont restées pendues vingt minutes sans qu'aucune
+     * trace ne dise OÙ : la veille dit désormais l'étape dans son journal.
+     */
+    etape?: string;
+  }
+>();
+
+/** Ce qu'un tour de lancement emporte pour pouvoir ramener sa carte. */
+export interface LancementDeCarte {
+  cardId: string;
+  /** La colonne d'où le clic l'a fait partir. */
+  colonneAvant?: Card['column'];
+  /** L'agent était l'agent de CADRAGE, passé en exécution pour ce tour (agent unique). */
+  etaitLeCadrage: boolean;
+}
+
+/** Note l'étape d'une préparation en cours — un repère pour la veille, rien d'autre. */
+function etapeDePreparation(agentId: string, jeton: number, etape: string): void {
+  const entree = demarrant.get(agentId);
+  if (entree && entree.jeton === jeton) entree.etape = etape;
+}
 
 /** Un numéro de préparation qui ne se répète jamais dans la vie du démon. */
 let prochainePreparation = 1;
@@ -854,6 +889,11 @@ function setStatus(agent: Agent, status: Agent['status'], extra: Partial<Agent> 
 export interface PromptOptions {
   /** Force le gabarit ; sinon il est déduit de la colonne de la carte. */
   template?: TemplateKind;
+  /**
+   * Ce tour est le LANCEMENT d'une carte, posé par `lancerLaCarte` : refermé
+   * avant d'atteindre le moteur, il ramène sa carte en « Planifié ».
+   */
+  lancementDeCarte?: LancementDeCarte;
   /** Contexte supplémentaire (briefing, consignes de rôle). */
   context?: string;
   /**
@@ -1436,7 +1476,7 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    */
   setStatus(agent, 'starting', { startedAt: Date.now(), endedAt: undefined });
   const preparation = prochainePreparation++;
-  demarrant.set(agentId, { depuis: Date.now(), jeton: preparation });
+  demarrant.set(agentId, { depuis: Date.now(), jeton: preparation, lancement: options.lancementDeCarte, etape: 'début' });
   let attendUnQuota = false;
   try {
     attendUnQuota = await preparerLeTour(agent, text, options, preparation);
@@ -1626,6 +1666,7 @@ async function preparerLeTour(
         `${decision.ecartes.join(', ')} à sa limite connue`,
     );
   }
+  etapeDePreparation(agent.id, preparation, 'choix du compte');
   const account = compteRetenu ?? (await pickAccount(agent.run.engine));
   if (!account) {
     /*
@@ -1762,6 +1803,7 @@ async function preparerLeTour(
     // de la mémoire voyage à part (`kind: 'memory'`) : c'est ce qui permet au
     // tiroir « Contexte envoyé » de distinguer mémoire et reste du briefing.
     const travailDeLaCarte = card ? `${card.title}\n${card.description}` : '';
+    etapeDePreparation(agent.id, preparation, 'compétences pertinentes');
     const { sansMemoire, socle } = briefingSepare(
       project.path,
       project.name,
@@ -1772,7 +1814,7 @@ async function preparerLeTour(
       // Le POOL DE COMPÉTENCES est servi au poids du travail de la carte : les
       // fiches qui en parlent sont nommées, les autres comptées.
       travailDeLaCarte,
-      // …et d'abord selon le juge local, quand il est éveillé et allumé.
+      // …et d'abord selon le juge rapide, quand il est éveillé et allumé.
       card && partsDAccueil(niveau).competences
         ? await competencesPertinentes(travailDeLaCarte, { cardId: card.id, projectId: project.id, projet: project.name })
         : undefined,
@@ -1831,8 +1873,9 @@ async function preparerLeTour(
         contextParts.push({ label: 'Base de connaissances — accueil', kind: 'memory', origine: 'projet', content: accueil });
         memoryAndInstructionsCharacters += accueil.length;
       }
-      /* Les pistes passent au tri du juge local : une piste franchement hors
+      /* Les pistes passent au tri du juge rapide : une piste franchement hors
          sujet ne vaut pas les signes qu'elle coûte. Sans avis, toutes restent. */
+      etapeDePreparation(agent.id, preparation, 'pistes de la mémoire');
       const pistes = texteDesPistes(
         await garderLesPertinents(
           travailDeLaCarte,
@@ -1946,14 +1989,15 @@ async function preparerLeTour(
 
     /*
      * QUESTION OU TRAVAIL : UNE INDICATION, JAMAIS UNE DÉCISION. Tant que rien
-     * n'est compris sur la carte, le juge local dit à quoi ressemble le
+     * n'est compris sur la carte, le juge rapide dit à quoi ressemble le
      * message de l'utilisateur ; le cadrage garde les DEUX fins (répondre, ou
-     * cadrer). Express : si Laya dort, rien n'est ajouté — et l'appel le
+     * cadrer). Délai court : si Jev traîne, rien n'est ajouté — et l'appel le
      * réveille pour la suite de la discussion et le lancement de la carte.
      */
     if (!options.silent && card && !card.parcours?.comprehension?.texte?.trim()) {
+      etapeDePreparation(agent.id, preparation, 'nature de la demande');
       const indication = await indiquerLaNatureDeLaDemande(text, { cardId: card.id, projectId: project.id });
-      if (indication) contextParts.push({ label: 'Indication du juge local', kind: 'extra', origine: 'plateforme', content: indication });
+      if (indication) contextParts.push({ label: 'Indication du juge rapide', kind: 'extra', origine: 'plateforme', content: indication });
     }
 
     /*
@@ -1997,6 +2041,7 @@ async function preparerLeTour(
     }
   }
   if (card?.parcours?.creationSouhaitee) {
+    etapeDePreparation(agent.id, preparation, 'consigne de création');
     const consigneCreation = await consigneDeCreationDeLaCarte(card).catch((err) => {
       log.warn('consigne du mode Création indisponible', String((err as Error)?.message ?? err));
       return '';
@@ -2127,6 +2172,7 @@ async function preparerLeTour(
       origine: 'plateforme',
     },
   ];
+  etapeDePreparation(agent.id, preparation, 'démarrage du moteur');
   await startTurn(
     agent,
     prompt,
@@ -2197,9 +2243,18 @@ function carteContexte(
     `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.` +
     (ecritLaCarte
       ? `\nIdentifiant de cette carte, à passer à « board_update_card » : ${card.id}` +
-        `\nNiveau d'exécution actuellement retenu : ${card.run?.niveau ?? '(aucun — dis-le dès que tu sais)'}`
+        `\nNiveau d'exécution actuellement retenu : ${card.run?.niveau ?? '(aucun — dis-le dès que tu sais)'}` +
+        /* CE QUE LE TABLEAU DIT DE LA CARTE, À L'AGENT QUI EN PARLE. Sans
+           cette ligne, le cadrage d'une carte dont le lancement était mort
+           avant le moteur ne savait rien de l'échec, et répondait à
+           « et le travail ? » qu'il fallait « valider le plan » (InVia,
+           27/10/2026). */
+        (card.scheduling?.waitingReason ? `\nÉtat affiché sur la carte : ${card.scheduling.waitingReason}` : '')
       : '');
-  const fond = createHash('sha1').update(`${card.title}\n${card.description ?? ''}`).digest('hex').slice(0, 12);
+  const fond = createHash('sha1')
+    .update(`${card.title}\n${card.description ?? ''}\n${ecritLaCarte ? (card.scheduling?.waitingReason ?? '') : ''}`)
+    .digest('hex')
+    .slice(0, 12);
   const empreinte = `${fond}:${card.column}`;
 
   if (nouvelleSession) {
@@ -5577,9 +5632,21 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     }
   }
 
+  /*
+   * SANS MOTEUR, LA DERNIÈRE BULLE N'EST PAS FORCÉMENT DE CE TOUR. Un tour
+   * refermé dans sa PRÉPARATION n'a encore rien écrit : la dernière réponse du
+   * fil est celle du tour d'AVANT. Elle passait pour la sienne — « réponse
+   * rendue », donc agent « terminé » — et le balayage rangeait la carte dans
+   * « À déployer » comme un travail fini (carte InVia, 27/10/2026 : le tour
+   * de lancement mort avant le moteur, la bulle du cadrage prise pour son
+   * compte rendu). Seule compte une bulle née depuis le départ de CE tour.
+   */
+  const debutDuTour = agent.startedAt ?? 0;
   const dernier = run
     ? store.getMessage(run.messageId)
-    : [...store.listMessages(agentId, 5)].reverse().find((message) => message.role === 'assistant');
+    : [...store.listMessages(agentId, 5)]
+        .reverse()
+        .find((message) => message.role === 'assistant' && message.createdAt >= debutDuTour);
   const reponseRendue = !!dernier && dernier.content.trim().length > 0;
   /*
    * Une session coupée avant sa réponse garde ce qu'elle avait déjà mesuré.
@@ -5757,6 +5824,12 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
     demarrant.delete(agent.id);
     if (!refermerLeTour(agent.id, verdict.raison)) continue;
     refermes += 1;
+    if (!run && preparation) {
+      log.warn(`préparation refermée à l'étape « ${preparation.etape ?? 'inconnue'} » (agent ${agent.id})`);
+      /* UN LANCEMENT MORT AVANT LE MOTEUR RAMÈNE SA CARTE : rien n'a été fait,
+         c'est « Lancer » qui la refera partir — pas une décision d'erreur. */
+      if (preparation.lancement && ramenerLeLancementManque(agent.id, preparation.lancement)) continue;
+    }
     /*
      * ET LA DEMANDE NE RESTE PAS SANS RÉPONSE À L'ÉCRAN. Un tour refermé APRÈS
      * le moteur a un message en cours d'écriture, qui reçoit la raison. Un tour
@@ -5766,6 +5839,51 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
     direLeBlocage(agent.id, verdict.raison);
   }
   return refermes;
+}
+
+/**
+ * LE LANCEMENT D'UNE CARTE MORT AVANT LE MOTEUR.
+ *
+ * La carte retourne dans la colonne d'où le clic l'a fait partir, avec sa
+ * phrase (`RAISON_LANCEMENT_NON_ABOUTI`), sa marque de vol éteinte ; l'agent
+ * de cadrage passé en exécution pour ce tour redevient l'agent de cadrage, au
+ * repos, pour que le prochain « Lancer » refasse exactement le même départ
+ * (discussion, compréhension, plan). Rend `false` quand la carte n'est pas à
+ * ramener (`colonneApresLancementManque`) : le mot ordinaire se pose alors.
+ */
+function ramenerLeLancementManque(agentId: string, lancement: LancementDeCarte): boolean {
+  const card = store.getCard(lancement.cardId);
+  if (!card) return false;
+  const cible = colonneApresLancementManque({
+    colonne: card.column,
+    memeAgent: card.agentId === agentId,
+    dejaEnregistre: !!card.codeDejaEnregistre,
+    colonneAvant: lancement.colonneAvant,
+  });
+  if (!cible) return false;
+  const agent = store.getAgent(agentId);
+  if (agent) {
+    const rendu = store.saveAgent({
+      ...agent,
+      ...(lancement.etaitLeCadrage ? { role: 'cadrage' as const, workdir: undefined, briefingDExecutionAttendu: undefined } : {}),
+      status: 'idle',
+    });
+    bus.emit({ type: 'agent.upsert', agent: rendu });
+  }
+  const ramenee = store.saveCard({
+    ...card,
+    column: cible,
+    position: store.nextPosition(card.projectId, cible),
+    scheduling: {
+      ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      tourEnVolDepuis: undefined,
+      waitingReason: RAISON_LANCEMENT_NON_ABOUTI,
+      reprendreDesQuePossible: undefined,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: ramenee });
+  log.warn(`lancement de « ${card.title} » mort avant le moteur : la carte retourne en « ${cible} »`);
+  return true;
 }
 
 /**
@@ -5803,7 +5921,13 @@ function direLeBlocage(agentId: string, raison: string): void {
      * justement ce tour-ci qui n'a pas démarré.
      */
     const releveMorte = !!dernier?.repriseCompte?.choisi && !dernier.repriseCompte.consommeeA;
-    if (dernier?.role === 'assistant' && (dernier.error || dernier.content.trim()) && !releveMorte) return;
+    /* …ET UNE BULLE D'UN TOUR PRÉCÉDENT NE DIT RIEN DE CELUI-CI. Une demande
+       SILENCIEUSE (lancement d'une carte, reprise) n'écrit aucune bulle : le
+       dernier message du fil est la réponse d'avant, qui faisait taire le mot
+       — et sauter la décision « Relancer » (§ `refermerLeTour`). */
+    const debutDuTour = store.getAgent(agentId)?.startedAt ?? 0;
+    const deCeTour = !!dernier && dernier.createdAt >= debutDuTour;
+    if (dernier?.role === 'assistant' && deCeTour && (dernier.error || dernier.content.trim()) && !releveMorte) return;
     /*
      * LA DEMANDE PERDUE, quand il y en a une : le dernier message du fil est
      * celui de l'utilisateur, écrit à l'entrée de la préparation et resté sans

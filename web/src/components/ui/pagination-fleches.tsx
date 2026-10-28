@@ -66,7 +66,7 @@ export function FlecheDePage({
       title={libelle}
       className={cn(
         'rounded-md p-1.5 sm:p-1 text-muted transition-colors',
-        actif ? 'hover:bg-border hover:text-text' : 'cursor-default opacity-40',
+        actif ? 'hover:bg-fond-survol hover:text-text' : 'cursor-default opacity-40',
       )}
     >
       <Icone className="h-3.5 w-3.5" />

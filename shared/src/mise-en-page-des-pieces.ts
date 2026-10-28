@@ -151,9 +151,8 @@ export function blocsDePiece(contenu: string): BlocDePiece[] {
  * CE QUE LE SUIVI MONTRE D'UNE ÉTAPE (25/10/2026) : une piste ÉCARTÉE
  * (direction `refuse`) ne revient JAMAIS dans la liste, qu'une direction soit
  * retenue ou non — réécrire le brief repasse la retenue « à proposer »
- * (`invaliderLAval`), et les écartées réapparaissaient. Elles vivent dans le
- * menu « Versions » (« Autres pistes ») : celui de la direction retenue, ou,
- * sans retenue, celui de chaque direction montrée ; d'où l'on peut en
+ * (`invaliderLAval`), et les écartées réapparaissaient. Elles vivent dans la
+ * feuille « Archives » de l'étape (« Autres pistes »), d'où l'on peut en
  * reprendre une. Le compteur de l'étape compte ce qui est montré.
  */
 export function piecesAffichees<T extends { genre: string; etat: string }>(elements: readonly T[]): { affichees: T[]; ecartees: T[]; retenue: T | null } {

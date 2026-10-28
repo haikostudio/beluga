@@ -759,6 +759,31 @@ function ligneDeMeta(u: Unite, maintenant?: number): string {
   return morceaux.join(' · ');
 }
 
+const espacesNormalises = (t: string) => t.replace(/\s+/g, ' ').trim();
+
+/**
+ * Le détail sans le paragraphe qui redit le résumé (espaces normalisés, paragraphe
+ * ENTIER : jamais une simple inclusion). Une section vidée disparaît avec son titre.
+ * Pur, réservé au rendu : le texte stocké, le gabarit et les vecteurs ne changent pas.
+ */
+export function detailSansResumeRepete(detail: string, resume: string): string {
+  const cible = espacesNormalises(resume);
+  if (!cible || !detail.trim()) return detail;
+  let retire = false;
+  const sections = sectionsDuDetail(detail).map((s) => {
+    const paragraphes = s.texte.split(/\n\s*\n/);
+    const gardes = paragraphes.filter((p) => espacesNormalises(p) !== cible);
+    if (gardes.length === paragraphes.length) return s;
+    retire = true;
+    return { ...s, texte: gardes.join('\n\n').trim() };
+  });
+  if (!retire) return detail;
+  return sections
+    .filter((s) => s.texte)
+    .map((s) => (s.titre === null ? s.texte : `### ${s.titre}\n\n${s.texte}`))
+    .join('\n\n');
+}
+
 /** Une unité rendue en Markdown, au gabarit de son type. */
 export function rendreUnite(u: Unite, niveauTitre = 2, options: OptionsDeRenduPourAgent = {}): string {
   const h = '#'.repeat(niveauTitre);
@@ -771,7 +796,7 @@ export function rendreUnite(u: Unite, niveauTitre = 2, options: OptionsDeRenduPo
   if (relations.length) lignes.push(relations.join(' · '));
   lignes.push('', u.resume);
   const sous = '#'.repeat(niveauTitre + 1);
-  const detail = detailSansSectionsVides(u.detail);
+  const detail = detailSansResumeRepete(detailSansSectionsVides(u.detail), u.resume);
   if (detail) lignes.push('', detail.replace(/^### /gm, `${sous} `));
   if (u.raisonnement.trim()) lignes.push('', `${sous} Raisonnement`, '', u.raisonnement.trim());
   return lignes.join('\n');

@@ -40,7 +40,7 @@ import { PastilleProjet } from '@/components/pastille-projet';
 import { ExplicationDeConfiguration } from '@/components/tiroir-procedure-production';
 import { DeployControls } from '@/components/tiroir-deploiement';
 import { CorpsDuVolet } from '@/components/volet-publication';
-import { Button, ConfirmDialog, Pastille, ZoneDefilement } from '@/components/ui';
+import { Button, CaseACocher, ConfirmDialog, Pastille, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
@@ -128,7 +128,18 @@ export function BandeauProductionGroupe({
     };
   });
   const resume = resumeDeLaProductionDuGroupe(lignes);
-  const prets = lignes.filter((ligne) => ligne.pret && !envoi.has(ligne.membre.id));
+  /* LES PROJETS COCHÉS (demande du 27/10/2026) : le bouton du pied ne lance
+     que ceux-là. `null` tant que rien n'a été décoché : tous les prêts. */
+  const [coches, setCoches] = React.useState<ReadonlySet<string> | null>(null);
+  const estCoche = (id: string) => !coches || coches.has(id);
+  const prets = lignes.filter((ligne) => ligne.pret && !envoi.has(ligne.membre.id) && estCoche(ligne.membre.id));
+  const basculer = (id: string) =>
+    setCoches((prev) => {
+      const suite = new Set(prev ?? lignes.filter((ligne) => ligne.pret).map((ligne) => ligne.membre.id));
+      if (suite.has(id)) suite.delete(id);
+      else suite.add(id);
+      return suite;
+    });
   useSeconde(resume.enRoute);
 
   React.useEffect(() => {
@@ -203,9 +214,13 @@ export function BandeauProductionGroupe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ouvert, signatureDuControle, colonne]);
 
-  /* Le tiroir refermé revient à la liste : le rouvrir ne tombe pas sur un détail oublié. */
+  /* Le tiroir refermé revient à la liste — le rouvrir ne tombe pas sur un
+     détail oublié — et tous les projets prêts cochés. */
   React.useEffect(() => {
-    if (!ouvert) setDetail(null);
+    if (!ouvert) {
+      setDetail(null);
+      setCoches(null);
+    }
   }, [ouvert]);
 
   /* LE SUIVI D'UN MEMBRE DEMANDÉ D'AILLEURS (`client.demanderProduction`) : la
@@ -368,7 +383,7 @@ export function BandeauProductionGroupe({
       corps={
         <div className="flex flex-col gap-2">
           <p className="text-[13px] leading-snug text-muted">
-            {t('Chaque projet du groupe a sa propre mise en production : lancez-les un par un, ou tous en même temps.')}
+            {t('Chaque projet du groupe a sa propre mise en production : lancez-les un par un, ou cochez-les et lancez-les ensemble.')}
           </p>
           <ul className="flex flex-col gap-1.5" data-membres-production={membres.length}>
             {lignes.map((ligne) => {
@@ -387,6 +402,14 @@ export function BandeauProductionGroupe({
                   {/* LA CARTE D'UN PROJET : son état et, DANS LE COIN HAUT DROIT,
                       ses réglages ; dessous, son bouton sur toute la largeur. */}
                   <div className="flex items-start gap-1 px-2.5 pt-2">
+                    <CaseACocher
+                      checked={ligne.pret && estCoche(id)}
+                      disabled={!ligne.pret}
+                      onCheckedChange={() => basculer(id)}
+                      className="mr-1 mt-[3px]"
+                      aria-label={t('Inclure ce projet')}
+                      data-case-production-membre={id}
+                    />
                     <button
                       type="button"
                       onClick={() => setDetail(id)}
@@ -497,7 +520,9 @@ export function BandeauProductionGroupe({
             <p className="mb-1.5 text-[12px] leading-snug text-faint" data-raison-bouton-production>
               {resume.enRoute
                 ? t('Les mises en production lancées sont en cours.')
-                : t('Aucun projet du groupe n’est prêt à partir : la raison est écrite sur chaque ligne.')}
+                : lignes.some((ligne) => ligne.pret)
+                  ? t('Aucun projet coché.')
+                  : t('Aucun projet du groupe n’est prêt à partir : la raison est écrite sur chaque ligne.')}
             </p>
           ) : null}
           <Button
@@ -509,7 +534,7 @@ export function BandeauProductionGroupe({
             data-bouton-production-groupe={prets.length}
           >
             {envoi.size ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Rocket className="h-3 w-3 shrink-0" />}
-            <span className="truncate">{t('Tout mettre en production ({n})', { n: prets.length })}</span>
+            <span className="truncate">{t('Mettre en production la sélection ({n})', { n: prets.length })}</span>
           </Button>
         </>
       }

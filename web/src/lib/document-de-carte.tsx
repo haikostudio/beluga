@@ -53,11 +53,13 @@ export function ouvrirLeDocument(document: DocumentDeCarte): void {
 }
 
 /**
- * LE SUIVI D'UNE PRODUCTION EST TOUJOURS OUVERT SUR ORDINATEUR (décision du
- * 25/10/2026, qui remplace « une fois par session ») : dès que le chemin du
- * tournage paraît, et à chaque affichage, rechargement compris. Il ne chasse
- * jamais un document déjà ouvert pour la carte (le plan) et revient
- * dès que celui-ci se referme (`card-panel.tsx`).
+ * LE SUIVI D'UNE PRODUCTION S'OUVRE DE LUI-MÊME SUR ORDINATEUR, SAUF SUR UNE
+ * CARTE OÙ ON L'A FERMÉ (décision du 28/10/2026, qui remplace « toujours
+ * ouvert, sans croix » du 25/10/2026) : dès que le chemin du tournage paraît,
+ * rechargement compris, tant que sa croix ou le bouton « Suivi » ne l'a pas
+ * fermé pour cette carte (`suivi-de-carte.ts`). Il ne chasse jamais un document
+ * déjà ouvert pour la carte (le plan) et revient dès que celui-ci se referme
+ * (`card-panel.tsx`).
  */
 export function ouvrirLeSuiviSiRienNestOuvert(cardId: string): void {
   if (ouvert?.cardId === cardId) return;

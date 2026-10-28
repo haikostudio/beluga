@@ -322,11 +322,34 @@ export function questionDuLotDeDevis(e: {
   };
 }
 
+/** La ligne d'une validation de génération : « Nano Banana Pro · 2 brouillons » (plus le prix non publié s'il y en a). */
+export function descriptionDUneGeneration(lignes: DevisDeLaQuestion['lignes']): string {
+  const n = lignes.length;
+  const modeles = [...new Set(lignes.map((l) => l.modele).filter(Boolean))].join(' + ');
+  const sansPrix = lignes.filter((l) => l.prix === null).length;
+  return [modeles, `${n} brouillon${n > 1 ? 's' : ''}`, sansPrix ? `${sansPrix} au prix non publié` : ''].filter(Boolean).join(' · ');
+}
+
+/**
+ * UNE VALIDATION DE GÉNÉRATION N'ARRÊTE PAS L'AGENT (27/10/2026). Le bouton
+ * « Valider · prix » d'une création de média se tranche côté démon, au clic
+ * (`trancherLeLotDuClic`), sans réponse à rendre à un tour : plusieurs
+ * peuvent donc rester ouvertes à la fois — une par plan, posées d'un coup — et
+ * aucune ne ferme la barre d'écriture. Toute autre question bloque (DEC-026).
+ */
+export function validationNonBloquante(question: { devis?: { bouton?: boolean } | null } | null | undefined): boolean {
+  return !!question?.devis?.bouton;
+}
+
 /**
  * LA QUESTION D'UNE GÉNÉRATION D'UNE CRÉATION DE MÉDIA (26/10/2026) : pas de
- * choix à cocher, le devis porte son bouton « Générer · prix » — un clic vaut
- * accord et lance la génération ; une réponse écrite à la place la refuse et
- * part au directeur, qui ajuste.
+ * choix à cocher, le devis porte son bouton « Valider · prix » — un clic vaut
+ * accord et lance la génération ; « Refuser » ne dépense rien.
+ *
+ * ALLÉGÉE (27/10/2026) : un titre, UNE ligne de description (le modèle et le
+ * nombre de brouillons), le prix dans le bouton. Plus de tableau de devis ni
+ * de mode d'emploi : pour changer quelque chose, on l'écrit dans le champ
+ * principal de la conversation.
  */
 export function questionDUneGeneration(e: {
   lotId: string;
@@ -338,7 +361,7 @@ export function questionDUneGeneration(e: {
   const n = e.lignes.length;
   return {
     question: `Générer « ${e.titre} » ?`,
-    description: `${n} brouillon${n > 1 ? 's' : ''} à départager${sansPrix ? ' — une ligne au prix non publié sera facturée par le service au tarif de votre compte' : ''}. Le bouton porte le prix : un clic vaut accord et lance la génération. Pour changer quelque chose avant, écrivez-le ici.`,
+    description: descriptionDUneGeneration(e.lignes),
     options: [],
     devis: { lotId: e.lotId, titre: e.titre, lignes: e.lignes, total: connu, sansPrix, budget: null, depense: e.depense, bouton: true },
   };
@@ -541,6 +564,12 @@ export interface MediaDuSuivi {
    */
   /** Ajouté au suivi par l'utilisateur ; nul ou absent : il n'est que dans le fil. */
   retenuLe?: number | null;
+  /**
+   * LE PLAN OÙ L'UTILISATEUR L'A PLACÉ (28/10/2026) : choisi au menu des plans
+   * de « Valider », ou en le glissant dans une case du suivi. Il l'emporte sur
+   * le plan nommé au devis (`plan`) ; nul ou absent : le plan du devis.
+   */
+  planPlace?: string | null;
   /** Ce qu'on sait du fichier rangé (dimensions, durée, débit…). */
   mesure?: MesureDeMedia | null;
   /** Le poids du fichier, en octets. */

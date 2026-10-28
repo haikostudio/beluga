@@ -302,7 +302,7 @@ export async function executerPourLAssistant(
         /* L'ATELIER EST PROPRE À CHAQUE PROJET : sans projet nommé, l'outil
            viserait celui de l'assistant (Beluga) — jamais en silence. */
         if (!projetVise) {
-          return { ok: false, text: 'Dis quel projet viser (« projet », son nom) : l’atelier marketing est propre à chaque projet. Un message qui commence par « Marketing de « … » : » le nomme.' };
+          return { ok: false, text: 'Dis quel projet viser (« projet », son nom) : l’atelier Réseaux sociaux est propre à chaque projet. Un message qui commence par « Réseaux sociaux de « … » : » le nomme.' };
         }
         return await callTool({ ...ctx, projectId: projetVise }, nom, args);
       default:
