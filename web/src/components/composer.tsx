@@ -2873,7 +2873,9 @@ function FileDAttente({
            dans un gris (`--decroche-attente`) qui tranche sur la liste des
            tâches posée dessous (`.decroche-degrade` et `.decroche-violet`,
            styles.css). Le violet est le jeton `--teinte` de chaque palette.
-           Exception VOULUE au bouton sans bordure (MEM-4858). Haut et
+           EN CLAIR (29/10/2026) : fond plein gris, sans dégradé ni bordure,
+           seuls l'icône et le libellé en violet (`.encre-du-decroche`).
+           Exception VOULUE au bouton sans bordure, en sombre (MEM-4858). Haut et
            flancs seulement : le bas passe sous le témoin (ou le champ), 12 px
            de recouvrement, le rayon du champ — d'où les 12 px rendus en bas
            (36 + 12, 32 + 12 : resserrée le 27/10/2026, autant d'air au-dessus
@@ -2882,8 +2884,8 @@ function FileDAttente({
            laissait collé. */
         className="decroche-degrade decroche-violet relative z-0 -mb-3 flex h-12 w-full shrink-0 items-start gap-2 rounded-t-lg px-3 pt-2 text-left text-text [--hauteur-du-degrade:36px] sm:h-11 sm:pt-1.5 sm:[--hauteur-du-degrade:32px]"
       >
-        <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 tabular-nums">{libelle}</span>
+        <MessageSquareText className="encre-du-decroche mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
+        <span className="encre-du-decroche min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 tabular-nums">{libelle}</span>
         <ChevronUp className="mt-0.5 h-4 w-4 shrink-0 text-faint" aria-hidden />
       </button>
       <Drawer open={ouvert} onClose={() => setOuvert(false)} feuille>

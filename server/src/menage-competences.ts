@@ -20,12 +20,15 @@
 
 import fs from 'node:fs';
 import {
+  DESCRIPTION_DU_MENAGE,
+  LABEL_RENDEZ_VOUS_DE_NUIT,
   TITRE_MENAGE,
   annonceeEnTeteDeSession,
   consigneDuMenage,
   ficheEnService,
   menageNecessaire,
   premiereContradiction,
+  rapportDuMenage,
   type CarteComparable,
   type Card,
   type Competence,
@@ -38,7 +41,9 @@ import { lirePool } from './competences.js';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import { releverLesRecurrencesDuCode } from './recurrences-du-code.js';
-import { createAgent, sendPrompt } from './runtime.js';
+import { panneDuTour } from './auto-amelioration.js';
+import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
+import { sendPrompt } from './runtime.js';
 import * as store from './store.js';
 
 /**
@@ -216,13 +221,34 @@ export async function rendezVousDuMenage(force = false): Promise<BilanDuMenage> 
     const total = touchees.length + aRevoir.length + recurrences.length;
     // Rôle « analysis » : il ne modifie aucun code. Sa seule sortie est l'outil
     // d'écriture du pool, qui vaut pour TOUS les projets.
-    const agent = createAgent({ projectId: accueil.id, role: 'analysis', title: TITRE_MENAGE });
+    // Comme tout agent lancé par le démon, il a sa CARTE avant de naître : sans elle, il
+    // tournait « sans carte » (clic sans issue) et ne laissait aucune trace à son arrêt.
+    // L'étiquette du rendez-vous de nuit lui donne le parcours d'un examen, sans « À déployer ».
+    const { card, agentId } = ouvrirCarteDAgent({
+      projectId: accueil.id,
+      titre: TITRE_MENAGE,
+      description: DESCRIPTION_DU_MENAGE,
+      labels: [LABEL_RENDEZ_VOUS_DE_NUIT],
+      role: 'analysis',
+    });
+    let panne: string | null = null;
     try {
-      await sendPrompt(agent.id, consigneDuMenage({ touchees, aRevoir, recurrences, inventaire }), { template: 'none', silent: true });
+      await sendPrompt(agentId, consigneDuMenage({ touchees, aRevoir, recurrences, inventaire }), { template: 'none', silent: true });
     } catch (err: any) {
       log.error('ménage des compétences : le passage a échoué', err);
-      return { lance: true, raison: err?.message ?? 'raison inconnue', fiches: total };
+      panne = err?.message ?? 'raison inconnue';
     }
+    panne ??= panneDuTour(agentId);
+    if (panne) {
+      direLaPanneSurLaCarte(card.id, agentId, panne);
+      return { lance: true, raison: panne, fiches: total };
+    }
+    rangerCarteDAgent(
+      card.id,
+      agentId,
+      'archived',
+      rapportDuMenage({ touchees: touchees.length, aRevoir: aRevoir.length, recurrences: recurrences.length }),
+    );
 
     log.info(
       `ménage des compétences : ${touchees.length} fiche(s) touchée(s), ${aRevoir.length} à revoir, ` +

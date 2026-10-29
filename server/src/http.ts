@@ -69,14 +69,11 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, outilServiA, toolsFor } from './tools.js';
 import {
-  demandeLAccord,
   estAssistantGlobal,
   executerPourLAssistant,
   outilServiALAssistant,
   outilsDeLAssistant,
   preparerLAppel,
-  questionDeLAccord,
-  suiteDeLAccord,
 } from './assistant-global.js';
 import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
@@ -1029,41 +1026,17 @@ export function createHttpServer(): http.Server {
             run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
           };
           /*
-           * LA PORTE D'ACCORD DE L'ASSISTANT GLOBAL, TENUE ICI ET NULLE PART
-           * AILLEURS (demande du 02.10.2026). L'appel est classé
-           * (`genreDeLAppel`) ; s'il faut l'accord — suppression, envoi au
-           * client, effacement sur un serveur (18/10/2026 : plus aucune
-           * autre écriture) —, RIEN n'est exécuté : une question « Autoriser /
-           * Refuser » est posée dans le fil, le moteur reste arrêté sur son
-           * appel, et le geste ne part qu'au clic (`suiteDeLAccord`). La
-           * consigne du modèle ne joue aucun rôle dans cette garde.
+           * L'ASSISTANT GLOBAL N'A PLUS DE PORTE D'ACCORD (décision du
+           * 29/10/2026) : ses appels partent directement, comme ceux de tout
+           * agent — c'est lui qui confirme l'irréversible par `ask_user`. Ses
+           * outils propres et ses gestes d'écran passent par
+           * `executerPourLAssistant`.
            */
           let result: Awaited<ReturnType<typeof callTool>>;
           if (assistant) {
             const prepare = preparerLAppel(String(body.name), body.args ?? {});
             if (!prepare.ok) return json(res, 200, { ok: false, text: prepare.text });
             const executer = () => executerPourLAssistant(contexteDeLAppel, String(body.name), prepare.args, prepare.projectId);
-            if (body.name !== 'ask_user' && demandeLAccord(prepare.genre)) {
-              const dejaUneQuestion = refusDeQuestionSimultanee(agentId, 'ask_user');
-              if (dejaUneQuestion) return json(res, 200, { ok: false, text: dejaUneQuestion });
-              const question = questionDeLAccord(String(body.name), prepare.args, prepare.genre, prepare.pourquoi);
-              poserLAttente(question.id, agentId, Date.now(), suiteDeLAccord(executer));
-              attachToCurrentMessage(agentId, { question });
-              journaliserDansLeTour(agentId, {
-                nature: 'requete',
-                libelle: String(body.name),
-                outil: String(body.name),
-                params: body.args ?? {},
-                resultat: '',
-                reussie: true,
-                dureeMs: Date.now() - debutAppel,
-              });
-              return json(res, 200, {
-                ok: true,
-                text: 'En attente de l’accord de l’utilisateur.',
-                attente: { questionId: question.id, trancheMs: TRANCHE_ATTENTE_MS },
-              });
-            }
             result = await executer();
           } else {
             result = await callTool(contexteDeLAppel, body.name, body.args ?? {});

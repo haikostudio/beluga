@@ -803,6 +803,22 @@ function BulleQuestionComplete({
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[14px] leading-snug">
+                    {/* LES POINTS DE COULEUR D'UN CHOIX DE TEINTES (29/10/2026) : la
+                        couleur PROPOSÉE, d'office, devant le libellé — une
+                        exception de contenu à la palette monochrome. Le liseré
+                        `--faint` laisse voir un blanc en clair et un noir en sombre. */}
+                    {option.couleurs?.length ? (
+                      <span className="mr-1.5 inline-flex translate-y-[1px] items-center -space-x-1 align-baseline" data-couleurs-option={option.id}>
+                        {option.couleurs.map((couleur, i) => (
+                          <span
+                            key={`${couleur}-${i}`}
+                            data-point-couleur={couleur}
+                            className="inline-block h-3 w-3 rounded-full ring-1 ring-inset ring-[hsl(var(--faint)/0.45)]"
+                            style={{ backgroundColor: couleur }}
+                          />
+                        ))}
+                      </span>
+                    ) : null}
                     {option.label}
                     {question.recommandee && option.label === question.recommandee ? (
                       <span
@@ -896,10 +912,16 @@ function BulleQuestionComplete({
       {/* Une question peut porter assez d'options pour dépasser l'écran. Les
           deux issues restent donc collées au bas du fil pendant sa lecture :
           répondre ou quitter ne doit jamais demander de deviner qu'un bouton
-          se cache plus bas. */}
+          se cache plus bas.
+          LA BARRE PASSE AU-DESSUS DU VOILE PAR L'EMPILEMENT (capture #4b4c,
+          29/10/2026) : le fondu du bas de `ZoneDefilement` est un frère posé
+          APRÈS la zone, en `z-10` ; à égalité, l'ordre du DOM le mettait sur
+          « Répondre » dans les derniers pixels du défilement, quel que soit le
+          retrait calculé. `z-20` gagne dans le même contexte d'empilement ;
+          la preuve est `elementsFromPoint` (`verif-question-choix-et-fondu`). */}
       <div
         className={cn(
-          'sticky bottom-0 z-10 -mx-3 -mb-2.5 mt-2 flex flex-wrap items-center gap-1.5 border-t border-faint/15 px-3 py-2 backdrop-blur-sm',
+          'sticky bottom-0 z-20 -mx-3 -mb-2.5 mt-2 flex flex-wrap items-center gap-1.5 border-t border-faint/15 px-3 py-2 backdrop-blur-sm',
           surFondRaised ? 'bg-raised/95' : 'bg-bloc-fil-voile',
         )}
         ref={barreRef}

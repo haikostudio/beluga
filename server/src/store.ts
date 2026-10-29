@@ -820,6 +820,63 @@ export function trancheDeCartes(
   return { cards: cartesDepuisLignes(avecLesEtapesDesSuites(rows), projectId), total };
 }
 
+/** Une carte trouvée par la recherche : la carte, et son rang dans sa colonne (1 = en tête). */
+export interface CarteTrouvee {
+  card: Card;
+  rang: number;
+}
+
+/**
+ * RETROUVER UNE CARTE PAR SON TITRE, SANS TOUT FAIRE DESCENDRE. Le tableau ne
+ * pose que des paquets de vingt (`trancheDeCartes`) : une carte archivée il y
+ * a deux semaines est 181e de sa colonne, invisible sans faire défiler des
+ * centaines de cartes. La recherche se fait ICI, en SQL sur le titre et la
+ * description, et ne rend que les cartes trouvées — avec leur rang dans la
+ * colonne pour qu'on sache où elles sont. Sans projet : tous les projets.
+ * Les étapes d'une suite et les cartes rangées de l'atelier Marketing restent
+ * hors du tableau, donc hors de la recherche (`SANS_MARKETING`).
+ */
+export function rechercherDesCartes(
+  texte: string,
+  options: { projectId?: string; colonnes?: readonly ColumnKey[]; limite?: number } = {},
+): CarteTrouvee[] {
+  const mots = texte
+    .trim()
+    .split(/\s+/)
+    .filter((mot) => mot.length > 0)
+    .slice(0, 8);
+  if (!mots.length) return [];
+  const motif = (mot: string) => `%${mot.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const conditions = [SANS_MARKETING];
+  const valeurs: (string | number)[] = [];
+  for (const mot of mots) {
+    conditions.push(`(c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')`);
+    valeurs.push(motif(mot), motif(mot));
+  }
+  if (options.projectId) {
+    conditions.push('c.project_id = ?');
+    valeurs.push(options.projectId);
+  }
+  if (options.colonnes?.length) {
+    conditions.push(`c.column_key IN (${options.colonnes.map(() => '?').join(', ')})`);
+    valeurs.push(...options.colonnes);
+  }
+  const limite = Math.min(Math.max(options.limite ?? 20, 1), 50);
+  const rows = getDb()
+    .prepare(`SELECT * FROM cards c WHERE ${conditions.join(' AND ')} ORDER BY c.updated_at DESC LIMIT ?`)
+    .all(...valeurs, limite) as LigneCarte[];
+  const rang = getDb().prepare(
+    `SELECT COUNT(*) AS n FROM cards c WHERE c.project_id = ? AND c.column_key = ? AND c.position > ? AND ${SANS_MARKETING}`,
+  );
+  const trouvees: CarteTrouvee[] = [];
+  for (const row of rows) {
+    const [card] = cartesDepuisLignes([row], row.project_id);
+    if (!card) continue;
+    trouvees.push({ card, rang: (rang.get(row.project_id, row.column_key, row.position) as { n: number }).n + 1 });
+  }
+  return trouvees;
+}
+
 /**
  * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : une de ses trois colonnes
  * (`OngletEnRoute` : « Actifs », « Terminer », « Archiver »), avec les cartes de
@@ -2987,6 +3044,12 @@ export function listCardMessages(cardId: string, limit = 800): Message[] {
 export function getMessage(id: string): Message | null {
   const row = getDb().prepare('SELECT data FROM messages WHERE id = ?').get(id) as { data: string } | undefined;
   return row ? Message.parse(JSON.parse(row.data)) : null;
+}
+
+/** Le message qui porte une proposition de carte (table `proposals`), pour la valider sans écran. */
+export function messageDeLaProposition(proposalId: string): Message | null {
+  const row = getDb().prepare('SELECT message_id AS id FROM proposals WHERE id = ?').get(proposalId) as { id: string } | undefined;
+  return row ? getMessage(row.id) : null;
 }
 
 export function saveMessage(message: Message): Message {

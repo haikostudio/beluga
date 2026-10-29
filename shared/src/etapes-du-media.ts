@@ -443,8 +443,6 @@ export interface EntreeDuPassage {
   elements?: readonly ElementDeProduction[];
   /** Tous les médias de la carte. */
   medias?: readonly MediaDuPassage[];
-  /** Des exports de montage prêts (vidéo). */
-  exportsPrets?: number;
 }
 
 const GENRE_DU_TYPE: Record<TypeDeMediaDeRealisation, 'image' | 'video' | 'son'> = {
@@ -523,7 +521,7 @@ export function passageDuMedia(e: EntreeDuPassage): { geste: GesteDuMedia; possi
 
   if (!p.telechargement) {
     if (video) {
-      if (!(e.exportsPrets ?? 0) && !(e.carte.realisation?.finaux ?? []).some((f) => f.genre === 'video')) {
+      if (!(e.carte.realisation?.finaux ?? []).some((f) => f.genre === 'video')) {
         return { geste: 'passer-telechargement', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.export } };
       }
       return { geste: 'passer-telechargement', possible: true };
@@ -741,48 +739,4 @@ export function sectionsDuTelechargement(e: {
     }
   }
   return { finaux, valides: valides.map(fichier), esquisses: finis.map(fichier) };
-}
-
-/* ------------------------------------------------------------------ */
-/* 8. Le montage vidéo nourri de tous les éléments validés              */
-/* ------------------------------------------------------------------ */
-
-/** Un élément à verser dans le montage de la carte : posé sur la ligne de temps, ou seulement rangé à portée de main. */
-export interface ElementAVerser {
-  attachmentId: string;
-  genre: 'image' | 'video' | 'son';
-  sujet: string;
-  /** Posé sur la ligne de temps (séquences, voix, musique) ; sinon seulement dans la bibliothèque (images). */
-  poser: boolean;
-}
-
-/**
- * CE QUE LE MONTAGE D'UNE VIDÉO REÇOIT AU PASSAGE AU MONTAGE (26/10/2026) :
- * la séquence VALIDÉE de chaque plan, DANS L'ORDRE DU DÉCOUPAGE (plus l'ordre
- * des livraisons), puis la voix off et la musique validées sur leurs pistes ;
- * les images validées vont à la bibliothèque, à portée de main. Rien de non
- * validé, rien de déjà versé.
- */
-export function elementsAVerserDuMedia(e: {
-  elements: readonly ElementDeProduction[];
-  medias: readonly (MediaDuPassage & { attachmentId: string | null; version: number })[];
-  deja: ReadonlySet<string>;
-}): ElementAVerser[] {
-  const plans = decoupageDuMedia(e.elements);
-  const valides = e.medias.filter((m) => estRetenu(m) && !!m.attachmentId);
-  const sortie: ElementAVerser[] = [];
-  const ajouter = (m: (typeof valides)[number], poser: boolean) => {
-    if (e.deja.has(m.attachmentId!) || sortie.some((x) => x.attachmentId === m.attachmentId)) return;
-    sortie.push({ attachmentId: m.attachmentId!, genre: m.genre, sujet: m.plan, poser });
-  };
-  for (const p of etatDesPlans(plans, valides)) {
-    const sequence = p.sequence ? valides.find((m) => m.id === p.sequence!.id) : undefined;
-    if (sequence) ajouter(sequence, true);
-  }
-  /* Une séquence validée hors découpage (un plan ajouté en route) vient ensuite, dans l'ordre de sa fabrication. */
-  for (const m of [...valides].sort((a, b) => a.creeLe - b.creeLe)) if (m.genre === 'video') ajouter(m, true);
-  for (const m of valides) if (m.genre === 'son' && m.capacite === 'voix') ajouter(m, true);
-  for (const m of valides) if (m.genre === 'son' && m.capacite !== 'voix') ajouter(m, true);
-  for (const m of valides) if (m.genre === 'image') ajouter(m, false);
-  return sortie;
 }

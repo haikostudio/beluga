@@ -15,11 +15,13 @@
  * n'importe quel projet. Son modèle se règle dans la barre d'écriture, comme
  * pour tout agent.
  *
- * LA PORTE D'ACCORD est posée dans le pont (`server/src/http.ts`) : chaque
- * appel est classé puis, pour une suppression ou un envoi au client, suspendu
- * sur « Autoriser / Refuser » jusqu'au clic. Ce module fournit les morceaux :
- * préparation de l'appel, exécution, et la suite qui n'exécute qu'après
- * l'accord.
+ * PLUS AUCUNE PORTE D'ACCORD (décision du 29/10/2026) : le démon n'arrête plus
+ * aucun appel sur « Autoriser / Refuser ». L'assistant a tous les droits ; il
+ * confirme LUI-MÊME par `ask_user`, en une phrase, avant un geste qui ne se
+ * reprend pas (consigne `CONSIGNE_ASSISTANT_GLOBAL`). Ses GESTES d'écran —
+ * lancer, déplacer, déployer, redémarrer — passent par la même porte que les
+ * boutons (`commandeCommeLUtilisateur`, `server/src/ws.ts`), au nom du compte
+ * administrateur : mêmes refus, mêmes effets.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,20 +30,15 @@ import { execFile } from 'node:child_process';
 import Database from 'better-sqlite3';
 import {
   Agent,
-  AgentQuestion,
+  COLUMN_KEYS,
   COLUMN_LABELS,
   OUTILS_DE_L_ASSISTANT,
   OUTILS_PROPRES_A_L_ASSISTANT,
-  REPONSE_AUTORISER_ASSISTANT,
-  REPONSE_REFUSER_ASSISTANT,
   TITRE_ASSISTANT_GLOBAL,
-  accordDonne,
-  apercuDuGeste,
-  decisionDAccord,
   genreDeLAppel,
-  questionDAccord,
-  texteDeRefus,
+  lienDeLaCarte,
   trouverLeProjetVise,
+  type ColumnKey,
   type GenreDeGeste,
 } from '@beluga/shared';
 import { getMeta, setMeta } from './db.js';
@@ -130,10 +127,6 @@ const CHAMP_PROJET = {
   type: 'string',
   description: 'Le projet visé, par son NOM ou son identifiant. Sans lui : Beluga Build (ou tous les projets pour une liste).',
 };
-const CHAMP_POURQUOI = {
-  type: 'string',
-  description: 'Une phrase simple : ce que fait ce geste et pourquoi. Elle s’affiche avec la demande d’accord.',
-};
 
 const OUTILS_PROPRES: ToolDef[] = [
   {
@@ -202,9 +195,26 @@ const OUTILS_PROPRES: ToolDef[] = [
     },
   },
   {
+    name: 'assistant_gestes',
+    description:
+      "Les GESTES DE L'ÉCRAN, joués comme si l'utilisateur cliquait lui-même (mêmes refus, mêmes effets). Actions : « trouver » (« texte » : quelques mots du titre ; « projet » facultatif — rend chaque carte trouvée avec son projet, sa colonne, son rang et le LIEN qui l'ouvre, à recopier tel quel dans ta réponse) ; « lancer » (« cardId » : le bouton « Lancer » d'une carte) ; « valider_proposition » (« proposalId » : la vignette « Créer la carte » d'une carte que tu viens de proposer, quand l'utilisateur t'a demandé de la créer) ; « changer_de_projet » (« cardId », « vers » : nom ou identifiant du projet d'arrivée) ; « deployer » (« projet », « cible » : dev = Déployer sur ce serveur, production = Mise en production — SEULEMENT quand l'utilisateur te l'a demandé dans cette conversation, jamais de toi-même) ; « redemarrer » (redémarre Beluga ; REFUSÉ et mis en attente tant qu'un agent ou une publication tourne — dis-le). Pour sortir une carte d'« Archivé » ou d'« À déployer », board_move_card suffit : il agit comme le geste de l'utilisateur.",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['trouver', 'lancer', 'valider_proposition', 'changer_de_projet', 'deployer', 'redemarrer'] },
+        texte: { type: 'string' },
+        cardId: { type: 'string' },
+        proposalId: { type: 'string' },
+        vers: { type: 'string' },
+        cible: { type: 'string', enum: ['dev', 'production'] },
+      },
+    },
+  },
+  {
     name: 'assistant_base_serveur',
     description:
-      "Une requête SQL sur une BASE DE DONNÉES de serveur. « mode » : lecture (consultation, ouverte en LECTURE SEULE : une écriture y échoue) ou ecriture (modification, toujours soumise à l'accord de l'utilisateur). « moteur » : sqlite (« fichier » : le chemin du fichier sur cette machine) ou mysql (« acces » : l'identifiant d'une fiche « Base de données » du coffre-fort). Les résultats sont plafonnés à 200 lignes.",
+      "Une requête SQL sur une BASE DE DONNÉES de serveur. « mode » : lecture (consultation, ouverte en LECTURE SEULE : une écriture y échoue) ou ecriture (modification ; une requête qui EFFACE des données se confirme d'abord par une question à l'utilisateur). « moteur » : sqlite (« fichier » : le chemin du fichier sur cette machine) ou mysql (« acces » : l'identifiant d'une fiche « Base de données » du coffre-fort). Les résultats sont plafonnés à 200 lignes.",
     inputSchema: {
       type: 'object',
       required: ['mode', 'moteur', 'requete'],
@@ -219,11 +229,10 @@ const OUTILS_PROPRES: ToolDef[] = [
   },
 ];
 
-function avecProjetEtPourquoi(def: ToolDef): ToolDef {
+function avecProjet(def: ToolDef): ToolDef {
   const schema = def.inputSchema as { properties?: Record<string, unknown> };
   const proprietes: Record<string, unknown> = { ...(schema.properties ?? {}) };
   if (!OUTILS_A_PROJET_PROPRE.has(def.name) && !proprietes.projet) proprietes.projet = CHAMP_PROJET;
-  if (def.name !== 'ask_user' && def.name !== 'attach_file') proprietes.pourquoi = CHAMP_POURQUOI;
   return { ...def, inputSchema: { ...def.inputSchema, properties: proprietes } };
 }
 
@@ -236,7 +245,7 @@ export function outilsDeLAssistant(agentId: string, options: { creation?: boolea
   const ordinaires = toolsFor('deploy', options).filter((t) => outilServiA(t.name, agentId));
   const vus = new Set(ordinaires.map((t) => t.name));
   const enPlus = TOOL_DEFS.filter((t) => voulus.has(t.name) && !vus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name));
-  return [...ordinaires, ...enPlus, ...OUTILS_PROPRES].map(avecProjetEtPourquoi);
+  return [...ordinaires, ...enPlus, ...OUTILS_PROPRES].map(avecProjet);
 }
 
 export function outilServiALAssistant(nom: string, agentId: string, options: { creation?: boolean; realisation?: boolean } = {}): boolean {
@@ -253,7 +262,7 @@ export type AppelPrepare =
 
 /**
  * « projet » est lu et retiré ; à défaut, la carte visée (`cardId`) donne son
- * projet. « pourquoi » est retiré aussi : il n'est destiné qu'à la question.
+ * projet. Un ancien « pourquoi » (la phrase de l'accord d'avant) est retiré.
  */
 export function preparerLAppel(nom: string, brut: Record<string, any>): AppelPrepare {
   const args = { ...brut };
@@ -277,7 +286,7 @@ export function preparerLAppel(nom: string, brut: Record<string, any>): AppelPre
   return { ok: true, projectId, args, pourquoi, genre: genreDeLAppel(nom, args) };
 }
 
-/** Exécute un appel de l'assistant — sans aucune garde : la porte d'accord est passée avant. */
+/** Exécute un appel de l'assistant. Aucune porte d'accord : il confirme lui-même l'irréversible par `ask_user`. */
 export async function executerPourLAssistant(
   ctx: ToolContext,
   nom: string,
@@ -298,6 +307,14 @@ export async function executerPourLAssistant(
         return backups(args);
       case 'assistant_base_serveur':
         return await baseServeur(args);
+      case 'assistant_gestes':
+        return await gestes(args, projetVise);
+      /* L'ASSISTANT DÉPLACE COMME L'UTILISATEUR (29/10/2026) : sortir une carte
+         d'« Archivé » ou d'« À déployer » est un geste humain quand il le fait
+         à la demande de l'utilisateur. Les autres agents restent fermés aux fins
+         de parcours (MEM-0339, `board_move_card` de `tools.ts`). */
+      case 'board_move_card':
+        return await deplacerCommeLUtilisateur(String(args.cardId ?? ''), String(args.column ?? ''));
       case 'marketing':
         /* L'ATELIER EST PROPRE À CHAQUE PROJET : sans projet nommé, l'outil
            viserait celui de l'assistant (Beluga) — jamais en silence. */
@@ -313,38 +330,109 @@ export async function executerPourLAssistant(
   }
 }
 
-/** La question « Autoriser / Refuser » d'un geste. */
-export function questionDeLAccord(nom: string, args: Record<string, any>, genre: GenreDeGeste, pourquoi?: string): AgentQuestion {
-  return AgentQuestion.parse({
-    id: store.newId(),
-    question: questionDAccord(genre),
-    description: apercuDuGeste(nom, args, pourquoi),
-    kind: 'single',
-    options: [
-      { id: 'o0', label: REPONSE_AUTORISER_ASSISTANT },
-      { id: 'o1', label: REPONSE_REFUSER_ASSISTANT },
-    ],
-    allowFreeText: true,
-  });
-}
-
-/** Le geste attend-il l'accord ? Seulement une suppression, un envoi au client ou un effacement sur un serveur. */
-export function demandeLAccord(genre: GenreDeGeste): boolean {
-  return decisionDAccord(genre) === 'accord';
-}
-
-/** La suite d'une question d'accord : exécuter sur « Autoriser », rendre le refus sinon. */
-export function suiteDeLAccord(executer: () => Promise<ToolResult>): (reponse: string) => Promise<string> {
-  return async (reponse) => {
-    if (!accordDonne(reponse)) return texteDeRefus(reponse);
-    const resultat = await executer();
-    return `${resultat.ok ? 'AUTORISÉ ET EXÉCUTÉ' : 'AUTORISÉ, MAIS EN ÉCHEC'} — ${resultat.text}`;
-  };
-}
-
 /* ------------------------------------------------------------------ */
 /* Les outils propres                                                   */
 /* ------------------------------------------------------------------ */
+
+/** Le compte au nom duquel l'assistant joue un geste d'écran : l'administrateur. */
+async function compteDuGeste() {
+  const { listerComptes: comptes } = await import('./comptes.js');
+  const admin = comptes().find((c) => c.role === 'admin' && c.actif);
+  if (!admin) throw new Error('aucun compte administrateur actif : le geste ne peut pas être joué');
+  return admin;
+}
+
+/** Un geste d'écran, joué par la même porte que le bouton (`commandeCommeLUtilisateur`). */
+async function commeLUtilisateur(cmd: Record<string, unknown>): Promise<any> {
+  const { commandeCommeLUtilisateur } = await import('./ws.js');
+  return commandeCommeLUtilisateur(cmd as never, await compteDuGeste());
+}
+
+function projetParNom(voulu: string): string | null {
+  const vise = trouverLeProjetVise(
+    store.listProjects(true).map((p) => ({ id: p.id, name: p.name, archive: p.archived })),
+    voulu,
+  );
+  return vise.ok ? vise.projet.id : null;
+}
+
+/** Où est une carte, en une ligne : projet, colonne, rang, ancienneté et lien. */
+function ligneDeCarte(card: { id: string; projectId: string; title: string; column: string; updatedAt: number }, rang?: number): string {
+  const colonne = COLUMN_LABELS[card.column as ColumnKey] ?? card.column;
+  const place = rang ? `, ${rang}e de la colonne` : '';
+  return `- « ${card.title} » — projet ${nomDuProjet(card.projectId)}, colonne « ${colonne} »${place}, modifiée le ${jour(card.updatedAt)} — lien : [ouvrir la carte](${lienDeLaCarte(card.projectId, card.id)})`;
+}
+
+export async function deplacerCommeLUtilisateur(cardId: string, column: string): Promise<ToolResult> {
+  const card = store.getCard(cardId);
+  if (!card) return { ok: false, text: 'Carte introuvable.' };
+  if (!(COLUMN_KEYS as readonly string[]).includes(column)) return { ok: false, text: `Colonne inconnue : ${column}. Colonnes : ${COLUMN_KEYS.join(', ')}.` };
+  try {
+    await commeLUtilisateur({ type: 'card.move', id: cardId, column });
+  } catch (err: any) {
+    return { ok: false, text: `Refusé : ${err?.message ?? String(err)}` };
+  }
+  const apres = store.getCard(cardId) ?? card;
+  return { ok: true, text: `Carte déplacée.\n${ligneDeCarte(apres)}` };
+}
+
+async function gestes(args: Record<string, any>, projetVise?: string): Promise<ToolResult> {
+  const action = String(args.action ?? '');
+  const cardId = typeof args.cardId === 'string' ? args.cardId : '';
+  try {
+    switch (action) {
+      case 'trouver': {
+        const texte = String(args.texte ?? '').trim();
+        if (!texte) return { ok: false, text: 'Donne quelques mots du titre (« texte »).' };
+        const trouvees = store.rechercherDesCartes(texte, { projectId: projetVise, limite: 15 });
+        if (!trouvees.length) return { ok: true, text: `Aucune carte ne correspond à « ${texte} »${projetVise ? ` dans ${nomDuProjet(projetVise)}` : ''}.` };
+        return { ok: true, text: trouvees.map(({ card, rang }) => ligneDeCarte(card, rang)).join('\n') };
+      }
+      case 'lancer': {
+        if (!store.getCard(cardId)) return { ok: false, text: 'Carte introuvable.' };
+        await commeLUtilisateur({ type: 'card.start', id: cardId });
+        return { ok: true, text: `Carte lancée.\n${ligneDeCarte(store.getCard(cardId)!)}` };
+      }
+      case 'valider_proposition': {
+        const proposalId = String(args.proposalId ?? '');
+        const message = store.messageDeLaProposition(proposalId);
+        if (!message) return { ok: false, text: 'Proposition introuvable (elle doit venir de cette conversation).' };
+        await commeLUtilisateur({ type: 'proposal.decide', messageId: message.id, proposalId, accept: true });
+        const creee = store.getMessage(message.id)?.proposals.find((p) => p.id === proposalId);
+        const carte = creee?.cardId ? store.getCard(creee.cardId) : null;
+        return { ok: true, text: carte ? `Carte créée.\n${ligneDeCarte(carte)}` : 'Proposition validée.' };
+      }
+      case 'changer_de_projet': {
+        const vers = projetParNom(String(args.vers ?? ''));
+        if (!vers) return { ok: false, text: `Projet d'arrivée introuvable. Projets : ${store.listProjects().map((p) => p.name).join(', ')}.` };
+        await commeLUtilisateur({ type: 'card.deplacerVersProjet', id: cardId, projectId: vers });
+        return { ok: true, text: `Carte déplacée vers ${nomDuProjet(vers)}.\n${ligneDeCarte(store.getCard(cardId)!)}` };
+      }
+      case 'deployer': {
+        const projectId = projetVise;
+        if (!projectId) return { ok: false, text: 'Dis quel projet déployer (« projet »).' };
+        const cible = args.cible === 'production' ? 'production' : 'dev';
+        await commeLUtilisateur({ type: 'deploy.start', projectId, cible });
+        return {
+          ok: true,
+          text: `${cible === 'production' ? 'Mise en production' : 'Déploiement'} de ${nomDuProjet(projectId)} lancé. Son avancement se lit dans la colonne de son étape.`,
+        };
+      }
+      case 'redemarrer': {
+        const issue = (await commeLUtilisateur({ type: 'daemon.restart' })) as { ok?: boolean; raison?: string; enAttente?: boolean };
+        if (issue?.ok) return { ok: true, text: 'Beluga redémarre.' };
+        return {
+          ok: false,
+          text: `Redémarrage refusé pour l'instant${issue?.raison ? ` : ${issue.raison}` : ''}. ${issue?.enAttente ? 'La demande est retenue : il partira tout seul dès que plus rien ne tournera (ta propre réponse comprise).' : ''}`.trim(),
+        };
+      }
+      default:
+        return { ok: false, text: `Action inconnue : ${action}.` };
+    }
+  } catch (err: any) {
+    return { ok: false, text: `Refusé : ${err?.message ?? String(err)}` };
+  }
+}
 
 const nomDuProjet = (id: string | null | undefined) => (id ? (store.getProject(id)?.name ?? id) : 'Beluga Build');
 const jour = (ms: number | null | undefined) => (ms ? new Date(ms).toISOString().slice(0, 10) : '—');

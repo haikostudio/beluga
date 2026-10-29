@@ -364,6 +364,7 @@ export * from './studios-du-media.js';
 export * from './media-en-fabrication.js';
 export * from './fil-sans-carte.js';
 export * from './pistes-de-question.js';
+export * from './couleurs-d-option.js';
 export * from './resume.js';
 export * from './accuses-orphelins.js';
 export * from './visionneuse.js';

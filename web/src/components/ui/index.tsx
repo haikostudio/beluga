@@ -668,8 +668,9 @@ const OMBRE_COURBE =
  * finissait sur une coupure nette quand rien de coloré ne la prolongeait. Elle
  * garde sa force sur toute la largeur et ne s'éteint que sur cette bande, en
  * PIXELS — la même sur téléphone et sur ordinateur, jamais une tache au milieu
- * d'un grand écran. Le flou, lui, reste pleine largeur : rogné sur les côtés,
- * il laisserait reparaître une ligne nette au bord (#2d5b).
+ * d'un grand écran. Le flou, lui, couvre toute la bande du voile : rogné sur
+ * les côtés, il laisserait reparaître une ligne nette au bord (#2d5b). Cette
+ * bande est la colonne du contenu, pas la zone entière (`etendueDuContenu`).
  */
 const BORD_ARRONDI_PX = 24;
 
@@ -692,6 +693,52 @@ const masqueDeLOmbre = (sens: 'top' | 'bottom' | 'left' | 'right'): React.CSSPro
     WebkitMaskComposite: 'source-in',
   } as React.CSSProperties;
 };
+
+/**
+ * LE FONDU S'ARRÊTE AUX BORDS DU CONTENU, PAS À CEUX DE LA ZONE (décision du
+ * 29/10/2026, captures #550b et #3b14b) : sur une page dont le contenu est une
+ * colonne centrée (le parcours Marketing et ses 820 px, une conversation à
+ * largeur bornée), l'ombre pleine largeur dessinait une bande sombre dans le
+ * vide de part et d'autre. On mesure donc l'étendue horizontale du contenu
+ * — les enfants qui ont une largeur, en descendant à travers les enveloppes
+ * pleine largeur — et le voile s'y cale, débordant de la moitié de sa bande
+ * d'extinction (`BORD_ARRONDI_PX`) pour que le contenu au bord de la colonne
+ * soit couvert à pleine force. Un contenu pleine largeur, ou rangé d'un seul
+ * côté (une liste alignée à gauche), garde le voile sur toute la largeur.
+ */
+const PROFONDEUR_COLONNE = 3;
+/** Au-delà, on ne détaille plus : une longue liste couvre la largeur. */
+const ENFANTS_COLONNE_MAX = 12;
+
+/**
+ * L'étendue horizontale [gauche, droite] du contenu d'un élément, en pixels de
+ * l'écran ; `null` quand il occupe toute la largeur `pleine` de la zone.
+ */
+function etendueDuContenu(element: Element, pleine: number, profondeur: number): [number, number] | null {
+  const cadre = element.getBoundingClientRect();
+  if (cadre.width < pleine - 2) return [cadre.left, cadre.right];
+  if (profondeur === 0) return null;
+  // Du texte posé directement dans une enveloppe pleine largeur : il la remplit.
+  for (const noeud of element.childNodes) {
+    if (noeud.nodeType === 3 && noeud.textContent?.trim()) return null;
+  }
+  const enfants = Array.from(element.children);
+  if (!enfants.length || enfants.length > ENFANTS_COLONNE_MAX) return null;
+  let gauche = Infinity;
+  let droite = -Infinity;
+  for (const enfant of enfants) {
+    const style = getComputedStyle(enfant);
+    if (style.display === 'none' || style.position === 'absolute' || style.position === 'fixed') continue;
+    // Un repère vide (l'ancre du bas d'un fil) ne dit rien de la largeur.
+    if (!enfant.getBoundingClientRect().height) continue;
+    const sienne = etendueDuContenu(enfant, pleine, profondeur - 1);
+    if (!sienne) return null;
+    if (sienne[1] - sienne[0] < 1) continue;
+    gauche = Math.min(gauche, sienne[0]);
+    droite = Math.max(droite, sienne[1]);
+  }
+  return gauche < droite ? [gauche, droite] : null;
+}
 
 /** Une barre dessinée s'éteint après ce temps d'immobilité. */
 const REPOS_BARRE_MS = 800;
@@ -758,6 +805,12 @@ export const ZoneDefilement = React.forwardRef<
      * égal à `hauteur`, sinon la première ligne est floue au repos.
      */
     voileDebutToujours?: boolean;
+    /**
+     * LE VOILE SUR LA COLONNE DU CONTENU, allumé d'office à la verticale : il
+     * s'arrête aux bords du contenu centré (`etendueDuContenu`). `false` le
+     * rend à toute la largeur de la zone.
+     */
+    voileSurContenu?: boolean;
   }
 >(function ZoneDefilement(
   {
@@ -775,6 +828,7 @@ export const ZoneDefilement = React.forwardRef<
     voile: voileDemande,
     barre = true,
     voileDebutToujours = false,
+    voileSurContenu = true,
     className,
     onScroll,
     children,
@@ -803,6 +857,36 @@ export const ZoneDefilement = React.forwardRef<
    * relit à chaque mesure ; un nombre, donc aucun rendu de plus s'il ne bouge pas.
    */
   const [retraitFin, setRetraitFin] = React.useState(0);
+  /**
+   * LA BANDE HORIZONTALE DU VOILE, relative à l'enveloppe : deux NOMBRES, jamais
+   * un objet (même piège que `deborde`). Largeur -1 = toute la zone.
+   */
+  const enveloppe = React.useRef<HTMLDivElement | null>(null);
+  const [voileGauche, setVoileGauche] = React.useState(0);
+  const [voileLargeur, setVoileLargeur] = React.useState(-1);
+  const colonneUtile = avecVoile && !horizontal && voileSurContenu;
+  const mesurerLaColonne = React.useCallback(() => {
+    const zone = interne.current;
+    const cadreEnveloppe = enveloppe.current?.getBoundingClientRect();
+    if (!zone || !cadreEnveloppe || !colonneUtile) return;
+    const cadreZone = zone.getBoundingClientRect();
+    const etendue = cadreZone.width ? etendueDuContenu(zone, cadreZone.width, PROFONDEUR_COLONNE + 1) : null;
+    let gauche = 0;
+    let largeur = -1;
+    if (etendue) {
+      const vide = [etendue[0] - cadreZone.left, cadreZone.right - etendue[1]];
+      // Centré seulement : un contenu rangé d'un côté garde le voile entier.
+      const centre = Math.abs(vide[0] - vide[1]) <= Math.max(24, cadreZone.width * 0.15);
+      const g = Math.max(0, Math.round(etendue[0] - BORD_ARRONDI_PX / 2 - cadreEnveloppe.left));
+      const d = Math.min(Math.round(cadreEnveloppe.width), Math.round(etendue[1] + BORD_ARRONDI_PX / 2 - cadreEnveloppe.left));
+      if (centre && (g > 1 || d < cadreEnveloppe.width - 1) && d > g) {
+        gauche = g;
+        largeur = d - g;
+      }
+    }
+    setVoileGauche(gauche);
+    setVoileLargeur(largeur);
+  }, [colonneUtile]);
   const [enMouvement, setEnMouvement] = React.useState(false);
   const piste = React.useRef<HTMLDivElement | null>(null);
   const pouceRef = React.useRef<HTMLDivElement | null>(null);
@@ -823,9 +907,20 @@ export const ZoneDefilement = React.forwardRef<
       if (pieds.length) {
         const basDeLaZone = zone.getBoundingClientRect().bottom;
         for (const pied of pieds) {
-          // Collée au bas (à la marge près), elle repousse le fondu jusqu'à son HAUT réel.
+          /*
+           * RÉELLEMENT COLLÉE SEULEMENT (capture #a30e) : une barre simplement
+           * posée à sa place, au bas de son bloc, ne déplace pas le fondu — il
+           * reste au bord bas de la zone, sinon il sautait au-dessus des
+           * boutons au gré du défilement. Collée, son bloc (le parent du
+           * `sticky`) descend sous la zone ; le retrait suit alors ce qui en
+           * dépasse, jusqu'au HAUT de la barre, sans saut à la bascule.
+           */
           const cadre = pied.getBoundingClientRect();
-          if (cadre.height && basDeLaZone - cadre.bottom < 24 && cadre.bottom <= basDeLaZone + 2) retrait = Math.max(retrait, Math.round(basDeLaZone - cadre.top));
+          const bloc = pied.parentElement?.getBoundingClientRect();
+          const depasse = bloc ? bloc.bottom - basDeLaZone : 0;
+          if (cadre.height && depasse > 1 && basDeLaZone - cadre.bottom < 24 && cadre.bottom <= basDeLaZone + 2) {
+            retrait = Math.max(retrait, Math.round(Math.min(basDeLaZone - cadre.top, depasse)));
+          }
         }
       }
       setRetraitFin(retrait);
@@ -885,6 +980,7 @@ export const ZoneDefilement = React.forwardRef<
     const zone = interne.current;
     if (!zone || !mesureUtile) return;
     mesurer();
+    mesurerLaColonne();
     const aSurveiller = [zone as Element, ...Array.from(zone.children)];
     const memes =
       !!observateur.current &&
@@ -892,7 +988,10 @@ export const ZoneDefilement = React.forwardRef<
       surveilles.current.every((noeud, i) => noeud === aSurveiller[i]);
     if (memes) return;
     observateur.current?.disconnect();
-    const suivi = new ResizeObserver(mesurer);
+    const suivi = new ResizeObserver(() => {
+      mesurer();
+      mesurerLaColonne();
+    });
     for (const noeud of aSurveiller) suivi.observe(noeud);
     observateur.current = suivi;
     surveilles.current = aSurveiller;
@@ -991,7 +1090,7 @@ export const ZoneDefilement = React.forwardRef<
         data-voile-allume={visible ? 'oui' : 'non'}
         className={cn(
           'pointer-events-none absolute z-10 transition-opacity duration-200',
-          horizontal ? 'inset-y-0' : 'inset-x-0',
+          horizontal ? 'inset-y-0' : voileLargeur < 0 && 'inset-x-0',
           /*
            * LE VOILE DÉBORDE D'UN PIXEL AU-DELÀ DE SON BORD, et l'enveloppe le
            * rogne (`overflow-clip`). Sur un écran à trois pixels par point
@@ -1009,7 +1108,15 @@ export const ZoneDefilement = React.forwardRef<
               : '-bottom-px',
           visible ? 'opacity-100' : 'opacity-0',
         )}
-        style={horizontal ? { width: hauteur + 1 } : cote === 'fin' && retraitFin ? { height: hauteur + 1, bottom: retraitFin - 1 } : { height: hauteur + 1 }}
+        style={
+          horizontal
+            ? { width: hauteur + 1 }
+            : {
+                height: hauteur + 1,
+                ...(cote === 'fin' && retraitFin ? { bottom: retraitFin - 1 } : null),
+                ...(voileLargeur >= 0 ? { left: voileGauche, width: voileLargeur } : null),
+              }
+        }
       >
         {/*
          * Un flou PROGRESSIF, et non une bande floue posée d'un bloc : un seul
@@ -1049,6 +1156,7 @@ export const ZoneDefilement = React.forwardRef<
 
   return (
     <div
+      ref={enveloppe}
       className={cn(
         'relative flex',
         // Rogne le pixel de débord des voiles, rien d'autre : le contenu, lui,

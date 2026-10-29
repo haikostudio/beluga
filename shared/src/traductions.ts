@@ -2748,6 +2748,24 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   '1 message en attente': ['1 message waiting', '1 mensaje en espera', '1 wartende Nachricht', '1 条消息待发送'],
   '{v0} messages en attente': ['{v0} messages waiting', '{v0} mensajes en espera', '{v0} wartende Nachrichten', '{v0} 条消息待发送'],
   'Envoyer maintenant': ['Send now', 'Enviar ahora', 'Jetzt senden', '立即发送'],
+  'Cette nouveauté sera prête après le redémarrage du serveur.': [
+    'This new feature will be ready once the server restarts.',
+    'Esta novedad estará lista tras el reinicio del servidor.',
+    'Diese Neuerung ist nach dem Neustart des Servers verfügbar.',
+    '此新功能将在服务器重启后可用。',
+  ],
+  'Cette étape sera prête après le redémarrage du serveur.': [
+    'This step will be ready once the server restarts.',
+    'Este paso estará listo tras el reinicio del servidor.',
+    'Dieser Schritt ist nach dem Neustart des Servers verfügbar.',
+    '此步骤将在服务器重启后可用。',
+  ],
+  'L’agent se lancera tout seul dès que le serveur sera reparti.': [
+    'The agent will start on its own as soon as the server is back.',
+    'El agente se iniciará solo en cuanto el servidor vuelva a arrancar.',
+    'Der Agent startet von selbst, sobald der Server wieder läuft.',
+    '服务器恢复后，代理将自动启动。',
+  ],
   'Modification d\'un message en attente {v0}': ['Editing a pending message {v0}', 'Modificación de un mensaje en espera {v0}', 'Bearbeitung einer wartenden Nachricht {v0}', '正在编辑待发送的消息 {v0}'],
   'Ce message est déjà parti : la modification n’a pas pu s’appliquer.': [
     'This message has already been sent: the change could not be applied.',
@@ -4276,6 +4294,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '已合并的提议，确认前请复核',
   ],
   'Ajouter « {v0} » à la fusion': ['Add “{v0}” to the merge', 'Añadir «{v0}» a la fusión', '„{v0}“ der Zusammenführung hinzufügen', '将“{v0}”加入合并'],
+  'Projet de la carte : {v0}': ['Card project: {v0}', 'Proyecto de la tarjeta: {v0}', 'Projekt der Karte: {v0}', '卡片所属项目：{v0}'],
   'Retirer « {v0} » de la fusion': ['Remove “{v0}” from the merge', 'Quitar «{v0}» de la fusión', '„{v0}“ aus der Zusammenführung nehmen', '将“{v0}”移出合并'],
   "Aucun compte disponible pour {v0} : la carte attendra qu'un compte se libère.": [
     'No account available for {v0}: the card will wait for one to free up.',
@@ -7933,6 +7952,11 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "J’ai rendu une image · version {v1}": ["I delivered an image · version {v1}", "He entregado una imagen · versión {v1}", "Ich habe ein Bild geliefert · Version {v1}", "我已交付一张图片 · 第 {v1} 版"],
   /* ---- Marketing : parcours en quatre étapes et rapport (28/10/2026) ---- */
   /* Une étape par écran, données de recherche réelles (DataForSEO) : 28/10/2026 */
+  'Rechercher dans les archives': ['Search the archive', 'Buscar en los archivos', 'Im Archiv suchen', '搜索归档'],
+  'Rechercher dans « {colonne} »': ['Search “{colonne}”', 'Buscar en «{colonne}»', 'In „{colonne}“ suchen', '在“{colonne}”中搜索'],
+  'Quelques mots du titre…': ['A few words of the title…', 'Algunas palabras del título…', 'Ein paar Wörter aus dem Titel…', '标题中的几个词…'],
+  'Aucune carte ne correspond.': ['No card matches.', 'Ninguna tarjeta coincide.', 'Keine Karte passt.', '没有匹配的卡片。'],
+  '{rang}e de la colonne · modifiée le {date}': ['#{rang} in the column · changed on {date}', 'n.º {rang} de la columna · modificada el {date}', 'Nr. {rang} der Spalte · geändert am {date}', '列中第 {rang} 张 · {date} 修改'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

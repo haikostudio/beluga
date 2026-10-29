@@ -1177,6 +1177,136 @@ function oublierLesPiecesParties(agentId: string, parties: readonly string[]): v
   diffuserLeReglage(cle);
 }
 
+/**
+ * LE DÉPLACEMENT D'UNE CARTE PAR UN GESTE HUMAIN — la commande `card.move` du
+ * navigateur, et l'assistant global quand il agit à la demande de
+ * l'utilisateur dans sa conversation (décision du 29/10/2026) : mêmes portes,
+ * même rangement (`rangerLaCarte`), mêmes effets. Les autres agents passent
+ * par `board_move_card` et restent fermés aux fins de parcours (MEM-0339).
+ */
+export async function deplacerLaCarteALaMain(cmd: { id: string; column: string; position?: number }): Promise<Record<string, unknown>> {
+  const card = store.getCard(cmd.id);
+  if (!card) throw new Error('carte introuvable');
+  const target = cmd.column as ColumnKey;
+  const decision = canMove('user', card.column, target);
+  if (!decision.allowed) throw new Error(decision.reason ?? 'déplacement refusé');
+
+  /*
+   * Le refus tient AUSSI sans navigateur à jour : une carte ne quitte pas
+   * « En cours » pendant que son agent écrit. C'est la même règle que celle
+   * du tableau et des boutons du tiroir.
+   */
+  const agentDeLaCarte = card.agentId ? store.getAgent(card.agentId) : null;
+  const sortie = sortieAutorisee(
+    {
+      colonne: card.column,
+      etat: etatVisuelCarte({ agentStatut: agentDeLaCarte?.status }),
+      agentLance: !!agentDeLaCarte,
+    },
+    target,
+  );
+  if (!sortie.possible) throw new Error(sortie.raison ?? 'déplacement refusé');
+
+  /*
+   * Le dépôt VAUT le geste que la colonne d'arrivée désigne. Aucun de ces
+   * gestes n'a de chemin à lui : le lancement passe par `startCard` et la
+   * demande de plan par `demanderLePlan`, exactement comme les boutons
+   * « Lancer maintenant » et « Générer le plan » — mêmes portes dures, même
+   * branche, même agent, même trace dans la conversation. Un refus REMONTE,
+   * il ne se traduit jamais par un déplacement silencieux qui ne ferait
+   * rien.
+   */
+  const geste = gesteDuDepot(card.column, target);
+  const effet = geste.effet;
+
+  /*
+   * LE SEUL DÉPÔT REFUSÉ : « Travail » → « Rapport ». Une carte entre en
+   * « Rapport » quand son rapport est rendu (`issueDeFinDeTour`), jamais
+   * sur un geste. Le refus REMONTE — la carte ne bouge pas d'un pixel — et
+   * il vaut pour toutes les mains qui passent par ici : la glisse, le menu
+   * de gestes rares, le cran d'avance.
+   */
+  if (effet === 'refuser') throw new Error(geste.raison ?? 'déplacement refusé');
+
+  if (effet === 'lancer') {
+    const result = await startCard(card.id);
+    if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
+    return { card: store.getCard(card.id) ?? card };
+  }
+
+  /*
+   * Sortir une carte de « En cours » vers « Planifié », c'est SUSPENDRE :
+   * le tour est arrêté proprement, la carte reste en file avec la raison
+   * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
+   */
+  if (effet === 'suspendre') {
+    if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
+    // Le rangement lui-même est celui des trois gestes d'arrêt, écrit une
+    // seule fois (`suspendreLaCarte`) : c'est ce qui garantit qu'ils
+    // laissent tous la carte dans le MÊME état.
+    const suspendue = suspendreLaCarte(card, RAISON_SUSPENDU);
+    bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
+    return { card: suspendue };
+  }
+
+  /*
+   * Une commande venue du navigateur EST le geste humain : c'est la seule
+   * main autorisée à sortir une carte d'une fin de parcours (« Archivé »,
+   * « À déployer »). Les chemins automatiques, eux, restent fermés — un
+   * tour d'agent par `colonneAuDemarrage`, l'outil du moteur par
+   * `repriseAutorisee(…, 'automatique')`. La carte ressortie GARDE sa date
+   * d'archivage : on doit pouvoir lire qu'elle était passée par là.
+   */
+  const sortDuRangement = COLONNES_HORS_REPRISE.includes(card.column);
+
+  /* Le rangement lui-même vit dans `rangerLaCarte` : c'est là que les dates
+     qui suivent la colonne (« Terminé », « À déployer ») se posent ou se
+     retirent, en un seul endroit rejouable. */
+  /* Une carte archivée à la main est rangée dans le même geste : un seul
+     état écrit, un seul `card.upsert`, jamais « Terminer » puis « Archiver ».
+     L'archivage automatique de la mise en ligne ne passe pas par ici. */
+  const updated = rangerLaCarte(card, target, cmd.position, Date.now());
+  bus.emit({ type: 'card.upsert', card: updated });
+  // Archiver une carte retire sa pastille : le compte se rediffuse.
+  bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+
+  if (sortDuRangement) {
+    bus.toast(
+      'info',
+      `« ${card.title} » sort de « ${COLUMN_LABELS[card.column]} » vers « ${COLUMN_LABELS[target]} ».`,
+      updated.id,
+    );
+  }
+
+  if (target === 'archived') {
+    /*
+     * UNE CARTE ARCHIVÉE N'EMPORTE PAS SON VIEIL INCIDENT. « Le plan n'est
+     * pas venu » ressortait sinon à la réouverture, sur une demande que
+     * plus personne n'attend.
+     */
+    if (updated.parcours?.incident || updated.parcours?.planDemandeA) {
+      const propre = store.saveCard({
+        ...updated,
+        parcours: { ...updated.parcours, planDemandeA: undefined, incident: undefined },
+      });
+      bus.emit({ type: 'card.upsert', card: propre });
+    }
+    void archiveCard(updated.id);
+  }
+  return { card: updated };
+}
+
+/**
+ * UNE COMMANDE DE L'ÉCRAN, JOUÉE POUR L'ASSISTANT GLOBAL (décision du
+ * 29/10/2026) : quand l'utilisateur lui demande de lancer une carte, de la
+ * déplacer, de déployer ou de redémarrer, il passe par EXACTEMENT la même porte
+ * que le bouton — mêmes refus, mêmes effets, même diffusion —, au nom du compte
+ * qui lui parle. Aucun chemin de contournement n'est écrit pour lui.
+ */
+export function commandeCommeLUtilisateur(cmd: ClientEnvelope['cmd'], compte: CompteUtilisateur): Promise<unknown> {
+  return handleCommand(cmd, compte);
+}
+
 async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur, canal?: WebSocket): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
@@ -1389,6 +1519,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         agents: agents.filter((agent) => agent.cardId && ids.includes(agent.cardId)).map(agentPourLEcran),
         total: tranche.total,
       };
+    }
+
+    case 'cards.rechercher': {
+      if (!store.getProject(cmd.projectId)) throw new Error('projet introuvable');
+      const trouvees = store.rechercherDesCartes(cmd.texte, {
+        projectId: cmd.projectId,
+        colonnes: cmd.column ? [cmd.column] : undefined,
+      });
+      return { cartes: trouvees.map(({ card, rang }) => ({ card, rang })) };
     }
 
     /*
@@ -1683,115 +1822,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'card.move': {
-      const card = store.getCard(cmd.id);
-      if (!card) throw new Error('carte introuvable');
-      const target = cmd.column as ColumnKey;
-      const decision = canMove('user', card.column, target);
-      if (!decision.allowed) throw new Error(decision.reason ?? 'déplacement refusé');
-
-      /*
-       * Le refus tient AUSSI sans navigateur à jour : une carte ne quitte pas
-       * « En cours » pendant que son agent écrit. C'est la même règle que celle
-       * du tableau et des boutons du tiroir.
-       */
-      const agentDeLaCarte = card.agentId ? store.getAgent(card.agentId) : null;
-      const sortie = sortieAutorisee(
-        {
-          colonne: card.column,
-          etat: etatVisuelCarte({ agentStatut: agentDeLaCarte?.status }),
-          agentLance: !!agentDeLaCarte,
-        },
-        target,
-      );
-      if (!sortie.possible) throw new Error(sortie.raison ?? 'déplacement refusé');
-
-      /*
-       * Le dépôt VAUT le geste que la colonne d'arrivée désigne. Aucun de ces
-       * gestes n'a de chemin à lui : le lancement passe par `startCard` et la
-       * demande de plan par `demanderLePlan`, exactement comme les boutons
-       * « Lancer maintenant » et « Générer le plan » — mêmes portes dures, même
-       * branche, même agent, même trace dans la conversation. Un refus REMONTE,
-       * il ne se traduit jamais par un déplacement silencieux qui ne ferait
-       * rien.
-       */
-      const geste = gesteDuDepot(card.column, target);
-      const effet = geste.effet;
-
-      /*
-       * LE SEUL DÉPÔT REFUSÉ : « Travail » → « Rapport ». Une carte entre en
-       * « Rapport » quand son rapport est rendu (`issueDeFinDeTour`), jamais
-       * sur un geste. Le refus REMONTE — la carte ne bouge pas d'un pixel — et
-       * il vaut pour toutes les mains qui passent par ici : la glisse, le menu
-       * de gestes rares, le cran d'avance.
-       */
-      if (effet === 'refuser') throw new Error(geste.raison ?? 'déplacement refusé');
-
-      if (effet === 'lancer') {
-        const result = await startCard(card.id);
-        if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
-        return { card: store.getCard(card.id) ?? card };
-      }
-
-      /*
-       * Sortir une carte de « En cours » vers « Planifié », c'est SUSPENDRE :
-       * le tour est arrêté proprement, la carte reste en file avec la raison
-       * écrite dessus, et l'ordonnanceur ne la reprend pas de lui-même.
-       */
-      if (effet === 'suspendre') {
-        if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
-        // Le rangement lui-même est celui des trois gestes d'arrêt, écrit une
-        // seule fois (`suspendreLaCarte`) : c'est ce qui garantit qu'ils
-        // laissent tous la carte dans le MÊME état.
-        const suspendue = suspendreLaCarte(card, RAISON_SUSPENDU);
-        bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
-        return { card: suspendue };
-      }
-
-      /*
-       * Une commande venue du navigateur EST le geste humain : c'est la seule
-       * main autorisée à sortir une carte d'une fin de parcours (« Archivé »,
-       * « À déployer »). Les chemins automatiques, eux, restent fermés — un
-       * tour d'agent par `colonneAuDemarrage`, l'outil du moteur par
-       * `repriseAutorisee(…, 'automatique')`. La carte ressortie GARDE sa date
-       * d'archivage : on doit pouvoir lire qu'elle était passée par là.
-       */
-      const sortDuRangement = COLONNES_HORS_REPRISE.includes(card.column);
-
-      /* Le rangement lui-même vit dans `rangerLaCarte` : c'est là que les dates
-         qui suivent la colonne (« Terminé », « À déployer ») se posent ou se
-         retirent, en un seul endroit rejouable. */
-      /* Une carte archivée à la main est rangée dans le même geste : un seul
-         état écrit, un seul `card.upsert`, jamais « Terminer » puis « Archiver ».
-         L'archivage automatique de la mise en ligne ne passe pas par ici. */
-      const updated = rangerLaCarte(card, target, cmd.position, Date.now());
-      bus.emit({ type: 'card.upsert', card: updated });
-      // Archiver une carte retire sa pastille : le compte se rediffuse.
-      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
-
-      if (sortDuRangement) {
-        bus.toast(
-          'info',
-          `« ${card.title} » sort de « ${COLUMN_LABELS[card.column]} » vers « ${COLUMN_LABELS[target]} ».`,
-          updated.id,
-        );
-      }
-
-      if (target === 'archived') {
-        /*
-         * UNE CARTE ARCHIVÉE N'EMPORTE PAS SON VIEIL INCIDENT. « Le plan n'est
-         * pas venu » ressortait sinon à la réouverture, sur une demande que
-         * plus personne n'attend.
-         */
-        if (updated.parcours?.incident || updated.parcours?.planDemandeA) {
-          const propre = store.saveCard({
-            ...updated,
-            parcours: { ...updated.parcours, planDemandeA: undefined, incident: undefined },
-          });
-          bus.emit({ type: 'card.upsert', card: propre });
-        }
-        void archiveCard(updated.id);
-      }
-      return { card: updated };
+      return deplacerLaCarteALaMain(cmd);
     }
 
     /*

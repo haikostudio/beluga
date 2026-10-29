@@ -74,3 +74,25 @@ export function refusDeProposition(
   }
   return null;
 }
+
+/**
+ * LE PROJET MONTRÉ DEVANT LE TITRE D'UNE CARTE PROPOSÉE — l'icône qui dit, d'un
+ * coup d'œil, où la carte va naître (vignette « Suggestion de carte », bandeau
+ * hors carte, pastille de la carte acceptée).
+ *
+ * La carte déjà créée fait foi ; sinon le projet NOTÉ sur la proposition, qui
+ * n'est posé que lorsqu'il diffère de celui de l'agent (`accueilDeLaProposition`) ;
+ * sinon le projet de l'agent qui propose. Un projet introuvable ou mis de côté
+ * ne montre RIEN, plutôt qu'une icône fausse.
+ */
+export function projetAfficheDeLaProposition<P extends { id: string; archived?: boolean }>(entree: {
+  cardProjectId?: string;
+  proposalProjectId?: string;
+  agentProjectId?: string;
+  projets: readonly P[];
+}): P | undefined {
+  const id = entree.cardProjectId ?? entree.proposalProjectId ?? entree.agentProjectId;
+  if (!id) return undefined;
+  const projet = entree.projets.find((p) => p.id === id);
+  return projet && !projet.archived ? projet : undefined;
+}

@@ -213,7 +213,7 @@ export function SuggestionsDeCarte({
                   className="flex-1"
                 />
               ) : (
-                <ProposalChip proposal={proposal} etiree />
+                <ProposalChip proposal={proposal} agentId={message.agentId} etiree />
               )}
             </div>
           ))}

@@ -102,6 +102,8 @@ import {
   droitsLus,
   type DroitsDAcces,
   rapportDuGesteNonParti,
+  REFUS_HORS_PORTEE,
+  refusAvantRedemarrage,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -1705,6 +1707,7 @@ class Client {
           // dit oui ou non. Un refus MÉTIER n'est pas une panne de serveur.
           this.echecsReseau = 0;
           if (event.ok) entry.resolve(event.data);
+          else if (event.error === REFUS_HORS_PORTEE && this.state.monRole === 'admin') this.relireLeRefus(entry.reject);
           else entry.reject(new Error(event.error ?? t('commande refusée')));
         }
         break;
@@ -2602,6 +2605,27 @@ class Client {
    * état connu avant la coupure. On le redemande explicitement et on l'applique
    * ici, au lieu de laisser la réponse de `daemon.status` sans effet.
    */
+  /**
+   * UN REFUS DE CLOISON REÇU PAR L'ADMINISTRATEUR (29/10/2026, capture #09c1a) :
+   * l'administrateur n'en reçoit jamais de vrai — c'est presque toujours une
+   * commande que le démon, démarré AVANT la publication, ne connaît pas
+   * encore. On relit l'état du démon (le bandeau peut ne jamais l'avoir
+   * demandé, sur téléphone), et si un redémarrage est attendu l'erreur dit
+   * que la nouveauté sera prête après lui, marquée `avantRedemarrage` pour
+   * l'écran qui veut patienter (`refusAvantRedemarrage`, shared/src/demon.ts).
+   * Le message du serveur, lui, reste le même pour tout refus (cloison).
+   */
+  private relireLeRefus(reject: (err: Error) => void): void {
+    void this.refreshDaemonStatus().then(() => {
+      const avant = refusAvantRedemarrage(REFUS_HORS_PORTEE, {
+        admin: this.state.monRole === 'admin',
+        redemarrageNecessaire: Boolean(this.state.demon?.redemarrageNecessaire),
+      });
+      if (!avant) return reject(new Error(REFUS_HORS_PORTEE));
+      reject(Object.assign(new Error(t('Cette nouveauté sera prête après le redémarrage du serveur.')), { avantRedemarrage: true }));
+    });
+  }
+
   async refreshDaemonStatus(): Promise<void> {
     try {
       const res = await this.call<{ etat: AppState['demon'] }>({ type: 'daemon.status' });
@@ -2993,6 +3017,19 @@ class Client {
     } finally {
       this.tranchesEnVol.delete(cle);
     }
+  }
+
+  /**
+   * RETROUVER DES CARTES PAR LEUR TITRE dans une colonne d'un projet, sans
+   * charger la colonne entière : le démon cherche, l'écran ne reçoit que ce
+   * qu'il a trouvé, avec le rang de chaque carte (`cards.rechercher`).
+   */
+  async rechercherDesCartes(projectId: string, column: ColumnKey, texte: string): Promise<{ card: Card; rang: number }[]> {
+    const reponse = await this.call<{ cartes: { card: Card; rang: number }[] }>(
+      { type: 'cards.rechercher', projectId, column, texte },
+      20000,
+    );
+    return reponse.cartes ?? [];
   }
 
   /**

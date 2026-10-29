@@ -87,14 +87,15 @@ export function useBoutonDuMedia(carte: Card | null | undefined): BoutonDuMedia 
   const production = useProduction(media ? carte?.id : null);
   return React.useMemo(() => {
     if (!media || !carte) return null;
-    return boutonDuMedia({ carte, elements: production?.elements ?? [], medias: production?.medias ?? [], exportsPrets: production?.exportsPrets ?? 0 });
+    return boutonDuMedia({ carte, elements: production?.elements ?? [], medias: production?.medias ?? [] });
   }, [media, carte, production]);
 }
 
 /**
- * LE STUDIO DE MONTAGE DU MÉDIA (26/10/2026) : chaque type a le sien — une
- * vidéo l'éditeur de montage de la carte, une image le studio photo, un son
- * le studio son.
+ * LE STUDIO DE MONTAGE DU MÉDIA : une image a le studio photo, un son le
+ * studio son. Une vidéo n'a plus d'éditeur (retiré le 26/10/2026) : son film
+ * final est écrit par le directeur artistique et rendu par le serveur, et le
+ * document « montage » qu'on lui rend ici n'est affiché par aucun volet.
  */
 export function studioDuMedia(carte: Pick<Card, 'id' | 'realisation'>): DocumentDeCarte {
   const types = typesDeMediaDeLaRealisation(carte.realisation);

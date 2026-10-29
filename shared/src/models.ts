@@ -1816,6 +1816,9 @@ export const AgentQuestion = z.object({
    * cliquables. Absente : la pastille de texte habituelle.
    * `media` : l'identifiant d'une pièce jointe SON ou VIDÉO que le choix fait
    * écouter (23/10/2026) — un bouton lecture à droite, sans changer la forme.
+   * `couleurs` : une à quatre teintes « #rrggbb » qu'un choix de couleurs
+   * montre en petits points devant son libellé (29/10/2026,
+   * `shared/src/couleurs-d-option.ts`).
    */
   options: z
     .array(
@@ -1825,6 +1828,7 @@ export const AgentQuestion = z.object({
         description: z.string().optional(),
         image: z.string().optional(),
         media: z.string().optional(),
+        couleurs: z.array(z.string()).optional(),
       }),
     )
     .default([]),

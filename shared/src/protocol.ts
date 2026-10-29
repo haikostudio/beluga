@@ -200,6 +200,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
     limit: z.number().int().positive().max(200).optional(),
   }),
   /**
+   * RETROUVER UNE CARTE PAR SON TITRE (ou sa description) dans une colonne
+   * d'un projet — d'abord « Archivé », où une carte d'il y a deux semaines est
+   * déjà loin sous le premier paquet. La recherche se fait en SQL côté démon
+   * (`rechercherDesCartes`) : rien de plus ne descend au premier envoi.
+   */
+  z.object({
+    type: z.literal('cards.rechercher'),
+    projectId: z.string(),
+    column: ColumnKey.optional(),
+    texte: z.string().max(200),
+  }),
+  /**
    * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : les cartes de TOUS les
    * projets en service d'une de ses trois colonnes (`onglet`), la dernière
    * action d'abord, par paquet. `apres` est la clé de la dernière

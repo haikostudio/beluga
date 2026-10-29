@@ -146,6 +146,15 @@ import { BandeauDeVeille } from '@/components/veille-de-carte';
  * (`FichiersCites`) : le fil pose le fournisseur, qui connaît son projet et
  * son agent, une fois pour toutes ses réponses et ses étapes.
  */
+/** À moins de 50 px du bas, le lecteur est EN BAS : le fil le suit ; au-delà, il lit plus haut (29/10/2026). */
+const EN_BAS_PX = 50;
+/**
+ * LES LECTURES REMONTÉES, PAR CONVERSATION (carte ou agent) : la position d'un
+ * lecteur qui a quitté le fil à 50 px ou plus du bas, retrouvée à la
+ * réouverture tant que l'application reste ouverte. En bas, rien n'est retenu.
+ */
+const POSITIONS_DE_LECTURE = new Map<string, number>();
+
 export function Chat(props: React.ComponentProps<typeof FilDeConversation>) {
   return (
     <FichiersCites projectId={props.projectId} agentId={props.agent?.id}>
@@ -967,7 +976,12 @@ function FilDeConversation({
   const suit = React.useRef(true);
   /** Jusqu'à quand un message neuf glisse vers le bas : on ne coupe pas son élan. */
   const glisseJusqua = React.useRef(0);
-  const avecEnTete = Boolean(enTeteDuFil) && !(carte && cardId);
+  /** La conversation affichée : la clé sous laquelle sa position de lecture est retenue. */
+  const cleDuFil = cardId ?? agent?.id;
+  const cleDuFilRef = React.useRef(cleDuFil);
+  cleDuFilRef.current = cleDuFil;
+  /** Une lecture remontée à retrouver, tant que le contenu se charge encore et que le lecteur n'a rien touché. */
+  const aRetrouver = React.useRef<{ top: number; jusqua: number } | null>(null);
 
   /**
    * Jusqu'à quand un défilement du fil est le NÔTRE (glissé d'un message neuf,
@@ -981,24 +995,36 @@ function FilDeConversation({
 
   /*
    * LE LECTEUR QUI REMONTE COUPE LE SUIVI AU GESTE, pas au constat. Le seuil
-   * « en bas » est serré (24 px) : une petite remontée, au doigt, à la molette
-   * ou au clavier, suffit à dire « je lis plus haut ». Le suivi ne reprend que
-   * lorsqu'on est revenu réellement en bas.
+   * « en bas » vaut 50 px (demande du 29/10/2026) : à moins de 50 px du bas, on
+   * est en bas et le fil suit chaque message ; au-delà, on lit plus haut, et
+   * cette position est RETENUE pour la réouverture (`POSITIONS_DE_LECTURE`).
    */
   React.useEffect(() => {
     const fil = filRef.current;
     if (!fil) return;
-    const EN_BAS_PX = 24;
     const noter = () => {
+      const reste = fil.scrollHeight - fil.scrollTop - fil.clientHeight;
+      /* La position de lecture se retient à chaque défilement, le nôtre compris (il pose au bas : il l'efface). */
+      const cle = cleDuFilRef.current;
+      if (cle) {
+        if (reste >= EN_BAS_PX) POSITIONS_DE_LECTURE.set(cle, fil.scrollTop);
+        else POSITIONS_DE_LECTURE.delete(cle);
+      }
       if (Date.now() < defilementDeNousJusqua.current) return;
-      suit.current = fil.scrollHeight - fil.scrollTop - fil.clientHeight <= EN_BAS_PX;
+      suit.current = reste < EN_BAS_PX;
     };
     const remonte = () => {
       suit.current = false;
+      aRetrouver.current = null;
       defilementDeNousJusqua.current = 0;
+    };
+    /* Tout geste du lecteur arrête de chercher la lecture retrouvée : il a pris la main. */
+    const prendLaMain = () => {
+      aRetrouver.current = null;
     };
     let toucheY = 0;
     const toucheDebut = (e: TouchEvent) => {
+      prendLaMain();
       toucheY = e.touches[0]?.clientY ?? 0;
     };
     const toucheBouge = (e: TouchEvent) => {
@@ -1008,9 +1034,11 @@ function FilDeConversation({
       toucheY = y;
     };
     const molette = (e: WheelEvent) => {
+      prendLaMain();
       if (e.deltaY < 0) remonte();
     };
     const touche = (e: KeyboardEvent) => {
+      prendLaMain();
       if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') remonte();
     };
     fil.addEventListener('scroll', noter, { passive: true });
@@ -1057,17 +1085,22 @@ function FilDeConversation({
   }, [cardId, configurationOuverte, !!cahier, cheminDuTournage]);
 
   React.useEffect(() => {
-    const cle = cardId ?? agent?.id;
-    // Ouverture d'une conversation : on se pose tout en bas, sans animation.
+    const cle = cleDuFil;
+    /* OUVERTURE D'UNE CONVERSATION (29/10/2026, toutes les conversations) : tout
+       en bas, sans animation — et le recollage qui suit la tient en bas pendant
+       que le contenu se charge (images, parcours, silhouettes). Seule exception :
+       une lecture remontée d'au moins 50 px à la fermeture, qu'on retrouve. */
     if (ouvertePour.current !== cle && messages.length) {
       ouvertePour.current = cle;
       nombreVu.current = messages.length;
-      // Sous un en-tête qui défile, on s'ouvre sur lui : c'est ce que le volet montre d'abord.
-      if (avecEnTete) {
+      const lue = cle ? POSITIONS_DE_LECTURE.get(cle) : undefined;
+      if (lue != null && filRef.current) {
         suit.current = false;
-        if (filRef.current) filRef.current.scrollTop = 0;
+        aRetrouver.current = { top: lue, jusqua: Date.now() + 1500 };
+        filRef.current.scrollTop = lue;
         return;
       }
+      aRetrouver.current = null;
       suit.current = true;
       marquerNotreDefilement(150);
       bottomRef.current?.scrollIntoView({ block: 'end' });
@@ -1078,8 +1111,11 @@ function FilDeConversation({
     // morceau courait derrière le texte et finissait par décrocher du bas.
     const nouveauMessage = messages.length !== nombreVu.current;
     nombreVu.current = messages.length;
-    // Ouvert sur l'en-tête, le fil redescend dès qu'on y écrit soi-même.
-    if (avecEnTete && nouveauMessage && messages[messages.length - 1]?.role === 'user') suit.current = true;
+    // Remonté lire, le fil redescend dès qu'on y écrit soi-même.
+    if (nouveauMessage && messages[messages.length - 1]?.role === 'user') {
+      suit.current = true;
+      aRetrouver.current = null;
+    }
     if (suit.current) {
       if (nouveauMessage) glisseJusqua.current = Date.now() + 450;
       marquerNotreDefilement(nouveauMessage ? 600 : 150);
@@ -1112,6 +1148,13 @@ function FilDeConversation({
     let image = 0;
     let minuteur = 0;
     const recoller = () => {
+      /* Une lecture retrouvée que le contenu encore court avait bornée : on la repose tant qu'il grandit. */
+      const lecture = aRetrouver.current;
+      if (lecture) {
+        if (Date.now() > lecture.jusqua) aRetrouver.current = null;
+        else if (Math.abs(fil.scrollTop - lecture.top) > 1) fil.scrollTop = lecture.top;
+        return;
+      }
       if (!suit.current) return;
       /* Un message neuf est en train de glisser : on le laisse arriver, puis on
          vérifie qu'il est bien posé. */

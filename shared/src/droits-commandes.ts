@@ -109,6 +109,7 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'project.read': 'projet:projectId',
   'projects.relire': 'projet:ids',
   'cards.tranche': 'projet:projectId',
+  'cards.rechercher': 'projet:projectId',
   'card.get': 'carte:id',
   'card.conversation': 'carte:cardId',
   'card.read': 'carte:cardId',

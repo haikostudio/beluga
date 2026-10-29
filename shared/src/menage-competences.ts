@@ -25,6 +25,16 @@ import { texteDesRecurrencesDuCode, type RecurrenceDuCode } from './recurrences-
 /** Le titre de l'agent de la nuit, visible dans la pile d'agents. */
 export const TITRE_MENAGE = 'Ménage des compétences';
 
+/** Ce que dit la carte de l'agent du ménage, à sa naissance : ce qu'il range, en mots courants. */
+export const DESCRIPTION_DU_MENAGE =
+  'Range les fiches de compétences écrites pendant la journée : doublons fusionnés, fiches maigres complétées, leçons répétées remontées en fiche commune.';
+
+/** La phrase qui clôt la carte du ménage, une fois le tour rendu. */
+export function rapportDuMenage(entree: { touchees: number; aRevoir: number; recurrences: number }): string {
+  const nombre = (n: number, mot: string) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+  return `Ménage terminé : ${nombre(entree.touchees, 'fiche')} relue${entree.touchees > 1 ? 's' : ''}, ${nombre(entree.aRevoir, 'fiche')} à revoir, ${nombre(entree.recurrences, 'récurrence')} dans le code.`;
+}
+
 /**
  * COMBIEN DE FICHES LA CONSIGNE NOMME AU PLUS. Ce n'est pas un plafond
  * d'écriture — le ménage range autant qu'il le faut —, c'est la taille de la

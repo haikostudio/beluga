@@ -3,11 +3,13 @@ import { AlertCircle, Check, ChevronDown, CornerDownLeft, GitMerge, LayoutGrid, 
 import {
   Message,
   descriptionRepliable,
+  projetAfficheDeLaProposition,
   propositionsEnAttente,
   trierParInteret,
   type PropositionEnAttente,
 } from '@beluga/shared';
 import { Badge, Button, Textarea, ZoneDefilement } from '@/components/ui';
+import { IconeDeProjet } from '@/components/pastille-projet';
 import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -15,6 +17,45 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 type Proposition = Message['proposals'][number];
+
+/**
+ * L'ICÔNE DU PROJET OÙ LA CARTE VA NAÎTRE, posée devant le titre d'une carte
+ * proposée — vignette « Suggestion de carte », bandeau hors carte et pastille
+ * de la carte acceptée. Le nom du projet se lit en infobulle. Projet
+ * introuvable : rien, plutôt qu'une icône fausse (`projetAfficheDeLaProposition`).
+ */
+export function IconeDuProjetDAccueil({
+  proposal,
+  agentId,
+  fond,
+  className,
+}: {
+  proposal: Pick<Proposition, 'projectId' | 'cardId'>;
+  agentId?: string;
+  /** Le support de la pile d'un projet réuni : le fond de la vignette. */
+  fond?: string;
+  className?: string;
+}) {
+  const state = useApp();
+  const projet = projetAfficheDeLaProposition({
+    cardProjectId: proposal.cardId ? state.cards[proposal.cardId]?.projectId : undefined,
+    proposalProjectId: proposal.projectId,
+    agentProjectId: agentId ? state.agents[agentId]?.projectId : undefined,
+    projets: state.projects,
+  });
+  if (!projet) return null;
+  return (
+    <span
+      data-projet-de-proposition={projet.id}
+      title={t('Projet de la carte : {v0}', { v0: projet.name })}
+      aria-label={t('Projet de la carte : {v0}', { v0: projet.name })}
+      role="img"
+      className={cn('flex shrink-0', className)}
+    >
+      <IconeDeProjet projet={projet} projets={state.projects} fond={fond} />
+    </span>
+  );
+}
 
 /**
  * Le bandeau des cartes proposées : une bande FIXE entre la conversation et la
@@ -427,11 +468,14 @@ export function VignetteProposition({
       <div className="px-2.5 py-2">
         {editing ? (
           <>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded border border-border bg-base px-2 py-1 text-[14px] font-medium text-text outline-none focus:border-accent"
-            />
+            <div className="flex items-center gap-1.5">
+              <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" />
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                className="min-w-0 flex-1 rounded border border-border bg-base px-2 py-1 text-[14px] font-medium text-text outline-none focus:border-accent"
+              />
+            </div>
             <Textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -441,7 +485,10 @@ export function VignetteProposition({
           </>
         ) : (
           <>
-            <p className="text-[14px] font-medium leading-snug text-text">{title}</p>
+            <div className="flex items-start gap-1.5">
+              <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" className="mt-[2px]" />
+              <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{title}</p>
+            </div>
             {description ? (
               ouverte || !repliable ? (
                 /* Dépliée, la description défile DANS la vignette : le bandeau

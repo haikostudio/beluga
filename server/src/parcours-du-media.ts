@@ -76,11 +76,6 @@ function ecrireLaRealisation(cardId: string, champs: Partial<NonNullable<Card['r
 /* 1. Le bouton du bas                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Les exports PRÊTS du montage de la carte (vidéo) : l'éditeur du Studio a été retiré, plus aucun export de montage n'existe. */
-async function exportsPretsDuMontage(_cardId: string): Promise<{ attachmentId: string; format: string; version: number }[]> {
-  return [];
-}
-
 /** Ce que le directeur reçoit quand l'utilisateur passe d'étape (il est réveillé seulement quand il a quelque chose à proposer). */
 const CONSIGNE_DU_PASSAGE: Partial<Record<GesteDuMedia, string>> = {
   'passer-esquisses':
@@ -98,8 +93,7 @@ export async function passerALEtape(cardId: string, geste: GesteDuMedia): Promis
   const card = carteDeCreation(cardId);
   const { etatDeProductionDeLaCarte } = await import('./realisation.js');
   const production = etatDeProductionDeLaCarte(cardId);
-  const exportsPrets = (await exportsPretsDuMontage(cardId)).length;
-  const r = passageAEcrire({ carte: card, elements: production.elements, medias: production.medias, exportsPrets, geste, maintenant: Date.now() });
+  const r = passageAEcrire({ carte: card, elements: production.elements, medias: production.medias, geste, maintenant: Date.now() });
   if (!r.ok) return r;
   if (r.deja) return { ok: true, deja: true };
   ecrireLaRealisation(cardId, r.realisation);
@@ -274,11 +268,7 @@ export async function telechargementDeLaCarte(cardId: string): Promise<Telecharg
   const card = carteDeCreation(cardId);
   const { etatDeProductionDeLaCarte } = await import('./realisation.js');
   const production = etatDeProductionDeLaCarte(cardId);
-  const exports = await exportsPretsDuMontage(cardId);
-  const finaux = [
-    ...(realisationDeLaCarte(card).finaux ?? []),
-    ...exports.map((e) => ({ piece: e.attachmentId, genre: 'video' as const, nom: `film-${e.format.replace(':', 'x')}-v${e.version}` })),
-  ];
+  const finaux = realisationDeLaCarte(card).finaux ?? [];
   const sections = sectionsDuTelechargement({ titre: card.title, types: typesDeMediaDeLaRealisation(card.realisation), medias: production.medias, finaux });
   const sortie = {} as TelechargementDeLaCarte;
   for (const s of SECTIONS_DU_TELECHARGEMENT) {

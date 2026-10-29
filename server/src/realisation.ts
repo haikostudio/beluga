@@ -94,6 +94,8 @@ import {
   MODELE_DES_APERCUS,
   PHASES_DE_REALISATION,
   PREFIXE_DES_APERCUS,
+  PREFIXE_DES_EXEMPLES,
+  ENVELOPPE_DES_EXEMPLES,
   realisationDeLaCarte,
   type PhaseDeRealisation,
   dossierRelatifDesMedias,
@@ -276,7 +278,21 @@ export function depenseDesApercus(cardId: string): number {
   const ligne = getDb()
     .prepare(
       `SELECT COALESCE(SUM(COALESCE(cout_reel, prix, 0)), 0) AS total FROM medias_realisation
-        WHERE card_id = ? AND etat IN ('en-cours', 'fini') AND plan LIKE '${PREFIXE_DES_APERCUS}%'`,
+        WHERE card_id = ? AND etat IN ('en-cours', 'fini') AND plan LIKE '${PREFIXE_DES_APERCUS}%' AND plan NOT LIKE '${PREFIXE_DES_EXEMPLES}%'`,
+    )
+    .get(cardId) as { total: number } | undefined;
+  return Math.round((ligne?.total ?? 0) * 1e4) / 1e4;
+}
+
+/**
+ * CE QUE LES EXEMPLES PAYANTS D'UNE CARTE ONT DÉJÀ COÛTÉ (`exemples-de-choix.ts`),
+ * au coût réel quand il est connu — à part de l'enveloppe du mode caméra.
+ */
+export function depenseDesExemples(cardId: string): number {
+  const ligne = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(cout_reel, prix, 0)), 0) AS total FROM medias_realisation
+        WHERE card_id = ? AND etat IN ('en-cours', 'fini') AND plan LIKE '${PREFIXE_DES_EXEMPLES}%'`,
     )
     .get(cardId) as { total: number } | undefined;
   return Math.round((ligne?.total ?? 0) * 1e4) / 1e4;
@@ -1511,13 +1527,7 @@ export function etatDeProductionDeLaCarte(cardId: string): EtatDeProduction {
     medias,
     budget: card ? budgetDeLaCarte(card).budget : null,
     depense: depenseDeLaCarte(cardId),
-    exportsPrets: exportsPretsDuMontage(cardId),
   };
-}
-
-/** Les exports vidéo PRÊTS du montage de la carte : l'éditeur du Studio a été retiré, il n'y en a plus. */
-function exportsPretsDuMontage(_cardId: string): number {
-  return 0;
 }
 
 /** Les réglages d'une retouche ou d'une animation, en clair, pour le panneau « Réglages » du média. */
@@ -2894,13 +2904,23 @@ export async function fabriquerUnApercu(
   ctx: ContexteRealisation,
   args: Record<string, unknown>,
   attente: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  options: { exemple?: boolean } = {},
 ): Promise<ResultatRealisation> {
   const card = ctx.cardId ? store.getCard(ctx.cardId) : null;
-  if (!card?.parcours?.realisationSouhaitee) return { ok: false, text: REFUS_MODE_ETEINT };
-  const realisation = realisationDeLaCarte(card);
+  /* UN EXEMPLE DE CHOIX (29/10/2026, `exemples-de-choix.ts`) passe par ici en
+     dernier recours, HORS du mode caméra : il a sa propre enveloppe
+     (`ENVELOPPE_DES_EXEMPLES`, 1 $ par carte) et son propre préfixe, sans
+     toucher celle du questionnaire illustré. */
+  if (options.exemple) {
+    if (!card) return { ok: false, text: 'Un exemple payant se compte par carte : sans carte, seuls les moyens sans frais du serveur servent.' };
+  } else if (!card?.parcours?.realisationSouhaitee) return { ok: false, text: REFUS_MODE_ETEINT };
+  const realisation = realisationDeLaCarte(card!);
   const consigne = String(args.consigne ?? '').trim();
   if (!consigne) return { ok: false, text: 'Il faut « consigne » : la demande complète au modèle d’image, une seule proposition par aperçu (traduite en anglais avant l’envoi).' };
+  const carte = card!;
   const phase = (PHASES_DE_REALISATION as readonly string[]).includes(String(args.phase)) ? (args.phase as PhaseDeRealisation) : realisation.phase;
+  const prefixe = options.exemple ? PREFIXE_DES_EXEMPLES : `${PREFIXE_DES_APERCUS}${phase}-`;
+  const enveloppe = options.exemple ? ENVELOPPE_DES_EXEMPLES : realisation.enveloppe;
   const legende = String(args.legende ?? '').trim().slice(0, 80);
   const service = MODELE_DES_APERCUS.service;
   if (!servicesDeGenerationBranches().includes(service)) {
@@ -2909,8 +2929,8 @@ export async function fabriquerUnApercu(
   const modele = modeleDeGeneration(service, String(args.modele ?? '') || MODELE_DES_APERCUS.id) ?? modeleDeGeneration(service, MODELE_DES_APERCUS.id);
   if (!modele || modele.capacite !== 'image') return { ok: false, text: 'Un aperçu est une IMAGE : choisis un modèle d’image de kie.ai (par défaut Z-Image, le moins cher).' };
   const prix = await prixPublie(modele, 0);
-  const depense = depenseDesApercus(card.id);
-  const decision = decisionDApercu({ enveloppe: realisation.enveloppe, prix, depense });
+  const depense = options.exemple ? depenseDesExemples(carte.id) : depenseDesApercus(carte.id);
+  const decision = decisionDApercu({ enveloppe, prix, depense });
   if (decision.verdict === 'refus') return { ok: false, text: `Aperçu refusé : ${decision.raison}` };
   if (!fs.existsSync(PATHS.medias)) {
     try {
@@ -2921,16 +2941,16 @@ export async function fabriquerUnApercu(
   }
   const envoyee = await consigneAEnvoyer('image', consigne);
   if (!envoyee.ok) return { ok: false, text: `Aperçu refusé : la consigne n’a pas pu être traduite en anglais (${envoyee.raison}). Rien n’est dépensé ; réessaie dans un instant.` };
-  const rang = mediasDeLaCarte(card.id).filter((m) => estUnApercu(m.plan) && m.plan.startsWith(`${PREFIXE_DES_APERCUS}${phase}-`)).length + 1;
+  const rang = mediasDeLaCarte(carte.id).filter((m) => estUnApercu(m.plan) && m.plan.startsWith(prefixe)).length + 1;
   const format = FORMATS.find((f) => f === args.format) ?? '1:1';
   const maintenant = Date.now();
   const m: MediaDeRealisation = {
     id: store.newId(),
-    projectId: card.projectId,
-    cardId: card.id,
+    projectId: carte.projectId,
+    cardId: carte.id,
     agentId: ctx.agentId,
     branche: null,
-    plan: `${PREFIXE_DES_APERCUS}${phase}-${rang}`,
+    plan: `${prefixe}${rang}`,
     version: 0,
     capacite: 'image',
     genre: genreDuMedia('image'),
@@ -2938,7 +2958,7 @@ export async function fabriquerUnApercu(
     modele: modele.id,
     modeleNom: modele.nom,
     demande: { consigne: envoyee.consigne, ...(envoyee.originale ? { consigneOriginale: envoyee.originale } : {}), format },
-    raison: legende || 'aperçu du questionnaire',
+    raison: legende || (options.exemple ? 'exemple d’un choix' : 'aperçu du questionnaire'),
     prix,
     sourcePrix: modele.prix,
     coutReel: null,
@@ -2957,7 +2977,7 @@ export async function fabriquerUnApercu(
   lancer(m, attente);
   await Promise.race([enVol.get(m.id), attente(RYTHME_REALISATION.attenteSuiviMs)]);
   const fini = mediaParId(m.id);
-  const reste = arrondi(Math.max(0, (realisation.enveloppe ?? 0) - depenseDesApercus(card.id)));
+  const reste = arrondi(Math.max(0, (enveloppe ?? 0) - (options.exemple ? depenseDesExemples(carte.id) : depenseDesApercus(carte.id))));
   if (fini?.etat === 'fini' && fini.attachmentId) {
     return {
       ok: true,

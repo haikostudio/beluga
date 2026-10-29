@@ -77,6 +77,7 @@ import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-prev
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { LienPromptEnvoye } from '@/components/prompt-envoye-complet';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
+import { IconeDuProjetDAccueil } from '@/components/propositions';
 import { client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { pieceEmbarquee } from '@/lib/copie-riche';
@@ -421,7 +422,7 @@ export function MessageView({
         {decidees.length ? (
           <div className="mt-2 space-y-1.5">
             {decidees.map((proposal) => (
-              <ProposalChip key={proposal.id} proposal={proposal} />
+              <ProposalChip key={proposal.id} proposal={proposal} agentId={message.agentId} />
             ))}
           </div>
         ) : null}
@@ -1283,9 +1284,12 @@ export function ErreurDeTourCard({ message }: { message: Message }) {
  */
 export function ProposalChip({
   proposal,
+  agentId,
   etiree = false,
 }: {
   proposal: Message['proposals'][number];
+  /** L'agent qui a proposé : son projet est celui de la carte quand la proposition n'en note aucun. */
+  agentId?: string;
   /** Dans la rangée des suggestions : la pastille prend la hauteur de la rangée, le bouton en bas. */
   etiree?: boolean;
 }) {
@@ -1364,7 +1368,10 @@ export function ProposalChip({
           <Check className="h-3 w-3" />
           {card && !peutLancer ? t('Carte lancée') : t('Carte créée dans « Planifié »')}
         </div>
-        <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
+        <div className="flex items-start gap-1.5">
+          <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--surface))" className="mt-[2px]" />
+          <p className="min-w-0 flex-1 text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
+        </div>
         {proposal.description ? (
           <p className="mt-1 line-clamp-2 text-[14.5px] leading-relaxed text-muted">{proposal.description}</p>
         ) : null}

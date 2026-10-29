@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
+import { RechercheDesArchives } from './recherche-des-archives';
 import { Layers, Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
 import {
   serviceDeLaCarte,
@@ -1514,6 +1515,10 @@ export function Board({
                   </div>
                 ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
+                {/* LA LOUPE DES ARCHIVES : une carte rangée il y a des semaines est
+                    loin sous le premier paquet ; elle se retrouve par son titre
+                    (`recherche-des-archives.tsx`), sans tout faire défiler. */}
+                {archives ? <RechercheDesArchives projectId={projectId} onOpenCard={onOpenCard} /> : null}
                 {/* LES RÉGLAGES DE « À DÉPLOYER » VIVENT EN HAUT À DROITE : le « i »
                     des informations de mise en ligne, puis l'interrupteur de
                     déploiement automatique, juste avant le menu trois points.

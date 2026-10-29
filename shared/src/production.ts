@@ -771,6 +771,4 @@ export interface EtatDeProduction {
   medias: MediaDuSuivi[];
   budget: number | null;
   depense: number;
-  /** Les exports PRÊTS du montage de la carte (vidéo) : le passage au téléchargement les attend. */
-  exportsPrets?: number;
 }

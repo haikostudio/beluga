@@ -642,19 +642,28 @@
     --gris-du-decroche: hsl(var(--decroche-attente));
     --part-de-couleur: 26%;
   }
+  /* EN CLAIR, PLUS DE VIOLET EN FOND (décision du 29/10/2026, capture #42b7 :
+     « super moche, il faut qu'elle soit plus légère ») : ni dégradé ni
+     bordure, un fond PLEIN dans le gris de la liste des tâches
+     (`--decroche-attente`, un rien plus soutenu que `--decroche` pour
+     trancher sur la liste posée dessous). Le violet ne reste que sur
+     l'ICÔNE et le LIBELLÉ (`.encre-du-decroche`). Le sombre ne bouge pas. */
   html:not(.dark) .decroche-violet {
-    --part-de-couleur: 30%;
-    /* En clair, le bas du dégradé garde lui aussi une pointe de violet : le fond entier se lit violet, jamais gris. */
-    --gris-du-decroche: color-mix(in srgb, hsl(var(--teinte)) 12%, hsl(var(--decroche-attente)));
+    border-color: transparent;
+    background: hsl(var(--decroche-attente));
+  }
+  html:not(.dark) .decroche-violet .encre-du-decroche {
+    color: hsl(var(--teinte));
   }
   /* Le survol, à la souris seulement (au doigt il restait collé) : un violet
-     un peu plus franc, sans casser le dégradé. */
+     un peu plus franc en sombre, sans casser le dégradé ; en clair, le gris
+     monte d'une marche, sans jamais repasser au violet. */
   @media (hover: hover) {
     .decroche-violet:hover {
       --part-de-couleur: 36%;
     }
     html:not(.dark) .decroche-violet:hover {
-      --part-de-couleur: 38%;
+      background: color-mix(in srgb, hsl(var(--decroche-attente)) 95%, hsl(var(--text)));
     }
   }
   /* LA LISTE DES TÂCHES EN GRIS (demande du 27/10/2026, capture #40a9) :

@@ -517,6 +517,16 @@ export const ENVELOPPE_MAXIMALE = 5;
 /** Les aperçus se reconnaissent à leur nom de plan : ils ne comptent JAMAIS dans le budget principal. */
 export const PREFIXE_DES_APERCUS = 'apercu-';
 
+/**
+ * LES EXEMPLES D'UN CHOIX (29/10/2026, `server/src/exemples-de-choix.ts`) : quand
+ * aucun moyen sans frais du serveur ne convient, l'exemple passe par le même
+ * service d'aperçus, rangé sous ce préfixe (il reste un aperçu, jamais un média
+ * du suivi) et compté dans SA propre enveloppe, à part de celle du mode caméra.
+ */
+export const PREFIXE_DES_EXEMPLES = 'apercu-exemple-';
+/** Ce que les exemples payants d'une carte peuvent coûter au plus, en dollars (décision de l'utilisateur). */
+export const ENVELOPPE_DES_EXEMPLES = 1;
+
 /** Le modèle des aperçus par défaut : le moins cher du catalogue, au prix publié par kie.ai (Z-Image, 25/10/2026). */
 export const MODELE_DES_APERCUS = { service: 'kie', id: 'z-image' } as const;
 

@@ -13,18 +13,19 @@
  * complet à la machine (commandes, fichiers). Plus d'interrupteur
  * « validation automatique », plus de niveau choisi tout seul.
  *
- * L'ACCORD NE RESTE QUE POUR CE QUI NE SE REPREND PAS, et il est tenu par le
- * démon, pas par la consigne. Chaque appel d'outil Beluga est CLASSÉ
- * (`genreDeLAppel`) puis jugé (`decisionDAccord`) AVANT d'être exécuté :
+ * PLUS AUCUN BOUTON « AUTORISER » (décision du 29/10/2026). Le démon n'arrête
+ * plus aucun appel : l'assistant agit directement, et confirme LUI-MÊME par
+ * `ask_user`, en une phrase (« Oui, vas-y » / « Non »), avant un geste qui ne se
+ * reprend pas. La classification reste, pour dire ce qui est irréversible
+ * (`gesteIrreversible`) — consigne et tests s'appuient sur elle :
  *
- *  - lecture            → direct ;
- *  - écriture           → direct ;
- *  - suppression        → accord TOUJOURS ;
- *  - envoi au client    → accord TOUJOURS (ce qui part chez un client, ou le
- *                          prévient, ne se reprend pas) ;
- *  - écriture serveur   → accord TOUJOURS : une requête qui EFFACE des données
- *                          d'une base de serveur (`requeteDestructive`). Les
- *                          autres écritures sur un serveur sont des écritures.
+ *  - lecture, écriture           → direct ;
+ *  - suppression                 → confirmation par question ;
+ *  - envoi au client             → confirmation (ce qui part chez un client,
+ *                                   ou le prévient, ne se reprend pas) ;
+ *  - écriture serveur            → confirmation : une requête qui EFFACE des
+ *                                   données d'une base de serveur
+ *                                   (`requeteDestructive`).
  *
  * UN OUTIL OU UN GESTE INCONNU EST UNE SUPPRESSION : la classification ne
  * laisse jamais passer en silence ce qu'elle ne connaît pas.
@@ -34,7 +35,6 @@
 
 import { CONSIGNE_PERIMETRE_ASSISTANT } from './perimetre-des-agents.js';
 import { REGLE_DEMANDE_DE_CLONAGE } from './clonage.js';
-import { nomAfficheDOutil } from './noms-outils.js';
 import {
   HAUTEUR_CHAT_MIN,
   LARGEUR_CHAT_MAX,
@@ -46,12 +46,11 @@ import {
 } from './chat-flottant.js';
 
 export type GenreDeGeste = 'lecture' | 'ecriture' | 'suppression' | 'envoi-client' | 'ecriture-serveur';
-export type DecisionDAccord = 'direct' | 'accord';
 
 /**
  * Les outils du démon que l'assistant reçoit EN PLUS de ceux d'un agent
  * ordinaire (`marketing` n'est servi d'ordinaire qu'à l'agent Marketing), et
- * ses six outils propres.
+ * ses sept outils propres.
  */
 export const OUTILS_DE_L_ASSISTANT = [
   'ask_user',
@@ -79,6 +78,7 @@ export const OUTILS_DE_L_ASSISTANT = [
   'assistant_surveillances',
   'assistant_backups',
   'assistant_base_serveur',
+  'assistant_gestes',
 ] as const;
 
 /** Les outils créés pour l'assistant : aucun autre agent ne les reçoit. */
@@ -89,6 +89,7 @@ export const OUTILS_PROPRES_A_L_ASSISTANT: ReadonlySet<string> = new Set([
   'assistant_surveillances',
   'assistant_backups',
   'assistant_base_serveur',
+  'assistant_gestes',
 ]);
 
 
@@ -111,6 +112,7 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'evaluer':
     case 'suggerer_modele':
       return 'lecture';
+    case 'exemple_de_choix':
     case 'board_create_card':
     case 'board_update_card':
     case 'board_move_card':
@@ -178,6 +180,9 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
       if (action === 'lister' || action === 'points') return 'lecture';
       if (action === 'lancer') return 'ecriture';
       return 'suppression';
+    case 'assistant_gestes':
+      if (action === 'trouver') return 'lecture';
+      return ['lancer', 'valider_proposition', 'changer_de_projet', 'deployer', 'redemarrer'].includes(action) ? 'ecriture' : 'suppression';
     case 'assistant_base_serveur':
       if (texte(args.mode) === 'lecture') return 'lecture';
       return requeteDestructive(args.requete) ? 'ecriture-serveur' : 'ecriture';
@@ -197,142 +202,23 @@ export function requeteDestructive(requete: unknown): boolean {
   return /\b(delete|drop|truncate)\b/i.test(sql);
 }
 
-/** Faut-il l'accord de l'utilisateur avant d'exécuter ce geste ? Seulement pour ce qui ne se reprend pas. */
-export function decisionDAccord(genre: GenreDeGeste): DecisionDAccord {
-  return genre === 'lecture' || genre === 'ecriture' ? 'direct' : 'accord';
-}
-
-export const REPONSE_AUTORISER_ASSISTANT = 'Autoriser';
-export const REPONSE_REFUSER_ASSISTANT = 'Refuser';
-
 /**
- * L'ACCORD N'EST DONNÉ QUE PAR LE BOUTON « AUTORISER ». Une réponse écrite à la
- * main — même « oui » — n'en est pas un : elle part à l'assistant comme un
- * refus commenté, pour qu'il reformule ou repose la question.
+ * CE GESTE NE SE REPREND-IL PAS ? Une suppression, un envoi au client, un
+ * effacement sur une base de serveur. C'est le seul cas où l'assistant
+ * confirme d'abord par une question — et c'est lui qui la pose, pas le démon.
  */
-export function accordDonne(reponse: string): boolean {
-  return reponse.trim().toLowerCase() === REPONSE_AUTORISER_ASSISTANT.toLowerCase();
-}
-
-const TITRE_DU_GENRE: Record<Exclude<GenreDeGeste, 'lecture'>, string> = {
-  ecriture: 'Autoriser cette modification ?',
-  suppression: 'Autoriser cette suppression ?',
-  'envoi-client': 'Autoriser cet envoi au client ?',
-  'ecriture-serveur': 'Autoriser cette écriture sur le serveur ?',
-};
-
-/** L'intitulé de la question d'accord. */
-export function questionDAccord(genre: GenreDeGeste): string {
-  return genre === 'lecture' ? TITRE_DU_GENRE.ecriture : TITRE_DU_GENRE[genre];
-}
-
-/** Ce qui ne s'affiche jamais en clair dans l'aperçu d'un geste. */
-const CHAMPS_SECRETS = /mot.?de.?passe|password|secret|cle$|^cle|jeton|token/i;
-const MASQUE = '••••••';
-/** Un texte (un message à un client, une description) se lit en entier jusque-là. */
-const MAX_TEXTE = 4000;
-/** Une valeur structurée (liste, objet) rendue sur une ligne. */
-const MAX_LIGNE = 900;
-const MAX_APERCU = 6000;
-/** Les champs qui NOMMENT un élément : c'est eux qu'une puce montre d'abord. */
-const CHAMPS_TITRE = ['titre', 'title', 'nom', 'name', 'label', 'libelle'];
-const CHAMPS_DETAIL = ['description', 'detail', 'texte', 'resume'];
-
-const couper = (texte: string, max: number) => (texte.length > max ? `${texte.slice(0, max)}…` : texte);
-const vide = (valeur: unknown) =>
-  valeur === undefined || valeur === null || valeur === '' || (Array.isArray(valeur) && valeur.length === 0);
-const scalaire = (valeur: unknown) => typeof valeur !== 'object' || valeur === null;
-
-function scalaireLisible(valeur: unknown): string {
-  if (typeof valeur === 'boolean') return valeur ? 'oui' : 'non';
-  return String(valeur);
-}
-
-/** Une ligne de puce pour un élément de liste : « titre — description », sinon ses valeurs simples. */
-function puceDUnObjet(objet: Record<string, unknown>): string {
-  const lire = (cles: string[]) =>
-    cles.map((c) => objet[c]).find((v): v is string | number => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number');
-  const titre = lire(CHAMPS_TITRE);
-  const detail = lire(CHAMPS_DETAIL);
-  if (titre !== undefined) return detail !== undefined ? `${titre} — ${detail}` : String(titre);
-  return Object.entries(objet)
-    .filter(([cle, v]) => !vide(v) && scalaire(v) && !CHAMPS_SECRETS.test(cle))
-    .map(([, v]) => scalaireLisible(v))
-    .join(' — ');
+export function gesteIrreversible(genre: GenreDeGeste): boolean {
+  return genre !== 'lecture' && genre !== 'ecriture';
 }
 
 /**
- * UNE VALEUR, EN LIGNES LISIBLES — jamais en JSON (MEM-2737). Un texte reste
- * tel quel, un oui/non s'écrit en mots, une liste de valeurs simples se joint
- * par des virgules, une liste d'éléments se lit en puces « titre — description »,
- * un objet en lignes « clé : valeur » décalées. Une clé secrète, à n'importe
- * quelle profondeur, est masquée.
+ * LE LIEN QUI OUVRE UNE CARTE dans l'application, quel que soit l'écran : la
+ * forme `#projet/<projet>/tache/<carte>` (`shared/src/adresse-navigateur.ts`) ;
+ * la forme « Tableaux de bord » retombe sur la page nue pour une carte qui n'y
+ * figure pas.
  */
-export function valeurLisible(valeur: unknown, profondeur = 0): string[] {
-  if (vide(valeur)) return [];
-  if (typeof valeur === 'string') return [couper(valeur, MAX_TEXTE)];
-  if (scalaire(valeur)) return [scalaireLisible(valeur)];
-  if (Array.isArray(valeur)) {
-    const elements = valeur.filter((v) => !vide(v));
-    if (elements.every(scalaire)) return [couper(elements.map(scalaireLisible).join(', '), MAX_LIGNE)];
-    return elements.map((element) => {
-      if (scalaire(element)) return `• ${scalaireLisible(element)}`;
-      if (Array.isArray(element)) return `• ${valeurLisible(element, profondeur + 1).join(' ; ')}`;
-      return `• ${couper(puceDUnObjet(element as Record<string, unknown>), MAX_LIGNE)}`;
-    });
-  }
-  const lignes: string[] = [];
-  for (const [cle, sous] of Object.entries(valeur as Record<string, unknown>)) {
-    if (vide(sous)) continue;
-    lignes.push(...ligneDeChamp(cle, sous, profondeur + 1));
-  }
-  return lignes;
-}
-
-/** « clé : valeur » sur une ligne, ou « clé : » suivi des lignes de la valeur, décalées. */
-function ligneDeChamp(cle: string, valeur: unknown, profondeur = 0): string[] {
-  if (CHAMPS_SECRETS.test(cle)) return [`${cle} : ${MASQUE}`];
-  const lignes = valeurLisible(valeur, profondeur);
-  if (!lignes.length) return [];
-  if (lignes.length === 1 && (scalaire(valeur) || (Array.isArray(valeur) && !lignes[0].startsWith('• ')))) return [`${cle} : ${lignes[0]}`];
-  return [`${cle} :`, ...lignes.map((l) => `  ${l}`)];
-}
-
-/**
- * L'APERÇU DU GESTE, pour la question d'accord, EN TEXTE EXPLICITE : la phrase
- * de l'assistant, le nom français du geste, puis chaque paramètre en clair.
- * Ni accolade, ni crochet, ni nom technique d'outil (capture #7db7 du
- * 18/10/2026). Un message à un client s'y lit EN ENTIER — c'est lui qu'on
- * autorise. Les valeurs secrètes sont masquées, même dans un objet imbriqué.
- */
-export function apercuDuGeste(outil: string, args: Record<string, unknown>, explication?: string): string {
-  const lignes: string[] = [];
-  if (explication?.trim()) lignes.push(explication.trim(), '');
-  lignes.push(`Geste : ${nomAfficheDOutil(outil)}`);
-  for (const [cle, valeur] of Object.entries(args)) {
-    if (cle === 'pourquoi') continue;
-    lignes.push(...ligneDeChamp(cle, valeur));
-  }
-  /* La borne de sécurité coupe ENTRE deux lignes, jamais au milieu d'une puce. */
-  const gardees: string[] = [];
-  let longueur = 0;
-  for (const ligne of lignes) {
-    if (longueur + ligne.length + 1 > MAX_APERCU) {
-      gardees.push('…');
-      break;
-    }
-    gardees.push(ligne);
-    longueur += ligne.length + 1;
-  }
-  return gardees.join('\n');
-}
-
-export function texteDeRefus(reponse: string): string {
-  const commentaire = reponse.trim();
-  const libre = commentaire && commentaire.toLowerCase() !== REPONSE_REFUSER_ASSISTANT.toLowerCase();
-  return libre
-    ? `REFUSÉ — l'utilisateur n'a pas autorisé ce geste et a répondu : « ${commentaire} ». Rien n'a été exécuté. Tiens compte de sa réponse avant toute autre tentative.`
-    : "REFUSÉ — l'utilisateur n'a pas autorisé ce geste. Rien n'a été exécuté. Ne le retente pas sans qu'il le redemande.";
+export function lienDeLaCarte(projectId: string, cardId: string): string {
+  return `#projet/${projectId}/tache/${cardId}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -457,12 +343,14 @@ const MENTION_FACTURATION = [
 /**
  * CE QUE L'ASSISTANT REÇOIT EN PLUS DE LA CONSIGNE D'UN AGENT ORDINAIRE
  * (`server/src/runtime.ts`), stable d'un tour à l'autre (elle est le préfixe du
- * cache). Elle décrit son rôle et ses outils propres ; l'accord, lui, est tenu
- * par le démon.
+ * cache). Elle décrit son rôle, ses droits entiers et ses outils propres ; la
+ * confirmation de l'irréversible est la sienne, par question (29/10/2026).
  */
 export const CONSIGNE_ASSISTANT_GLOBAL = `TU ES L'ASSISTANT DE BELUGA BUILD, ouvert depuis le robot en bas à droite de l'application (sur téléphone, depuis un bouton du haut de l'écran). L'utilisateur te parle depuis n'importe quel écran : réponds-lui directement, comme un collègue. Tu n'as ni carte ni branche.
 
-TU AS L'ACCÈS COMPLET : tu lis, tu écris, tu lances des commandes et tu administres cette machine sans demander la permission au coup par coup. Une modification du PROGRAMME d'un projet (son code, ses branches) se propose en carte (board_create_card) : la carte a sa propre branche et son propre dossier, et son travail passe par « À déployer ». Un travail découpé en étapes ordonnées se propose en UNE suite (champ « etapes » du même appel), jamais en cartes séparées qui partiraient dans le désordre. Tu ne modifies jamais toi-même le dépôt d'un projet en place, ni celui que sert Beluga, et tu ne redémarres jamais Beluga.
+TU AS TOUS LES DROITS ET L'ACCÈS COMPLET, sur cette machine et dans Beluga : tu lis, tu écris, tu lances des commandes, tu administres, sans demander la permission au coup par coup et sans jamais répondre qu'un geste est réservé à l'utilisateur ou que tu n'en as pas le droit. Tu ressors une carte d'« Archivé » ou d'« À déployer » (board_move_card agit comme son geste), tu crées une carte et la valides, tu la lances, tu la changes de projet, tu supprimes. Pour MODIFIER LE CODE d'un projet, tu proposes la carte (board_create_card), tu la valides (assistant_gestes « valider_proposition ») et tu la lances (« lancer ») : elle a sa branche et sa copie de travail, et son travail arrive dans « À déployer ». Tu n'écris jamais dans le dossier publié (data/live) ni dans le dossier servi d'un projet ; dans un dossier partagé, git add NOMMÉ, jamais -A. Un travail en étapes ordonnées se propose en UNE suite (champ « etapes »). Tu DÉPLOIES ou mets EN PRODUCTION (assistant_gestes « deployer ») seulement quand l'utilisateur te l'a demandé dans cette conversation, jamais de toi-même. Tu REDÉMARRES Beluga (« redemarrer ») sur sa demande : le redémarrage attend tout seul qu'aucun agent ni publication ne tourne, dis-le.
+
+OÙ EST UNE CARTE : assistant_gestes « trouver » (quelques mots du titre, tous projets si tu ne sais pas lequel). Réponds par son projet, sa colonne, son rang dans la colonne et sa date, puis le LIEN rendu par l'outil, recopié tel quel (« [ouvrir la carte](#projet/…/tache/…) »).
 
 TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil Beluga accepte un paramètre « projet » (nom ou identifiant) pour viser un projet précis ; sans lui, il vise le projet de l'application, « Beluga ». En plus des outils de tout agent :
 - le RÉSUMÉ de tous les projets, les cartes et leur avancement : assistant_resume ;
@@ -472,10 +360,11 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil Beluga accep
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
 - les BACKUPS : assistant_backups, backup_essai, backup_recette ;
 - les NOTES : assistant_notes ;${MENTION_FACTURATION}
-- les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier).
+- les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier) ;
+- les GESTES DE L'ÉCRAN — trouver une carte, lancer, valider une proposition, changer de projet, déployer, redémarrer : assistant_gestes.
 
 ${REGLE_DEMANDE_DE_CLONAGE}
 
 ${CONSIGNE_PERIMETRE_ASSISTANT}
 
-SEULS CE QUI EFFACE ET CE QUI PART CHEZ UN CLIENT ATTENDENT L'ACCORD, et c'est Beluga qui le tient : une suppression, un envoi dans l'espace client ou une requête qui efface des données d'un serveur affiche lui-même « Autoriser / Refuser » et attend le clic. Appelle donc l'outil DIRECTEMENT, sans demander la permission avant, et ajoute « pourquoi » (une phrase) pour qu'il sache ce qu'il autorise. Tout le reste part sans question. Un refus te revient en résultat : n'insiste pas.`;
+CONFIRME SEULEMENT CE QUI NE SE REPREND PAS : avant d'effacer pour de bon (carte, projet, note, fiche, surveillance, backup), d'écrire ou d'envoyer quelque chose à un client, ou d'effacer des données sur une base de serveur, pose UNE question par ask_user, en une phrase qui dit ce qui va se passer, avec deux choix : « Oui, vas-y » et « Non ». Tout le reste se fait directement, sans question.`;

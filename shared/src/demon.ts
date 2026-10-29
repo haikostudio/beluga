@@ -9,6 +9,8 @@
  * La règle vit ici, sans réseau ni base : elle se teste seule.
  */
 
+import { REFUS_HORS_PORTEE } from './droits-commandes.js';
+
 export interface EtatDemon {
   /** Instant du démarrage du démon. */
   demarreA: number;
@@ -40,6 +42,22 @@ const MARGE_MS = 1000;
 export function redemarrageNecessaire(etat: EtatDemon): boolean {
   if (!etat.construitA) return false;
   return etat.construitA > etat.demarreA + MARGE_MS;
+}
+
+/**
+ * UN REFUS QUI N'EN EST PAS UN (29/10/2026, capture #09c1a) : l'interface
+ * publiée demande une commande que le démon, démarré AVANT la publication, ne
+ * connaît pas encore. Le serveur répond le refus de cloison — le MÊME pour une
+ * commande inconnue et une commande refusée, et il doit le rester
+ * (`REFUS_HORS_PORTEE`). C'est donc l'ÉCRAN qui le relit : pour
+ * l'administrateur seulement (un accès tiers a de vrais refus), et seulement
+ * quand un redémarrage est attendu, il dit que la nouveauté sera prête après.
+ */
+export function refusAvantRedemarrage(
+  message: string | null | undefined,
+  contexte: { admin: boolean; redemarrageNecessaire: boolean },
+): boolean {
+  return contexte.admin && contexte.redemarrageNecessaire && message === REFUS_HORS_PORTEE;
 }
 
 /** La liste des agents, telle qu'ajoutée à une phrase (« : X, Y. »), vide si rien à nommer. */

@@ -133,6 +133,10 @@ import {
   CHAMPS_DU_BRIEF,
   tailleLisible,
   BIBLIOTHEQUES_DE_COMPOSITION,
+  couleursDOption,
+  REGLE_DES_EXEMPLES,
+  NATURES_D_EXEMPLE,
+  MAX_PISTES_D_EXEMPLE,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -907,7 +911,9 @@ export const TOOL_DEFS: ToolDef[] = [
     name: 'ask_user',
     description:
       "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante. " +
-      REGLE_DES_PISTES,
+      REGLE_DES_PISTES +
+      ' ' +
+      REGLE_DES_EXEMPLES,
     inputSchema: {
       type: 'object',
       required: ['question'],
@@ -941,6 +947,38 @@ export const TOOL_DEFS: ToolDef[] = [
                 description:
                   'Facultatif : l’identifiant d’une pièce jointe SON ou VIDÉO (rendu par attach_file) que ce choix fait écouter ou regarder — un bouton lecture s’affiche à droite du choix',
               },
+              couleurs: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Pour un choix de COULEURS, d’office : 1 à 4 teintes « #rrggbb » de cette option, dessinées en petits points devant son libellé',
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'exemple_de_choix',
+    description:
+      "FABRIQUE LES EXEMPLES D'UN CHOIX qui se voit ou s'entend, après que l'utilisateur a dit oui aux exemples : une pièce jointe par piste (4 au plus), à passer ensuite dans « image » (ou « media » pour une voix) des options d'ask_user. « nature » : « page » — pour un élément d'interface, un encadré, des couleurs en situation, une mise en page, une typographie : écris pour chaque piste une page HTML COMPLÈTE et autonome (styles en ligne, aucune ressource extérieure, l'élément montré en grand dans un cadre de 960×640), photographiée par le serveur, sans frais ; « image » — une illustration, un logo, une ambiance : « consigne » décrit l'image, fabriquée par Codex du serveur sans frais, sinon par un service externe plafonné à 1 $ par carte (au-delà : refus, continue en mots et dis-le) ; « voix » — « texte » à faire entendre, voix d'essai du serveur, sans frais. Un refus de service se dit tel quel à l'utilisateur.",
+    inputSchema: {
+      type: 'object',
+      required: ['nature', 'pistes'],
+      properties: {
+        nature: { type: 'string', enum: [...NATURES_D_EXEMPLE] },
+        pistes: {
+          type: 'array',
+          maxItems: MAX_PISTES_D_EXEMPLE,
+          items: {
+            type: 'object',
+            required: ['titre'],
+            properties: {
+              titre: { type: 'string', description: 'Le libellé de la piste, tel qu’il sera dans l’option' },
+              html: { type: 'string', description: 'Nature « page » : la page entière' },
+              consigne: { type: 'string', description: 'Nature « image » : la description de l’image' },
+              texte: { type: 'string', description: 'Nature « voix » : la phrase à faire entendre' },
             },
           },
         },
@@ -3065,6 +3103,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
      * dans le schéma que son moteur a mis en cache, et le renommer sèchement
      * aurait coupé ses appels en plein tour.
      */
+    /* LES EXEMPLES D'UN CHOIX (29/10/2026) : local d'abord, externe plafonné (`exemples-de-choix.ts`). */
+    case 'exemple_de_choix': {
+      const { fabriquerLesExemples } = await import('./exemples-de-choix.js');
+      return await fabriquerLesExemples({ agentId: ctx.agentId, projectId: ctx.projectId, cardId: ctx.cardId }, args);
+    }
+
     case 'attach_file':
     case 'attach_screenshot': {
       const demande = String(args.path ?? '').trim();
@@ -3173,6 +3217,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             ...(imageDOption(opt?.image) ? { image: imageDOption(opt?.image) } : {}),
             /* UN CHOIX QUI S'ÉCOUTE : seule une pièce jointe connue de son ou de vidéo est gardée. */
             ...(mediaDOption(opt?.media) ? { media: mediaDOption(opt?.media) } : {}),
+            /* UN CHOIX DE COULEURS : ses teintes « #rrggbb », le reste ignoré (`couleursDOption`). */
+            ...(couleursDOption(opt?.couleurs) ? { couleurs: couleursDOption(opt?.couleurs) } : {}),
           }))
         : [];
 
