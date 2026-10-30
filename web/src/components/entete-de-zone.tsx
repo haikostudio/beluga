@@ -536,6 +536,7 @@ export function EnteteDeZone({
   menu,
   deuxRangsSurPetitEcran = false,
   rangDuHautMasque = false,
+  finDuRangDuTitre,
   className,
   ...attributs
 }: {
@@ -554,6 +555,12 @@ export function EnteteDeZone({
    * (projet, branche, titre) reste.
    */
   rangDuHautMasque?: boolean;
+  /**
+   * EN DEUX RANGS SEULEMENT, CE QUI SE POSE AU BOUT DU RANG DU TITRE, collé au
+   * bord droit — le bouton du volet de droite d'une carte sur téléphone
+   * (demande du 30/10/2026, capture #cffe).
+   */
+  finDuRangDuTitre?: React.ReactNode;
   /** Les lieux qui mènent à la page, du plus large au plus proche. */
   chemin?: CranDuChemin[];
   titre: React.ReactNode;
@@ -824,6 +831,7 @@ export function EnteteDeZone({
             rang-là reste toujours. */}
         <div className="flex h-12 items-center gap-1 px-3" data-rang-du-titre>
           {fil}
+          {finDuRangDuTitre ? <div className="ml-auto flex shrink-0 items-center">{finDuRangDuTitre}</div> : null}
         </div>
       </div>
     );

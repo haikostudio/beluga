@@ -2636,9 +2636,14 @@ export function Composer({
                     aria-label={t('Retirer ce fichier')}
                     onClick={() => retirerJointe(file)}
                     data-piece-retirer
-                    className="absolute right-0.5 top-0.5 flex h-6 sm:h-5 w-6 sm:w-5 items-center justify-center rounded-full bg-surface/90 text-muted hover:text-danger"
+                    /* UNE PETITE PASTILLE AU COIN (demande du 30/10/2026, capture
+                       #8dff : « trop gros ») : le rond visible fait 16 px, la
+                       zone de toucher garde le coin entier (28 px) pour le doigt. */
+                    className="absolute right-0 top-0 flex h-7 w-7 items-start justify-end p-1 text-muted hover:text-danger"
                   >
-                    <X className="h-3 w-3" />
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-surface/90 shadow-sm" data-piece-retirer-pastille>
+                      <X className="h-2.5 w-2.5" />
+                    </span>
                   </button>
                 </div>
               );

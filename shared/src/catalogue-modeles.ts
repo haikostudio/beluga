@@ -1,4 +1,4 @@
-import { modeleBanni, remplacantDUnBanni } from './modele-banni.js';
+import { modeleBanni, remplacantDUnBanni, sansModelesBannis } from './modele-banni.js';
 import { EngineInfo, ModelInfo, RunConfig } from './models.js';
 
 /**
@@ -102,9 +102,10 @@ export function modeleActuel(
   modelId: string | undefined,
 ): ModelInfo | undefined {
   const models = engine?.models ?? [];
-  // Un modèle BANNI (Fable) suit l'Opus le plus récent, jamais le défaut du
-  // moteur : exception voulue à DEC-213 (`modele-banni.ts`).
-  if (modeleBanni(modelId)) {
+  // Un modèle RÉSERVÉ (Fable) que le catalogue ne connaît pas suit l'Opus le
+  // plus récent, jamais le défaut du moteur (`modele-banni.ts`). Au catalogue,
+  // il est rendu tel quel : c'est un choix manuel.
+  if (modeleBanni(modelId) && !models.some((entry) => entry.id === modelId)) {
     const remplacant = remplacantDUnBanni(models);
     const opus = models.find((entry) => entry.id === remplacant);
     if (opus) return opus;
@@ -118,7 +119,7 @@ export function modeleActuel(
     const parente = models.find((entry) => familleDeModele(entry) === famille);
     if (parente) return parente;
   }
-  return models.find((entry) => entry.id === engine?.defaultModel) ?? models[0];
+  return models.find((entry) => entry.id === engine?.defaultModel) ?? sansModelesBannis(models)[0] ?? models[0];
 }
 
 /**

@@ -28,6 +28,7 @@ import {
   sansBlocDeChiffrage,
   SUITES_MAX_APRES_AJOUTS,
   ideeDejaEnvoyee,
+  lireLigneDIllustration,
   type SuiteProposee,
   ligneDeSuggestion,
   paragraphBreakAfter,
@@ -532,6 +533,9 @@ export function Markdown({
         );
       }
 
+      case 'image':
+        return <ImageDuTexte key={index} piece={block.piece} libelle={block.libelle} />;
+
       case 'code':
         return (
           <pre key={index}>
@@ -698,7 +702,33 @@ type Block =
   | { kind: 'list'; items: string[] }
   | { kind: 'code'; text: string }
   | { kind: 'callout'; variant: string; lines: string[] }
-  | { kind: 'table'; head: string[]; rows: string[][] };
+  | { kind: 'table'; head: string[]; rows: string[][] }
+  | { kind: 'image'; piece: string; libelle: string };
+
+/**
+ * L'OUVERTURE EN GRAND D'UNE IMAGE DU TEXTE (« ![…](piece:…) », un visuel de
+ * la carte posé dans un plan, 30/10/2026). Sans fournisseur, l'image s'ouvre
+ * seule dans un nouvel onglet.
+ */
+export const ContexteOuvrirUneImageDuTexte = React.createContext<((piece: string) => void) | null>(null);
+
+function ImageDuTexte({ piece, libelle }: { piece: string; libelle: string }) {
+  const ouvrir = React.useContext(ContexteOuvrirUneImageDuTexte);
+  const adresse = `/api/attachment?id=${encodeURIComponent(piece)}`;
+  return (
+    <figure className="my-2" data-illustration-du-plan={piece}>
+      <button
+        type="button"
+        onClick={() => (ouvrir ? ouvrir(piece) : window.open(adresse, '_blank', 'noopener'))}
+        title={t('Ouvrir en grand')}
+        className="block overflow-hidden rounded-md bg-raised p-1 sm:p-0.5"
+      >
+        <img src={adresse} alt={libelle} loading="lazy" className="max-h-48 max-w-[min(320px,100%)] rounded object-contain object-left-top" />
+      </button>
+      {libelle ? <figcaption className="mt-1 text-[12.5px] leading-snug text-muted texte-copiable">{libelle}</figcaption> : null}
+    </figure>
+  );
+}
 
 /*
  * Le sommaire ne sert que sur une réponse qu'on ne voit pas d'un seul écran :
@@ -771,6 +801,14 @@ function parse(content: string): Block[] {
       }
       i--;
       blocks.push({ kind: 'callout', variant, lines: body.filter(Boolean) });
+      continue;
+    }
+
+    /* UNE IMAGE DE LA CARTE, seule sur sa ligne : jamais une adresse libre. */
+    const illustration = lireLigneDIllustration(trimmed);
+    if (illustration) {
+      flushParagraph();
+      blocks.push({ kind: 'image', piece: illustration.piece, libelle: illustration.libelle });
       continue;
     }
 

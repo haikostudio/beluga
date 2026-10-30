@@ -15,7 +15,6 @@
  *   - la demande envoyée à l'agent (`demandeDeDepannage`).
  */
 
-import { agentSystemeTermine } from './cartes-systeme.js';
 
 /** Ce que la règle lit d'une publication. */
 export interface PublicationPourLeDepannage {
@@ -71,17 +70,6 @@ export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: read
   return agents
     .filter((agent) => !!agent.depannagePublication && depanneurVivant(agent))
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
-}
-
-/**
- * LES DÉPANNAGES FINIS DEPUIS MOINS DE 24 HEURES : leur vignette dans
- * « Archiver » (même règle que les agents sans carte, `agentSystemeTermine`),
- * la plus récente fin d'abord.
- */
-export function depannagesTerminesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], maintenant: number): T[] {
-  return agents
-    .filter((agent) => !!agent.depannagePublication && !depanneurVivant(agent) && agentSystemeTermine(agent, maintenant))
-    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 
 /**

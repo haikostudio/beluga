@@ -30,7 +30,9 @@ import {
 import { FournirLaColonneDeService, type NiveauDeColonne } from '@/components/colonne-de-service';
 import { TiroirProjets } from '@/components/tiroir-projets';
 import { MenuDesProjets } from '@/components/menu-des-projets';
-import { Board } from '@/components/board';
+import { ColonneDesAgents, PageDuProjet } from '@/components/page-du-projet';
+import { Celebrations } from '@/components/celebration';
+import { ColonneDeService } from '@/components/colonne-de-service';
 import {
   SilhouetteCoffre,
   SilhouetteEspaceHaiko,
@@ -42,7 +44,7 @@ import {
   SilhouetteStatistiques,
   SilhouetteMedias,
   SilhouetteTachesRecurrentes,
-  SilhouetteTableau,
+  SilhouetteAgents,
   SilhouetteEnRoute,
   SilhouetteResume,
 } from '@/components/silhouettes';
@@ -81,7 +83,6 @@ import {
   carteARefermerSurChoixDeVue,
   gestesGeles,
   RAISON_CANAL_COUPE,
-  TITRE_CARTE_DE_CADRAGE,
   titreEnConstruction,
   type EcranNavigateur,
   type ElementVise,
@@ -417,6 +418,16 @@ export function App() {
   useTiroirAdresse('pieces-jointes', tiroirFichiers === 'pieces', (ouvert) =>
     setTiroirFichiers(ouvert ? 'pieces' : null),
   );
+  /* …ET LE MENU D'UN AGENT LES OUVRE AUSSI (groupe « Ce projet », 30/10/2026) :
+     `beluga:ouvrir-fichiers`, détail `{ vue: 'fichiers' | 'pieces' }`. */
+  React.useEffect(() => {
+    const ouvrir = (event: Event) => {
+      const vue = (event as CustomEvent<{ vue?: VueFichiers }>).detail?.vue;
+      if (vue) setTiroirFichiers(vue);
+    };
+    window.addEventListener('beluga:ouvrir-fichiers', ouvrir);
+    return () => window.removeEventListener('beluga:ouvrir-fichiers', ouvrir);
+  }, []);
   /*
    * L'onglet du bas est retenu en base : on rouvre l'application là où on
    * l'avait laissée, et le même onglet suit d'un appareil à l'autre. Un onglet
@@ -560,7 +571,22 @@ export function App() {
       if (champDEcriture && (window.scrollY > 0 || (vue?.offsetTop ?? 0) > 0)) window.scrollTo(0, 0);
       const ecartRecale = vue ? window.innerHeight - vue.height - vue.offsetTop : 0;
       const clavierRecale = saisieActive && ecartRecale > 100;
-      racine.style.setProperty('--clavier', `${clavierRecale ? Math.round(ecartRecale) : clavierOuvert ? Math.round(ecart) : 0}px`);
+      const clavier = clavierRecale ? Math.round(ecartRecale) : clavierOuvert ? Math.round(ecart) : 0;
+      if (`${clavier}px` !== racine.style.getPropertyValue('--clavier')) racine.style.setProperty('--clavier', `${clavier}px`);
+      /*
+       * L'APPLICATION PREND LA HAUTEUR VISIBLE, CLAVIER OUVERT (30/10/2026,
+       * capture #8dff) : sa hauteur EST la zone au-dessus du clavier, comme
+       * dans une messagerie — la barre d'écriture, au bout de la colonne, s'y
+       * pose sans recouvrir ni laisser de vide. Clavier fermé, la variable
+       * tombe et la racine reprend toute la page.
+       */
+      if (clavier > 0 && vue) {
+        racine.style.setProperty('--hauteur-visible', `${Math.round(vue.height)}px`);
+        racine.setAttribute('data-clavier-ouvert', '');
+      } else {
+        racine.style.removeProperty('--hauteur-visible');
+        racine.removeAttribute('data-clavier-ouvert');
+      }
     };
 
     appliquer();
@@ -568,17 +594,36 @@ export function App() {
       window.setTimeout(appliquer, 60);
       window.setTimeout(appliquer, 350);
     };
+    /*
+     * LA MONTÉE DU CLAVIER SE SUIT IMAGE PAR IMAGE, sans attendre sa fin : le
+     * premier `resize` de l'iPhone n'arrive parfois qu'une fois le clavier
+     * posé, et la barre sautait d'un coup. Pendant 700 ms après l'entrée dans
+     * un champ, la mesure se refait à chaque image (elle n'écrit que ce qui
+     * change).
+     */
+    let suivi = 0;
+    let finDuSuivi = 0;
+    const suivre = () => {
+      appliquer();
+      if (performance.now() < finDuSuivi) suivi = window.requestAnimationFrame(suivre);
+    };
+    const entree = () => {
+      finDuSuivi = performance.now() + 700;
+      window.cancelAnimationFrame(suivi);
+      suivre();
+    };
     vue?.addEventListener('resize', appliquer);
     vue?.addEventListener('scroll', appliquer);
     window.addEventListener('resize', appliquer);
-    window.addEventListener('focusin', appliquer);
+    window.addEventListener('focusin', entree);
     window.addEventListener('focusout', retarde);
     window.addEventListener('orientationchange', retarde);
     return () => {
+      window.cancelAnimationFrame(suivi);
       vue?.removeEventListener('resize', appliquer);
       vue?.removeEventListener('scroll', appliquer);
       window.removeEventListener('resize', appliquer);
-      window.removeEventListener('focusin', appliquer);
+      window.removeEventListener('focusin', entree);
       window.removeEventListener('focusout', retarde);
       window.removeEventListener('orientationchange', retarde);
     };
@@ -747,12 +792,23 @@ export function App() {
    * et une carte supprimée entre-temps laisse simplement le tiroir fermé.
    */
   const carteReprise = React.useRef(new Set<string>());
+  /*
+   * UN PROJET S'OUVRE SUR SON DERNIER AGENT (demande du 30/10/2026, « projets
+   * sans kanban ») : il n'y a plus de tableau derrière. La reprise vaut donc à
+   * CHAQUE entrée dans le projet — par la liste des projets, le fil d'Ariane ou
+   * le retour d'un service —, et non plus une seule fois par session. Une fois
+   * dedans, refermer l'agent reste un geste : il ne se rouvre pas tout seul.
+   * Sur téléphone, la liste vient d'abord : pas de reprise.
+   */
+  React.useEffect(() => {
+    if (vueCentrale === 'projet' && state.activeProjectId) carteReprise.current.delete(state.activeProjectId);
+  }, [state.activeProjectId, vueCentrale]);
   React.useEffect(() => {
     const projectId = state.activeProjectId;
-    /* LA REPRISE N'A LIEU QUE SUR LE TABLEAU DU PROJET. Arrivé sur un service
-       (coffre, mémoire, marketing…), la carte retenue attend le retour au tableau :
+    /* LA REPRISE N'A LIEU QUE DANS LE PROJET. Arrivé sur un service
+       (coffre, mémoire, marketing…), la carte retenue attend le retour au projet :
        elle ne se rouvre jamais par-dessus un écran qui n'a rien à voir. */
-    if (vueCentrale !== 'projet') return;
+    if (vueCentrale !== 'projet' || telephone) return;
     if (!projectId || openCardId || carteReprise.current.has(projectId)) return;
     const memorisee = carteAReprendre(
       state.prefs[cleCarteOuverte(projectId)],
@@ -764,16 +820,20 @@ export function App() {
     if (!memorisee) return;
     carteReprise.current.add(projectId);
     setOpenCardId(memorisee);
-  }, [state.activeProjectId, state.cards, state.prefs, openCardId, vueCentrale]);
+  }, [state.activeProjectId, state.cards, state.prefs, openCardId, vueCentrale, telephone]);
 
-  // Ouvrir ou fermer le tiroir met à jour le souvenir, tout de suite.
+  /* Ouvrir un agent met à jour le souvenir, tout de suite. Le REFERMER ne
+     l'efface plus : c'est le dernier agent OUVERT qu'on retrouve en revenant
+     dans le projet. Un agent supprimé ou parti dans un autre projet n'est
+     simplement pas repris (`carteAReprendre`) : l'accueil s'affiche. */
   React.useEffect(() => {
     const projectId = (openCardId ? state.cards[openCardId]?.projectId : null) ?? state.activeProjectId;
     if (!projectId) return;
     carteReprise.current.add(projectId);
+    if (!openCardId) return;
     const cle = cleCarteOuverte(projectId);
-    if ((state.prefs[cle] ?? '') === (openCardId ?? '')) return;
-    writePref(cle, openCardId ?? '');
+    if ((state.prefs[cle] ?? '') === openCardId) return;
+    writePref(cle, openCardId);
   }, [openCardId]);
 
   /*
@@ -1354,48 +1414,41 @@ export function App() {
     }),
     [serviceAMenu, colonneDeProjet, corpsDeColonne, !!carteDeLaColonne, corpsDePage],
   );
+  /* Ouvrir un agent depuis la liste de gauche : celui d'un autre projet y ramène. */
+  const ouvrirAgentDeLaListe = React.useCallback(
+    (card: Card) => {
+      if (card.projectId !== client.lireEtat().activeProjectId) client.setActiveProject(card.projectId);
+      ouvrirServiceSinonCarte(card.id, () => setOpenCardId(card.id));
+    },
+    [ouvrirServiceSinonCarte],
+  );
   /* CE QUI ATTEND AILLEURS se dit sur la flèche de retour de la colonne : la
      liste des projets, qui portait ces alertes, n'est plus sous les yeux. */
   const pointDeRetour = !liaison.enLigne || liaison.ailleurs ? { classe: liaison.classe, texte: liaison.texte } : null;
   /* La poignée et la colonne suivent la largeur du lieu affiché. */
   const gauche = !carteDeLaColonne && !colonneDeProjet && serviceAMenu ? colonneServices : colonneProjets;
-  const lieuDeLaColonne = carteDeLaColonne
-    ? {
-        /* UNE CARTE TOUTE NEUVE N'A PAS ENCORE DE TITRE À ELLE : son mot par
-           défaut (« Nouvelle tâche ») répétait, en tête de colonne, le bouton
-           du même nom posé juste dessous. Tant que le titre est en construction
-           (`titreEnConstruction`), la tête dit où l'on est : dans les tâches. */
-        titre: titreEnConstruction(carteDeLaColonne) ? t('Tâches') : carteDeLaColonne.title,
-        onRetour: () => setOpenCardId(null),
-        plan: 'page' as const,
-        bande: true,
-        point: pointDeRetour,
-      }
-    : colonneDeProjet && activeProject
-      ? { titre: activeProject.name, onRetour: () => ouvrirVue('en-route'), bande: true, point: pointDeRetour }
+  /* LA COLONNE D'UN PROJET RESTE LA LISTE DE SES AGENTS, agent ouvert ou non
+     (demande du 30/10/2026, « projets sans kanban ») : la tête porte le nom du
+     projet et remonte aux tableaux de bord. Une carte ouverte HORS d'un projet
+     (un service) prend la colonne par-dessus (`plan: 'page'`), avec les agents
+     de SON projet. */
+  const projetDeLaCarteOuverte = carteDeLaColonne ? state.projects.find((p) => p.id === carteDeLaColonne.projectId) : undefined;
+  const lieuDeLaColonne = colonneDeProjet && activeProject
+    ? { titre: activeProject.name, onRetour: () => ouvrirVue('en-route'), bande: true, point: pointDeRetour }
+    : carteDeLaColonne
+      ? {
+          titre: projetDeLaCarteOuverte?.name ?? (titreEnConstruction(carteDeLaColonne) ? t('Tâches') : carteDeLaColonne.title),
+          onRetour: () => setOpenCardId(null),
+          plan: 'page' as const,
+          bande: true,
+          point: pointDeRetour,
+        }
       : serviceAMenu
         ? {
             titre: niveauDeColonne?.titre ?? titreDeLaPage,
             onRetour: niveauDeColonne?.onRetour ?? (() => ouvrirVue('projet')),
           }
         : null;
-  /*
-   * UNE CARTE OUVERTE DEPUIS LA PAGE « EN ROUTE » : le même tiroir que le
-   * tableau, sans quitter la page ni changer de projet. Le tiroir lit la
-   * carte dans `cards` : elle y est versée d'abord.
-   */
-  const ouvrirCarteEnRoute = React.useCallback(
-    (card: Card) => {
-      client.verserCarte(card);
-      ouvrirServiceSinonCarte(card.id, () => {
-        /* Ouverte d'un clic SUR CETTE PAGE : c'est ici qu'elle s'affiche, même
-           si la même carte était déjà retenue (restée ouverte sur le tableau). */
-        setCarteOuverteSur({ id: card.id, vue: vueCentraleRef.current });
-        setOpenCardId(card.id);
-      });
-    },
-    [ouvrirServiceSinonCarte],
-  );
   /*
    * UNE CARTE OUVERTE DEPUIS UN SERVICE (Marketing, Statistiques) RAMÈNE À SON
    * PROJET : un service plein n'affiche aucun volet de carte, le clic mène donc
@@ -1424,7 +1477,9 @@ export function App() {
   const pageEnRoute = (
     <Filet zone="Tableaux de bord">
       <PanneauALaDemande monte attente={<SilhouetteEnRoute />}>
-        <EnRoute onOpenCard={ouvrirCarteEnRoute} onOpenAgent={(agentId) => ouvrirAgent(agentId, false)} />
+        {/* Un agent ouvert depuis « Tableaux de bord » s'ouvre DANS SON PROJET
+            (30/10/2026) : sa colonne de gauche montre alors ses voisins. */}
+        <EnRoute onOpenCard={ouvrirCarteDepuisUnService} onOpenAgent={(agentId) => ouvrirAgent(agentId, false)} />
       </PanneauALaDemande>
     </Filet>
   );
@@ -1455,13 +1510,13 @@ export function App() {
          * Surtout pas « ancrée aux quatre bords » : sur téléphone, une page
          * dont plus rien n'est dans le flux voit sa hauteur s'effondrer, et
          * le système réserve alors une bande vide en bas (le même piège avait
-         * été rencontré sur ProjetE et ProjetA). Le creux du bas ne sert qu'au
-         * clavier, et seulement quand il est réellement ouvert.
+         * été rencontré sur ProjetE et ProjetA). Clavier réellement ouvert, sa
+         * hauteur est la zone visible au-dessus de lui (`--hauteur-visible`).
          */
         className="flex h-full flex-col overflow-hidden bg-bg"
         /* LA RACINE QUI REMONTE QUAND LE TERMINAL S'OUVRE derrière elle (`styles.css`). */
         data-app-racine
-        style={{ paddingBottom: 'var(--clavier, 0px)' }}
+        style={{ height: 'var(--hauteur-visible, 100%)' }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) {
             event.preventDefault();
@@ -1488,6 +1543,23 @@ export function App() {
           surTableauxDeBord={vueCentrale === 'en-route' || (vueCentrale === 'projet' && !state.activeProjectId)}
           onOuvrirVue={ouvrirVue}
         />
+
+        {/* LA LISTE DES AGENTS DANS LA COLONNE DE GAUCHE (ordinateur) : celle
+            du projet ouvert, ou celle du projet de la carte ouverte ailleurs. */}
+        {colonneDeProjet && activeProject ? (
+          <ColonneDeService>
+            <Filet zone="Liste des agents">
+              <ColonneDesAgents projectId={activeProject.id} carteOuverte={carteAffichee} onOuvrir={ouvrirAgentDeLaListe} />
+            </Filet>
+          </ColonneDeService>
+        ) : carteDeLaColonne ? (
+          <ColonneDeService plan="page">
+            <Filet zone="Liste des agents">
+              <ColonneDesAgents projectId={carteDeLaColonne.projectId} carteOuverte={carteAffichee} onOuvrir={ouvrirAgentDeLaListe} />
+            </Filet>
+          </ColonneDeService>
+        ) : null}
+        <Celebrations />
 
         {/* LE LIEN AVEC LE DÉMON SE DIT DANS LA PILE DE MESSAGES, en haut au
             centre (`Toasts`, message persistant `CLE_MESSAGE_DU_CANAL`) : un
@@ -1577,7 +1649,6 @@ export function App() {
               menu={
                 vueCentrale === 'projet' && activeProject ? (
                   <MenuGeneral
-                    forme={telephone ? 'menu' : 'colonne'}
                     onOpenDashboard={ouvrirTableauDeBord}
                     onOuvrirFichiers={setTiroirFichiers}
                     declencheur={<BoutonOptionsDuProjet />}
@@ -1749,17 +1820,20 @@ export function App() {
                  `verif-bandeau-production.mjs`, qui mesure le bord bas de
                  `data-tableau` lui-même. Réservé à `sm:` et plus : sur
                  téléphone, `<nav data-menu-bas>` fournit déjà cet espace. */
-              <div className="flex min-h-0 flex-1 flex-col sm:pb-3">
-                <Filet zone="Tableau">
-                  <Board projectId={activeProject.id} onOpenCard={ouvrirCarteDuTableau} />
-                </Filet>
-              </div>
+              /* PLUS DE TABLEAU (30/10/2026) : l'accueil du projet sur
+                 ordinateur — où la colonne liste les agents —, la liste en plein
+                 écran sur téléphone. */
+              <Filet zone="Agents du projet">
+                <PageDuProjet projectId={activeProject.id} onOuvrir={(card) => ouvrirCarteDuTableau(card.id)} />
+              </Filet>
             ) : !state.pret && !state.copieLocale ? (
               /* LE PREMIER ÉTAT DU SERVEUR N'EST PAS ENCORE ARRIVÉ : aucun projet
                  n'est choisi parce qu'on ne connaît pas encore la liste. On
                  dessine donc le tableau à venir en silhouette, au lieu d'annoncer
                  un vide qui n'en est pas un. */
-              <SilhouetteTableau />
+              <div className="mx-auto w-full max-w-xl px-4 pt-4">
+                <SilhouetteAgents pleinePage />
+              </div>
             ) : state.projects.length ? (
               /* AUCUN PROJET OUVERT : le centre montre ce qui est en route dans
                  tous les projets, plutôt qu'un vide. */
@@ -2071,7 +2145,7 @@ function BoutonNouvelleTacheDuBas({
       size="lg"
       data-bouton-nouvelle-tache
       data-nouvelle-carte="planned"
-      aria-label="Nouvelle tâche"
+      aria-label="Lancer un agent"
       aria-busy={busy}
       title={gele ? t(RAISON_CANAL_COUPE) : undefined}
       disabled={busy || gele || !projectId || !aLeNiveauSurLeProjet(state, projectId, 'travailler')}
@@ -2079,7 +2153,7 @@ function BoutonNouvelleTacheDuBas({
       onClick={() => void ouvrir()}
     >
       {busy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Plus className="h-4 w-4 shrink-0" />}
-      {t(TITRE_CARTE_DE_CADRAGE)}
+      {t('Lancer un agent')}
     </Button>
   );
 }

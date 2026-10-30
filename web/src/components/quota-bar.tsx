@@ -1,8 +1,6 @@
-import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   BarChart3,
-  BookOpen,
   EllipsisVertical,
   FolderOpen,
   Loader2,
@@ -26,14 +24,6 @@ import {
   DropdownMenuTrigger,
   Pastille,
 } from '@/components/ui';
-import {
-  CLASSE_LIBELLE_EN_BANDE,
-  CLASSE_LIGNE_DE_SERVICE,
-  CLASSE_LIGNE_EN_BANDE,
-  ColonneDeService,
-} from '@/components/colonne-de-service';
-import { MemoryView } from '@/components/memory-view';
-import { BoutonNouvelleTache } from '@/components/nouvelle-tache';
 import { client } from '@/lib/client';
 import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
 import { usePref } from '@/lib/prefs';
@@ -202,49 +192,45 @@ function EtatDeLaLigneDePublication({ geste, pastille }: { geste: SignalLu; past
  * LES OPTIONS DE LA PAGE — celles du PROJET ouvert.
  *
  * ELLES NE PORTENT QUE CE QUI CONCERNE LA PAGE AFFICHÉE (demande du
- * 11/10/2026) : ses fichiers, ses pièces jointes, sa mémoire, son point du
- * jour, ses réglages, l'arrêt de SES agents. Le thème, la langue, le terminal,
+ * 11/10/2026) : ses fichiers, ses pièces jointes, son point du jour, ses
+ * réglages, l'arrêt de SES agents. Le thème, la langue, le terminal,
  * le redémarrage et l'arrêt de tous les agents sont des réglages GÉNÉRAUX : ils
  * vivent dans la fenêtre des réglages, qu'on ouvre depuis n'importe quel écran.
  * L'appelant ne le monte donc que sur le tableau d'un projet.
  *
- * DEUX FORMES, UNE SEULE LISTE D'ENTRÉES :
- *  - `colonne` (ordinateur) : dans un projet, la colonne de gauche laisse la
- *    place à ses options (`ColonneDeService`) — plus de bouton à trois points
- *    sur le tableau ;
- *  - `menu` (téléphone, où la colonne vit dans un panneau fermé) : le bouton à
- *    trois points de la barre d'en-tête. Il y gagne, en tête, les deux gestes
- *    de publication — « Déployer » et « Mise en production » —, qui n'ont plus
- *    ni pied de colonne ni bande en bas de l'écran. Une ligne OUVRE la page du
- *    geste ; rien ne part d'un toucher dans un menu.
+ * UNE SEULE FORME : le bouton à trois points de la barre d'en-tête. Sur
+ * téléphone il gagne, en tête, les deux gestes de publication — « Déployer » et
+ * « Mise en production » — (sur ordinateur, ils sont dans la barre). Une ligne
+ * OUVRE la page du geste ; rien ne part d'un toucher dans un menu. La colonne
+ * de gauche d'un projet, elle, est la liste de ses agents (30/10/2026).
  *
- * UN SEUL À L'ÉCRAN. Il porte ses fenêtres (mémoire du projet, confirmation
- * d'arrêt) et leurs adresses : deux exemplaires montés ensemble se
- * disputeraient ces adresses.
+ * UN SEUL À L'ÉCRAN. Il porte sa fenêtre de confirmation d'arrêt.
  */
 export function MenuGeneral({
   onOpenDashboard,
   onOuvrirFichiers,
   cote = 'end',
   declencheur,
-  forme = 'menu',
 }: {
   /** Sur téléphone seulement : le résumé se rejoint par ce menu. */
   onOpenDashboard?: () => void;
   /** Ouvre le tiroir des fichiers ou celui des pièces jointes du projet ouvert. */
   onOuvrirFichiers?: (vue: 'fichiers' | 'pieces') => void;
   cote?: 'start' | 'end';
-  /** Le bouton qui ouvre le menu (forme `menu`). */
+  /**
+   * Le bouton qui ouvre le menu. UNE SEULE FORME depuis le 30/10/2026 (« projets
+   * sans kanban ») : la colonne de gauche d'un projet est la liste de ses agents
+   * (`page-du-projet.tsx`), et les options du projet — fichiers, pièces
+   * jointes, réglages — vivent toutes derrière les trois points, sur
+   * ordinateur comme sur téléphone.
+   */
   declencheur?: React.ReactElement;
-  forme?: 'menu' | 'colonne';
 }) {
   const state = useApp();
   const telephone = useTelephone();
   const deploiement = useSignalDePublication(state.activeProjectId, 'deploiement');
   const production = useSignalDePublication(state.activeProjectId, 'production');
   const [speaking, setSpeaking] = React.useState(false);
-  const [memoireOuverte, setMemoireOuverte] = React.useState(false);
-  useTiroirAdresse('memoire-projet', memoireOuverte, setMemoireOuverte);
   const [arretGroupe, setArretGroupe] = React.useState(false);
   /* « ÉCOUTER LE POINT » N'EST PROPOSÉ QUE SI LE MODULE VOCAL FLOTTANT EST
      AFFICHÉ (réglage « Afficher le module vocal flottant », éteint d'origine) :
@@ -285,82 +271,14 @@ export function MenuGeneral({
     });
   };
 
-  const listen = async () => {
+  const listen = () => {
     setSpeaking(true);
-    try {
-      const audio = new Audio(`/api/digest?audio=1&project=${state.activeProjectId ?? ''}`);
-
-      // Lecture pilotable écran verrouillé, comme un podcast : commandes du
-      // téléphone et Bluetooth de la voiture (PLAN §22).
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: t('Le point du jour'),
-          artist: 'Beluga Build',
-          artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
-        });
-        navigator.mediaSession.setActionHandler('play', () => void audio.play());
-        navigator.mediaSession.setActionHandler('pause', () => audio.pause());
-        navigator.mediaSession.setActionHandler('stop', () => {
-          audio.pause();
-          audio.currentTime = 0;
-          setSpeaking(false);
-        });
-      }
-
-      audio.addEventListener('ended', () => setSpeaking(false));
-      audio.addEventListener('error', async () => {
-        setSpeaking(false);
-        // Repli : la voix du navigateur, si le serveur n'a pas de moteur.
-        const data = await client.call<{ text: string }>({ type: 'digest.speak', projectId: state.activeProjectId ?? undefined });
-        if ('speechSynthesis' in window && data?.text) {
-          const utterance = new SpeechSynthesisUtterance(data.text);
-          utterance.lang = formatRegional();
-          speechSynthesis.speak(utterance);
-        }
-      });
-      await audio.play();
-    } catch {
-      setSpeaking(false);
-    }
+    void ecouterLePoint(state.activeProjectId, () => setSpeaking(false));
   };
 
-  /* LA COLONNE (ordinateur) : les mêmes entrées, en lignes. Réduite à sa bande,
-     elle n'en garde que les icônes. */
-  const ligne = (
-    cle: string,
-    icone: React.ReactNode,
-    libelle: React.ReactNode,
-    geste: () => void,
-    options: { eteinte?: boolean; danger?: boolean; reperes?: Record<string, string> } = {},
-  ) => (
-    <button
-      key={cle}
-      type="button"
-      data-option-du-projet={cle}
-      {...options.reperes}
-      disabled={options.eteinte}
-      title={typeof libelle === 'string' ? libelle : undefined}
-      onClick={geste}
-      className={cn(
-        CLASSE_LIGNE_DE_SERVICE,
-        CLASSE_LIGNE_EN_BANDE,
-        'hover:bg-raised disabled:opacity-50',
-        options.danger && 'text-danger',
-      )}
-    >
-      <span className={cn('shrink-0', options.danger ? 'text-danger' : 'text-muted')}>{icone}</span>
-      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{libelle}</span>
-    </button>
-  );
   const sansProjet = !state.activeProjectId;
   const fenetres = (
     <>
-      <MemoryView
-        open={memoireOuverte}
-        projectId={state.activeProjectId ?? undefined}
-        onClose={() => setMemoireOuverte(false)}
-      />
-
       <ConfirmDialog
         open={arretGroupe}
         danger
@@ -376,103 +294,6 @@ export function MenuGeneral({
       />
     </>
   );
-
-  if (forme === 'colonne') {
-    return (
-      <>
-        <ColonneDeService>
-          <nav
-            aria-label="Options du projet"
-            data-options-du-projet
-            className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1"
-          >
-            {/* « NOUVELLE TÂCHE », TOUT EN HAUT : le seul chemin vers une nouvelle
-                carte, au-dessus des fichiers (demande du 12/10/2026). */}
-            {state.activeProjectId ? <BoutonNouvelleTache projectId={state.activeProjectId} /> : null}
-            {onOuvrirFichiers
-              ? [
-                  ligne('fichiers', <FolderOpen className="h-4 w-4" />, t('Fichiers'), () => onOuvrirFichiers('fichiers'), {
-                    eteinte: sansProjet,
-                    reperes: { 'data-menu-fichiers': '' },
-                  }),
-                  ligne('pieces', <Paperclip className="h-4 w-4" />, t('Pièces jointes'), () => onOuvrirFichiers('pieces'), {
-                    eteinte: sansProjet,
-                    reperes: { 'data-menu-pieces': '' },
-                  }),
-                ]
-              : null}
-            {ligne('memoire', <BookOpen className="h-4 w-4" />, t('Mémoire du projet'), () => setMemoireOuverte(true), {
-              eteinte: sansProjet,
-            })}
-            {voixVisible
-              ? ligne(
-                  'ecouter',
-                  <Volume2 className={cn('h-4 w-4', speaking && 'animate-pulse-soft')} />,
-                  t('Écouter le point'),
-                  () => void listen(),
-                  { eteinte: speaking },
-                )
-              : null}
-            {/* L'ARRÊT, TOUT EN BAS DE LA COLONNE, juste au-dessus de la ligne du
-                moteur, et DISCRET : texte rouge, petite icône, sans fond — la
-                même allure que « Supprimer définitivement… » des réglages du
-                projet. Un geste qui coupe du travail ne se pose jamais au
-                milieu des entrées anodines. */}
-            {duProjet.length ? (
-              <div className="mt-auto pb-1 pt-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    'w-full justify-start text-danger hover:text-danger group-data-[bande]/colonne:justify-center group-data-[bande]/colonne:px-0',
-                  )}
-                  data-option-du-projet="arreter"
-                  data-arreter-agents
-                  title={`${t('Arrêter les agents du projet (')}${duProjet.length})`}
-                  onClick={() => setArretGroupe(true)}
-                >
-                  <Square className="h-3 w-3 shrink-0 fill-current" />
-                  <span className={cn('min-w-0 truncate', CLASSE_LIBELLE_EN_BANDE)}>
-                    {`${t('Arrêter les agents du projet (')}${duProjet.length})`}
-                  </span>
-                </Button>
-              </div>
-            ) : null}
-          </nav>
-        </ColonneDeService>
-        {/* LES RÉGLAGES DU PROJET ONT QUITTÉ LA COLONNE : un menu à trois points
-            verticaux, en haut à droite de la page, qui les range. */}
-        {declencheur ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
-                aria-label="Options du projet"
-                title={t('Options')}
-                data-menu-general
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align={cote} className="min-w-[230px]">
-              <DropdownMenuItem
-                data-option-du-projet="reglages"
-                data-reglages-du-projet-ouvert
-                disabled={sansProjet}
-                onSelect={() => state.activeProjectId && ouvrirConfigProjet(state.activeProjectId)}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                {t('Réglages du projet')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-        {fenetres}
-      </>
-    );
-  }
 
   return (
     <>
@@ -546,15 +367,10 @@ export function MenuGeneral({
               </DropdownMenuItem>
             </>
           ) : null}
-          <DropdownMenuItem
-            disabled={!state.activeProjectId}
-            onSelect={() => setMemoireOuverte(true)}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            {t('Mémoire du projet')}
-          </DropdownMenuItem>
+          {/* « MÉMOIRE DU PROJET » A QUITTÉ CE MENU (demande du 30/10/2026) : la
+              mémoire se lit dans son service, « Mémoire », comme pour tous les projets. */}
           {voixVisible ? (
-            <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
+            <DropdownMenuItem disabled={speaking} onSelect={listen}>
               <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
               {t('Écouter le point')}
             </DropdownMenuItem>
@@ -576,4 +392,48 @@ export function MenuGeneral({
       {fenetres}
     </>
   );
+}
+
+/**
+ * « ÉCOUTER LE POINT » du projet : la lecture du point du jour, pilotable écran
+ * verrouillé comme un podcast, avec la voix du navigateur en repli. Écrite une
+ * fois : le menu du projet et celui d'un agent (« Ce projet ») s'en servent.
+ * `fin` est appelé quand la lecture s'arrête, qu'elle ait abouti ou non.
+ */
+export async function ecouterLePoint(projectId: string | null, fin: () => void): Promise<void> {
+  try {
+    const audio = new Audio(`/api/digest?audio=1&project=${projectId ?? ''}`);
+
+    // Lecture pilotable écran verrouillé, comme un podcast : commandes du
+    // téléphone et Bluetooth de la voiture (PLAN §22).
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: t('Le point du jour'),
+        artist: 'Beluga Build',
+        artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
+      });
+      navigator.mediaSession.setActionHandler('play', () => void audio.play());
+      navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+      navigator.mediaSession.setActionHandler('stop', () => {
+        audio.pause();
+        audio.currentTime = 0;
+        fin();
+      });
+    }
+
+    audio.addEventListener('ended', fin);
+    audio.addEventListener('error', async () => {
+      fin();
+      // Repli : la voix du navigateur, si le serveur n'a pas de moteur.
+      const data = await client.call<{ text: string }>({ type: 'digest.speak', projectId: projectId ?? undefined });
+      if ('speechSynthesis' in window && data?.text) {
+        const utterance = new SpeechSynthesisUtterance(data.text);
+        utterance.lang = formatRegional();
+        speechSynthesis.speak(utterance);
+      }
+    });
+    await audio.play();
+  } catch {
+    fin();
+  }
 }

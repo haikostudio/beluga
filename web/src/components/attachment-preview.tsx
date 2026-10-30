@@ -597,6 +597,7 @@ export function AttachmentPreview({
   dejaVue,
   repereDe,
   erreur,
+  actionDe,
 }: {
   item: Attachment | null;
   onClose: () => void;
@@ -626,6 +627,11 @@ export function AttachmentPreview({
    * une page blanche.
    */
   erreur?: string;
+  /**
+   * UN GESTE DE L'APPELANT POUR LA PIÈCE MONTRÉE, posé en tête des boutons de
+   * l'en-tête : la coche d'un choix en image se coche aussi d'ici (30/10/2026).
+   */
+  actionDe?: (piece: Attachment) => React.ReactNode;
 }) {
   /* L'image montrée : celle de l'appelant, ou celle où l'on a navigué depuis. */
   const [choisie, setChoisie] = React.useState<string | null>(null);
@@ -730,6 +736,7 @@ export function AttachmentPreview({
           }
           droite={
             <>
+              {actionDe?.(courante)}
               {markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
               {/* UN TEXTE SE COPIE EN ENTIER, d'un clic (25/10/2026) : un document
                   produit par l'agent se lit, se copie et se télécharge ici. */}

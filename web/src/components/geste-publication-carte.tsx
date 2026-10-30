@@ -34,8 +34,13 @@ import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
  * page : seul le composant du dessus répond aux demandes venues d'ailleurs
  * (`useDernierMonte`, dans `DeployPanel`). Sur téléphone rien ne se dessine
  * ici : le menu à trois points porte déjà les deux gestes.
+ *
+ * LE TABLEAU N'EST PLUS MONTÉ (30/10/2026, « projets sans kanban ») : la page
+ * d'un projet monte ces MÊMES gestes elle-même (`page-du-projet.tsx`) — dans la
+ * barre d'en-tête sur ordinateur, dans le menu à trois points sur téléphone
+ * (`enMenu`).
  */
-export function GestesDePublicationDeCarte({ projectId }: { projectId: string }) {
+export function GestesDePublicationDeCarte({ projectId, enMenu = false }: { projectId: string; enMenu?: boolean }) {
   const state = useApp();
   const [infos, setInfos] = React.useState<InfosPublication | null>(null);
 
@@ -62,14 +67,15 @@ export function GestesDePublicationDeCarte({ projectId }: { projectId: string })
     <>
       {membres.length && projet ? (
         /* Un regroupement liste ses projets à cocher (`deploiement-de-groupe.tsx`). */
-        <DeploiementDeGroupe groupe={projet} membres={membres} enTete />
+        <DeploiementDeGroupe groupe={projet} membres={membres} enTete={!enMenu} enMenu={enMenu} />
       ) : (
         <DeployPanel
           projectId={projectId}
           cards={parColonne.to_deploy ?? []}
           colonne="to_deploy"
           presentation="compact"
-          enTete
+          enTete={!enMenu}
+          enMenu={enMenu}
           onInitier={() => {
             const etape = etapeDeLaColonne('to_deploy');
             if (etape) ouvrirRubriqueDeLEtape(projectId, etape.cible);
@@ -77,14 +83,15 @@ export function GestesDePublicationDeCarte({ projectId }: { projectId: string })
         />
       )}
       {membres.length && projet ? (
-        <BandeauProductionGroupe groupe={projet} membres={membres} enTete />
+        <BandeauProductionGroupe groupe={projet} membres={membres} enTete={!enMenu} enMenu={enMenu} />
       ) : (
         <DeployPanel
           projectId={projectId}
           cards={parColonne.archived ?? []}
           colonne="archived"
           presentation="bandeau"
-          enTete
+          enTete={!enMenu}
+          enMenu={enMenu}
           onInfos={setInfos}
           actions={<BoutonInfosPublication colonne="archived" infos={infos} />}
         />

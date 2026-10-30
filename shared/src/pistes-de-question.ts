@@ -30,5 +30,5 @@ export const MAX_PISTES_D_EXEMPLE = 4;
 export const REGLE_DES_EXEMPLES =
   `EXEMPLES : un choix de COULEURS porte d'office ses teintes dans « couleurs » de chaque option (« #rrggbb »), sans question. ` +
   `Avant tout autre choix dont la réponse se VOIT ou s'ENTEND (couleurs en situation, icône, encadré, composant, mise en page, typographie, illustration, logo, ambiance, voix, musique), demande d'abord par une question à part, en une phrase, si tu dois en fabriquer des exemples (« Oui, montre-moi des exemples (recommandé) » / « Non, le texte suffit ») — pour des couleurs, cette proposition vient APRÈS les points, pour montrer l'élément réel dans chaque variante. ` +
-  `Sur « oui » : exemple_de_choix, un exemple par piste (${MAX_PISTES_D_EXEMPLE} au plus), puis repose la question avec « image » ou « media » dans chaque option. ` +
+  `Sur « oui » : exemple_de_choix, un exemple par piste (${MAX_PISTES_D_EXEMPLE} au plus), puis repose la question avec « image » ou « media » dans chaque option, en citant la lettre et la référence de chaque exemple (« A (#xxxx) »). ` +
   `Jamais pour une question pratique (nom, réglage, oui/non, information, choix technique), ni en mode caméra.`;

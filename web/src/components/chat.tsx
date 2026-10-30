@@ -377,13 +377,22 @@ function FilDeConversation({
    * carte, les listes sont vides et rien ne se demande.
    */
   const messagesDeLaCarte = conversation?.messages;
+  /*
+   * …ET LES IMAGES QU'IL A FABRIQUÉES (30/10/2026) : un exemple de choix ou un
+   * média livré n'est rattaché à aucun message, mais c'est l'agent qui l'a
+   * créé — il rejoint la bande, sur ordinateur comme sur téléphone.
+   */
+  const imagesFabriquees = React.useMemo(
+    () => (cardId ? mediasLivresDuFil.filter((m) => m.genre === 'image').map((m) => m.attachmentId) : []),
+    [cardId, mediasLivresDuFil],
+  );
   const { etapesDesCaptures, idsDesPieces } = React.useMemo(() => {
     const deLAgent = (messagesDeLaCarte ?? []).filter((m) => m.role === 'assistant');
     return {
       etapesDesCaptures: deLAgent.flatMap((m) => m.steps.filter((step) => step.capture)),
-      idsDesPieces: [...new Set(deLAgent.flatMap((m) => m.attachments))],
+      idsDesPieces: [...new Set([...deLAgent.flatMap((m) => m.attachments), ...imagesFabriquees])],
     };
-  }, [messagesDeLaCarte]);
+  }, [messagesDeLaCarte, imagesFabriquees]);
   const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
   /*
    * LA CONFIGURATION S'OUVRE EN MENU, SOUS LE BOUTON QU'ON A CLIQUÉ : le bloc

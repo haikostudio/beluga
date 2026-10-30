@@ -29,6 +29,7 @@ import {
   menageNecessaire,
   premiereContradiction,
   rapportDuMenage,
+  routineInvisible,
   type CarteComparable,
   type Card,
   type Competence,
@@ -43,6 +44,7 @@ import { log } from './logger.js';
 import { releverLesRecurrencesDuCode } from './recurrences-du-code.js';
 import { panneDuTour } from './auto-amelioration.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
+import { machineDeLAuteur } from './depot-public.js';
 import { sendPrompt } from './runtime.js';
 import * as store from './store.js';
 
@@ -224,12 +226,17 @@ export async function rendezVousDuMenage(force = false): Promise<BilanDuMenage> 
     // Comme tout agent lancé par le démon, il a sa CARTE avant de naître : sans elle, il
     // tournait « sans carte » (clic sans issue) et ne laissait aucune trace à son arrêt.
     // L'étiquette du rendez-vous de nuit lui donne le parcours d'un examen, sans « À déployer ».
+    // HORS DE LA MACHINE DE L'AUTEUR, CE MÉNAGE EST INVISIBLE (décision du 30/10/2026,
+    // `shared/src/entretien-invisible.ts`) : il n'attend aucune décision, et sa carte
+    // tombait dans le premier projet d'un utilisateur de la version libre.
+    const invisible = routineInvisible('entretien', machineDeLAuteur());
     const { card, agentId } = ouvrirCarteDAgent({
       projectId: accueil.id,
       titre: TITRE_MENAGE,
       description: DESCRIPTION_DU_MENAGE,
       labels: [LABEL_RENDEZ_VOUS_DE_NUIT],
       role: 'analysis',
+      invisible,
     });
     let panne: string | null = null;
     try {
@@ -240,7 +247,14 @@ export async function rendezVousDuMenage(force = false): Promise<BilanDuMenage> 
     }
     panne ??= panneDuTour(agentId);
     if (panne) {
-      direLaPanneSurLaCarte(card.id, agentId, panne);
+      if (invisible) {
+        // Personne ne verrait la carte revenue en « Planifié » : la panne se dit au journal,
+        // et la carte se range — le passage de demain repart de lui-même.
+        log.warn(`ménage des compétences (invisible) : le passage est tombé — ${panne}`);
+        rangerCarteDAgent(card.id, agentId, 'archived', `Le passage est tombé sans aboutir : ${panne}`);
+      } else {
+        direLaPanneSurLaCarte(card.id, agentId, panne);
+      }
       return { lance: true, raison: panne, fiches: total };
     }
     rangerCarteDAgent(

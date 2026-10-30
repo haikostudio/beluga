@@ -30,7 +30,6 @@
 import type { ColumnKey } from './columns.js';
 import { extraitDeNote } from './editeur-riche.js';
 import { agentSystemeActif, agentSystemeTermine } from './cartes-systeme.js';
-import { agentAuTravailALEcran } from './travail-en-cours.js';
 
 /**
  * Les colonnes du tableau que « Actifs » montre : Demande et Travail. « À
@@ -179,46 +178,6 @@ export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: read
     .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 
-/** Ce que le compteur « en cours » lit d'un agent. */
-export interface AgentPourLeCompteur {
-  cardId?: string;
-  projectId?: string;
-  role?: string;
-  status?: string;
-  tourVivantDepuis?: number;
-  endedAt?: number;
-}
-
-/**
- * COMBIEN DE CARTES « ACTIF » SONT AU TRAVAIL EN CE MOMENT — le premier nombre
- * de « 3/19 » dans l'onglet (demande de l'utilisateur, 24.09.2026).
- *
- * Le MÊME prédicat que le témoin orange des cartes (`agentAuTravailALEcran`) :
- * « Au travail » et « Cadrage en cours » comptent tous deux — pas le rangement
- * d'un cadrage qui a déjà répondu —, et le compteur ne
- * peut pas contredire les cartes affichées. Il part des AGENTS, pas des cartes
- * reçues : la liste arrive par paquets de vingt, une carte au travail peut ne
- * pas être encore chargée. Une carte portée par deux agents compte une fois ;
- * un agent sans carte (publication, analyse, chef) ne compte pas.
- *
- * `horsDeLaListe` écarte une carte qu'on SAIT hors de l'onglet (déjà en ligne,
- * rangée) : un cadrage relancé sur une carte archivée ne gonfle pas le compte.
- */
-export function nombreEnCoursEnRoute(
-  agents: readonly AgentPourLeCompteur[],
-  projetsEnService: ReadonlySet<string>,
-  horsDeLaListe: (cardId: string) => boolean = () => false,
-): number {
-  const cartes = new Set<string>();
-  for (const agent of agents) {
-    if (!agent.cardId || cartes.has(agent.cardId)) continue;
-    if (!agent.projectId || !projetsEnService.has(agent.projectId)) continue;
-    if (!agentAuTravailALEcran(agent) || horsDeLaListe(agent.cardId)) continue;
-    cartes.add(agent.cardId);
-  }
-  return cartes.size;
-}
-
 /* ------------------------------------------------------------------------ */
 
 /**
@@ -295,18 +254,6 @@ export function rangementApresDeplacement(
   const actuel = carte.rangeeTableauDeBordAt || undefined;
   if (cible === 'archived' && rangeeA !== undefined) return actuel ?? rangeeA;
   return actuel;
-}
-
-/**
- * LES CARTES QUE « TOUT ARCHIVER » RANGE, EN TÊTE DE « TERMINER » : celles de
- * la colonne qui sont déjà archivées dans leur projet (`peutEtreRangee`) ; les
- * cartes « À déployer » restent dans « Terminer ». Le geste ne range que la
- * page : il pose `rangeeTableauDeBordAt` sans toucher la colonne du projet ni
- * le lot de la publication. La règle ne regarde que la carte, jamais la page :
- * l'appelant donne toutes les cartes de la colonne, chargées ou non.
- */
-export function cartesARangerDuTableauDeBord<T extends CarteDeployee>(cartes: readonly T[]): T[] {
-  return cartes.filter((carte) => estATerminer(carte) && peutEtreRangee(carte));
 }
 
 /*

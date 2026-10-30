@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowRight, ChevronsRight, CircleDot, EllipsisVertical, FolderInput, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, ArrowRight, ChevronsRight, CircleDot, EllipsisVertical, FolderInput, PencilLine, RotateCcw, Trash2 } from 'lucide-react';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -24,6 +24,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  PromptDialog,
 } from '@/components/ui';
 import { libelleAvance, useAvancerEtapes } from '@/components/etape-suivante';
 import { client } from '@/lib/client';
@@ -60,6 +61,7 @@ export function MenuCarte({
   apresSuppression,
   agentActif,
   enTete,
+  enPied,
   sansNonLu = false,
   declencheur,
 }: {
@@ -70,8 +72,10 @@ export function MenuCarte({
    * suppression.
    */
   sansNonLu?: boolean;
-  /** Des entrées posées EN TÊTE du menu (les onglets de la page d'une carte). */
+  /** Des entrées posées EN TÊTE du menu (le groupe « Cet agent » de la page d'une carte). */
   enTete?: React.ReactNode;
+  /** Des entrées posées EN PIED du menu (le groupe « Ce projet » de la page d'une carte). */
+  enPied?: React.ReactNode;
   /** Le bouton qui ouvre le menu, quand ce n'est pas celui d'origine. */
   declencheur?: React.ReactElement;
   /** « bouton » : les trois points se voient. « invisible » : ouverture au geste. */
@@ -85,6 +89,8 @@ export function MenuCarte({
 }) {
   const state = useApp();
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
+  /* RENOMMER, depuis le clic droit de la liste des agents (demande du 30/10/2026). */
+  const [renommage, setRenommage] = React.useState(false);
   /* Le déplacement qui engage une dépense : on le NOMME avant de le faire. */
   const [depotAConfirmer, setDepotAConfirmer] = React.useState<{
     colonne: ColumnKey;
@@ -241,6 +247,11 @@ export function MenuCarte({
             </DropdownMenuItem>
           ) : null}
 
+          <DropdownMenuItem data-menu-renommer={card.id} onSelect={() => setRenommage(true)}>
+            <PencilLine className="h-3.5 w-3.5" />
+            {t('Renommer')}
+          </DropdownMenuItem>
+
           {archivable ? (
             <DropdownMenuItem onSelect={() => client.moveCard(card, 'archived')}>
               <Archive className="h-3.5 w-3.5" />  {t('Archiver la carte')}
@@ -306,14 +317,17 @@ export function MenuCarte({
           {cibles.length ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t('Déplacer vers')}</DropdownMenuLabel>
+              {/* « PASSER EN… » : la même règle que le dépôt à la souris, un cran à
+                  la fois, et ce qui dépense demande d'abord confirmation. */}
+              <DropdownMenuLabel>{t('Passer en…')}</DropdownMenuLabel>
               {cibles.map((column) => (
-                <DropdownMenuItem key={column} onSelect={() => deplacerVers(column)}>
+                <DropdownMenuItem key={column} data-passer-en={column} onSelect={() => deplacerVers(column)}>
                   <ArrowRight className="h-3.5 w-3.5 text-faint" /> {t(COLUMN_LABELS[column])}
                 </DropdownMenuItem>
               ))}
             </>
           ) : null}
+          {enPied}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -328,6 +342,21 @@ export function MenuCarte({
           if (depotAConfirmer) await client.moveCard(card, depotAConfirmer.colonne);
         }}
         onClose={() => setDepotAConfirmer(null)}
+      />
+
+      <PromptDialog
+        open={renommage}
+        title={t('Renommer l’agent')}
+        defaultValue={card.title}
+        confirmLabel={t('Renommer')}
+        onConfirm={(titre) => {
+          const propre = titre.trim();
+          if (!propre || propre === card.title) return;
+          void client
+            .call({ type: 'card.update', id: card.id, patch: { title: propre, titreProvisoire: false } })
+            .catch((err: any) => client.pushToast('error', err?.message ?? t('Renommage refusé')));
+        }}
+        onClose={() => setRenommage(false)}
       />
 
       <ConfirmDialog

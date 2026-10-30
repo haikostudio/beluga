@@ -194,6 +194,7 @@ import {
 } from '@beluga/shared';
 import {
   carteEnPublication,
+  lancementAutomatique,
   messageOuvreUneNouvelleCarte,
   migrationDeReglage,
   TEXTE_CARTE_EN_PUBLICATION,
@@ -839,6 +840,8 @@ export function createAgent(input: {
   cardId?: string;
   run?: Partial<Agent['run']>;
   workdir?: string;
+  /** Une routine d'entretien invisible (`shared/src/entretien-invisible.ts`) : posé dès la naissance, avant la première diffusion. */
+  entretienInvisible?: boolean;
 }): Agent {
   const project = store.getProject(input.projectId);
   const agent = Agent.parse({
@@ -848,6 +851,7 @@ export function createAgent(input: {
     role: input.role,
     title: input.title,
     workdir: input.workdir,
+    ...(input.entretienInvisible ? { entretienInvisible: true } : {}),
     run: {
       engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
       model: input.run?.model,
@@ -2946,6 +2950,14 @@ async function startTurn(
     verrouListePath: runState.listeObligatoire ? verrouListePath : undefined,
     fullAccess,
     role: agent.role,
+    /* FABLE NE PART QUE SUR UN CHOIX MANUEL (30/10/2026) : une carte née sans
+       geste humain ou un agent du démon le voient remplacé par Opus
+       (`lancementAutomatique`, `shared/src/modele-banni.ts`). */
+    lancementAutomatique: lancementAutomatique({
+      role: agent.role,
+      cardId: agent.cardId,
+      carte: agent.cardId ? store.getCard(agent.cardId) : null,
+    }),
     allowedTools: bride ? [...cadrageAllowList(), ...(rea ? [`mcp__${SERVEUR_MCP_REA}`] : [])] : undefined,
     disallowedTools: bride ? cadrageDenyList() : undefined,
     env,
@@ -4713,6 +4725,7 @@ type SocleDuLancement = Pick<
   | 'verrouListePath'
   | 'fullAccess'
   | 'role'
+  | 'lancementAutomatique'
   | 'allowedTools'
   | 'disallowedTools'
   | 'sandboxLectureSeule'

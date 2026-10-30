@@ -65,6 +65,13 @@ export interface EngineRunOptions {
   prompt: string;
   model?: string;
   thinking?: ThinkingLevel;
+  /**
+   * LE LANCEMENT VIENT-IL D'UN GESTE HUMAIN ? `false` seulement quand c'est
+   * sûr (carte posée par l'utilisateur, conversation qu'il a ouverte) : un
+   * modèle réservé au choix manuel (Fable) ne part que dans ce cas
+   * (`shared/src/modele-banni.ts`). Absent, le lancement compte comme automatique.
+   */
+  lancementAutomatique?: boolean;
   /** Reprise de conversation : identifiant de session du moteur. */
   sessionId?: string | null;
   systemPrompt?: string;

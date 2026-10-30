@@ -752,15 +752,16 @@ const FONDU_ENTREE = 'opacity 140ms ease-out';
 const FONDU_SORTIE = 'opacity 420ms ease-in';
 
 /**
- * Une zone qui défile, avec un fondu à ses DEUX BOUTS : le contenu ne se
- * coupe plus net sous les onglets ou au-dessus de la barre d'écriture, il
- * s'efface et se floute en glissant derrière. Le voile prend la couleur du
- * fond courant — donc noir en thème sombre, blanc en thème clair, sans
- * réglage.
+ * Une zone qui défile, avec un fondu à son BAS : le contenu ne se coupe plus
+ * net au-dessus de la barre d'écriture, il s'efface et se floute en glissant
+ * derrière. Le voile prend la couleur du fond courant — donc noir en thème
+ * sombre, blanc en thème clair, sans réglage. Il s'éteint une fois le bout
+ * atteint : un voile permanent laisserait croire qu'il reste toujours à lire.
  *
- * Le fondu du début ne s'allume que si quelque chose est déjà passé derrière,
- * celui de la fin s'éteint une fois le bout atteint : un voile permanent
- * laisserait croire qu'il reste toujours à lire.
+ * EN HAUT, UNE COUPE NETTE (demande du 30/10/2026, captures #3f547 et #b6de) :
+ * à la verticale, plus aucun voile au début, ni flou ni ombre. Sur iPhone, cette
+ * bande grise floue se lisait comme un défaut sous la barre du titre ; le
+ * contenu passe désormais sous le bord, sur le fond plein du conteneur.
  *
  * À LA VERTICALE, LE FONDU EST D'OFFICE ; À L'HORIZONTALE, IL SE DEMANDE.
  * Sur une barre d'onglets ou un rail, un voile masquerait le bord des
@@ -784,8 +785,8 @@ export const ZoneDefilement = React.forwardRef<
      */
     axe?: 'vertical' | 'horizontal';
     /**
-     * Le fondu aux deux bouts. Allumé d'office à la verticale, éteint d'office
-     * à l'horizontale — où il se demande zone par zone.
+     * Le fondu : au bas seul à la verticale, où il est allumé d'office ; aux
+     * deux bouts à l'horizontale, où il se demande zone par zone.
      */
     voile?: boolean;
     /**
@@ -799,18 +800,22 @@ export const ZoneDefilement = React.forwardRef<
      */
     barre?: boolean;
     /**
-     * LE VOILE DE DÉBUT TOUJOURS ALLUMÉ, éteint d'office. Il sépare alors la
-     * zone de ce qui la précède (un entête fixe) même au repos, sans attendre
-     * le moindre défilement. Celui qui l'allume pose un padding haut au moins
-     * égal à `hauteur`, sinon la première ligne est floue au repos.
-     */
-    voileDebutToujours?: boolean;
-    /**
      * LE VOILE SUR LA COLONNE DU CONTENU, allumé d'office à la verticale : il
      * s'arrête aux bords du contenu centré (`etendueDuContenu`). `false` le
      * rend à toute la largeur de la zone.
      */
     voileSurContenu?: boolean;
+    /**
+     * LE VOILE BORNÉ À UN CADRE (feuille « Une question vous attend », captures
+     * #f1c2 et #4fee, 30/10/2026) : le sélecteur d'un bloc ENCADRÉ posé dans la
+     * zone. Ombre et flou tiennent alors entre les bords INTÉRIEURS de sa
+     * bordure, sans l'élargissement ni le fondu des côtés : la bordure ferme
+     * déjà le bord, et un voile qui la recouvrait débordait jusqu'aux bords de
+     * l'écran. L'ombre prend le fond opaque du bloc, pas celui du conteneur.
+     * Exception voulue à la règle « flou pleine largeur » : les autres zones
+     * gardent leur voile entier.
+     */
+    voileBorne?: string;
   }
 >(function ZoneDefilement(
   {
@@ -827,8 +832,8 @@ export const ZoneDefilement = React.forwardRef<
     axe = 'vertical',
     voile: voileDemande,
     barre = true,
-    voileDebutToujours = false,
     voileSurContenu = true,
+    voileBorne,
     className,
     onScroll,
     children,
@@ -864,11 +869,27 @@ export const ZoneDefilement = React.forwardRef<
   const enveloppe = React.useRef<HTMLDivElement | null>(null);
   const [voileGauche, setVoileGauche] = React.useState(0);
   const [voileLargeur, setVoileLargeur] = React.useState(-1);
-  const colonneUtile = avecVoile && !horizontal && voileSurContenu;
+  /** Le fond opaque du cadre qui borne le voile ; une CHAÎNE, vide sans cadre. */
+  const [fondBorne, setFondBorne] = React.useState('');
+  const colonneUtile = avecVoile && !horizontal && (voileSurContenu || !!voileBorne);
   const mesurerLaColonne = React.useCallback(() => {
     const zone = interne.current;
     const cadreEnveloppe = enveloppe.current?.getBoundingClientRect();
     if (!zone || !cadreEnveloppe || !colonneUtile) return;
+    const borne = voileBorne ? zone.querySelector<HTMLElement>(voileBorne) : null;
+    const cadreBorne = borne?.getBoundingClientRect();
+    if (borne && cadreBorne?.width) {
+      const style = getComputedStyle(borne);
+      const g = Math.ceil(cadreBorne.left + parseFloat(style.borderLeftWidth || '0') - cadreEnveloppe.left);
+      const d = Math.floor(cadreBorne.right - parseFloat(style.borderRightWidth || '0') - cadreEnveloppe.left);
+      setVoileGauche(Math.max(0, g));
+      setVoileLargeur(Math.max(0, d - Math.max(0, g)));
+      // Un fond translucide laisserait voir la teinte du dessous : on garde alors le fond du conteneur.
+      const opaque = /^rgb\(/.test(style.backgroundColor) || /^rgba\(.*,\s*1\)$/.test(style.backgroundColor);
+      setFondBorne(opaque ? style.backgroundColor : '');
+      return;
+    }
+    setFondBorne('');
     const cadreZone = zone.getBoundingClientRect();
     const etendue = cadreZone.width ? etendueDuContenu(zone, cadreZone.width, PROFONDEUR_COLONNE + 1) : null;
     let gauche = 0;
@@ -886,7 +907,7 @@ export const ZoneDefilement = React.forwardRef<
     }
     setVoileGauche(gauche);
     setVoileLargeur(largeur);
-  }, [colonneUtile]);
+  }, [colonneUtile, voileBorne]);
   const [enMouvement, setEnMouvement] = React.useState(false);
   const piste = React.useRef<HTMLDivElement | null>(null);
   const pouceRef = React.useRef<HTMLDivElement | null>(null);
@@ -899,7 +920,8 @@ export const ZoneDefilement = React.forwardRef<
     const position = horizontal ? zone.scrollLeft : zone.scrollTop;
     const vue = horizontal ? zone.clientWidth : zone.clientHeight;
     const total = horizontal ? zone.scrollWidth : zone.scrollHeight;
-    setDebut(position > 4);
+    // Le début n'a de voile qu'à l'horizontale : à la verticale, il ne relance aucun rendu.
+    if (horizontal) setDebut(position > 4);
     setFin(position + vue < total - 4);
     if (!horizontal) {
       let retrait = 0;
@@ -1080,9 +1102,7 @@ export const ZoneDefilement = React.forwardRef<
       ? cote === 'debut'
         ? 'right'
         : 'left'
-      : cote === 'debut'
-        ? 'bottom'
-        : 'top';
+      : 'top';
     return (
       <div
         aria-hidden
@@ -1103,9 +1123,7 @@ export const ZoneDefilement = React.forwardRef<
             ? cote === 'debut'
               ? '-left-px'
               : '-right-px'
-            : cote === 'debut'
-              ? '-top-px'
-              : '-bottom-px',
+            : '-bottom-px',
           visible ? 'opacity-100' : 'opacity-0',
         )}
         style={
@@ -1113,7 +1131,7 @@ export const ZoneDefilement = React.forwardRef<
             ? { width: hauteur + 1 }
             : {
                 height: hauteur + 1,
-                ...(cote === 'fin' && retraitFin ? { bottom: retraitFin - 1 } : null),
+                ...(retraitFin ? { bottom: retraitFin - 1 } : null),
                 ...(voileLargeur >= 0 ? { left: voileGauche, width: voileLargeur } : null),
               }
         }
@@ -1145,10 +1163,19 @@ export const ZoneDefilement = React.forwardRef<
          */}
         <div
           className="absolute inset-0"
-          style={{
-            background: ombreDuFondu(fond),
-            ...masqueDeLOmbre(sens),
-          }}
+          style={
+            fondBorne
+              ? {
+                  // Borné à un cadre : sa bordure ferme les côtés, l'ombre va jusqu'à elle.
+                  background: ombreDuFondu(fondBorne),
+                  maskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
+                  WebkitMaskImage: `linear-gradient(to ${sens}, ${OMBRE_COURBE})`,
+                }
+              : {
+                  background: ombreDuFondu(fond),
+                  ...masqueDeLOmbre(sens),
+                }
+          }
         />
       </div>
     );
@@ -1166,7 +1193,7 @@ export const ZoneDefilement = React.forwardRef<
         classeEnveloppe,
       )}
     >
-      {voile('debut', debut || voileDebutToujours)}
+      {horizontal ? voile('debut', debut) : null}
       <div
         ref={(noeud) => {
           interne.current = noeud;

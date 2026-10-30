@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { ENVELOPPE_DES_EXEMPLES, MAX_PISTES_D_EXEMPLE, NATURES_D_EXEMPLE } from '@beluga/shared';
+import { ENVELOPPE_DES_EXEMPLES, MAX_PISTES_D_EXEMPLE, NATURES_D_EXEMPLE, lettreDuRang, nomDeLExemple } from '@beluga/shared';
 
 type NatureDExemple = (typeof NATURES_D_EXEMPLE)[number];
 import * as store from './store.js';
@@ -226,66 +226,87 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
     return { ok: false, text: 'Cette carte est en mode caméra : son questionnaire illustré a déjà ses exemples. N’ajoute pas de question d’exemples.' };
   }
 
-  const bloc = annoncerUnMedia({
-    agentId: ctx.agentId,
-    projectId: ctx.projectId,
-    cardId: ctx.cardId,
-    genre: nature === 'voix' ? 'son' : 'image',
-    sujet: pistes.length > 1 ? `${pistes.length} exemples à comparer` : `Exemple — ${pistes[0].titre}`,
-    outil: nature === 'page' ? 'Page photographiée sur le serveur' : nature === 'voix' ? 'Voix d’essai du serveur' : 'Codex du serveur, sinon service externe',
-    prix: 0,
-  });
+  /* UN BLOC PAR EXEMPLE, FERMÉ AVEC SA PIÈCE (30/10/2026, captures #9d60 et
+     #09b9) : un bloc collectif refermé sans pièce laissait un cadre gris vide
+     dans le fil. Chaque piste a donc son bloc, qui scintille pendant la
+     fabrication puis devient une ligne du fil à son heure (« A — titre »),
+     comme tout média livré — et la même image rejoint « Ce que l'agent a vu ».
+     La LETTRE est écrite dans le nom de la pièce (« exemple-A.png ») : la
+     question la retrouve même si l'agent réordonne ses options. */
+  const phraseDe = (i: number) => `${lettreDuRang(i)} — ${pistes[i].titre}`;
+  const blocs = pistes.map((_, i) =>
+    annoncerUnMedia({
+      agentId: ctx.agentId,
+      projectId: ctx.projectId,
+      cardId: ctx.cardId,
+      genre: nature === 'voix' ? 'son' : 'image',
+      sujet: phraseDe(i),
+      outil: nature === 'page' ? 'Page photographiée sur le serveur' : nature === 'voix' ? 'Voix d’essai du serveur' : 'Codex du serveur, sinon service externe',
+      prix: 0,
+    }),
+  );
+  const fermes = new Set<number>();
+  const fermer = (i: number, fin: { piece?: string | null; echec?: string }) => {
+    if (fermes.has(i)) return;
+    fermes.add(i);
+    terminerUnMedia(blocs[i].id, fin.piece ? { attachmentId: fin.piece, legende: phraseDe(i) } : { echec: fin.echec ?? 'exemple non fabriqué' });
+  };
   const dossier = dossierDeTravail();
   const lignes: string[] = [];
   let reussies = 0;
+  /** Une piste réussie : sa ligne dit lettre, pièce et référence courte. */
+  const reussie = (i: number, piece: string, alias: string | undefined, origine: string) => {
+    reussies += 1;
+    fermer(i, { piece });
+    lignes.push(`- ${lettreDuRang(i)} « ${pistes[i].titre} » : pièce « ${piece} »${alias ? ` · #${alias}` : ''} (${origine})`);
+  };
+  const ratee = (i: number, raison: string) => {
+    fermer(i, { echec: raison });
+    lignes.push(`- ${lettreDuRang(i)} « ${pistes[i].titre} » : échec — ${raison}`);
+  };
   try {
     const joindre = async (fichier: string, nom: string) => {
       const j = await joindreUnFichier({ projectId: ctx.projectId, agentId: ctx.agentId, cardId: ctx.cardId, fichier, nom, deLAgent: true });
-      return j.ok ? j.attachment.id : null;
+      return j.ok ? { id: j.attachment.id, alias: j.attachment.alias } : null;
     };
     if (nature === 'page') {
       const rendus = await photographierLesPages(pistes, dossier);
       for (const [i, rendu] of rendus.entries()) {
-        const piece = typeof rendu === 'string' ? await joindre(rendu, `exemple-${i + 1}.png`) : null;
-        if (piece) reussies += 1;
-        lignes.push(`- « ${pistes[i].titre} » : ${piece ? `pièce « ${piece} » (sans frais)` : `échec — ${typeof rendu === 'string' ? 'pièce non jointe' : rendu.refus}`}`);
+        const piece = typeof rendu === 'string' ? await joindre(rendu, nomDeLExemple(i, 'png')) : null;
+        if (piece) reussie(i, piece.id, piece.alias, 'sans frais');
+        else ratee(i, typeof rendu === 'string' ? 'pièce non jointe' : rendu.refus);
       }
     } else if (nature === 'image') {
       for (const [i, piste] of pistes.entries()) {
         if (!piste.consigne) {
-          lignes.push(`- « ${piste.titre} » : échec — il manque « consigne », la description de l’image`);
+          ratee(i, 'il manque « consigne », la description de l’image');
           continue;
         }
         const local = await illustrerParCodex(piste.consigne, dossier);
         if (typeof local === 'string') {
-          const piece = await joindre(local, `exemple-${i + 1}.png`);
+          const piece = await joindre(local, nomDeLExemple(i, 'png'));
           if (piece) {
-            reussies += 1;
-            lignes.push(`- « ${piste.titre} » : pièce « ${piece} » (Codex du serveur, sans frais)`);
+            reussie(i, piece.id, piece.alias, 'Codex du serveur, sans frais');
             continue;
           }
         }
         const raisonLocale = typeof local === 'string' ? 'pièce non jointe' : local.refus;
         const externe = await illustrerParLeServiceExterne(ctx, piste);
-        if ('piece' in externe) {
-          reussies += 1;
-          lignes.push(`- « ${piste.titre} » : pièce « ${externe.piece} » (service externe : ${raisonLocale})`);
-        } else {
-          lignes.push(`- « ${piste.titre} » : échec — ${raisonLocale} ; service externe : ${externe.refus}`);
-        }
+        if ('piece' in externe) reussie(i, externe.piece, store.getAttachment(externe.piece)?.alias, `service externe : ${raisonLocale}`);
+        else ratee(i, `${raisonLocale} ; service externe : ${externe.refus}`);
       }
     } else {
       const { fabriquerVoixDEssai } = await import('./voix-de-realisation.js');
       for (const [i, piste] of pistes.entries()) {
         if (!piste.texte) {
-          lignes.push(`- « ${piste.titre} » : échec — il manque « texte », la phrase à faire entendre`);
+          ratee(i, 'il manque « texte », la phrase à faire entendre');
           continue;
         }
-        const sortie = path.join(dossier, `exemple-${i + 1}.wav`);
+        const sortie = path.join(dossier, nomDeLExemple(i, 'wav'));
         const r = piste.voix ? await fabriquerVoixDEssai(piste.texte, sortie, piste.voix) : await fabriquerVoixDEssai(piste.texte, sortie);
-        const piece = r.ok ? await joindre(sortie, `exemple-${i + 1}.wav`) : null;
-        if (piece) reussies += 1;
-        lignes.push(`- « ${piste.titre} » : ${piece ? `pièce « ${piece} » (voix d’essai du serveur, sans frais)` : `échec — ${r.ok ? 'pièce non jointe' : r.raison}`}`);
+        const piece = r.ok ? await joindre(sortie, nomDeLExemple(i, 'wav')) : null;
+        if (piece) reussie(i, piece.id, piece.alias, 'voix d’essai du serveur, sans frais');
+        else ratee(i, r.ok ? 'pièce non jointe' : r.raison);
       }
     }
   } catch (err: any) {
@@ -293,9 +314,8 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
     lignes.push(`Fabrication interrompue : ${String(err?.message ?? err).slice(0, 200)}`);
   } finally {
     fs.rmSync(dossier, { recursive: true, force: true });
-    /* Le bloc se referme sans pièce : les exemples paraissent dans la question
-       qui suit, pas comme un média livré de la discussion. */
-    terminerUnMedia(bloc.id, reussies ? { legende: `${reussies} exemple(s) prêt(s)` } : { echec: 'aucun exemple n’a pu être fabriqué' });
+    /* Une piste restée sans issue (fabrication tombée) ne laisse pas de bloc ouvert. */
+    pistes.forEach((_, i) => fermer(i, { echec: 'fabrication interrompue' }));
   }
   const champ = nature === 'voix' ? 'media' : 'image';
   return {
@@ -304,7 +324,7 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
       `${reussies}/${pistes.length} exemple(s) fabriqué(s) :`,
       ...lignes,
       reussies
-        ? `Repose maintenant ta question par ask_user, chaque option avec son identifiant dans « ${champ} ». Une piste sans exemple reste décrite en mots.`
+        ? `Repose maintenant ta question par ask_user, chaque option avec son identifiant dans « ${champ} ». Chaque exemple garde sa LETTRE et sa référence : cite-les dans le texte de ta question (« A (#xxxx) — titre »). Une piste sans exemple reste décrite en mots.`
         : `Aucun exemple : pose ta question avec des choix décrits en mots, et dis à l’utilisateur pourquoi (raison ci-dessus).`,
       ctx.cardId ? `Enveloppe des exemples payants de cette carte : ${ENVELOPPE_DES_EXEMPLES} $.` : '',
     ]

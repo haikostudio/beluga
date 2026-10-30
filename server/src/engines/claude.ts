@@ -95,12 +95,14 @@ function effortFor(thinking?: string): string | null {
 export function buildClaudeArgs(options: EngineRunOptions): string[] {
   const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
 
-  // DERNIER VERROU : un modèle BANNI (Fable) ne part jamais, d'où qu'il vienne
-  // (vieux réglage, reprise, essai). L'alias « opus » du CLI vise l'Opus courant.
-  if (modeleBanni(options.model)) {
-    log.warn(`modèle banni « ${options.model} » remplacé par Opus au lancement`);
+  // DERNIER VERROU : un modèle RÉSERVÉ AU CHOIX MANUEL (Fable) ne part jamais
+  // dans un lancement automatique, ni dans un lancement dont on ne sait pas
+  // qu'il est manuel. L'alias « opus » du CLI vise l'Opus courant.
+  const automatique = options.lancementAutomatique !== false;
+  if (modeleBanni(options.model) && automatique) {
+    log.warn(`modèle réservé « ${options.model} » remplacé par Opus : lancement automatique`);
   }
-  const modele = modelePermis(options.model);
+  const modele = modelePermis(options.model, [], { automatique });
   if (modele) args.push('--model', modele);
   const effort = effortFor(options.thinking);
   if (effort) args.push('--effort', effort);

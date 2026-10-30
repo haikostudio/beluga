@@ -96,16 +96,5 @@ export const CLASSE_LIGNE_DE_SERVICE =
  */
 export const CLASSE_LIGNE_EN_BANDE = 'group-data-[bande]/colonne:justify-center group-data-[bande]/colonne:px-0';
 export const CLASSE_LIBELLE_EN_BANDE = 'group-data-[bande]/colonne:sr-only';
-/**
- * CE QUI SUIT LE LIBELLÉ D'UNE LIGNE (une roue de chargement, un point d'état)
- * SORT DU FLUX QUAND LA COLONNE EST RÉDUITE. La ligne centre alors ce qu'elle
- * contient : un second enfant, même vide, y serait centré AVEC l'icône — qui
- * partait vers la gauche de la moitié de sa largeur et de l'écart (11 px pour
- * une roue de 12 px). Posé en incrustation sur le coin de la ligne — qui doit
- * être `relative` —, il ne pèse plus rien : l'icône reste sur l'axe des autres
- * (`node scripts/verif-colonnes-repliees.mjs`).
- */
-export const CLASSE_REPERE_EN_BANDE =
-  'group-data-[bande]/colonne:pointer-events-none group-data-[bande]/colonne:absolute group-data-[bande]/colonne:right-1 group-data-[bande]/colonne:top-1';
 /** L'intitulé d'un groupe de lignes dans le menu d'un service. */
 export const CLASSE_SECTION_DE_SERVICE = 'px-2.5 pb-1.5 pt-4 text-[12.5px] text-faint first:pt-1';

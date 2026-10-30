@@ -91,6 +91,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   Pastille,
+  Switch,
   Tooltip,
   ZoneDefilement,
   CaseACocher,
@@ -1404,6 +1405,17 @@ export function DeployPanel({
              comme pour la mise en production (demande du 11/10/2026). */
           gestes={
             onInitier ? (
+              <>
+              {/* L'INTERRUPTEUR « DÉPLOIEMENT AUTOMATIQUE » a quitté la tête de la
+                  colonne « À déployer » avec le tableau (30/10/2026) : il vit
+                  dans la page ouverte par la flèche de « Déployer », à côté des
+                  réglages de la procédure. */}
+              {colonne === 'to_deploy' ? (
+                <InterrupteurDeploiementAuto
+                  projectId={projectId}
+                  actif={state.projects.find((p) => p.id === projectId)?.deploiementAutomatique === true}
+                />
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -1415,6 +1427,7 @@ export function DeployPanel({
               >
                 <Settings2 className="h-4 w-4" />
               </Button>
+              </>
             ) : undefined
           }
           lancement={
@@ -2490,5 +2503,56 @@ export function BoutonInfosPublication({
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * L'INTERRUPTEUR « DÉPLOIEMENT AUTOMATIQUE ». ÉTEINT par défaut, et son état
+ * vit sur le PROJET : allumé, il vaut consentement permanent pour ce projet-là
+ * — dès que plus rien ne travaille, le lot « À déployer » part tout seul, sans
+ * clic sur « Publier maintenant ».
+ *
+ * Il ne décide de rien lui-même : il n'écrit qu'un réglage. Ce qui retient ou
+ * lance le lot est une règle pure, jouée par le serveur
+ * (`shared/src/deploiement-automatique.ts`). Le clic le dit DÈS le clic
+ * (`attente`), et l'affichage suit l'état voulu pendant l'aller-retour.
+ *
+ * Il vivait en tête de la colonne « À déployer » du tableau ; le tableau parti
+ * (30/10/2026), il est dans la page du déploiement, ouverte par la flèche du
+ * bouton « Déployer ».
+ */
+function InterrupteurDeploiementAuto({ projectId, actif }: { projectId: string; actif: boolean }) {
+  const [enVol, setEnVol] = React.useState<boolean | null>(null);
+
+  // Le serveur a parlé : on lâche l'état optimiste et on suit de nouveau le projet.
+  React.useEffect(() => {
+    setEnVol((vise) => (vise === null || vise === actif ? null : vise));
+  }, [actif]);
+
+  const basculer = (valeur: boolean) => {
+    setEnVol(valeur);
+    client
+      .call({ type: 'project.update', id: projectId, patch: { deploiementAutomatique: valeur } })
+      .catch(() => setEnVol(null));
+  };
+
+  const affiche = enVol ?? actif;
+  return (
+    <Tooltip
+      label={t(
+        'Déploiement automatique : dès que plus rien ne travaille sur ce projet, ce lot part en ligne tout seul, sans passer par « Publier maintenant ».',
+      )}
+    >
+      <label className="mr-1 inline-flex shrink-0 cursor-pointer items-center gap-2 text-[12.5px] text-muted" data-reglage-deploiement-automatique>
+        <span className="hidden sm:inline">{t('Automatique')}</span>
+        <Switch
+          checked={affiche}
+          attente={enVol !== null}
+          onCheckedChange={basculer}
+          aria-label="Déploiement automatique"
+          data-deploiement-automatique={affiche ? 'oui' : 'non'}
+        />
+      </label>
+    </Tooltip>
   );
 }

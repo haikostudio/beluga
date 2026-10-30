@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
+  evenementSansEntretienInvisible,
   Agent,
   JALON_PLAN_DEMANDE,
   basculerSupposition,
@@ -509,7 +510,10 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
        */
       const pour = (event as { pour?: unknown }).pour;
       if (typeof pour === 'string' && pour && pour !== compte.id) return;
-      ws.send(JSON.stringify(sansContexteRepete(evenementPourLEcran(event))));
+      /* UNE ROUTINE D'ENTRETIEN INVISIBLE NE PART VERS AUCUN ÉCRAN (`shared/src/entretien-invisible.ts`). */
+      const visible = sansEntretienInvisible(event);
+      if (!visible) return;
+      ws.send(JSON.stringify(sansContexteRepete(evenementPourLEcran(visible))));
     };
     /*
      * LE CONTEXTE ENVOYÉ D'UN MESSAGE NE VOYAGE QU'UNE FOIS PAR CANAL
@@ -822,6 +826,20 @@ function instantaneDuProjet(projectId: string): Extract<ServerEvent, { type: 'pr
     totaux,
     deploy: store.latestDeploy(projectId) ?? undefined,
   };
+}
+
+/**
+ * UNE ROUTINE D'ENTRETIEN INVISIBLE NE PARAÎT SUR AUCUN ÉCRAN
+ * (`shared/src/entretien-invisible.ts`) : hors de la machine de l'auteur, sa
+ * carte et son agent travaillent sans rien montrer. Ici, la dernière porte :
+ * un événement qui PARLE d'elle (sa carte, son agent, un message de son fil)
+ * est retiré ; une LISTE qui la contient (premier envoi, instantané d'un
+ * projet, conversation d'une carte) part sans elle. Les lectures de la base
+ * l'écartent déjà en amont (`SANS_ENTRETIEN_INVISIBLE`, `store.ts`) ; cette
+ * porte rattrape les diffusions du bus, émises de trente-quatre endroits.
+ */
+function sansEntretienInvisible(event: ServerEvent): ServerEvent | null {
+  return evenementSansEntretienInvisible(event, { carte: store.carteInvisible, agent: store.agentInvisible });
 }
 
 /**

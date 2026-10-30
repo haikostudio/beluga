@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { Attachment, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
+import { Attachment, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, lettreDeLExemple, lettreDeLaLegende, lettresDesOptions, libellesDUneReponseEnImages, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
 import { EmplacementDeLaPagination } from '@/components/carousel-questions';
 import { BarrePagination } from '@/components/ui/pagination-fleches';
 import { BranchementDeService } from '@/components/branchement-de-service';
@@ -370,7 +370,16 @@ function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
             qui défile — une marge basse laissait une bande où le texte des
             choix passait SOUS la barre. Le bas de la bulle est porté par la
             barre elle-même. */}
-        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-0" data-zone-feuille-question="">
+        {/* LE FONDU S'ARRÊTE AU CADRE JAUNE (captures #f1c2 et #4fee,
+            30/10/2026) : ombre et flou tiennent entre les bords intérieurs de
+            la question, jamais par-dessus sa bordure ni jusqu'aux bords de
+            l'écran (`voileBorne`). */}
+        <ZoneDefilement
+          classeEnveloppe="min-h-0 flex-1"
+          className="px-3 pb-0"
+          voileBorne="[data-feuille-question]"
+          data-zone-feuille-question=""
+        >
           {/* Dans la feuille, les flèches d'un formulaire restent au-dessus de sa question. */}
           <EmplacementDeLaPagination.Provider value={null}>
             {props.question.formulaire?.questions.length ? (
@@ -547,6 +556,14 @@ function BulleQuestionComplete({
   }, [cleDeBrouillon, choisis, texteLibre, images, ecrireLeBrouillon]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const mediaDe = useMediasDesChoix(question.options, projectId, agentId, piecesDuMessage);
+  /** La lettre, la référence et la pièce de chaque choix en image (vide sans image). */
+  const reperesDesImages = useReperesDesChoixEnImages(question.options, projectId);
+  const enImages = reperesDesImages.size > 0;
+  /** Les libellés qui partent : en images, lettre et référence cités, dans l'ordre des touchers. */
+  const libellesDeLaReponse = (ids: readonly string[]) =>
+    enImages
+      ? libellesDUneReponseEnImages(question.options, ids, question.kind === 'multiple', (id) => reperesDesImages.get(id))
+      : question.options.filter((o) => ids.includes(o.id)).map((o) => o.label);
   /** La vidéo d'un choix, ouverte en grand par-dessus l'écran. */
   const [video, setVideo] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
@@ -600,8 +617,7 @@ function BulleQuestionComplete({
    * relancé — sans quoi le bouton croirait avoir réussi.
    */
   const envoyer = async () => {
-    const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-    const reponse = texteDeReponse(libelles, texteLibre, images.length);
+    const reponse = texteDeReponse(libellesDeLaReponse(choisis), texteLibre, images.length);
     if (!reponse) return;
     setEnvoi(true);
     try {
@@ -768,6 +784,8 @@ function BulleQuestionComplete({
             <ChoixEnImages
               options={question.options}
               choisis={choisis}
+              plusieurs={question.kind === 'multiple'}
+              reperes={reperesDesImages}
               recommandee={question.recommandee}
               onBasculer={basculer}
             />
@@ -879,7 +897,11 @@ function BulleQuestionComplete({
           }
           rows={2}
           onFocus={suivreLeClavier}
-          className="scroll-mb-20 text-[13.5px]"
+          /* LE CHAMP SE CREUSE DANS LE CADRE (capture #f1c2, 30/10/2026) : le
+             fond partagé des champs (`--raised`) est CELUI du cadre de la
+             question, et le champ disparaissait. Le fond de page (`--bg`) le
+             détache, plus sombre en sombre, blanc en clair — sans bordure. */
+          className="scroll-mb-20 bg-bg text-[13.5px]"
           data-champ-reponse-question
         />
         </div>
@@ -1004,61 +1026,202 @@ function BulleQuestionComplete({
 /**
  * LE CHOIX EN IMAGES (mode Réalisation, 22/10/2026) : quand une option porte
  * une image (un aperçu fabriqué par le cadrage), la zone devient une grille de
- * vignettes cliquables, deux par ligne sur téléphone, trois au-delà. Le clic
- * bascule le choix comme une pastille ; le retenu porte le violet et sa coche.
- * Une option sans image garde sa vignette vide, son libellé dessous : rien ne
- * se perd d'une question mixte.
+ * vignettes, deux par ligne sur téléphone, trois au-delà. Toucher l'image
+ * l'ouvre EN GRAND (on feuillette les images de la question) ; seule la COCHE
+ * du coin choisit, aussi depuis l'aperçu (décision du 30/10/2026). « Un seul
+ * choix » n'en garde qu'une ; « plusieurs réponses » numérote les retenues
+ * 1, 2, 3 dans l'ordre des touchers — l'ordre de préférence envoyé à l'agent.
+ * Chaque image porte sa LETTRE (A, B…) et sa référence « #xxxx ». Une option
+ * sans image garde sa vignette vide, son libellé dessous, et se coche au toucher.
  */
 function ChoixEnImages({
   options,
   choisis,
+  plusieurs,
+  reperes,
   recommandee,
   onBasculer,
 }: {
   options: OptionDeQuestion[];
   choisis: string[];
+  plusieurs: boolean;
+  reperes: ReadonlyMap<string, RepereDUnChoixEnImage>;
   recommandee?: string;
   onBasculer: (id: string) => void;
 }) {
+  /* L'APERÇU FEUILLETTE LES IMAGES DE LA QUESTION, dans l'ordre des options. */
+  const galerie = React.useMemo(
+    () => options.map((o) => reperes.get(o.id)?.piece).filter((p): p is Attachment => !!p),
+    [options, reperes],
+  );
+  const [ouverte, setOuverte] = React.useState<Attachment | null>(null);
+  const optionDe = (piece: Attachment | null | undefined) => (piece ? options.find((o) => o.image === piece.id) : undefined);
+  /** La coche d'une option, en grand dans l'aperçu : même geste, même dessin. */
+  const coche = (option: OptionDeQuestion, taille: 'vignette' | 'apercu') => {
+    const rang = choisis.indexOf(option.id) + 1;
+    const actif = rang > 0;
+    return (
+      <span
+        className={cn(
+          'flex items-center justify-center rounded-full text-[12px] font-semibold tabular-nums transition-colors',
+          taille === 'vignette' ? 'h-6 w-6' : 'h-5 w-5',
+          actif ? 'bg-teinte text-bg' : 'bg-surface/90 text-transparent ring-2 ring-inset ring-text/35',
+        )}
+        aria-hidden
+      >
+        {/* PLUSIEURS RÉPONSES : le numéro dit l'ordre de préférence (1, 2, 3…). */}
+        {actif && plusieurs ? rang : <Check className="h-3.5 w-3.5" />}
+      </span>
+    );
+  };
+  const enCours = optionDe(ouverte);
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-choix-question data-choix-en-images>
       {options.map((option) => {
         const actif = choisis.includes(option.id);
+        const repere = reperes.get(option.id);
+        const rang = choisis.indexOf(option.id) + 1;
         return (
-          <button
+          /* DEUX GESTES SÉPARÉS (30/10/2026) : toucher l'image l'ouvre en grand,
+             seule la coche du coin choisit. Deux boutons voisins, jamais l'un
+             dans l'autre. */
+          <div
             key={option.id}
-            type="button"
-            onClick={() => onBasculer(option.id)}
-            data-option-question={option.id}
-            data-option-retenue={actif ? '' : undefined}
             data-option-image={option.image ?? undefined}
-            title={option.description ?? option.label}
+            data-option-lettre={repere?.lettre ?? undefined}
+            data-option-retenue={actif ? '' : undefined}
+            data-option-rang={actif && plusieurs ? rang : undefined}
             className={cn(
-              'group flex min-w-0 flex-col overflow-hidden rounded-lg text-left transition-colors',
-              actif ? 'bg-teinte-fond text-teinte' : 'bg-surface text-muted hover:bg-text/5',
+              'relative flex min-w-0 flex-col overflow-hidden rounded-lg transition-colors',
+              actif ? 'bg-teinte-fond text-teinte' : 'bg-surface text-muted',
             )}
           >
-            <span className={cn('relative block aspect-square w-full overflow-hidden bg-raised', actif && 'ring-2 ring-inset ring-teinte')}>
+            <button
+              type="button"
+              onClick={() => (repere?.piece ? setOuverte(repere.piece) : onBasculer(option.id))}
+              title={repere?.piece ? t('Ouvrir en grand') : (option.description ?? option.label)}
+              data-option-apercu={option.id}
+              className={cn(
+                'relative block aspect-square w-full overflow-hidden bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teinte',
+                actif && 'ring-2 ring-inset ring-teinte',
+              )}
+            >
               {option.image ? <ImageDePiece id={option.image} alt={option.label} className="h-full w-full object-cover" /> : null}
-              {actif ? (
-                <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-teinte text-bg">
-                  <Check className="h-3 w-3" />
+              {repere?.lettre ? (
+                <span
+                  className="pointer-events-none absolute left-1.5 top-1.5 flex min-w-[1.6em] items-center justify-center rounded-md bg-surface/90 px-1 text-[16px] font-semibold leading-6 text-text"
+                  data-option-lettre-visible
+                >
+                  {repere.lettre}
                 </span>
               ) : null}
-            </span>
+            </button>
+            <button
+              type="button"
+              role={plusieurs ? 'checkbox' : 'radio'}
+              aria-checked={actif}
+              aria-label={actif ? t('Retirer ce choix') : t('Choisir')}
+              title={actif ? t('Retirer ce choix') : t('Choisir')}
+              onClick={() => onBasculer(option.id)}
+              data-option-question={option.id}
+              data-option-coche
+              /* La zone de toucher déborde le rond : 40 px au coin, pour le doigt. */
+              className="absolute right-0 top-0 flex h-10 w-10 items-start justify-end p-1.5 focus:outline-none focus-visible:[&>span]:ring-teinte"
+            >
+              {coche(option, 'vignette')}
+            </button>
             <span className="block min-w-0 px-2 py-1.5">
               <span className="block truncate text-[13px] font-medium leading-snug">{option.label}</span>
-              {recommandee && option.label === recommandee ? (
-                <span className="text-[11.5px] font-medium text-accent" data-option-conseillee>
-                  {t('Conseillé')}
-                </span>
-              ) : null}
+              <span className="flex min-w-0 items-center gap-1.5">
+                {repere?.alias ? (
+                  <span className="shrink-0 font-mono text-[11px] text-faint texte-copiable" data-option-reference>
+                    #{repere.alias}
+                  </span>
+                ) : null}
+                {recommandee && option.label === recommandee ? (
+                  <span className="truncate text-[11.5px] font-medium text-accent" data-option-conseillee>
+                    {t('Conseillé')}
+                  </span>
+                ) : null}
+              </span>
             </span>
-          </button>
+          </div>
         );
       })}
+      <AttachmentPreview
+        item={ouverte}
+        onClose={() => setOuverte(null)}
+        onNaviguer={setOuverte}
+        galerie={galerie}
+        adresse="apercu-du-choix"
+        repereDe={(piece) => {
+          const r = reperes.get(optionDe(piece)?.id ?? '');
+          return r ? [r.lettre, r.alias ? `#${r.alias}` : ''].filter(Boolean).join(' · ') : null;
+        }}
+        actionDe={() =>
+          enCours ? (
+            /* LA COCHE SE COCHE AUSSI DEPUIS L'APERÇU, pour l'image montrée. */
+            <button
+              type="button"
+              role={plusieurs ? 'checkbox' : 'radio'}
+              aria-checked={choisis.includes(enCours.id)}
+              onClick={() => onBasculer(enCours.id)}
+              data-apercu-coche={enCours.id}
+              className={cn(
+                'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-medium transition-colors',
+                choisis.includes(enCours.id) ? 'bg-teinte-fond text-teinte' : 'text-muted hover:bg-text/5',
+              )}
+            >
+              {coche(enCours, 'apercu')}
+              {choisis.includes(enCours.id) ? t('Choisi') : t('Choisir')}
+            </button>
+          ) : null
+        }
+      />
     </div>
   );
+}
+
+/** Ce qui repère un choix en image : sa lettre, sa référence courte et sa pièce. */
+interface RepereDUnChoixEnImage {
+  lettre?: string;
+  alias?: string | null;
+  piece?: Attachment;
+}
+
+/**
+ * LES REPÈRES DES CHOIX EN IMAGES : la lettre est celle de la pièce
+ * (« exemple-B.png »), sinon celle de la phrase de son bloc de fabrication
+ * (« B — … », exemple venu du service externe), sinon la première libre.
+ */
+function useReperesDesChoixEnImages(
+  options: OptionDeQuestion[],
+  projectId: string | undefined,
+): ReadonlyMap<string, RepereDUnChoixEnImage> {
+  const state = useApp();
+  const avecImage = options.some((o) => o.image);
+  const connues = projectId ? state.attachments[projectId] : undefined;
+  React.useEffect(() => {
+    if (avecImage && projectId && !connues) client.send({ type: 'attachments.list', projectId });
+  }, [avecImage, projectId, !connues]);
+  const blocs = state.mediasEnFabrication;
+  return React.useMemo(() => {
+    const reperes = new Map<string, RepereDUnChoixEnImage>();
+    if (!avecImage) return reperes;
+    const pieceDe = (id: string) => connues?.find((p) => p.id === id);
+    const lettres = lettresDesOptions(options, (id) => {
+      const piece = pieceDe(id);
+      if (lettreDeLExemple(piece?.name)) return piece;
+      const duBloc = lettreDeLaLegende(blocs?.find((b) => b.attachmentId === id)?.sujet);
+      return { name: duBloc ? `exemple-${duBloc}.png` : piece?.name };
+    });
+    for (const o of options) {
+      if (!o.image) continue;
+      const piece = pieceDe(o.image);
+      reperes.set(o.id, { lettre: lettres.get(o.id), alias: piece?.alias ?? null, piece });
+    }
+    return reperes;
+  }, [avecImage, options, connues, blocs]);
 }
 
 /**

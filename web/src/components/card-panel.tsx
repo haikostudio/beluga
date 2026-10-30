@@ -5,19 +5,15 @@ import { VoletDeSuivi } from '@/components/volet-de-suivi';
 import { ContexteAgentDuFil } from '@/components/menu-du-media';
 import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
 import {
-  AlertTriangle,
-  Archive,
   Check,
   ChevronDown,
   GitBranch,
   Loader2,
   MessageSquare,
   MessagesSquare,
-  Github,
   CircleDot,
   EllipsisVertical,
   Paperclip,
-  Rocket,
   RotateCcw,
   Search,
   Sparkles,
@@ -25,9 +21,12 @@ import {
   Trash2,
   X,
   AppWindow,
+  FolderOpen,
+  Settings2,
+  Volume2,
+  PanelRight,
 } from 'lucide-react';
 import {
-  COLUMN_LABELS,
   ONGLET_DE_CARTE_PAR_DEFAUT,
   Attachment,
   Card,
@@ -45,11 +44,8 @@ import {
   totalDesLignes,
   alertesParCarte,
   iconeDuLot,
-  mentionArchivage,
   mentionDeRedaction,
-  mentionDeReprise,
   cadrageRouvertApresRapport,
-  avisSurLUrgence,
   estUnRegroupement,
   membresActifsDuRegroupement,
   estVoletDuCahier,
@@ -60,6 +56,7 @@ import {
   repliALOuverture,
   suivreLeDefilement,
   cheminDeRealisationVisible,
+  planCourant,
   carteDeMedia,
   type EtatDuRepli,
 } from '@beluga/shared';
@@ -72,7 +69,9 @@ import {
   DialogContent,
   DialogTitle,
   Drawer,
+  EnteteDeFeuille,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   EmptyState,
   Input,
@@ -94,25 +93,22 @@ import { MenuDesProjets } from '@/components/menu-des-projets';
 import { EnteteDeZone, SeparateurDuFil, useLieuDeLaZone } from '@/components/entete-de-zone';
 import { BoutonDeBranche } from '@/components/bouton-de-branche';
 import {
-  CLASSE_LIBELLE_EN_BANDE,
-  CLASSE_REPERE_EN_BANDE,
-  CLASSE_LIGNE_DE_SERVICE,
-  CLASSE_LIGNE_EN_BANDE,
-  ColonneDeService,
   useColonneDeService,
 } from '@/components/colonne-de-service';
-import { BoutonNouvelleTache } from '@/components/nouvelle-tache';
+import { ecouterLePoint } from '@/components/quota-bar';
+import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
+import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { RepereAttention } from '@/components/repere-attention';
 import { SilhouetteTiroirCarte } from '@/components/silhouettes';
 import { client, donneesDeCarteRecues } from '@/lib/client';
 import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
-import { useSuiviFerme } from '@/lib/suivi-de-carte';
+import { ouvrirLeSuivi, useSuiviFerme } from '@/lib/suivi-de-carte';
 import { FournisseurGlisserVersUnPlan } from '@/components/glisser-vers-un-plan';
 import { estTelephone, useTabletteOuTelephone, useTelephone } from '@/lib/telephone';
 import { usePref } from '@/lib/prefs';
-import { cn, duration, money, relativeTime } from '@/lib/utils';
+import { cn, duration, money} from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 import { MenuExportDuCahier } from '@/components/cahier-des-charges';
 import { ResizeHandle, useResizable } from '@/components/resizer';
@@ -359,7 +355,18 @@ function CardPanelBody({
    */
   /* L'ADRESSE PEUT POSER L'ONGLET D'ENTRÉE : un lien partagé ouvre la carte
      directement sur l'onglet voulu, pas systématiquement sur la conversation. */
-  const [onglet, setOnglet] = React.useState(ongletVise || ONGLET_DE_CARTE_PAR_DEFAUT);
+  /*
+   * GITHUB S'OUVRE DANS UN TIROIR, PLUS DANS LA COLONNE (demande du
+   * 30/10/2026, capture #7265) : la conversation reste à l'écran dessous, et la
+   * rangée « Conversation / GitHub » n'a plus lieu d'être. Une adresse qui vise
+   * encore l'onglet « github » ouvre ce tiroir sur la conversation.
+   */
+  const [githubOuvert, setGithubOuvert] = React.useState(ongletVise === 'github');
+  const [onglet, setOngletBrut] = React.useState(ongletVise && ongletVise !== 'github' ? ongletVise : ONGLET_DE_CARTE_PAR_DEFAUT);
+  const setOnglet = React.useCallback((suivant: string) => {
+    if (suivant === 'github') setGithubOuvert(true);
+    else setOngletBrut(suivant);
+  }, []);
   const remonterOnglet = React.useRef(onOnglet);
   remonterOnglet.current = onOnglet;
   React.useEffect(() => {
@@ -380,6 +387,7 @@ function CardPanelBody({
     if (carteAffichee.current === card.id) return;
     carteAffichee.current = card.id;
     setOnglet(ONGLET_DE_CARTE_PAR_DEFAUT);
+    setGithubOuvert(false);
   }, [card.id]);
   React.useEffect(() => {
     if (decisions > 0) setOnglet(ONGLET_DE_CARTE_PAR_DEFAUT);
@@ -424,7 +432,7 @@ function CardPanelBody({
 
   /* Ce que les onglets vont chercher : « GitHub » le déroulé de ses
      déploiements. Chacun l'annonce depuis son contenu. */
-  const [chargement, signalerChargement] = useOngletsQuiChargent();
+  const [, signalerChargement] = useOngletsQuiChargent();
 
   /*
    * Sur téléphone, le haut du tiroir s'épure. Les tags (état, étiquettes,
@@ -583,72 +591,91 @@ function CardPanelBody({
     if (!imageEnAttente.current) imageEnAttente.current = window.requestAnimationFrame(trancher);
   };
 
-  /* CE QUE LA CARTE A DE PLUS À DIRE — son état, ses étiquettes, sa date — ne
-     s'étale plus sous le titre : c'est rangé derrière le « i ». */
-  const etiquettes = (
-    <div data-tags-carte className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
-      <Badge>{t(COLUMN_LABELS[card.column])}</Badge>
-      {card.deployedAt ? (
-        <Badge>
-          <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
-        </Badge>
-      ) : null}
-      {/* Une carte ressortie garde sa trace : on doit voir qu'elle était
-          passée par « Archivé », et quand. */}
-      {mentionArchivage(card) ? (
-        <Badge title={t('Archivée le {v0}', { v0: new Date(card.archivedAt!).toLocaleString(formatRegional()) })}>
-          <Archive className="h-2.5 w-2.5" /> {mentionArchivage(card)}
-        </Badge>
-      ) : null}
-      {/* Une carte qui se reprend le dit : le travail déjà fait est gardé. */}
-      {mentionDeReprise(card) ? (
-        <Badge title={mentionDeReprise(card)!}>
-          <RotateCcw className="h-2.5 w-2.5" /> {t('reprise')}
-        </Badge>
-      ) : null}
-      {[avisSurLUrgence(card)].map((avis) =>
-        avis ? (
-          <Badge key={avis.cle} title={t(avis.phrase)} data-avis-etiquette={avis.cle}>
-            <AlertTriangle className="h-2.5 w-2.5" /> {t(avis.titre)}
-          </Badge>
-        ) : null,
-      )}
-      {card.labels.map((label) => (
-        <Badge key={label}>{label}</Badge>
-      ))}
-      <span>{t('modifiée {v0}', { v0: relativeTime(card.updatedAt) })}</span>
-    </div>
-  );
   void tagsVisibles;
   void setTagsOuverts;
   void membresDuGroupe;
   void titreGenere;
 
-  /* LES OPTIONS DE LA TÂCHE VIVENT DANS LA COLONNE DE GAUCHE (demande du
-     11/10/2026) : dans une tâche, la colonne laisse la place à ses options —
-     conversation, commentaires, facturation, GitHub, « marquer comme non lu » —
-     sous une flèche qui ramène au projet. Le menu à trois points ne garde que
-     les déplacements et la suppression. SUR TÉLÉPHONE, où la colonne vit dans
-     un panneau fermé, tout reste dans ce menu, comme avant. */
+  /* LES OPTIONS DE LA TÂCHE VIVENT DERRIÈRE LES TROIS POINTS (demande du
+     30/10/2026, « projets sans kanban ») : la colonne de gauche est la liste
+     des agents du projet, et le « i » a disparu. Le menu se lit en deux groupes
+     — « Cet agent » (l'aperçu du site, la facturation, « marquer comme non
+     lu », puis les gestes de la carte) et « Ce projet » (fichiers, pièces
+     jointes, réglages, point du jour). La conversation est le seul onglet
+     qu'on ouvre d'ici ; GitHub s'ouvre par « Voir la branche », dans le menu de
+     la branche ; les commentaires sont masqués (leur onglet reste dans le code). */
   const dansLaColonne = useColonneDeService();
   const nonLuPossible = peutRedevenirNonLue({ colonne: card.column, renduA: card.renduA, luA: card.lastReadAt });
   const ONGLETS: { cle: string; cleLibelle: string; Icone: React.ComponentType<{ className?: string }> }[] = [
     { cle: 'chat', cleLibelle: 'Conversation', Icone: MessageSquare },
     { cle: 'comments', cleLibelle: 'Commentaires', Icone: MessagesSquare },
-    { cle: 'github', cleLibelle: 'GitHub', Icone: Github },
   ];
-  const entreesDOnglets = voletDuCahier || dansLaColonne ? null : (
+  const [voixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
+  const [pointEnLecture, setPointEnLecture] = React.useState(false);
+  /* L'APERÇU DU SITE (l'ancien bouton à fenêtre de la barre) : seulement quand
+     le projet a une adresse de développement. */
+  const adresseDeDevDuProjet = !!project?.devUrl?.trim();
+  const basculerLApercu = () => {
+    setApercu(!apercu);
+    // L'en-tête repart déplié, à l'ouverture comme au retour.
+    repli.current = ETAT_DU_REPLI_INITIAL;
+    zoneSuivie.current = null;
+    setBarreVisible(true);
+  };
+  /* Les fichiers et les pièces jointes du projet : le tiroir de l'application (`app.tsx`). */
+  const ouvrirLesFichiers = (vue: 'fichiers' | 'pieces') =>
+    window.dispatchEvent(new CustomEvent('beluga:ouvrir-fichiers', { detail: { vue } }));
+  const entreesDeLAgent = voletDuCahier ? null : (
     <>
-      {ONGLETS.map(({ cle, cleLibelle, Icone }) => (
-        <DropdownMenuItem key={cle} data-onglet-carte={cle} onSelect={() => setOnglet(cle)}>
-          <Icone className="h-3.5 w-3.5" />
-          <span className="flex-1">{t(cleLibelle)}</span>
-          {cle === 'comments' ? <RoueDOnglet visible={!!chargement.comments} /> : null}
-          {cle === 'github' ? <RoueDOnglet visible={!!chargement.github} /> : null}
-          {ongletActif === cle ? <Check className="h-3.5 w-3.5" /> : null}
+      <DropdownMenuLabel data-menu-groupe="agent">{t('Cet agent')}</DropdownMenuLabel>
+      {ongletActif !== 'chat' ? (
+        <DropdownMenuItem data-onglet-carte="chat" onSelect={() => setOnglet('chat')}>
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span className="flex-1">{t('Conversation')}</span>
         </DropdownMenuItem>
-      ))}
+      ) : null}
+      {adresseDeDevDuProjet ? (
+        <DropdownMenuItem data-geste-apercu={apercu ? 'ouvert' : 'ferme'} onSelect={basculerLApercu}>
+          <AppWindow className="h-3.5 w-3.5" />
+          <span className="flex-1">{apercu ? t('Fermer l’aperçu du site') : t('Aperçu du site')}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {nonLuPossible ? (
+        <DropdownMenuItem data-menu-non-lu={card.id} onSelect={() => client.send({ type: 'card.unread', cardId: card.id })}>
+          <CircleDot className="h-3.5 w-3.5" />
+          <span className="flex-1">{t('Marquer comme non lu')}</span>
+        </DropdownMenuItem>
+      ) : null}
+    </>
+  );
+  const entreesDuProjet = (
+    <>
       <DropdownMenuSeparator />
+      <DropdownMenuLabel data-menu-groupe="projet">{t('Ce projet')}</DropdownMenuLabel>
+      <DropdownMenuItem data-menu-fichiers onSelect={() => ouvrirLesFichiers('fichiers')}>
+        <FolderOpen className="h-3.5 w-3.5" />
+        <span className="flex-1">{t('Fichiers')}</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem data-menu-pieces onSelect={() => ouvrirLesFichiers('pieces')}>
+        <Paperclip className="h-3.5 w-3.5" />
+        <span className="flex-1">{t('Pièces jointes')}</span>
+      </DropdownMenuItem>
+      <DropdownMenuItem data-option-du-projet="reglages" onSelect={() => ouvrirConfigProjet(card.projectId)}>
+        <Settings2 className="h-3.5 w-3.5" />
+        <span className="flex-1">{t('Réglages du projet')}</span>
+      </DropdownMenuItem>
+      {voixVisible ? (
+        <DropdownMenuItem
+          disabled={pointEnLecture}
+          onSelect={() => {
+            setPointEnLecture(true);
+            void ecouterLePoint(card.projectId, () => setPointEnLecture(false));
+          }}
+        >
+          <Volume2 className={cn('h-3.5 w-3.5', pointEnLecture && 'animate-pulse-soft')} />
+          <span className="flex-1">{t('Écouter le point')}</span>
+        </DropdownMenuItem>
+      ) : null}
     </>
   );
 
@@ -699,6 +726,13 @@ function CardPanelBody({
   /* SUR TÉLÉPHONE, LE DOCUMENT EST UNE FEUILLE DU BAS (#f41f), plus une page
      entière : la conversation reste montée et visible derrière. */
   const documentEnFeuille = !!documentOuvert && telephone;
+  /* CE QUE LE VOLET DE DROITE A À MONTRER : le suivi d'une production, sinon le dernier plan. */
+  const dernierPlan = planCourant(card.parcours?.plans ?? []);
+  const voletDeDroite = cheminDeRealisationVisible(card)
+    ? { genre: 'suivi' as const, ouvrir: () => ouvrirLeSuivi(card.id) }
+    : dernierPlan && !card.parcours?.realisationSouhaitee
+      ? { genre: 'plan' as const, ouvrir: () => ouvrirLeDocument({ cardId: card.id, genre: 'plan', numero: dernierPlan.numero }) }
+      : null;
   const feuilleDuDocument = useFeuilleDuVolet(documentEnFeuille, fermerLeDocument);
   /*
    * LE VOLET DE SUIVI D'UNE PRODUCTION (studio créatif) : sur ordinateur, il
@@ -775,6 +809,25 @@ function CardPanelBody({
         /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
            à la conversation ; un second appui quitte la carte. */
         onRetour={documentEnFeuille ? fermerLeDocument : apercuEnFeuille ? fermerLApercu : onClose}
+        /* SUR TÉLÉPHONE, LE VOLET DE DROITE S'OUVRE D'UNE ICÔNE EN BOUT DE RANG
+           DU TITRE (demande du 30/10/2026, capture #cffe) : le suivi d'une
+           production, sinon le plan de la carte, en feuille du bas. */
+        finDuRangDuTitre={
+          telephone && voletDeDroite ? (
+            <Button
+              variant="ghost"
+              size="icon-barre"
+              className={cn('shrink-0', documentOuvert ? 'text-teinte' : 'text-muted')}
+              aria-label={documentOuvert ? t('Fermer le volet') : t('Ouvrir le volet')}
+              title={documentOuvert ? t('Fermer le volet') : t('Ouvrir le volet')}
+              aria-pressed={!!documentOuvert}
+              data-ouvrir-le-volet={voletDeDroite.genre}
+              onClick={() => (documentOuvert ? fermerLeDocument() : voletDeDroite.ouvrir())}
+            >
+              <PanelRight className="h-4 w-4" strokeWidth={1.75} />
+            </Button>
+          ) : undefined
+        }
         /* Sur ordinateur, le retour est porté par la colonne de gauche. */
         retourDansLaColonne={dansLaColonne}
         chemin={
@@ -833,7 +886,7 @@ function CardPanelBody({
           voletDuCahier ? undefined : (
             <>
               <SeparateurDuFil />
-              <BoutonDeBranche card={card} />
+              <BoutonDeBranche card={card} onVoirLaBranche={() => setOnglet('github')} />
             </>
           )
         }
@@ -841,8 +894,9 @@ function CardPanelBody({
           <MenuCarte
             card={card}
             apresSuppression={onClose}
-            enTete={entreesDOnglets}
-            sansNonLu={dansLaColonne}
+            enTete={entreesDeLAgent}
+            enPied={entreesDuProjet}
+            sansNonLu
             declencheur={
               <Button
                 variant="ghost"
@@ -852,7 +906,7 @@ function CardPanelBody({
                 data-menu-de-carte
               >
                 <EllipsisVertical className="h-4 w-4" />
-                {decisions > 0 && ongletActif !== 'chat' && !dansLaColonne ? (
+                {decisions > 0 && ongletActif !== 'chat' ? (
                   <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-text" aria-hidden />
                 ) : null}
               </Button>
@@ -860,29 +914,9 @@ function CardPanelBody({
           />
         }
       >
-        {/* Le « i » : l'état, les étiquettes, la date. */}
-        <BulleInfo label={t('Détails de la carte')} dansBarre>{etiquettes}</BulleInfo>
-        {adresseDeDev && !voletDuCahier ? (
-          <Tooltip label={apercu ? t('Fermer l’aperçu') : t('Aperçu du site de développement')}>
-            <Button
-              variant="ghost"
-              size="icon-barre"
-              aria-label="Aperçu du site de développement"
-              aria-pressed={apercu}
-              data-geste-apercu={apercu ? 'ouvert' : 'ferme'}
-              onClick={() => {
-                setApercu(!apercu);
-                // L'en-tête repart déplié, à l'ouverture comme au retour.
-                repli.current = ETAT_DU_REPLI_INITIAL;
-                zoneSuivie.current = null;
-                setBarreVisible(true);
-              }}
-              className={cn('shrink-0', apercu ? 'text-teinte hover:text-teinte' : 'text-muted')}
-            >
-              <AppWindow className="h-4 w-4" />
-            </Button>
-          </Tooltip>
-        ) : null}
+        {/* PLUS DE « i » NI DE BOUTON D'APERÇU DANS LA BARRE (30/10/2026) :
+            l'aperçu du site est dans les trois points ; l'état de la carte se
+            lit dans la liste des agents, à gauche. */}
         {/* LE CAHIER DES CHARGES S'EXPORTE D'ICI, en PDF ou en texte. */}
         {voletDuCahier ? <MenuExportDuCahier projectId={card.projectId} /> : null}
         {/* LES DEUX GESTES DE MISE EN LIGNE DU PROJET, comme sur la maquette :
@@ -893,75 +927,6 @@ function CardPanelBody({
       </EnteteDeZone>
       {/* Le titre, pour les lecteurs d'écran : la page est une fenêtre Radix. */}
       <DialogTitle className="sr-only">{card.title}</DialogTitle>
-
-      {/* LES OPTIONS DE LA TÂCHE, DANS LA COLONNE DE GAUCHE (`plan="page"` : la
-          page est ouverte par-dessus, le menu du projet attend dessous). La
-          ligne ouverte s'écrit en violet et se dit à voix haute. Colonne
-          réduite, il n'en reste que les icônes. */}
-      {dansLaColonne ? (
-        <ColonneDeService plan="page">
-          <nav aria-label="Options de la tâche" data-options-de-carte={card.id} className="flex flex-col gap-0.5 pt-1">
-            {/* « NOUVELLE TÂCHE », TOUT EN HAUT, au-dessus de « Conversation » :
-                le même bouton que dans la colonne du projet, pour une carte
-                créée depuis le projet de cette tâche. */}
-            <BoutonNouvelleTache projectId={card.projectId} />
-            {voletDuCahier
-              ? null
-              : ONGLETS.map(({ cle, cleLibelle, Icone }) => {
-                  const ouverte = ongletActif === cle;
-                  return (
-                    <button
-                      key={cle}
-                      type="button"
-                      data-onglet-carte={cle}
-                      aria-current={ouverte ? 'page' : undefined}
-                      title={t(cleLibelle)}
-                      onClick={() => setOnglet(cle)}
-                      className={cn(
-                        CLASSE_LIGNE_DE_SERVICE,
-                        CLASSE_LIGNE_EN_BANDE,
-                        'relative',
-                        ouverte ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
-                      )}
-                    >
-                      <Icone className={cn('h-4 w-4 shrink-0', !ouverte && 'text-muted')} />
-                      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t(cleLibelle)}</span>
-                      {/* Colonne réduite, la roue et le point quittent le flux
-                          de la ligne (`CLASSE_REPERE_EN_BANDE`) : en y restant,
-                          ils décalaient l'icône de « Commentaires » et de
-                          « GitHub » par rapport aux autres. */}
-                      {cle === 'comments' ? (
-                        <RoueDOnglet visible={!!chargement.comments} className={CLASSE_REPERE_EN_BANDE} />
-                      ) : null}
-                      {cle === 'github' ? (
-                        <RoueDOnglet visible={!!chargement.github} className={CLASSE_REPERE_EN_BANDE} />
-                      ) : null}
-                      {/* Une décision attend dans la conversation, qu'on a quittée. */}
-                      {cle === 'chat' && decisions > 0 && !ouverte ? (
-                        <span
-                          data-decision-attendue
-                          className={cn('h-1.5 w-1.5 shrink-0 rounded-full bg-text', CLASSE_REPERE_EN_BANDE)}
-                          aria-hidden
-                        />
-                      ) : null}
-                    </button>
-                  );
-                })}
-            {nonLuPossible ? (
-              <button
-                type="button"
-                data-menu-non-lu={card.id}
-                title={t('Marquer comme non lu')}
-                onClick={() => client.send({ type: 'card.unread', cardId: card.id })}
-                className={cn(CLASSE_LIGNE_DE_SERVICE, CLASSE_LIGNE_EN_BANDE, 'mt-3 hover:bg-raised')}
-              >
-                <CircleDot className="h-4 w-4 shrink-0 text-muted" />
-                <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t('Marquer comme non lu')}</span>
-              </button>
-            ) : null}
-          </nav>
-        </ColonneDeService>
-      ) : null}
 
       <MentionDeRedaction card={card} />
 
@@ -1013,8 +978,8 @@ function CardPanelBody({
           </div>
         ) : null}
         {/* Hors de la conversation, un mot dit où l'on est et y ramène — sur
-            téléphone seulement : sur ordinateur, la colonne de gauche le dit. */}
-        {ongletActif !== 'chat' && !dansLaColonne ? (
+            ordinateur aussi depuis que la colonne de gauche liste les agents. */}
+        {ongletActif !== 'chat' ? (
           <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-1" data-barre-onglets>
             <Button variant="ghost" size="sm" className="-ml-2 gap-1.5 text-muted" onClick={() => setOnglet('chat')}>
               <MessageSquare className="h-3.5 w-3.5" />
@@ -1042,14 +1007,15 @@ function CardPanelBody({
         </TabsContent>
 
 
-        <TabsContent value="github" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <ZoneDefilement>
-            <FournisseurDeChargement signaler={signalerChargement}>
-              <GithubTab card={card} />
-            </FournisseurDeChargement>
-          </ZoneDefilement>
-        </TabsContent>
       </Tabs>
+      <Drawer open={githubOuvert} onClose={() => setGithubOuvert(false)} feuille adresse="github-de-la-carte">
+        <EnteteDeFeuille titre="GitHub" data-entete-feuille-github="" />
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" data-tiroir-github={card.id}>
+          <FournisseurDeChargement signaler={signalerChargement}>
+            <GithubTab card={card} />
+          </FournisseurDeChargement>
+        </ZoneDefilement>
+      </Drawer>
       {apercuOuvert && !apercuEnFeuille ? (
         <ResizeHandle
           onPointerDown={(event) => {

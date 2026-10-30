@@ -861,15 +861,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Richtet ein, wie das Projekt in Produktion geht.',
     '设置项目如何投入生产。',
   ],
-  'La liste n’a pas pu être chargée': ['The list could not be loaded', 'No se pudo cargar la lista', 'Die Liste konnte nicht geladen werden', '无法加载列表'],
-  'Rien en route': ['Nothing in progress', 'Nada en curso', 'Nichts unterwegs', '没有进行中的内容'],
-  'Aucune carte entre la demande et le déploiement, dans aucun projet.': [
-    'No card between request and deployment, in any project.',
-    'Ninguna tarjeta entre la solicitud y el despliegue, en ningún proyecto.',
-    'Keine Karte zwischen Anfrage und Bereitstellung, in keinem Projekt.',
-    '所有项目中都没有处于需求与部署之间的卡片。',
-  ],
-  'Afficher les {n} suivantes': ['Show the next {n}', 'Mostrar las {n} siguientes', 'Die nächsten {n} anzeigen', '显示接下来的 {n} 个'],
   /* La pile d'une demande commune (`PileDeCartes`). */
   'Déplier les {n} cartes de cette demande': [
     'Expand the {n} cards of this request',
@@ -880,28 +871,12 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Projet inconnu': ['Unknown project', 'Proyecto desconocido', 'Unbekanntes Projekt', '未知项目'],
   'Au travail': ['Working', 'Trabajando', 'In Arbeit', '工作中'],
   'Cadrage en cours': ['Scoping in progress', 'Definición en curso', 'Klärung läuft', '正在梳理需求'],
-  'Rendue il y a {v0}': ['Delivered {v0} ago', 'Entregada hace {v0}', 'Vor {v0} abgegeben', '{v0} 前交付'],
   'Rendue le {v0}': ['Delivered on {v0}', 'Entregada el {v0}', 'Abgegeben am {v0}', '交付于 {v0}'],
-  'Rendue à l’instant': ['Delivered just now', 'Entregada ahora mismo', 'Gerade abgegeben', '刚刚交付'],
   /* Les colonnes de la page (`OngletEnRoute`). */
   'Actif': ['Active', 'Activo', 'Aktiv', '进行中'],
   'Terminé': ['Done', 'Terminado', 'Erledigt', '已完成'],
   'Actifs': ['Active', 'Activos', 'Aktiv', '进行中'],
   /* « Terminer » et « Archiver », titres des deux autres colonnes, sont les verbes déjà traduits plus bas. */
-  'Rien de terminé': ['Nothing finished', 'Nada terminado', 'Nichts abgeschlossen', '暂无已完成的内容'],
-  'Les cartes finies, publiées ou non, s’afficheront ici jusqu’à ce que vous les archiviez.': [
-    'Finished cards, published or not, will appear here until you archive them.',
-    'Las tarjetas terminadas, publicadas o no, aparecerán aquí hasta que las archive.',
-    'Abgeschlossene Karten, veröffentlicht oder nicht, erscheinen hier, bis Sie sie archivieren.',
-    '已完成的卡片（无论是否上线）会显示在这里，直到您将其归档。',
-  ],
-  'Rien d’archivé pour l’instant': ['Nothing archived yet', 'Nada archivado por ahora', 'Noch nichts archiviert', '暂时还没有归档的内容'],
-  'Glissez ici une carte de « Terminer », ou utilisez « Tout archiver ». Rien ne bouge dans les projets.': [
-    'Drag a card here from “Finish”, or use “Archive all”. Nothing changes in the projects.',
-    'Arrastre aquí una tarjeta de «Finalizar», o use «Archivar todo». Nada cambia en los proyectos.',
-    'Ziehen Sie eine Karte aus „Beenden“ hierher oder verwenden Sie „Alles archivieren“. In den Projekten ändert sich nichts.',
-    '将“结束”中的卡片拖到这里，或使用“全部归档”。项目中不会有任何变化。',
-  ],
   '{n} agent(s) au travail': ['{n} agent(s) working', '{n} agente(s) trabajando', '{n} Agent(en) in Arbeit', '{n} 个智能体正在工作'],
   'Aucun agent au travail': ['No agent working', 'Ningún agente trabajando', 'Kein Agent in Arbeit', '没有智能体在工作'],
   'Quotas': ['Quotas', 'Cuotas', 'Kontingente', '配额'],
@@ -1040,7 +1015,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Regarder': ['Watch', 'Ver', 'Ansehen', '观看'],
   'Actualiser': ['Refresh', 'Actualizar', 'Aktualisieren', '刷新'],
   'Réessayer': ['Try again', 'Reintentar', 'Erneut versuchen', '重试'],
-  'Reconnexion en cours : la liste se rechargera toute seule.': ['Reconnecting: the list will reload by itself.', 'Reconectando: la lista se volverá a cargar sola.', 'Verbindung wird wiederhergestellt: Die Liste lädt sich von selbst neu.', '正在重新连接：列表将自动重新加载。'],
   /* ---- Tiroir de la mise en production (refonte du 24/09/2026) ---- */
   'Configuration de la procédure': ['Procedure setup', 'Configuración del procedimiento', 'Einrichtung des Ablaufs', '流程配置'],
   'Ce projet n’a pas encore de processus de mise en production : rien ne peut partir tant qu’il n’est pas configuré.': ['This project has no production release process yet: nothing can go out until it is set up.', 'Este proyecto aún no tiene proceso de puesta en producción: nada puede salir hasta que esté configurado.', 'Dieses Projekt hat noch keinen Ablauf für die Produktivsetzung: Nichts kann live gehen, bevor er eingerichtet ist.', '该项目尚无上线生产流程：配置完成前无法发布任何内容。'],
@@ -2172,7 +2146,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '{v0} von {v1} — {v2} Start(s) bereits von dieser Obergrenze abgelehnt',
     '{v0} / {v1} — 已有 {v2} 次启动被此上限拒绝',
   ],
-  'Mémoire {v0}': ['Memory {v0}', 'Memoria {v0}', 'Speicher {v0}', '内存 {v0}'],
   "Plafond d'agents": ['Agent ceiling', 'Límite de agentes', 'Agentenobergrenze', '智能体上限'],
   "Combien d'agents en même temps": ['How many agents at once', 'Cuántos agentes a la vez', 'Wie viele Agenten gleichzeitig', '同时运行多少智能体'],
   'Un agent au travail': ['One agent at work', 'Un agente trabajando', 'Ein Agent arbeitet', '一个智能体正在工作'],
@@ -2508,7 +2481,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Kein anderes Projekt, in das diese Karte passt.',
     '没有其他项目可以移动此卡片。',
   ],
-  'Archivée le {v0}': ['Archived on {v0}', 'Archivada el {v0}', 'Archiviert am {v0}', '归档于 {v0}'],
   'archivée': ['archived', 'archivada', 'archiviert', '已归档'],
   'Carte à valider': ['Card to approve', 'Tarjeta por validar', 'Karte zu bestätigen', '待确认卡片'],
   '{v0} cartes à valider': ['{v0} cards to approve', '{v0} tarjetas por validar', '{v0} Karten zu bestätigen', '{v0} 张待确认卡片'],
@@ -2532,7 +2504,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'L’agent a fait 1 action': ['The agent took 1 action', 'El agente hizo 1 acción', 'Der Agent hat 1 Aktion ausgeführt', '代理执行了 1 个操作'],
   'Carte impossible à créer': ['Could not create the card', 'No se pudo crear la tarjeta', 'Karte konnte nicht angelegt werden', '无法创建卡片'],
   'Créer le projet': ['Create the project', 'Crear el proyecto', 'Projekt anlegen', '创建项目'],
-  'Déplacer vers': ['Move to', 'Mover a', 'Verschieben nach', '移动到'],
   'Démarrer': ['Start', 'Iniciar', 'Starten', '启动'],
   'Démarrer « {v0} » ?': ['Start “{v0}”?', '¿Iniciar «{v0}»?', '„{v0}“ starten?', '启动“{v0}”？'],
   'Dès que possible': ['As soon as possible', 'Lo antes posible', 'So bald wie möglich', '尽快'],
@@ -3782,7 +3753,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'jamais utilisée': ['never used', 'nunca usada', 'nie benutzt', '从未使用'],
   'créée {v0}': ['created {v0}', 'creada {v0}', 'erstellt {v0}', '创建于 {v0}'],
   'révoquée {v0}': ['revoked {v0}', 'revocada {v0}', 'widerrufen {v0}', '吊销于 {v0}'],
-  'modifiée {v0}': ['changed {v0}', 'modificada {v0}', 'geändert {v0}', '修改于 {v0}'],
   'Comment s\'en servir': ['How to use it', 'Cómo usarla', 'So wird er benutzt', '如何使用'],
   "Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte dans un projet, sans ouvrir cette application. La carte arrive dans « À planifier » et attend son lancement, comme n'importe quelle autre.": [
     'A key lets an outside service — a mailbox, a form, an automation — drop a card into a project, without opening this application. The card lands in “To plan” and waits to be started, like any other.',
@@ -4021,10 +3991,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '自动部署：当该项目上再无任务运行时，这批卡片会自动上线，无需再点「立即发布」。',
   ],
   'Tout archiver': ['Archive all', 'Archivar todo', 'Alles archivieren', '全部归档'],
-  'Aucune carte à archiver.': ['No card to archive.', 'Ninguna tarjeta que archivar.', 'Keine Karte zum Archivieren.', '没有可归档的卡片。'],
-  'Range les cartes déjà archivées de « Terminer » dans « Archiver », sur cette page seulement : rien ne bouge dans les projets.': ['Moves the cards of “Finish” that are already archived to “Archive”, on this page only: nothing changes in the projects.', 'Pasa las tarjetas de «Finalizar» que ya están archivadas a «Archivar», solo en esta página: nada cambia en los proyectos.', 'Verschiebt die bereits archivierten Karten aus „Beenden“ nach „Archivieren“, nur auf dieser Seite: In den Projekten ändert sich nichts.', '将“结束”中已归档的卡片移到“归档”，仅限此页面：项目中不会有任何变化。'],
-  'Seules les cartes déjà archivées se rangent ici : celle-ci attend encore sa mise en ligne.': ['Only cards that are already archived can be moved here: this one is still waiting to go live.', 'Solo se pueden archivar aquí las tarjetas ya archivadas: esta aún espera su publicación.', 'Hier lassen sich nur bereits archivierte Karten ablegen: Diese wartet noch auf ihre Veröffentlichung.', '这里只能归档已归档的卡片：这张仍在等待上线。'],
-  'Cartes à archiver sur cette page : {n}. Elles restent à leur place dans leur projet, et celles qui attendent leur publication restent dans le prochain déploiement.': ['Cards to archive on this page: {n}. They stay where they are in their project, and those waiting to be published stay in the next deployment.', 'Tarjetas que archivar en esta página: {n}. Se quedan en su sitio en su proyecto, y las que esperan su publicación siguen en el próximo despliegue.', 'Karten zum Archivieren auf dieser Seite: {n}. Sie bleiben in ihrem Projekt an ihrem Platz, und Karten, die auf ihre Veröffentlichung warten, bleiben im nächsten Deployment.', '此页面待归档的卡片：{n}。它们在各自项目中保持原位，等待发布的卡片仍会进入下一次部署。'],
   'Mise en production activée pour ce projet. Éteindre pour l’empêcher.': [
     'Go-live is enabled for this project. Switch off to prevent it.',
     'La puesta en producción está activada para este proyecto. Desactívela para impedirla.',
@@ -5884,6 +5850,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Canal non modifié': ['Channel not changed', 'Canal no modificado', 'Kanal nicht geändert', '渠道未修改'],
   'Choisi': ['Chosen', 'Elegido', 'Gewählt', '已选'],
   'Choisir': ['Choose', 'Elegir', 'Wählen', '选择'],
+  'Retirer ce choix': ['Remove this choice', 'Quitar esta opción', 'Diese Auswahl entfernen', '取消此选择'],
   'Tous les canaux qui peuvent amener des clients.': ['Every channel that can bring in customers.', 'Todos los canales que pueden traer clientes.', 'Alle Kanäle, die Kunden bringen können.', '所有可能带来客户的渠道。'],
   'Un canal, c’est un endroit où vos futurs clients peuvent vous découvrir : un réseau social, Google, une lettre d’information, un salon…': ['A channel is a place where your future customers can discover you: a social network, Google, a newsletter, a trade fair…', 'Un canal es un lugar donde sus futuros clientes pueden descubrirle: una red social, Google, un boletín, una feria…', 'Ein Kanal ist ein Ort, an dem künftige Kunden Sie entdecken können: ein soziales Netzwerk, Google, ein Newsletter, eine Messe…', '渠道就是未来客户能发现您的地方：社交网络、Google、电子报、展会……'],
   'Mieux vaut peu de canaux bien tenus que tous à la fois. L’agent dit lesquels conviennent à votre produit et par quoi commencer ; vous choisissez.': ['A few well-kept channels beat all of them at once. The agent says which suit your product and where to start; you choose.', 'Mejor pocos canales bien atendidos que todos a la vez. El agente dice cuáles convienen a su producto y por dónde empezar; usted elige.', 'Wenige gut gepflegte Kanäle sind besser als alle auf einmal. Der Agent sagt, welche zu Ihrem Produkt passen und womit Sie beginnen; Sie wählen.', '少而精的渠道胜过同时铺开。代理会告诉您哪些适合您的产品、从哪里开始；由您来选择。'],
@@ -7128,12 +7095,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
 
   /* ---- Refonte : colonne façon ChatGPT, pages et fil d'Ariane ------ */
 
-  'Détails de la carte': [
-    'Card details',
-    'Detalles de la tarjeta',
-    'Details der Karte',
-    '卡片详情',
-  ],
   /* ---- Installation : assistant de premier démarrage et page des réglages ---- */
   '{n} page(s) de la mise en route ont été remises à plus tard : elles se règlent ci-dessous.': ['{n} setup page(s) were left for later: they can be completed below.', '{n} página(s) de la puesta en marcha se dejaron para más tarde: se configuran aquí abajo.', '{n} Seite(n) der Ersteinrichtung wurden auf später verschoben: Sie lassen sich unten einstellen.', '有 {n} 个初始设置页面被留到以后：可在下方完成。'],
   '{n} projet(s) inscrit(s).': ['{n} project(s) registered.', '{n} proyecto(s) registrado(s).', '{n} Projekt(e) eingetragen.', '已登记 {n} 个项目。'],
@@ -7688,6 +7649,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Suivi': ['Tracking', 'Seguimiento', 'Verlauf', '进度'],
   /* Volets fermables, bouton « Suivi » et images placées dans les plans (28/10/2026). */
   'Fermer le volet': ['Close the panel', 'Cerrar el panel', 'Bereich schließen', '关闭面板'],
+  'Ouvrir le volet': ['Open the panel', 'Abrir el panel', 'Bereich öffnen', '打开面板'],
   'Fermer le suivi de la production': ['Close production tracking', 'Cerrar el seguimiento de la producción', 'Produktionsverlauf schließen', '关闭制作进度'],
   'Valider : choisir son plan': ['Approve: choose its shot', 'Validar: elegir su plano', 'Freigeben: Einstellung wählen', '确认：选择所属镜头'],
   'Dans quel plan placer cette image ?': ['Which shot should this image go in?', '¿En qué plano colocar esta imagen?', 'In welche Einstellung soll dieses Bild?', '这张图片放进哪个镜头？'],
@@ -7957,6 +7919,29 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Quelques mots du titre…': ['A few words of the title…', 'Algunas palabras del título…', 'Ein paar Wörter aus dem Titel…', '标题中的几个词…'],
   'Aucune carte ne correspond.': ['No card matches.', 'Ninguna tarjeta coincide.', 'Keine Karte passt.', '没有匹配的卡片。'],
   '{rang}e de la colonne · modifiée le {date}': ['#{rang} in the column · changed on {date}', 'n.º {rang} de la columna · modificada el {date}', 'Nr. {rang} der Spalte · geändert am {date}', '列中第 {rang} 张 · {date} 修改'],
+  /* La liste des agents (projets sans kanban, 30/10/2026). */
+  'Lancé': ['Launched', 'Lanzado', 'Gestartet', '已启动'],
+  'À vous': ['Your turn', 'Su turno', 'Sie sind dran', '轮到你'],
+  'Rechercher un agent': ['Search for an agent', 'Buscar un agente', 'Agent suchen', '搜索智能体'],
+  'Filtrer les agents': ['Filter agents', 'Filtrar los agentes', 'Agenten filtern', '筛选智能体'],
+  'Non lus seulement': ['Unread only', 'Solo no leídos', 'Nur ungelesene', '仅未读'],
+  'Aucun agent ne correspond.': ['No agent matches.', 'Ningún agente coincide.', 'Kein Agent passt.', '没有匹配的智能体。'],
+  'Aucun agent pour l’instant. Lancez-en un pour commencer.': ['No agent yet. Launch one to get started.', 'Todavía no hay agentes. Lance uno para empezar.', 'Noch kein Agent. Starten Sie einen, um loszulegen.', '还没有智能体。启动一个开始吧。'],
+  'Afficher la suite': ['Show more', 'Mostrar más', 'Mehr anzeigen', '显示更多'],
+  'Archivés ({n})': ['Archived ({n})', 'Archivados ({n})', 'Archiviert ({n})', '已归档（{n}）'],
+  'Lancer un agent': ['Launch an agent', 'Lanzar un agente', 'Agent starten', '启动智能体'],
+  'Choisissez un agent': ['Pick an agent', 'Elija un agente', 'Wählen Sie einen Agenten', '选择一个智能体'],
+  'Lancez votre premier agent': ['Launch your first agent', 'Lance su primer agente', 'Starten Sie Ihren ersten Agenten', '启动你的第一个智能体'],
+  'Ouvrez un agent dans la liste de gauche pour reprendre la conversation, ou lancez-en un nouveau.': ['Open an agent in the list on the left to pick up the conversation, or launch a new one.', 'Abra un agente en la lista de la izquierda para retomar la conversación, o lance uno nuevo.', 'Öffnen Sie einen Agenten in der Liste links, um das Gespräch fortzusetzen, oder starten Sie einen neuen.', '在左侧列表中打开一个智能体继续对话，或启动一个新的。'],
+  'Décrivez ce que vous voulez : l’agent en discute avec vous, puis s’y met.': ['Describe what you want: the agent talks it through with you, then gets to work.', 'Describa lo que quiere: el agente lo comenta con usted y luego se pone manos a la obra.', 'Beschreiben Sie, was Sie möchten: Der Agent bespricht es mit Ihnen und legt dann los.', '描述你想要的：智能体先与你讨论，然后开始工作。'],
+  'Renommer l’agent': ['Rename the agent', 'Renombrar el agente', 'Agent umbenennen', '重命名智能体'],
+  'Renommage refusé': ['Rename refused', 'Cambio de nombre rechazado', 'Umbenennung abgelehnt', '重命名被拒绝'],
+  'Passer en…': ['Move to…', 'Pasar a…', 'Verschieben nach…', '移至…'],
+  'Cet agent': ['This agent', 'Este agente', 'Dieser Agent', '此智能体'],
+  'Ce projet': ['This project', 'Este proyecto', 'Dieses Projekt', '此项目'],
+  'Aperçu du site': ['Site preview', 'Vista previa del sitio', 'Website-Vorschau', '网站预览'],
+  'Fermer l’aperçu du site': ['Close the site preview', 'Cerrar la vista previa del sitio', 'Website-Vorschau schließen', '关闭网站预览'],
+  'Voir la branche': ['View the branch', 'Ver la rama', 'Branch anzeigen', '查看分支'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

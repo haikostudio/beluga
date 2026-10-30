@@ -2478,7 +2478,7 @@ function BlocsRacontes({
               data-reflexion-bascule
               className="flex w-full items-center gap-2 text-left"
             >
-              <span className="text-[14.5px] font-semibold leading-relaxed text-text">{t('Réflexions')}</span>
+              <span className="text-[14.5px] font-semibold leading-relaxed text-muted">{t('Réflexions')}</span>
               <span className="text-[12.5px] text-faint" data-reflexion-actions={actions}>
                 {actions > 1 ? t('{v0} actions', { v0: actions }) : t('1 action')}
               </span>
@@ -2854,7 +2854,7 @@ function UnSousPointDuTravail({
         data-sous-point-bascule={sousPoint.cle}
         className="flex w-full items-baseline gap-2 text-left"
       >
-        <span className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-text">
+        <span className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-muted">
           {sousPoint.traduire ? t(sousPoint.libelle) : sousPoint.libelle}
         </span>
         {/* Une action refusée puis reprise : la marque grise, jamais le rouge (28/10/2026). */}
@@ -3205,7 +3205,10 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           <p
             className={cn(
               'flex min-w-0 flex-1 items-start gap-1.5 break-words text-[14.5px] leading-relaxed texte-copiable',
-              'text-text',
+              /* LA RÉPONSE EN NOIR, LE TRAVAIL EN GRIS (demande du 30/10/2026) :
+                 une question posée à l'utilisateur et sa réponse se lisent en
+                 plein ; une action, une note de l'agent, un outil, en gris. */
+              bloc.genre === 'question' ? 'text-text' : 'text-muted',
             )}
             data-bloc-raconte-phrase={phrase.dit}
           >

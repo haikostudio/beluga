@@ -166,7 +166,9 @@ function SectionDuFlux({
       <div className={cn('min-w-0 flex-1', derniere ? 'pb-0' : 'pb-4')}>
         <p className="text-[14.5px] font-medium leading-relaxed text-text">{nomAffiche(section.cle, section.nom)}</p>
         {section.corps ? (
-          <div data-corps-section={section.cle} className="mt-1">
+          /* Le compte rendu EST la réponse du tour : il se lit en noir, comme elle
+             (le gris de `.prose-hd p` est celui du travail). */
+          <div data-corps-section={section.cle} className="mt-1 [&_li]:text-text [&_p]:text-text">
             <Markdown
               content={section.corps}
               onToggleEvolution={cliquable ? onToggleEvolution : undefined}

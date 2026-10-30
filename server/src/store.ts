@@ -50,6 +50,9 @@ import {
   questionEnTexteLibre,
   COLONNE_OU_PARAIT_LA_CARTE_MARKETING,
   LABELS_DE_CARTES_D_ATELIER,
+  LABEL_ENTRETIEN_INVISIBLE,
+  agentDEntretienInvisible,
+  carteDEntretienInvisible,
   messageAttendUneReponse,
   type StatutAgent,
   rendusParProjet,
@@ -714,6 +717,14 @@ export function listCards(projectId: string): Card[] {
 }
 
 /**
+ * LA CARTE D'UNE ROUTINE D'ENTRETIEN INVISIBLE NE PARAÎT JAMAIS, quelle que soit
+ * sa colonne (`shared/src/entretien-invisible.ts`) : ni paquets, ni compteurs,
+ * ni recherche, ni « En route », ni archives, ni pastille « non lu ». Elle
+ * reste en base : le balayage et le rangement la traitent comme les autres.
+ */
+const SANS_ENTRETIEN_INVISIBLE = `NOT EXISTS (SELECT 1 FROM card_labels il WHERE il.card_id = c.id AND il.label = '${LABEL_ENTRETIEN_INVISIBLE.replace(/'/g, "''")}')`;
+
+/**
  * LES CARTES DE L'AGENT MARKETING NE PARAISSENT NI SUR LE TABLEAU NI SUR « EN
  * ROUTE » TANT QU'ELLES NE SONT PAS EN TRAVAIL (`carteMarketingCachee`,
  * `shared/src/marketing.ts`) : rangées, elles se suivent dans l'outil
@@ -726,7 +737,7 @@ export function listCards(projectId: string): Card[] {
  * en « Archivé » FERME ses questions, cloche comprise. C'est la fin de tour qui
  * retient désormais une carte de volet sur sa question — `questionEnTexteSurLaCarte`.)
  */
-const SANS_MARKETING_SEUL = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label IN (${LABELS_DE_CARTES_D_ATELIER.map((l) => `'${l.replace(/'/g, "''")}'`).join(', ')})))`;
+const SANS_MARKETING_SEUL = `((c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label IN (${LABELS_DE_CARTES_D_ATELIER.map((l) => `'${l.replace(/'/g, "''")}'`).join(', ')}))) AND ${SANS_ENTRETIEN_INVISIBLE})`;
 
 /**
  * LES ÉTAPES D'UNE SUITE NE PARAISSENT PAS SEULES SUR LE TABLEAU DU PROJET : elles
@@ -1421,6 +1432,7 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
       }
     }
   }
+  if (carteDEntretienInvisible(value)) lesInvisibles().cartes.add(value.id);
   return value;
 }
 
@@ -1723,7 +1735,38 @@ export function saveAgent(agent: Agent): Agent {
       createdAt: value.createdAt,
       updatedAt: value.updatedAt,
     });
+  if (agentDEntretienInvisible(value)) lesInvisibles().agents.add(value.id);
   return value;
+}
+
+/**
+ * LES CARTES ET LES AGENTS DES ROUTINES D'ENTRETIEN INVISIBLES
+ * (`shared/src/entretien-invisible.ts`), tenus en mémoire : le canal vers
+ * l'écran juge CHAQUE événement, et ne peut pas relire la base à chaque pas
+ * d'un agent. Relevés une fois depuis la base (la connexion fait partie de la
+ * clé : les tests en rouvrent une), puis complétés à chaque enregistrement.
+ */
+let invisibles: { base: unknown; cartes: Set<string>; agents: Set<string> } | null = null;
+
+function lesInvisibles(): { cartes: Set<string>; agents: Set<string> } {
+  const db = getDb();
+  if (invisibles?.base === db) return invisibles;
+  const cartes = db.prepare('SELECT card_id AS id FROM card_labels WHERE label = ?').all(LABEL_ENTRETIEN_INVISIBLE) as { id: string }[];
+  const agents = db
+    .prepare(`SELECT id FROM agents WHERE data LIKE '%"entretienInvisible":true%'`)
+    .all() as { id: string }[];
+  invisibles = { base: db, cartes: new Set(cartes.map((r) => r.id)), agents: new Set(agents.map((r) => r.id)) };
+  return invisibles;
+}
+
+/** Cette carte est-elle celle d'une routine d'entretien invisible ? */
+export function carteInvisible(cardId: string | null | undefined): boolean {
+  return !!cardId && lesInvisibles().cartes.has(cardId);
+}
+
+/** Cet agent est-il celui d'une routine d'entretien invisible ? */
+export function agentInvisible(agentId: string | null | undefined): boolean {
+  return !!agentId && lesInvisibles().agents.has(agentId);
 }
 
 /**
@@ -2821,7 +2864,10 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
    * tranche n'a rien à allumer : on ne saurait ni afficher ses boutons ni y
    * conduire au clic. La règle vit dans `shared/src/issue-de-decision.ts`.
    */
-  return decisionsHorsProjet(decisionsAvecIssue(sansDecisionsOrphelines(decisions, { cartes, projets, agents })));
+  return decisionsHorsProjet(decisionsAvecIssue(sansDecisionsOrphelines(decisions, { cartes, projets, agents }))).filter(
+    // Une routine d'entretien invisible n'allume ni la cloche ni un triangle (`shared/src/entretien-invisible.ts`).
+    (decision) => !carteInvisible(decision.cardId) && !agentInvisible(decision.agentId),
+  );
 }
 
 /**
@@ -2958,7 +3004,7 @@ function etatDesCartesRendues(projectId?: string): CarteRendue[] {
               CASE WHEN c.rendu_a IS NULL THEN (SELECT a.data FROM agents a
                 WHERE a.card_id = c.id ORDER BY a.created_at DESC LIMIT 1) END AS agent
          FROM cards c
-        WHERE c.column_key <> 'archived'${projectId ? ' AND c.project_id = ?' : ''}`;
+        WHERE c.column_key <> 'archived' AND ${SANS_ENTRETIEN_INVISIBLE}${projectId ? ' AND c.project_id = ?' : ''}`;
   const requete = getDb().prepare(sql);
   const rows = (projectId ? requete.all(projectId) : requete.all()) as {
     cardId: string;

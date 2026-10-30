@@ -1058,3 +1058,25 @@ export function SilhouetteTachesRecurrentes({ lignes = 4 }: { lignes?: number })
     </Bloc>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* La liste des agents d'un projet (ou de tous, sur « Tableaux de bord ») */
+/* ------------------------------------------------------------------ */
+
+/** Des lignes d'agent : une icône, un titre, la branche dessous, un badge à droite. */
+export function SilhouetteAgents({ lignes = 6, pleinePage = false }: { lignes?: number; pleinePage?: boolean }) {
+  return (
+    <Bloc zone="agents" className="flex flex-col gap-0.5 py-1">
+      {Array.from({ length: lignes }, (_, index) => (
+        <div key={index} className={cn('flex items-center gap-2.5 rounded-lg px-2.5', pleinePage ? 'py-3' : 'py-2')}>
+          <Silhouette className="h-4 w-4 shrink-0 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
+            <Silhouette className={cn('h-2', LARGEURS[(index + 2) % LARGEURS.length], 'opacity-60')} />
+          </div>
+          <Silhouette className="h-[18px] w-12 shrink-0 rounded-md" />
+        </div>
+      ))}
+    </Bloc>
+  );
+}

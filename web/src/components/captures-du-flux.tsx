@@ -10,6 +10,7 @@ import {
   type Attachment,
   type CaptureDuFlux,
   etiquetteDePiece,
+  lettreDeLExemple,
   repereDuChemin,
   repereDuNomSurDisque,
   pieceDuChemin,
@@ -220,7 +221,9 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
     (c: CaptureDuFlux) => {
       if (c.genre === 'jointe') {
         const piece = connues?.find((p) => p.id === c.id);
-        if (piece?.alias) return etiquetteDePiece(piece);
+        /* UN EXEMPLE DE CHOIX PORTE SA LETTRE devant sa référence (« B · #9d60 »), comme dans la question. */
+        const lettre = lettreDeLExemple(piece?.name);
+        if (piece?.alias) return lettre ? `${lettre} · ${etiquetteDePiece(piece)}` : etiquetteDePiece(piece);
       }
       // Une pièce que l'écran ne connaît pas garde le repère écrit dans son nom sur disque.
       return c.chemin ? repereParChemin(c.chemin) ?? repereDuNomSurDisque(c.chemin) : null;

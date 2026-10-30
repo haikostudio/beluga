@@ -137,6 +137,8 @@ import {
   REGLE_DES_EXEMPLES,
   NATURES_D_EXEMPLE,
   MAX_PISTES_D_EXEMPLE,
+  aliasDe as aliasDeLaPiece,
+  lettreDeLExemple,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -1205,6 +1207,21 @@ export const TOOL_DEFS: ToolDef[] = [
             properties: {
               titre: { type: 'string', description: 'Le nom de la rubrique' },
               contenu: { type: 'string', description: 'Son contenu, en texte suivi ou en puces' },
+            },
+          },
+        },
+        illustrations: {
+          type: 'array',
+          maxItems: 4,
+          description:
+            "FACULTATIF : les visuels DÉJÀ FABRIQUÉS OU JOINTS DANS CETTE CARTE (exemple retenu, capture utile) qui éclairent une étape — 4 au plus, jamais d'image hors de la carte, jamais par remplissage. Chacun s'affiche sous la tâche citée, sinon en tête du plan.",
+          items: {
+            type: 'object',
+            required: ['piece', 'legende'],
+            properties: {
+              piece: { type: 'string', description: 'L’identifiant de l’image, ou sa référence « #xxxx »' },
+              legende: { type: 'string', description: 'Ce qu’elle montre, en quelques mots courants' },
+              tache: { type: 'number', description: 'Le rang (à partir de 1) de la tâche qu’elle illustre ; absent : en tête du plan' },
             },
           },
         },
@@ -3481,6 +3498,28 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       /* LE PLAN COMPACT REPREND LE CAHIER VIVANT quand il ne redonne pas le sien. */
       const lecture = lirePlanRendu(args, { cahierVivant: carte.parcours?.comprehension?.cahierDesCharges });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
+      /*
+       * LES VISUELS DU PLAN SONT CEUX DE CETTE CARTE, ET D'ELLE SEULE
+       * (30/10/2026) : une référence se résout parmi les images jointes à la
+       * carte (exemples, captures, pièces de ses messages) et ses médias livrés
+       * — jamais une pièce d'une autre carte ou d'un autre projet.
+       */
+      if (lecture.valeur.illustrations?.length) {
+        const { mediasLivresDe } = await import('./medias-livres.js');
+        const livres = new Set(mediasLivresDe({ cardId: carte.id }).map((m) => m.attachmentId));
+        const pieces = store
+          .listAttachments(carte.projectId)
+          .filter((a) => a.cardId === carte.id || livres.has(a.id) || (!a.cardId && (a.agentId === ctx.agentId || (!!carte.agentId && a.agentId === carte.agentId))));
+        const resolues = [];
+        for (const illustration of lecture.valeur.illustrations) {
+          const cle = illustration.piece.replace(/^#/, '');
+          const piece = pieces.find((a) => a.id === cle) ?? pieces.find((a) => aliasDeLaPiece(a) === cle);
+          if (!piece) return { ok: false, text: `Plan non enregistré : « ${illustration.piece} » n'est pas une image de cette carte. Une illustration ne cite qu'une image fabriquée ou jointe dans la carte (son identifiant ou sa référence « #xxxx »), ou retire-la.` };
+          if (!piece.mime.startsWith('image/')) return { ok: false, text: `Plan non enregistré : « ${illustration.piece} » n'est pas une image. Seules les images illustrent un plan.` };
+          resolues.push({ ...illustration, piece: piece.id, repere: [lettreDeLExemple(piece.name), `#${aliasDeLaPiece(piece)}`].filter(Boolean).join(' · ') });
+        }
+        lecture.valeur.illustrations = resolues;
+      }
       const runtime = await import('./runtime.js');
       const tourId = runtime.liveRun(ctx.agentId)?.messageId;
       const plans = carte.parcours?.plans ?? [];

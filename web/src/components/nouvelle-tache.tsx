@@ -64,9 +64,9 @@ export function BoutonNouvelleTache({ projectId }: { projectId: string }) {
       type="button"
       data-nouvelle-carte="planned"
       data-option-du-projet="nouvelle-tache"
-      aria-label="Nouvelle tâche"
+      aria-label="Lancer un agent"
       aria-busy={busy}
-      title={canal.gele ? canal.raison : t(TITRE_CARTE_DE_CADRAGE)}
+      title={canal.gele ? canal.raison : t('Lancer un agent')}
       disabled={busy || canal.gele}
       onClick={() => void ouvrir()}
       /* NOIR, ÉCRITURE BLANCHE, DÉTACHÉ des options qui le suivent : le dessin
@@ -77,7 +77,10 @@ export function BoutonNouvelleTache({ projectId }: { projectId: string }) {
       <span className="shrink-0">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       </span>
-      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t(TITRE_CARTE_DE_CADRAGE)}</span>
+      {/* « LANCER UN AGENT » (30/10/2026, « projets sans kanban ») : le même
+          geste qu'avant — une carte de cadrage naît et son fil s'ouvre —,
+          nommé comme ce qu'il fait désormais à l'écran. */}
+      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t('Lancer un agent')}</span>
     </button>
   );
 }

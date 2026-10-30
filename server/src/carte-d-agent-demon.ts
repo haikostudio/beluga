@@ -21,7 +21,7 @@
  * publication ignore une carte sans branche (`deploy.ts` ne fusionne que
  * `card.github.branch`).
  */
-import { metriquesSessionLlmIndisponibles, type AgentRole, type Card, type ColumnKey } from '@beluga/shared';
+import { LABEL_ENTRETIEN_INVISIBLE, metriquesSessionLlmIndisponibles, type AgentRole, type Card, type ColumnKey } from '@beluga/shared';
 import { bus } from './bus.js';
 import { rangerLaCarte } from './deplacement-carte.js';
 import { createAgent } from './runtime.js';
@@ -47,11 +47,17 @@ export function ouvrirCarteDAgent(entree: {
   /** Le titre de la conversation, quand il diffère de celui de la carte. */
   titreAgent?: string;
   run?: Parameters<typeof createAgent>[0]['run'];
+  /**
+   * UNE ROUTINE D'ENTRETIEN INVISIBLE (`routineInvisible`, `shared/src/entretien-invisible.ts`) :
+   * la carte existe en base — le balayage, le filet de fermeture et le rangement la
+   * traitent comme les autres —, mais ni elle ni son agent ne paraissent à l'écran.
+   */
+  invisible?: boolean;
 }): DepartAvecCarte {
   const nee = createCard(entree.projectId, {
     title: entree.titre,
     description: entree.description,
-    labels: entree.labels,
+    labels: entree.invisible ? [...entree.labels, LABEL_ENTRETIEN_INVISIBLE] : entree.labels,
     origin: 'agent',
     run: entree.run as Partial<Card['run']> | undefined,
     // Aucun créneau conseillé : cette carte part À L'INSTANT, elle n'attend
@@ -64,6 +70,7 @@ export function ouvrirCarteDAgent(entree: {
     title: entree.titreAgent ?? entree.titre,
     cardId: nee.id,
     run: entree.run,
+    entretienInvisible: entree.invisible,
   });
   const card = store.saveCard({
     ...nee,

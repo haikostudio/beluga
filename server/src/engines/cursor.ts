@@ -28,6 +28,7 @@ import {
   raisonDeRefusCursor,
   texteDuPlanCursor,
   detailDEtape,
+  modelePermis,
   type CreditCursor,
   type EtatCompteCursor,
   type ModeleCursorCli,
@@ -470,11 +471,15 @@ export const cursorAdapter: EngineAdapter = {
     const finished = avecVerrouCwd(options.cwd, async (): Promise<ResultatDuMoteur> => {
       poserLaConfigurationMcp(options.cwd, options.mcpConfigPath);
 
-      const modele = idCursorPourNiveau(
-        await catalogueDuTour(cle),
+      const catalogue = await catalogueDuTour(cle);
+      /* Un modèle réservé au choix manuel (Fable) ne part pas d'un lancement
+         automatique : son remplaçant Opus prend sa place (`modele-banni.ts`). */
+      const voulu = modelePermis(
         options.model?.trim() || MODELE_CURSOR_PAR_DEFAUT,
-        options.thinking,
+        catalogue.map((m) => ({ id: m.id, label: m.label })),
+        { automatique: options.lancementAutomatique !== false },
       );
+      const modele = idCursorPourNiveau(catalogue, voulu || MODELE_CURSOR_PAR_DEFAUT, options.thinking);
       if (arrete) {
         options.onEvent({ kind: 'done', exitCode: 1 });
         // Arrêté avant même le lancement : le moteur n'a jamais démarré, et ce

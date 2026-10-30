@@ -131,34 +131,3 @@ export function productionsApres<T extends PublicationSysteme>(
   else delete suite[run.projectId];
   return suite;
 }
-
-/** Une carte Système posée dans « Archiver », avec l'instant qui la range. */
-export interface SystemeTermine<T> {
-  finiA: number;
-  element: T;
-}
-
-/**
- * « TERMINÉS » MÊLE LES CARTES ET LES CARTES SYSTÈME, PAR DATE DE FIN, la plus
- * récente en haut. Les entrées de la liste gardent leur ordre (celui du
- * serveur) ; chaque carte Système se glisse avant la première entrée plus
- * ancienne qu'elle. Celles plus anciennes que la dernière entrée CHARGÉE (les
- * paquets de vingt) se posent à la fin : elles restent visibles sans attendre
- * le paquet suivant.
- */
-export function entrelacerParDate<E, S>(
-  entrees: readonly E[],
-  dateDe: (entree: E) => number,
-  systeme: readonly SystemeTermine<S>[],
-): ({ genre: 'entree'; entree: E } | { genre: 'systeme'; element: S })[] {
-  const restants = [...systeme].sort((a, b) => b.finiA - a.finiA);
-  const suite: ({ genre: 'entree'; entree: E } | { genre: 'systeme'; element: S })[] = [];
-  let i = 0;
-  for (const entree of entrees) {
-    const date = dateDe(entree);
-    while (i < restants.length && restants[i].finiA >= date) suite.push({ genre: 'systeme', element: restants[i++].element });
-    suite.push({ genre: 'entree', entree });
-  }
-  while (i < restants.length) suite.push({ genre: 'systeme', element: restants[i++].element });
-  return suite;
-}

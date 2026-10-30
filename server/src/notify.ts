@@ -13,7 +13,7 @@ import {
   totalDesRendus,
 } from '@beluga/shared';
 import { bus } from './bus.js';
-import { getCard, getProject, getSettings, projectsWithFinishedWork } from './store.js';
+import { agentInvisible, carteInvisible, getCard, getProject, getSettings, projectsWithFinishedWork } from './store.js';
 
 /**
  * Le guichet UNIQUE des notifications. Tout ce que le démon veut annoncer passe
@@ -138,6 +138,9 @@ export function notify(input: {
    * l'alerte, pas la trace — le journal du serveur, lui, garde tout.
    */
   if (!interrompt(input.motif)) return;
+
+  /* Une routine d'entretien invisible ne prévient personne (`shared/src/entretien-invisible.ts`) : sa panne reste au journal. */
+  if (carteInvisible(input.cardId) || agentInvisible(input.agentId)) return;
 
   if (!allowed(famille) || inQuietHours()) return;
 

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, GitBranch, GitBranchPlus, Loader2, PencilLine, Search } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, GitBranch, GitBranchPlus, Github, Loader2, PencilLine, Search } from 'lucide-react';
 import {
   Card,
   PREFIXE_BRANCHE_DE_TACHE,
@@ -123,7 +123,18 @@ function ParcoursDeLaBranche({ card, vue }: { card: Card; vue: BranchesDeLaCarte
   );
 }
 
-export function BoutonDeBranche({ card }: { card: Card }) {
+export function BoutonDeBranche({
+  card,
+  onVoirLaBranche,
+}: {
+  card: Card;
+  /**
+   * « VOIR LA BRANCHE » ouvre le suivi GitHub de la tâche (ses commits, ses
+   * fusions, ses déploiements) : l'onglet « GitHub » a quitté la colonne de la
+   * tâche pour ce menu (demande du 30/10/2026).
+   */
+  onVoirLaBranche?: () => void;
+}) {
   const [ouvert, setOuvert] = React.useState(false);
   const [vue, setVue] = React.useState<BranchesDeLaCarte | null>(null);
   const [erreur, setErreur] = React.useState<string | null>(null);
@@ -311,6 +322,16 @@ export function BoutonDeBranche({ card }: { card: Card }) {
           </p>
         ) : null}
         <DropdownMenuSeparator />
+        {onVoirLaBranche ? (
+          <DropdownMenuItem
+            data-voir-la-branche
+            onSelect={() => onVoirLaBranche()}
+            className="gap-2 rounded-md px-2 py-1.5 text-[13px]"
+          >
+            <Github className="h-3.5 w-3.5" />
+            <span className="flex-1">{t('Voir la branche')}</span>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           data-copier-branche
           onSelect={(e) => {

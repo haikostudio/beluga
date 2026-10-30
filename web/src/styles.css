@@ -285,10 +285,12 @@
     --bloc-etapes: 0 0% 96.5%;
     /* En clair, la liste des tâches est plus légère (demande du 28/10/2026,
        capture #42a5 : « le gris est trop foncé ») : 2 points sous le champ.
-       Les messages en attente finissent dans un gris un peu plus soutenu,
-       que leur violet, plus franc en clair, colore nettement. */
+       Les messages en attente passent PLUS CLAIR encore (demande du
+       30/10/2026, capture #e48ad : « trop grise ») : trois points au-dessus de
+       la liste des tâches posée dessous, qu'ils dominent sans l'alourdir ;
+       seuls l'icône et le libellé portent le violet. */
     --decroche: 0 0% 93%;
-    --decroche-attente: 0 0% 91%;
+    --decroche-attente: 0 0% 96%;
     --fond-survol: 0 0% 90%;
     --teinte: 262 68% 50%;
     --comprehension: 40 95% 26%;
@@ -644,9 +646,9 @@
   }
   /* EN CLAIR, PLUS DE VIOLET EN FOND (décision du 29/10/2026, capture #42b7 :
      « super moche, il faut qu'elle soit plus légère ») : ni dégradé ni
-     bordure, un fond PLEIN dans le gris de la liste des tâches
-     (`--decroche-attente`, un rien plus soutenu que `--decroche` pour
-     trancher sur la liste posée dessous). Le violet ne reste que sur
+     bordure, un fond PLEIN et léger (`--decroche-attente`, plus clair que
+     `--decroche` depuis le 30/10/2026 pour trancher sur la liste posée
+     dessous sans peser). Le violet ne reste que sur
      l'ICÔNE et le LIBELLÉ (`.encre-du-decroche`). Le sombre ne bouge pas. */
   html:not(.dark) .decroche-violet {
     border-color: transparent;
@@ -1192,46 +1194,30 @@ html[data-terminal-ouvert] body {
     transition: none;
   }
 }
-/* CLAVIER OUVERT, LA BARRE D'ÉCRITURE PASSE PAR-DESSUS LE PIED (décision du
-   27/10/2026, `useEcritureAuClavier`). L'écran de la carte rogne ce qui
-   déborde, et la barre COLLE à son bas (`sticky`) : quand le fil, déjà réduit
-   à rien, ne suffit plus, elle remonte par-dessus les blocs du pied au lieu de
-   glisser sous le clavier. Les blocs ne bougent pas : recouverts, ils
-   reparaissent dès que le champ est quitté. Quand il y a la place, `sticky` ne
-   déplace rien. La barre ne dépasse jamais la hauteur de l'écran ; si elle
-   manque de place, c'est la rangée d'action qui cède, jamais le champ. */
-[data-ecriture-au-clavier] {
-  overflow: hidden !important;
+/* CLAVIER OUVERT, LA BARRE D'ÉCRITURE SE POSE SUR LE CLAVIER, COMME DANS UNE
+   MESSAGERIE (décision du 30/10/2026, capture #8dff — remplace le
+   recouvrement « sticky » du 27/10/2026, qui sautait et coupait le champ sous
+   le témoin). L'application a déjà la hauteur visible (`--hauteur-visible`,
+   `app.tsx`) ; tant que le champ de CET écran a le curseur
+   (`useEcritureAuClavier`), le pied ne garde que la barre d'écriture — témoin,
+   pièces, champ, boutons — et les blocs du pied, la rangée « Annuler / Auto »
+   et la barre des messages en attente S'EFFACENT le temps de la frappe. Masqués
+   par la feuille de style, jamais démontés : le champ garde le curseur et le
+   clavier ne se referme pas. Le fil prend le reste ; la barre est le dernier
+   bloc de la colonne, donc posée sur le clavier, sans rien qui la recouvre. */
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > :not([data-composer]),
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-rangee-principale],
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-file-attente-barre],
+[data-ecriture-au-clavier] [data-captures-flottantes] {
+  display: none !important;
 }
-[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] {
-  position: sticky !important;
-  bottom: 0 !important;
-  z-index: 30 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  max-height: var(--hauteur-ecran-au-clavier, 100%) !important;
-  overflow: hidden !important;
-}
-[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > * {
-  flex-shrink: 0 !important;
-}
+/* Le champ ne sort jamais de l'écran : au-delà de la place restante, il défile en lui-même. */
 [data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] [data-champ-d-ecriture] textarea {
   max-height: var(--hauteur-max-du-champ, 180px) !important;
 }
-[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-rangee-principale] {
-  flex-shrink: 1 !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  /* Rognée par le HAUT : le bas de la rangée reste collé au champ. */
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: flex-end !important;
-}
-/* CLAVIER OUVERT, LE BOUTON PHOTO ET SON VOLET S'EFFACENT : ils flottent
-   au-dessus du pied, que la barre d'écriture recouvre alors ; ils reparaissent
-   dès que le champ est quitté (`BoutonDesCaptures`). */
-[data-ecriture-au-clavier] [data-captures-flottantes] {
-  display: none !important;
+/* Le clavier couvre la barre de gestes : sa marge du bas ne se réserve plus. */
+html[data-clavier-ouvert] [data-composer] {
+  padding-bottom: 8px !important;
 }
 /* LE TERMINAL EST NOIR DANS LES DOUZE PALETTES : ses jetons sont redonnés ici,
    pour son entête, ses boutons et son menu de comptes. */
@@ -1602,6 +1588,12 @@ html.en-veille *::after {
 .cadre-de-question {
   border: 1px solid hsl(var(--cadre-question));
 }
+/* Le même trait sans prendre de place : une ligne de liste ne bouge pas quand
+   elle l'allume. Rentré d'un pixel, il n'est pas rogné par la zone qui défile. */
+.contour-de-question {
+  outline: 1px solid hsl(var(--cadre-question));
+  outline-offset: -1px;
+}
 
 /* UN SURVOL NE RETOMBE JAMAIS SUR LA COULEUR DE SON SUPPORT (demande du
    26/10/2026). `hover:bg-raised` — le survol du bouton « ghost » et de
@@ -1625,4 +1617,43 @@ html.en-veille *::after {
    feuille, après ce bloc — à poids égal, la sienne l'emportait. */
 html [class~='hover:bg-raised']:hover {
   background-color: hsl(var(--survol-sur-support, var(--raised)));
+}
+
+/* LA LISTE DES AGENTS, QUI VIT (`liste-des-agents.tsx`, demande du 30/10/2026).
+   Les icônes d'état restent monochromes ; seul leur MOUVEMENT dit l'état : le
+   sablier d'un agent lancé bascule de temps en temps, la coche d'un travail
+   rendu se dessine à son arrivée. Les confettis d'un agent qui vient de finir
+   (`celebration.tsx`) partent de sa ligne, gris et noirs. Rien de tout cela ne
+   bouge pour qui a demandé moins de mouvement à son appareil. */
+@keyframes sablier-qui-bascule {
+  0%, 70% { transform: rotate(0deg); }
+  85%, 100% { transform: rotate(180deg); }
+}
+.icone-sablier {
+  animation: sablier-qui-bascule 2.4s ease-in-out infinite;
+}
+@keyframes coche-qui-se-dessine {
+  from { stroke-dashoffset: 30; }
+  to { stroke-dashoffset: 0; }
+}
+.icone-coche-dessinee path {
+  stroke-dasharray: 30;
+  animation: coche-qui-se-dessine 0.7s ease-out both;
+}
+@keyframes confetti-qui-jaillit {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--dx), calc(var(--dy) + 60px)) rotate(var(--tour)); opacity: 0; }
+}
+.confetti {
+  animation-name: confetti-qui-jaillit;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
+  animation-fill-mode: forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .icone-sablier,
+  .icone-coche-dessinee path,
+  .confetti {
+    animation: none;
+  }
 }

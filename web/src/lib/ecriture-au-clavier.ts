@@ -4,21 +4,22 @@ import * as React from 'react';
 const DELAI_DE_RETRAIT_MS = 150;
 /** Deux lignes : le champ ne descend jamais plus bas, même sous un très grand clavier. */
 const HAUTEUR_MIN_DU_CHAMP = 44;
+/** La part du fil qui reste visible au-dessus de la barre, même champ très long. */
+const BANDE_DE_FIL = 64;
 
 /**
- * LA BARRE D'ÉCRITURE PASSE PAR-DESSUS LE PIED, CLAVIER OUVERT (décision du
- * 27/10/2026, captures #f3e9 et #a596c). Sur téléphone, le clavier rétrécit
- * l'application (`--clavier`, posée par `app.tsx`) mais l'en-tête et les blocs
- * collés sous le fil (« Ce que l'agent a vu », la décision, les suggestions…)
- * gardent leur taille : la barre d'écriture, au bout de la colonne, finissait
- * écrasée ou entièrement cachée sous le clavier.
+ * LA BARRE D'ÉCRITURE SE POSE SUR LE CLAVIER (décision du 30/10/2026, capture
+ * #8dff ; remplace le recouvrement « sticky » du 27/10/2026). Sur téléphone, le
+ * clavier ouvert donne à l'application la hauteur visible (`--hauteur-visible`,
+ * posée par `app.tsx`) ; il reste à libérer la place pour écrire.
  *
  * Tant que le champ d'écriture DE CET ÉCRAN a le curseur et que le clavier est
- * ouvert, l'écran porte `data-ecriture-au-clavier` et sa hauteur
- * (`--hauteur-ecran-au-clavier`) : `styles.css` colle alors la barre au bas de
- * l'écran, par-dessus les blocs qui ne tiennent plus — ils ne bougent ni ne se
- * replient, ils sont seulement recouverts. Le champ quitté, l'attribut tombe et
- * tout reprend sa place exacte.
+ * ouvert, l'écran porte `data-ecriture-au-clavier` : `styles.css` efface alors
+ * les blocs du pied, la rangée « Annuler / Auto » et la barre des messages en
+ * attente, et la barre d'écriture — dernier bloc de la colonne — se pose sur le
+ * clavier. Le champ est plafonné à la place restante
+ * (`--hauteur-max-du-champ`) et défile en lui-même au-delà. Le champ quitté,
+ * l'attribut tombe et tout reprend sa place exacte.
  *
  * Aucun second suivi du clavier : on lit `--clavier`, la seule mesure de
  * l'application, une image APRÈS que `app.tsx` l'a posée (ses écouteurs sont
@@ -35,7 +36,6 @@ export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTML
 
     const retirer = () => {
       noeud.removeAttribute('data-ecriture-au-clavier');
-      noeud.style.removeProperty('--hauteur-ecran-au-clavier');
       noeud.style.removeProperty('--hauteur-max-du-champ');
     };
     const lire = () => {
@@ -43,27 +43,23 @@ export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTML
       const actifDansLeChamp = !!document.activeElement?.closest?.('[data-champ-d-ecriture]');
       const dansCetEcran = actifDansLeChamp && noeud.contains(document.activeElement);
       if (!dansCetEcran || clavier <= 0) return retirer();
-      /* La barre colle au bas sans jamais sortir de son pied : sa hauteur
-         utile est celle de l'écran, moins ce qui précède le pied et ne se
-         réduit pas (la barre d'étapes) — le fil, lui, tombe à rien. */
+      noeud.setAttribute('data-ecriture-au-clavier', '');
+      /* LE CHAMP NE SORT JAMAIS DE L'ÉCRAN : la hauteur utile est celle de
+         l'écran moins ce qui précède le pied et ne se réduit pas (la barre
+         d'étapes), moins ce qui entoure le champ dans la barre (témoin,
+         pièces, boutons, marges) et une bande de fil. Mesuré marque posée,
+         donc avec la barre telle qu'elle est. */
       const pied = noeud.querySelector<HTMLElement>(':scope > [data-pied-de-conversation]');
       let fixeAuDessus = 0;
       for (const enfant of Array.from(noeud.children) as HTMLElement[]) {
         if (enfant === pied) break;
         if (getComputedStyle(enfant).flexGrow === '0') fixeAuDessus += enfant.offsetHeight;
       }
-      const hauteur = Math.max(0, noeud.clientHeight - fixeAuDessus);
-      noeud.style.setProperty('--hauteur-ecran-au-clavier', `${hauteur}px`);
-      noeud.setAttribute('data-ecriture-au-clavier', '');
-      /* LE CHAMP NE SORT JAMAIS DE L'ÉCRAN : ce qui l'entoure dans la barre
-         (témoin, boutons, marges) garde sa hauteur, la rangée d'action peut
-         tomber à rien, et le champ prend le reste — il défile en lui-même
-         au-delà. Mesuré marque posée, donc avec la barre telle qu'elle est. */
-      const barre = noeud.querySelector<HTMLElement>(':scope > [data-pied-de-conversation] > [data-composer]');
+      const hauteur = Math.max(0, noeud.clientHeight - fixeAuDessus - BANDE_DE_FIL);
+      const barre = pied?.querySelector<HTMLElement>(':scope > [data-composer]');
       const zone = barre?.querySelector<HTMLElement>('[data-champ-d-ecriture] textarea');
       if (!barre || !zone) return;
-      const rangee = barre.querySelector<HTMLElement>(':scope > [data-rangee-principale]');
-      const autour = barre.scrollHeight - zone.offsetHeight - (rangee?.offsetHeight ?? 0);
+      const autour = barre.offsetHeight - zone.offsetHeight;
       noeud.style.setProperty('--hauteur-max-du-champ', `${Math.max(HAUTEUR_MIN_DU_CHAMP, hauteur - autour)}px`);
     };
     const plusTard = () => {

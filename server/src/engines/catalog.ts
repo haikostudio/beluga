@@ -229,9 +229,9 @@ export async function claudeCatalogAvec(token: string): Promise<Catalogue> {
     models.sort(byRecency);
     // TOUT LE CATALOGUE, du plus récent au plus ancien (demande de l'utilisateur :
     // « lister l'ensemble des modèles dispo ») : le menu en montre dix, puis
-    // « Afficher plus » et une recherche. Seules les familles BANNIES (Fable,
-    // `shared/src/modele-banni.ts`) sont retirées.
-    return { models: sansModelesBannis(models), live: true };
+    // « Afficher plus » et une recherche. Fable y revient (30/10/2026) : il ne
+    // part que sur un choix manuel (`shared/src/modele-banni.ts`).
+    return { models, live: true };
   }
 }
 
@@ -386,7 +386,7 @@ export async function cursorCatalog(): Promise<Catalogue> {
         });
       });
       models.sort(byRecency);
-      return { models: dedoublonnerModeles(sansModelesBannis(models)), live: true };
+      return { models: dedoublonnerModeles(models), live: true };
     } catch (err: any) {
       dernierEchec = err?.message ?? String(err);
     }
@@ -480,18 +480,22 @@ export function normaliseThinking(models: ModelInfo[], modelId: string | undefin
  * hasard sur le premier de la liste.
  */
 export function resolveModel(models: ModelInfo[], wanted: string | undefined): string | undefined {
-  // Un modèle BANNI (Fable) ne se résout jamais vers lui-même ni vers sa
-  // famille : il part à l'Opus le plus récent (exception voulue à DEC-213).
-  if (modeleBanni(wanted)) return remplacantDUnBanni(models);
+  // Un modèle RÉSERVÉ (Fable) absent du catalogue n'est pas rattaché à sa
+  // famille : il part à l'Opus le plus récent. Présent, il est rendu tel quel —
+  // seul un lancement automatique le remplace (`modelePermis`, au lancement).
+  if (modeleBanni(wanted) && !models.some((m) => m.id === wanted)) return remplacantDUnBanni(models);
   if (!models.length) return wanted;
   if (wanted && models.some((m) => m.id === wanted)) return wanted;
-  if (!wanted) return models[0]?.id;
+  /* TOUT REPLI ÉVITE LES MODÈLES RÉSERVÉS : Fable, souvent le plus récent, ne
+     devient jamais un défaut ni un remplaçant — seulement un choix exprès. */
+  const choisissables = sansModelesBannis(models).length ? sansModelesBannis(models) : models;
+  if (!wanted) return choisissables[0]?.id;
 
   // D'abord la MÊME famille exacte (`familleDeModele`) : « claude-opus-5 »
   // retiré par la mise à jour du moteur devient « claude-opus-5-5 ». Le repli
   // par mot-clé ci-dessous ne sert qu'aux raccourcis (« sonnet »).
   const famille = familleDeModele({ id: wanted });
-  const parente = models.find((m) => familleDeModele(m) === famille);
+  const parente = choisissables.find((m) => familleDeModele(m) === famille);
   if (parente) return parente.id;
 
   const needle = wanted.toLowerCase();
@@ -499,10 +503,10 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
   if (motCle) {
     // Le plus récent de la famille : la liste arrive triée du plus récent au
     // plus ancien, et garde désormais les anciennes versions.
-    const recent = models.find((m) => m.id.toLowerCase().includes(motCle) || m.label.toLowerCase().includes(motCle));
+    const recent = choisissables.find((m) => m.id.toLowerCase().includes(motCle) || m.label.toLowerCase().includes(motCle));
     if (recent) return recent.id;
   }
-  return models[0]?.id;
+  return choisissables[0]?.id;
 }
 
 /**

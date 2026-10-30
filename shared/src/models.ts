@@ -1608,6 +1608,11 @@ export const Agent = z.object({
    */
   assistantGlobal: z.boolean().optional(),
   /**
+   * L'AGENT D'UNE ROUTINE D'ENTRETIEN INVISIBLE (`shared/src/entretien-invisible.ts`) :
+   * hors de la machine de l'auteur, il travaille sans jamais paraître à l'écran.
+   */
+  entretienInvisible: z.boolean().optional(),
+  /**
    * UN AGENT PORTÉ PAR UN SERVICE DE L'APPLICATION, hors de tout projet (25/10/2026).
    * Il garde un projet porteur (la base l'exige), mais n'y paraît JAMAIS : ni
    * sur son tableau, ni dans ses compteurs, ni sous son triangle. Sa carte

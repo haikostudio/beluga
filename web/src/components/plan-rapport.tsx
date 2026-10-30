@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { detacherLeCahier, estTitreDesSuggestions, planEnTexteSimple } from '@beluga/shared';
-import { Markdown } from '@/lib/markdown';
+import { ContexteOuvrirUneImageDuTexte, Markdown } from '@/lib/markdown';
+import { AttachmentPreview } from '@/components/attachment-preview';
+import { lireLigneDIllustration, type Attachment } from '@beluga/shared';
 import { CahierDesChargesDuPlan } from './cahier-des-charges-du-plan';
 
 /**
@@ -66,7 +68,22 @@ export function PlanRapport({
     [texte, contenu, streaming],
   );
 
+  /* LES VISUELS DE LA CARTE POSÉS DANS LE PLAN s'ouvrent en grand, et l'on
+     feuillette ceux du plan (30/10/2026). */
+  const galerie = React.useMemo<Attachment[]>(
+    () =>
+      contenu
+        .split('\n')
+        .map(lireLigneDIllustration)
+        .filter((i): i is NonNullable<typeof i> => !!i)
+        .map((i) => ({ id: i.piece, projectId: '', name: i.libelle || i.piece, mime: 'image/png', size: 0, sha: i.piece, createdAt: 0 })),
+    [contenu],
+  );
+  const [ouverte, setOuverte] = React.useState<Attachment | null>(null);
+  const ouvrir = React.useCallback((piece: string) => setOuverte(galerie.find((g) => g.id === piece) ?? null), [galerie]);
+
   return (
+    <ContexteOuvrirUneImageDuTexte.Provider value={ouvrir}>
     <div data-rapport-plan data-plan-en-texte="oui" className="plan-en-texte min-w-0">
       <Markdown
         enTexte
@@ -80,6 +97,8 @@ export function PlanRapport({
         streaming={streaming}
       />
       <CahierDesChargesDuPlan rubriques={rubriques} className="mt-3" />
+      <AttachmentPreview item={ouverte} onClose={() => setOuverte(null)} onNaviguer={setOuverte} galerie={galerie} adresse="illustration-du-plan" />
     </div>
+    </ContexteOuvrirUneImageDuTexte.Provider>
   );
 }

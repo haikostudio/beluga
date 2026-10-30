@@ -850,6 +850,17 @@ export function gestesDuParcours(ctx: ContexteParcours): EtatDuGeste[] {
 /* ------------------------------------------------------------------ */
 
 /** Ce que l'outil `rendre_plan` reçoit, une fois relu. */
+/** Un visuel de la carte posé dans le plan. */
+export interface IllustrationDuPlan {
+  piece: string;
+  legende: string;
+  tache?: number;
+  repere?: string;
+}
+
+/** Quatre visuels au plus : un plan s'illustre, il ne devient pas une galerie. */
+export const MAX_ILLUSTRATIONS_DU_PLAN = 4;
+
 export interface PlanRendu {
   titre: string;
   /**
@@ -898,6 +909,14 @@ export interface PlanRendu {
    * change de destinataire, il ne se perd pas.
    */
   notesTechniques?: string;
+  /**
+   * LES VISUELS DE LA CARTE QUI ILLUSTRENT LE PLAN (30/10/2026) : chacun sous
+   * la tâche citée (`tache`, rang à partir de 1), sinon en tête du plan.
+   * `piece` est l'identifiant ou l'alias que l'agent donne ; le démon le
+   * remplace par l'identifiant d'une image DE CETTE CARTE et pose son
+   * `repere` (« A · #9d60 ») avant le rendu — sinon il refuse le plan.
+   */
+  illustrations?: IllustrationDuPlan[];
 }
 
 /**
@@ -1417,6 +1436,7 @@ export function lirePlanRendu(
      améliorations ne s'exigent plus — le chemin redisait les tâches, et les
      suites passent par « proposer_suites ». Ce qu'on vérifiera, si. */
   if (verifications.length < 1) manques.push('« verifications » (une ligne au moins : ce qu’on constatera pour dire que c’est fini)');
+  const illustrations = lireLesIllustrations(args?.illustrations, taches.length, manques);
   if (manques.length) {
     return { ok: false, raison: `Plan incomplet, rien n'a été enregistré. Il manque : ${manques.join(', ')}. Rappelle « rendre_plan » avec ces parties.` };
   }
@@ -1436,8 +1456,48 @@ export function lirePlanRendu(
       ameliorations,
       verifications,
       notesTechniques: texteDe(args?.notesTechniques),
+      ...(illustrations.length ? { illustrations } : {}),
     },
   };
+}
+
+/** Les illustrations données à « rendre_plan » : chaque défaut s'ajoute aux manques. */
+function lireLesIllustrations(brut: unknown, nombreDeTaches: number, manques: string[]): IllustrationDuPlan[] {
+  if (brut === undefined || brut === null) return [];
+  if (!Array.isArray(brut)) {
+    manques.push('« illustrations » sous forme de liste');
+    return [];
+  }
+  if (brut.length > MAX_ILLUSTRATIONS_DU_PLAN) manques.push(`« illustrations » limitées à ${MAX_ILLUSTRATIONS_DU_PLAN}`);
+  const lues: IllustrationDuPlan[] = [];
+  for (const entree of brut.slice(0, MAX_ILLUSTRATIONS_DU_PLAN)) {
+    const piece = texteDe((entree as any)?.piece).replace(/^#/, '');
+    const legende = texteDe((entree as any)?.legende).replace(/\s+/g, ' ').slice(0, 160);
+    const brute = (entree as any)?.tache;
+    const tache = brute === undefined || brute === null || brute === '' ? undefined : Number(brute);
+    if (!piece || !legende) {
+      manques.push('pour chaque illustration, sa « piece » (identifiant ou référence « #xxxx » d’une image de la carte) et sa « legende »');
+      continue;
+    }
+    if (tache !== undefined && !(Number.isInteger(tache) && tache >= 1 && tache <= nombreDeTaches)) {
+      manques.push(`une « tache » d’illustration entre 1 et ${nombreDeTaches} (le rang de la tâche illustrée), ou rien pour la tête du plan`);
+      continue;
+    }
+    lues.push({ piece, legende, ...(tache !== undefined ? { tache } : {}) });
+  }
+  return lues;
+}
+
+/** La ligne d'une illustration dans le texte du plan, lue par l'écran comme une image. */
+export function ligneDIllustration(i: IllustrationDuPlan): string {
+  const libelle = [i.repere, i.legende].filter(Boolean).join(' — ').replace(/[\[\]]/g, '');
+  return `![${libelle}](piece:${i.piece})`;
+}
+
+/** Une ligne d'illustration du texte d'un plan : son image et son libellé, sinon `null`. */
+export function lireLigneDIllustration(ligne: string): { piece: string; libelle: string } | null {
+  const m = /^!\[([^\]]*)\]\(piece:([A-Za-z0-9-]+)\)$/.exec(ligne.trim());
+  return m ? { piece: m[2]!, libelle: m[1]! } : null;
 }
 
 /**
@@ -1471,10 +1531,18 @@ export function rendrePlan(plan: PlanRendu): string {
      relire, les décisions et le cahier des charges, que l'écran replie. Le
      titre de chaque tâche en gras sur sa ligne, sa description dessous —
      jamais une puce, qui la ferait passer pour une idée cliquable. */
+  /* LES VISUELS DE LA CARTE (30/10/2026) : chacun sous sa tâche, les autres en
+     tête — une ligne d'image que l'écran dessine et que l'agent lit. */
+  const illustrations = plan.illustrations ?? [];
+  const imagesDe = (rang?: number) =>
+    illustrations.filter((i) => i.tache === rang).map((i) => `\n\n${ligneDIllustration(i)}`).join('');
   const taches = (plan.taches ?? [])
-    .map((tache) => `**${tache.titre}**${tache.description ? `\n${tache.description}` : ''}`)
+    .map((tache, index) => `**${tache.titre}**${tache.description ? `\n${tache.description}` : ''}${imagesDe(index + 1)}`)
     .join('\n\n');
-  const enClair = plan.enClair?.trim() ? [`## ${BLOC_EN_CLAIR.nom}`, plan.enClair.trim(), ''] : [];
+  const enTete = illustrations.filter((i) => i.tache === undefined).map(ligneDIllustration);
+  const enClair = plan.enClair?.trim()
+    ? [`## ${BLOC_EN_CLAIR.nom}`, plan.enClair.trim(), ...enTete.flatMap((l) => ['', l]), '']
+    : enTete.flatMap((l) => [l, '']);
   const verifications = (plan.verifications ?? []).length
     ? ['', `## ${TITRE_DES_VERIFICATIONS}`, plan.verifications.map((v) => `- ${v}`).join('\n')]
     : [];
@@ -1710,7 +1778,7 @@ export const CONSIGNE_DU_CAHIER_DU_PLAN =
  * trois consignes de plan.
  */
 export const FORME_DU_PLAN_COMPACT =
-  `LE PLAN EST COMPACT, comme un plan de Conductor : « titre » ; « enClair », l'ouverture adressée à l'utilisateur qui ne programme pas — deux à quatre phrases (${SIGNES_MINIMUM_EN_CLAIR} signes au moins) qui disent ce que tu vas faire (« je vais… ») et ce qu'il constatera une fois fini ; « taches », deux à sept entrées, chacune un « titre » en quelques mots et une « description » d'une ou deux phrases ; « verifications », une ligne par chose qu'on constatera pour dire que c'est fini ; « decisions », une ligne par point décidé, changé ou abandonné pendant les échanges (« Question → réponse retenue »), une seule ligne qui le dit s'il n'y a rien eu à trancher ; « synthese », deux ou trois phrases affichées sous le point « Plan » du fil ; « resume », une phrase pour la description de la carte. Plus de faisabilité, de chemin, de conséquences ni d'améliorations. Tout ce qui s'affiche est en mots courants, sans nom de fichier, de fonction ni de technologie : le détail technique (fichiers, fonctions, commandes, pièges, contrôles) va dans « notesTechniques », que seul l'agent d'exécution reçoit. ${CONSIGNE_DU_CAHIER_DU_PLAN}`;
+  `LE PLAN EST COMPACT, comme un plan de Conductor : « titre » ; « enClair », l'ouverture adressée à l'utilisateur qui ne programme pas — deux à quatre phrases (${SIGNES_MINIMUM_EN_CLAIR} signes au moins) qui disent ce que tu vas faire (« je vais… ») et ce qu'il constatera une fois fini ; « taches », deux à sept entrées, chacune un « titre » en quelques mots et une « description » d'une ou deux phrases ; « verifications », une ligne par chose qu'on constatera pour dire que c'est fini ; « decisions », une ligne par point décidé, changé ou abandonné pendant les échanges (« Question → réponse retenue »), une seule ligne qui le dit s'il n'y a rien eu à trancher ; « synthese », deux ou trois phrases affichées sous le point « Plan » du fil ; « resume », une phrase pour la description de la carte. Plus de faisabilité, de chemin, de conséquences ni d'améliorations. Tout ce qui s'affiche est en mots courants, sans nom de fichier, de fonction ni de technologie : le détail technique (fichiers, fonctions, commandes, pièges, contrôles) va dans « notesTechniques », que seul l'agent d'exécution reçoit. « illustrations », facultatif : si des visuels ont été fabriqués ou joints dans CETTE carte (exemple retenu, capture utile), cite ceux qui éclairent une étape, sous la tâche concernée (« tache », son rang) — jamais une image hors de la carte, jamais par remplissage. ${CONSIGNE_DU_CAHIER_DU_PLAN}`;
 
 /**
  * CE QUE LE DÉMON ENVOIE À L'AGENT DE CADRAGE SUR LE CLIC « GÉNÉRER LE PLAN ».

@@ -13,9 +13,15 @@ import { cn } from '@/lib/utils';
  * (`styles.css`) : on n'écrit jamais `bg-…/50`. La hauteur est celle de la tête
  * d'une carte de « Tableaux de bord » (18 px) pour ne rien faire bouger.
  */
-const CLASSE_PAR_TON: Record<TonDuBadgeDEtape, string> = {
+/* Les deux tons gris servent la liste des agents (`liste-des-agents.tsx`) :
+   « fort » — le texte plein — pour ce qui attend l'utilisateur, « neutre » pour
+   le reste. Aucun nouveau jeton coloré : la charte reste noir, gris, jaune et violet. */
+type TonDuBadge = TonDuBadgeDEtape | 'fort' | 'neutre';
+const CLASSE_PAR_TON: Record<TonDuBadge, string> = {
   comprehension: 'border-comprehension-trait bg-comprehension-fond text-comprehension',
   travail: 'border-teinte-trait bg-teinte-fond text-teinte',
+  fort: 'border-text bg-raised text-text',
+  neutre: 'border-border bg-surface text-muted',
 };
 
 export function BadgeDEtape({
@@ -25,7 +31,7 @@ export function BadgeDEtape({
   children,
   ...props
 }: React.HTMLAttributes<HTMLSpanElement> & {
-  ton: TonDuBadgeDEtape;
+  ton: TonDuBadge;
   /** Un agent y travaille : un point qui bat précède le texte. */
   enCours?: boolean;
 }) {
