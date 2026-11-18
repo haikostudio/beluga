@@ -5,10 +5,10 @@ import { Markdown } from '@/lib/markdown';
 import { Check, ChevronDown, ChevronUp, Loader2, MicOff, PanelRight, Square, Volume2, X } from '@/components/ui/icones';
 import { IconeTroisBarres, OndesDuDirect } from '@/components/ondes-de-voix';
 import { EncadreDAction } from '@/components/jarvis-a-l-ecran';
-import { Tooltip, ZoneDefilement, buttonVariants } from '@/components/ui';
-import type { TourDuDirect } from '@/lib/direct-codex';
+import { Tooltip, ZoneDefilement } from '@/components/ui';
+import type { ActiviteDuDirect, TourDuDirect } from '@/lib/direct-codex';
 import { useAgentDeLAssistant } from '@/lib/assistant-global';
-import { activerLeSonDuDirect, arreterJarvis, basculerLaSourdine, basculerLesBulles, parlerAJarvis, useBullesRepliees, useDirectVu } from '@/lib/etat-vocal';
+import { activerLeSonDuDirect, arreterJarvis, basculerLaSourdine, basculerLesBulles, useBullesRepliees, useDirectVu } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
 import { useMorphingDuBord, useSurfaceDeJarvis } from '@/lib/morphing-du-bord';
 import { t } from '@/lib/langue';
@@ -16,9 +16,9 @@ import { t } from '@/lib/langue';
 /*
  * LA VOIX DANS LE CHAMP D'ÉCRITURE (carte « Mode voix Jarvis dans le champ d'écriture », 17/11/2026).
  *
- * - Le BOUTON VOIX remplace le micro de dictée dans TOUS les champs d'écriture, à sa place exacte (juste avant
- *   l'envoi). Son icône est celle des trois barres petite-grande-petite (`IconeTroisBarres`), jamais les six barres
- *   « vibration » (`AudioLines`, rejetée). Il ouvre la conversation vocale avec l'agent de CE champ.
+ * - LE CHAMP NE PORTE PLUS DE BOUTON VOIX (décision de l'utilisateur, 18/11/2026) : le MICRO de dictée y est
+ *   toujours (`composer.tsx`). La conversation vocale ne s'ouvre que par le bouton du bord (`jarvis-natif.tsx`), le
+ *   raccourci clavier ou « Dis Jarvis » — elle parle à Jarvis, jamais à l'agent d'une carte.
  * - Pendant la conversation, le `Chat` de cet agent remplace son champ par la ZONE VOCALE : au-dessus, une pile de
  *   BULLES FLOTTANTES (toute la session, une courte phrase par prise de parole, vous à droite, Jarvis à gauche, posées
  *   sur un voile par-dessus le fil sans le décaler, les plus hautes en fondu) ; dessous, les ondes avec Muet et
@@ -26,28 +26,6 @@ import { t } from '@/lib/langue';
  * - À l'arrêt, Jarvis rédige la synthèse : il l'annonce dans une DERNIÈRE bulle de la pile (les boutons restent en
  *   place) ; elle s'ajoute au brouillon du champ.
  */
-
-/** Le bouton voix d'un champ d'écriture : il ouvre la conversation vocale avec l'agent de ce champ. */
-export function BoutonVoixDuChamp({ agentId, disabled }: { agentId: string | undefined; disabled?: boolean }) {
-  const assistant = useAgentDeLAssistant();
-  const direct = useDirectVu();
-  const occupe = !!agentId && direct.redaction === agentId;
-  return (
-    <button
-      type="button"
-      data-parler-a-l-agent
-      /* Le repère historique de l'assistant, lu par les contrôles de la voix : seul SON champ le porte. */
-      data-parler-a-jarvis={agentId && agentId === assistant ? '' : undefined}
-      aria-label="Parler à Jarvis"
-      title={t('Parler à Jarvis')}
-      disabled={!agentId || disabled || occupe}
-      onClick={() => agentId && parlerAJarvis(agentId === assistant ? null : agentId)}
-      className={cn(buttonVariants({ variant: 'doux', size: 'pastille-champ' }), 'shrink-0 sm:bg-controle sm:hover:bg-fond-survol')}
-    >
-      <IconeTroisBarres className="scale-[0.8]" />
-    </button>
-  );
-}
 
 /** La conversation vocale (ou sa synthèse en cours) porte-t-elle sur cet agent ? Alors son champ cède la place. */
 export function useZoneVocale(agentId: string | undefined): React.ReactNode | undefined {
@@ -204,6 +182,8 @@ export function PiedVocal({
 const LARGEUR_DE_LA_BULLE = 340;
 /** L'air entre la bulle et le menu du bas (téléphone). */
 const AIR_DE_LA_BULLE = 12;
+/** La rangée que la pile laisse au bouton photo posé au-dessus de la bulle (43 px, ses 8 px d'air et ceux du pied). */
+const RANGEE_DU_BOUTON_PHOTO = 64;
 
 /**
  * LA BULLE VOCALE (carte « Raccourcis libres et Jarvis vocal », 17/11/2026, maquette #d1f57) : le toucher du bouton du
@@ -219,18 +199,47 @@ export function BulleVocale({ nom, telephone }: { nom: string; telephone: boolea
   const racine = React.useRef<HTMLDivElement | null>(null);
   useSurfaceDeJarvis('bulle', racine);
   const morphing = useMorphingDuBord();
-  /* SUR TÉLÉPHONE, AU-DESSUS DU MENU DU BAS : sa hauteur réelle (zone sûre comprise) se mesure, la constante du volet
-     ne suffit pas (capture du 17/11/2026 : la bulle couvrait « Tableaux » et le bouton +). */
+  /*
+   * SUR TÉLÉPHONE, À LA PLACE EXACTE DU CHAMP (carte « Clavier qui se referme sur mobile », 18/11/2026, maquette #801c,
+   * capture #37ce : la bulle flottait 70 px au-dessus du bas, le fil et le bouton photo passaient dessous). En mode
+   * Jarvis, la page retire son champ et pose à sa place une RÉSERVE (`[data-place-de-la-bulle]`, chat.tsx) haute de la
+   * bulle : la bulle se cale sur son bas, avec l'air que le champ avait sous lui (son retrait du bas, relu sur le champ
+   * caché). Sans réserve à l'écran (aucune conversation dessous), elle se pose au-dessus du menu du bas mesuré (zone
+   * sûre comprise — capture du 17/11/2026 : elle couvrait « Tableaux » et le bouton +), sinon sur la constante du volet.
+   * Relu quatre fois par seconde : la réserve naît APRÈS la bulle, et la page peut changer dessous.
+   */
   const [basTelephone, setBasTelephone] = React.useState(BAS_CHAT_TELEPHONE);
+  const [cameraDessus, setCameraDessus] = React.useState(false);
   React.useLayoutEffect(() => {
     if (!telephone) return;
+    const racineDoc = document.documentElement;
     const mesurer = () => {
+      const bulle = racine.current;
+      if (bulle) racineDoc.style.setProperty('--hauteur-de-la-bulle-vocale', `${Math.round(bulle.offsetHeight)}px`);
+      const reserve = Array.from(document.querySelectorAll<HTMLElement>('[data-place-de-la-bulle]')).find(
+        (el) => el.getBoundingClientRect().height > 0 && !el.closest('[inert]'),
+      );
+      if (reserve) {
+        const champ = reserve.previousElementSibling?.querySelector<HTMLElement>(':scope > [data-composer]');
+        const air = champ ? parseFloat(getComputedStyle(champ).paddingBottom) || AIR_DE_LA_BULLE : AIR_DE_LA_BULLE;
+        racineDoc.style.setProperty('--air-sous-la-bulle', `${Math.round(air)}px`);
+        setBasTelephone(Math.round(window.innerHeight - reserve.getBoundingClientRect().bottom + air));
+        setCameraDessus(!!reserve.closest('[data-pied-de-conversation], [data-pied-du-fil]')?.querySelector('[data-captures-bouton]'));
+        return;
+      }
+      setCameraDessus(false);
       const menu = document.querySelector('nav[data-menu-bas]')?.getBoundingClientRect();
       setBasTelephone(menu && menu.height > 0 && menu.top > 0 ? Math.round(window.innerHeight - menu.top + AIR_DE_LA_BULLE) : BAS_CHAT_TELEPHONE);
     };
     mesurer();
+    const releve = window.setInterval(mesurer, 250);
     window.addEventListener('resize', mesurer);
-    return () => window.removeEventListener('resize', mesurer);
+    return () => {
+      window.clearInterval(releve);
+      window.removeEventListener('resize', mesurer);
+      racineDoc.style.removeProperty('--hauteur-de-la-bulle-vocale');
+      racineDoc.style.removeProperty('--air-sous-la-bulle');
+    };
   }, [telephone]);
   const place: React.CSSProperties = telephone
     ? { left: 16, right: 16, bottom: basTelephone }
@@ -250,7 +259,8 @@ export function BulleVocale({ nom, telephone }: { nom: string; telephone: boolea
       className="pointer-events-auto fixed z-[56] flex flex-col rounded-[22px] bg-surface shadow-2xl"
       style={{ ...place, maxWidth: 'calc(100vw - 32px)' }}
     >
-      <BullesDuDirect fil={direct.fil} sansVoile recapitulatif={redaction} repliable />
+      {/* Le bouton photo du pied se pose juste au-dessus de la bulle, à droite : la pile lui laisse sa rangée. */}
+      <BullesDuDirect fil={direct.fil} sansVoile recapitulatif={redaction} repliable reserveEnBas={cameraDessus ? RANGEE_DU_BOUTON_PHOTO : undefined} />
       <div className="flex items-center gap-2 px-4 pt-3 text-[13px]">
         <IconeTroisBarres className="shrink-0 scale-[0.6] text-text" vivante={direct.etat === 'ecoute'} />
         <span className="font-medium text-text">{nom}</span>
@@ -275,6 +285,7 @@ export function BullesDuDirect({
   sansVoile,
   recapitulatif,
   repliable,
+  reserveEnBas,
 }: {
   fil: readonly TourDuDirect[];
   sansVoile?: boolean;
@@ -282,6 +293,8 @@ export function BullesDuDirect({
   recapitulatif?: boolean;
   /** Le chevron centré sous la pile la replie ou la rouvre (18/11/2026) : la conversation vocale seulement. */
   repliable?: boolean;
+  /** Une rangée laissée libre sous la pile (px), à côté du chevron : le bouton photo posé au-dessus de la bulle. */
+  reserveEnBas?: number;
 }) {
   const bulles = dernieresBulles(fil);
   const replieesPartout = useBullesRepliees();
@@ -318,12 +331,35 @@ export function BullesDuDirect({
     pile.dataset.fondu = haute ? '' : 'non';
   });
 
+  /*
+   * LES BULLES DÉCOLLÉES DU BORD DE L'ÉCRAN (décision de l'utilisateur, 18/11/2026, captures #4731 et #51aef) : dans la
+   * FEUILLE de l'assistant sur téléphone, la pile a toute la largeur de l'écran et les bulles touchaient ses bords. Elle
+   * y prend le retrait du TEXTE du fil (mesuré), jamais moins de 16 px : Jarvis s'aligne sur son bord gauche, vous sur
+   * son bord droit. Le volet sur ordinateur et la page d'une carte gardent leur pile sans retrait.
+   */
+  const [retrait, setRetrait] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const enveloppe = enveloppeRef.current;
+    const feuille = enveloppe?.closest<HTMLElement>('[data-assistant-ancre="feuille"]') ?? null;
+    if (!enveloppe || !feuille) return setRetrait(0);
+    const mesurer = () => {
+      const fil = feuille.querySelector<HTMLElement>('[data-fil="conversation"]');
+      const marge = fil ? fil.getBoundingClientRect().left - enveloppe.getBoundingClientRect().left + (parseFloat(getComputedStyle(fil).paddingLeft) || 0) : 0;
+      setRetrait(Math.max(RETRAIT_MINIMAL_DES_BULLES, Math.round(marge)));
+    };
+    mesurer();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(feuille);
+    return () => observateur.disconnect();
+  }, [bulles.length > 0 || !!recapitulatif]);
+
   if (!bulles.length && !recapitulatif) return null;
   /* LE CHEVRON (décision du 18/11/2026, captures #2901f et #0750) : un petit bouton rond, CENTRÉ entre la pile et le
      panneau vocal, qui replie les bulles (vers le bas) ou les rouvre (vers le haut). Sur téléphone, elles se replient
      d'elles-mêmes quand Jarvis agit (`voix-assistant.tsx`). Seul le bouton prend les appuis : la ligne les laisse passer. */
   const chevron = repliable ? (
-    <div className="pointer-events-none relative flex justify-center pb-1.5">
+    <div className="pointer-events-none relative flex items-end justify-center pb-1.5" style={reserveEnBas ? { minHeight: reserveEnBas } : undefined}>
       <Tooltip label={repliees ? t('Afficher les bulles') : t('Replier les bulles')}>
         <button
           type="button"
@@ -370,9 +406,10 @@ export function BullesDuDirect({
           colleEnBas.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
         /* AUCUN RETRAIT SUR LES CÔTÉS (17/11/2026) : la pile a la largeur du composant qu'elle surmonte ; les bulles de
-           Jarvis touchent son bord gauche, les vôtres son bord droit. */
+           Jarvis touchent son bord gauche, les vôtres son bord droit — sauf dans la feuille du téléphone (`retrait`). */
         className="flex flex-col gap-1.5 px-0 pb-1.5 pt-6"
-        style={{ maxHeight: hauteurMax ?? undefined }}
+        data-retrait-des-bulles={retrait || undefined}
+        style={{ maxHeight: hauteurMax ?? undefined, ...(retrait ? { paddingLeft: retrait, paddingRight: retrait } : {}) }}
       >
         {/* LA LIGNE D'UNE BULLE LAISSE PASSER LES APPUIS (18/11/2026) : elle a la largeur du composant (bulles collées
             aux bords), seule la bulle elle-même les prend — le fil derrière reste cliquable à côté d'elle. */}
@@ -392,6 +429,9 @@ export function BullesDuDirect({
   );
 }
 
+/** Le retrait minimal des bulles sur les côtés de la feuille du téléphone : la marge de page de la charte. */
+const RETRAIT_MINIMAL_DES_BULLES = 16;
+
 /** La classe d'une bulle de Jarvis : le bleu de Jarvis, texte blanc en sombre et noir en clair (jeton par palette). */
 const CLASSE_BULLE_DE_JARVIS = 'rounded-bl-sm bg-[hsl(var(--bulle-jarvis))] text-[hsl(var(--bulle-jarvis-texte))]';
 
@@ -407,7 +447,49 @@ function BulleDuRecapitulatif() {
   );
 }
 
+/**
+ * « JE VÉRIFIE AVANT DE RÉPONDRE » (carte « Jarvis plus fiable et vérifié », 18/11/2026 — décision de l'utilisateur :
+ * « une espèce de todo list qui s'incrémente et se complète à mesure »). Les sources du dossier puis chaque outil du
+ * cerveau, avec ce qu'il cherche et où ; sous chaque étape finie, son résultat. Un compteur « n sur m ». Le fond
+ * `bg-raised` la détache du fil sans aucun trait.
+ */
+function ListeDesVerifications({ etapes }: { etapes: ActiviteDuDirect[] }) {
+  const faites = etapes.filter((e) => e.etat === 'finie' || e.etat === 'echec').length;
+  return (
+    <div data-bulle="verifications" data-verifications-faites={faites} data-verifications-total={etapes.length} className="pointer-events-auto w-[88%] max-w-full rounded-lg bg-raised px-3 pb-1.5 pt-2 text-[12px]">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
+        <span className="min-w-0 truncate">{t('Je vérifie avant de répondre')}</span>
+        <span className="shrink-0 tabular-nums" data-verifications-compteur>
+          {t('{faites} sur {total}', { faites, total: etapes.length })}
+        </span>
+      </div>
+      <ul className="space-y-0.5">
+        {etapes.map((etape) => (
+          <li key={etape.id} data-etape-de-verification={etape.etat} className="flex items-start gap-2 py-0.5">
+            <span className="mt-[2px] flex h-3 w-3 shrink-0 items-center justify-center">
+              {etape.etat === 'en-cours' ? (
+                <Loader2 className="h-3 w-3 animate-spin text-teinte" />
+              ) : etape.etat === 'echec' ? (
+                <X className="h-3 w-3 text-danger" />
+              ) : etape.etat === 'finie' ? (
+                <Check className="h-3 w-3 text-text" />
+              ) : (
+                <span className="h-2.5 w-2.5 rounded-full border border-faint" />
+              )}
+            </span>
+            <span className="min-w-0 flex-1 select-text break-words">
+              <span className={etape.etat === 'a-venir' ? 'text-muted' : etape.etat === 'en-cours' ? 'text-teinte' : 'text-text'}>{etape.libelle}</span>
+              {etape.resultat ? <span className="block text-muted">{etape.resultat}</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Bulle({ tour }: { tour: TourDuDirect }) {
+  if (tour.verifications) return <ListeDesVerifications etapes={tour.verifications.etapes} />;
   if (tour.activite) {
     const { etat, libelle } = tour.activite;
     return (

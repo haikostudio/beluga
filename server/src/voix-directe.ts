@@ -33,17 +33,27 @@ import {
   consigneDuSalut,
   salutDeJarvis,
   appelEnCoursPourLaVoix,
-  noteDeContexte,
-  questionSurLePasse,
+  demandeAVerifier,
+  texteDuDossier,
+  resultatDeLaSource,
+  resultatDeLOutil,
+  finDeLEtape,
+  phraseDuDossier,
+  consigneDeLAnnonce,
+  estUneAnnonce,
+  SOURCES_DU_DOSSIER,
+  ETAPE_DU_RECOUPEMENT,
+  type SourceDuDossier,
+  type TrouveDuDossier,
+  consigneDuDirect,
+  ligneDuModeleDuDirect,
+  modeleEtEffortDuDirect,
   souvenirsPourLaVoix,
   DISCUSSIONS_EN_SOUVENIR,
   nomDeLAssistant,
-  CONSIGNE_DU_DIRECT,
   DELAI_DE_LA_SYNTHESE_MS,
-  EFFORT_DU_DIRECT,
   consigneDeLaSynthese,
   syntheseAColler,
-  MODELE_DU_DIRECT,
   libelleDeLActivite,
   outilQuiAgit,
   REPRISE_DU_DIRECT_MS,
@@ -71,6 +81,7 @@ import { getInternalToken } from './auth.js';
 import { applyAccountEnv, pickAccount } from './accounts.js';
 import { codexAdapter, preparerMaisonDeTour, serveursTiersDuCompte, surchargesDuPontBeluga, texteDuResultatMcp } from './engines/codex.js';
 import { agentAssistantGlobal } from './assistant-global.js';
+import { cachedEngines } from './engines/index.js';
 import { noterLInterlocuteur } from './interlocuteur.js';
 import { compteParId } from './comptes.js';
 import { langueDesAgents } from './langue-configuree.js';
@@ -218,6 +229,32 @@ interface Session {
   ouverteLe: number;
   /** Pourquoi l'écran l'a fermée (bouton, veille, coupure, rechargement…) : le journal le dit. */
   raison?: string;
+  /** La dernière phrase de l'utilisateur à vérifier, et son dossier (`ouvrirLaPhrase`). */
+  phrase?: PhraseVerifiee;
+  /** « Fais ça de ton côté » : plus aucune étape dite jusqu'à la fin de ce travail (`voix_silence`). */
+  silence: boolean;
+  /** Les étapes à dire, regroupées (`annoncerLEtape`), et les dernières dites (pour ne rien redire). */
+  annonces: Map<string, AnnonceDEtape>;
+  minuterieDesAnnonces?: NodeJS.Timeout;
+  annoncesDites: string[];
+}
+
+/** Une phrase vérifiée : son identifiant (la liste cochée de l'écran), son texte et la recherche en vol. */
+interface PhraseVerifiee {
+  id: string;
+  texte: string;
+  debut: number;
+  promesse: Promise<TrouveDuDossier>;
+  trouve?: TrouveDuDossier;
+  recoupee: boolean;
+}
+
+/** Une étape à dire : son début (« Je cherche dans la mémoire ») et, finie, son résultat (« Mémoire : 3 éléments »). */
+interface AnnonceDEtape {
+  debut?: string;
+  fin?: string;
+  ditDebut: boolean;
+  ditFin: boolean;
 }
 
 let session: Session | null = null;
@@ -251,6 +288,8 @@ interface Reserve {
   consigne: string;
   threadId: string;
   le: number;
+  /** Le modèle et la réflexion avec lesquels elle a été montée : un réglage changé depuis la périme. */
+  cerveau: string;
   /** Vrai quand la réserve est prête ; faux si elle n'a pas pu se monter. */
   pret: Promise<boolean>;
 }
@@ -291,27 +330,28 @@ function monterLaReserve(): void {
   const assistant = agentAssistantGlobal();
   if (!assistant || reserve) return;
   const cwd = assistant.workdir || path.join(os.homedir(), '.beluga', 'atelier-assistant');
-  const r: Reserve = { tour: `voix-${crypto.randomUUID()}`, agentId: assistant.id, compteId: '', cwd, serveur: null, consigne: '', threadId: '', le: Date.now(), pret: Promise.resolve(false) };
+  const cerveau = cerveauDuDirect();
+  const r: Reserve = { tour: `voix-${crypto.randomUUID()}`, agentId: assistant.id, compteId: '', cwd, serveur: null, consigne: '', threadId: '', le: Date.now(), cerveau: cleDuCerveau(cerveau), pret: Promise.resolve(false) };
   reserve = r;
   r.pret = (async () => {
     const debut = Date.now();
     try {
       const { id, codexHome } = await compteCodex();
       r.compteId = id;
-      const serveur = lancerAppServer(codexHome, cwd, { agentId: r.agentId, tour: r.tour });
+      const serveur = lancerAppServer(codexHome, cwd, { agentId: r.agentId, tour: r.tour }, cerveau);
       r.serveur = serveur;
       serveur.onSortie = () => {
         if (reserve === r) reserve = null;
       };
       await serveur.initialiser();
-      r.consigne = await consigneDeLAssistant(r.agentId, assistant.projectId);
+      r.consigne = await consigneDeLAssistant(r.agentId, assistant.projectId, cerveau);
       const t = await serveur.appeler<{ thread: { id: string } }>('thread/start', {
         cwd,
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         developerInstructions: r.consigne,
-        model: MODELE_DU_DIRECT,
-        config: { model_reasoning_effort: EFFORT_DU_DIRECT },
+        model: cerveau.modele,
+        config: { model_reasoning_effort: cerveau.effort },
       });
       r.threadId = t.thread.id;
       log.info(`direct vocal : Jarvis prêt à l'avance (${Date.now() - debut} ms)`);
@@ -355,6 +395,12 @@ async function prendreLaReserve(agentId: string): Promise<Reserve | null> {
   const r = reserve;
   if (!r || r.agentId !== agentId) return null;
   reserve = null;
+  // UN CERVEAU RÉGLÉ AUTREMENT DEPUIS (Réglages › Voix) : la réserve montée avec l'ancien ne sert pas.
+  if (r.cerveau !== cleDuCerveau(cerveauDuDirect())) {
+    log.info('direct vocal : la réserve date d’un autre réglage du cerveau, elle est refaite');
+    void r.pret.then(() => r.serveur?.fermer());
+    return null;
+  }
   // Le tour de la réserve devient celui de l'ouverture : la garde du pont ne le refuse à aucun moment.
   ouverture = { agentId, tour: r.tour };
   const pret = await Promise.race([r.pret, new Promise<boolean>((fini) => setTimeout(() => fini(false), 20_000).unref())]);
@@ -427,12 +473,12 @@ async function compteCodex(): Promise<{ id: string; codexHome: string }> {
   return { id: compte.id, codexHome };
 }
 
-function lancerAppServer(codexHome: string, cwd: string, pont?: { agentId: string; tour: string }): AppServer {
+function lancerAppServer(codexHome: string, cwd: string, pont?: { agentId: string; tour: string }, cerveau: CerveauDuDirect = cerveauDuDirect()): AppServer {
   const args = ['app-server', '--enable', 'realtime_conversation'];
   if (pont) {
-    // LA CONVERSATION RÉFLÉCHIT FORT (`EFFORT_DU_DIRECT`, « high »), SUR SOL (`MODELE_DU_DIRECT`, le plus puissant) : tout tour délégué
-    // par la voix en hérite, quel que soit le `config.toml` du compte.
-    args.push('-c', `model_reasoning_effort="${EFFORT_DU_DIRECT}"`, '-c', `model="${MODELE_DU_DIRECT}"`);
+    // LE CERVEAU RÉGLÉ (Réglages › Voix, Sol en réflexion poussée par défaut) : tout tour délégué par la voix en
+    // hérite, quel que soit le `config.toml` du compte. Un changement vaut pour la conversation suivante.
+    args.push('-c', `model_reasoning_effort="${cerveau.effort}"`, '-c', `model="${cerveau.modele}"`);
     args.push(
       ...surchargesDuPontBeluga({
         mcpBridgePath: path.join(CONFIG.selfPath, 'server', 'mcp-bridge.mjs'),
@@ -526,7 +572,30 @@ export async function voixDuDirect(): Promise<string[]> {
 /* La session                                                           */
 /* ------------------------------------------------------------------ */
 
-async function consigneDeLAssistant(agentId: string, projectId: string): Promise<string> {
+/** Le cerveau de la voix : le modèle et la réflexion réglés, avec le nom du modèle tel que le catalogue le donne. */
+interface CerveauDuDirect {
+  modele: string;
+  effort: string;
+  libelle?: string;
+}
+
+/**
+ * LE CERVEAU RÉGLÉ (Réglages › Voix). Un modèle qui n'est plus au catalogue du compte retombe sur Sol, et le journal le
+ * dit ; un catalogue pas encore lu ne refuse rien (`cachedEngines` ne fait rien attendre).
+ */
+export function cerveauDuDirect(): CerveauDuDirect {
+  const settings = store.getSettings();
+  const codex = cachedEngines().find((e) => e.id === 'codex');
+  const ids = codex?.models.map((m) => m.id) ?? [];
+  const retenu = modeleEtEffortDuDirect(settings, ids);
+  const voulu = (settings.voixCodexModele ?? '').trim();
+  if (voulu && voulu !== retenu.modele) log.warn(`direct vocal : le modèle réglé « ${voulu} » n’est plus au catalogue du compte — retour sur ${retenu.modele}`);
+  return { ...retenu, libelle: codex?.models.find((m) => m.id === retenu.modele)?.label };
+}
+
+const cleDuCerveau = (c: CerveauDuDirect) => `${c.modele}/${c.effort}`;
+
+async function consigneDeLAssistant(agentId: string, projectId: string, cerveau: CerveauDuDirect = cerveauDuDirect()): Promise<string> {
   const { consigneDeLAssistantGlobal } = await import('./runtime.js');
   const projet = store.getProject(projectId);
   let consigne = consigneDeLAssistantGlobal(!!projet?.isSelf, 'codex', langueDesAgents());
@@ -537,7 +606,7 @@ async function consigneDeLAssistant(agentId: string, projectId: string): Promise
   } catch {
     /* le guide des services n'est qu'un complément */
   }
-  return `${consigne}\n\n${CONSIGNE_DU_DIRECT}`;
+  return `${consigne}\n\n${consigneDuDirect(ligneDuModeleDuDirect(cerveau.modele, cerveau.effort, cerveau.libelle))}`;
 }
 
 /**
@@ -608,59 +677,209 @@ export async function saluerLeDirect(): Promise<{ ok: boolean; salut?: string }>
 }
 
 /**
- * LA RECHERCHE FAITE PAR BELUGA POUR LA VOIX (décision du 18/11/2026) : une phrase qui renvoie au passé déclenche,
- * en parallèle et sous `DELAI_DE_LA_RECHERCHE_MS`, trois recherches LOCALES (discussions vocales par les mots ramenés à
- * leur racine, mémoire du projet par le même moteur que les agents, tâches de tous les projets), puis une note glissée à la
- * voix. Jamais d'exception : une recherche qui tarde ou tombe est seulement absente de la note.
+ * LE DOSSIER DE VÉRIFICATION (carte « Jarvis plus fiable et vérifié », 18/11/2026). Chaque phrase qui a un contenu
+ * (`demandeAVerifier`) déclenche, en parallèle et sous `DELAI_DE_LA_RECHERCHE_MS`, quatre recherches LOCALES : la
+ * mémoire (unités du projet et du global), les discussions vocales, les tâches de tous les projets et l'activité du
+ * moment (tâches au travail, mises en ligne et en production, ce qui attend). Le cerveau le lit par « voix_dossier »
+ * avant de répondre. Jamais d'exception : une source qui tarde est dite « sans réponse à temps ».
+ * Elle ne partait avant que pour une phrase tournée vers le passé : la mémoire n'était ouverte qu'une fois sur 91.
  */
-export const DELAI_DE_LA_RECHERCHE_MS = 1500;
+export const DELAI_DE_LA_RECHERCHE_MS = 2000;
 
-async function avantLeDelai<T>(travail: Promise<T>, repli: T, delaiMs = DELAI_DE_LA_RECHERCHE_MS): Promise<T> {
+const EN_RETARD: unique symbol = Symbol('en retard');
+
+async function avantLeDelai<T>(travail: Promise<T>, delaiMs = DELAI_DE_LA_RECHERCHE_MS): Promise<T | typeof EN_RETARD> {
   let minuterie: NodeJS.Timeout | undefined;
   try {
-    return await Promise.race([travail.catch(() => repli), new Promise<T>((ok) => (minuterie = setTimeout(() => ok(repli), delaiMs)))]);
+    return await Promise.race([
+      travail.catch((err): typeof EN_RETARD => {
+        log.warn(`direct vocal : une source du dossier est tombée — ${(err as Error).message}`);
+        return EN_RETARD;
+      }),
+      new Promise<typeof EN_RETARD>((ok) => (minuterie = setTimeout(() => ok(EN_RETARD), delaiMs))),
+    ]);
   } finally {
     if (minuterie) clearTimeout(minuterie);
   }
 }
 
-export async function chercherPourLaVoix(demande: string, o: { projectId?: string; sauf?: number } = {}): Promise<{ discussions: string[]; memoire: string[]; cartes: string[] }> {
+export async function chercherPourLaVoix(demande: string, o: { projectId?: string; sauf?: number } = {}): Promise<TrouveDuDossier> {
   const jour = (ms: number) => new Date(ms).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const [disc, unites, cartes] = await Promise.all([
+  const [disc, unites, cartes, activite] = await Promise.all([
     avantLeDelai(
       Promise.resolve().then(() =>
         discussions
           .chercherDiscussionsPourLaVoix(demande, { projectId: o.projectId, sauf: o.sauf, limite: 3 })
-          .map((d) => `- ${d.id}, le ${jour(d.debut)} : ${discussions.derniersEchanges(d.numero, 500)}`),
+          .map((d) => `- ${d.id}, le ${jour(d.debut)} : ${discussions.derniersEchanges(d.numero, 400)}`),
       ),
-      [] as string[],
     ),
     avantLeDelai(
       import('./connaissances.js')
-        .then(({ chercherUnitesMelees }) => chercherUnitesMelees(demande, o.projectId ? { projectId: o.projectId, limite: 4 } : { tous: true, limite: 4 }))
-        .then((liste) => liste.slice(0, 4).map((t) => `- ${t.unite.id} — ${t.unite.titre} : ${String(t.unite.resume ?? '').slice(0, 220)}`)),
-      [] as string[],
+        .then(({ chercherUnitesMelees }) => chercherUnitesMelees(demande, o.projectId ? { projectId: o.projectId, limite: 5 } : { tous: true, limite: 5 }))
+        .then((liste) => liste.slice(0, 5).map((t) => `- ${t.unite.id} — ${t.unite.titre} : ${String(t.unite.resume ?? '').slice(0, 240)}`)),
     ),
-    avantLeDelai(
-      import('./assistant-global.js').then(({ cartesApprochantes }) => cartesApprochantes(demande, 4)),
-      [] as string[],
-    ),
+    avantLeDelai(import('./assistant-global.js').then(({ cartesApprochantes }) => cartesApprochantes(demande, 4))),
+    avantLeDelai(import('./assistant-global.js').then(({ activitePourLaVoix }) => activitePourLaVoix())),
   ]);
-  return { discussions: disc, memoire: unites, cartes };
+  const enRetard: SourceDuDossier[] = [];
+  const lu = <T,>(v: T | typeof EN_RETARD, cle: SourceDuDossier, vide: T): T => {
+    if (v === EN_RETARD) {
+      enRetard.push(cle);
+      return vide;
+    }
+    return v;
+  };
+  return {
+    discussions: lu(disc, 'discussions', [] as string[]),
+    memoire: lu(unites, 'memoire', [] as string[]),
+    cartes: lu(cartes, 'cartes', [] as string[]),
+    activite: lu(activite, 'activite', ''),
+    ...(enRetard.length ? { enRetard } : {}),
+  };
 }
 
-async function glisserLeContexte(courante: Session, demande: string): Promise<void> {
-  const debut = Date.now();
-  const trouve = await chercherPourLaVoix(demande, { sauf: courante.discussion });
-  if (session !== courante || courante.arret) return;
-  try {
-    await courante.serveur.appeler('thread/realtime/appendText', { threadId: courante.threadId, text: noteDeContexte(demande, trouve), role: 'developer' }, 5000);
-    log.info(
-      `direct vocal : contexte retrouvé pour la voix en ${Date.now() - debut} ms — ${trouve.discussions.length} discussion(s), ${trouve.memoire.length} unité(s), ${trouve.cartes.length} tâche(s)`,
-    );
-  } catch (err) {
-    log.warn(`direct vocal : contexte non glissé — ${(err as Error).message}`);
+/** L'étape appartient à la liste cochée de la phrase en cours (l'écran la range sous elle). */
+function phraseDeLEtape(courante: Session): { phrase?: string } {
+  return courante.phrase ? { phrase: courante.phrase.id } : {};
+}
+
+/**
+ * UNE NOUVELLE PHRASE DE L'UTILISATEUR : la liste précédente se referme, un silence demandé retombe, et — si la phrase
+ * a un contenu — la liste s'ouvre sur les quatre sources pendant que Beluga cherche.
+ */
+function ouvrirLaPhrase(courante: Session, texte: string): void {
+  finirLaPhrase(courante);
+  courante.silence = false;
+  courante.annonces.clear();
+  if (!demandeAVerifier(texte, nomDeLAssistant(store.getSettings()))) {
+    courante.phrase = undefined;
+    return;
   }
+  courante.phrase = lancerLeDossier(courante, texte);
+}
+
+function lancerLeDossier(courante: Session, texte: string): PhraseVerifiee {
+  const id = `verif-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
+  const emettre = (cle: string, libelle: string, etat: 'en-cours' | 'finie' | 'echec' | 'a-venir', resultat?: string) =>
+    bus.emit({ type: 'voix.direct.activite', id: `${id}:${cle}`, libelle, etat, phrase: id, ...(resultat ? { resultat } : {}) });
+  for (const source of SOURCES_DU_DOSSIER) emettre(source.cle, source.libelle, 'en-cours');
+  emettre('recoupe', ETAPE_DU_RECOUPEMENT, 'a-venir');
+  const debut = Date.now();
+  const phrase: PhraseVerifiee = { id, texte, debut, recoupee: false, promesse: Promise.resolve({ memoire: [], discussions: [], cartes: [] }) };
+  phrase.promesse = chercherPourLaVoix(texte, { sauf: courante.discussion }).then((trouve) => {
+    phrase.trouve = trouve;
+    log.info(
+      `direct vocal : dossier prêt en ${Date.now() - debut} ms — ${trouve.memoire.length} unité(s), ${trouve.discussions.length} discussion(s), ${trouve.cartes.length} tâche(s)${trouve.enRetard?.length ? `, sans réponse : ${trouve.enRetard.join(', ')}` : ''}`,
+    );
+    if (session === courante && !courante.arret) {
+      for (const source of SOURCES_DU_DOSSIER) emettre(source.cle, source.libelle, trouve.enRetard?.includes(source.cle) ? 'echec' : 'finie', resultatDeLaSource(source.cle, trouve));
+      if (!phrase.recoupee) emettre('recoupe', ETAPE_DU_RECOUPEMENT, 'en-cours');
+      annoncerLEtape(courante, `${id}:dossier`, { fin: phraseDuDossier(trouve) });
+    }
+    return trouve;
+  });
+  return phrase;
+}
+
+/** La liste d'une phrase se referme : « Je recoupe les réponses » est coché (fin du travail, phrase suivante, fermeture). */
+function finirLaPhrase(courante: Session): void {
+  const phrase = courante.phrase;
+  if (!phrase || phrase.recoupee) return;
+  phrase.recoupee = true;
+  bus.emit({ type: 'voix.direct.activite', id: `${phrase.id}:recoupe`, libelle: ETAPE_DU_RECOUPEMENT, etat: 'finie', phrase: phrase.id });
+}
+
+/** Les étapes qui finissent dans cet intervalle sont dites ensemble : la voix ne bégaie pas une étape par seconde. */
+const REGROUPEMENT_DES_ANNONCES_MS = 900;
+
+/**
+ * UNE ÉTAPE À DIRE À VOIX HAUTE (décision de l'utilisateur, 18/11/2026 : « chaque étape à mesure… par défaut je veux
+ * tout »). Elle vient des appels RÉELS (dossier prêt, outil commencé, outil fini), jamais de l'intention du modèle :
+ * il ne peut plus dire qu'il regarde la mémoire sans l'avoir ouverte. Une étape commencée puis finie dans le même
+ * intervalle n'est dite qu'une fois, par son résultat.
+ */
+function annoncerLEtape(courante: Session, cle: string, morceau: { debut?: string; fin?: string }): void {
+  if (courante.silence || courante.arret) return;
+  const a = courante.annonces.get(cle) ?? { ditDebut: false, ditFin: false };
+  if (morceau.debut) a.debut = morceau.debut;
+  if (morceau.fin) a.fin = morceau.fin;
+  courante.annonces.set(cle, a);
+  if (!courante.minuterieDesAnnonces) {
+    courante.minuterieDesAnnonces = setTimeout(() => {
+      courante.minuterieDesAnnonces = undefined;
+      void direLesEtapes(courante);
+    }, REGROUPEMENT_DES_ANNONCES_MS);
+    courante.minuterieDesAnnonces.unref?.();
+  }
+}
+
+async function direLesEtapes(courante: Session): Promise<void> {
+  if (session !== courante || courante.arret || courante.silence) {
+    courante.annonces.clear();
+    return;
+  }
+  const phrases: string[] = [];
+  for (const [cle, a] of courante.annonces) {
+    if (a.fin && !a.ditFin) {
+      phrases.push(a.fin);
+      a.ditFin = a.ditDebut = true;
+    } else if (a.debut && !a.ditDebut && !a.ditFin) {
+      phrases.push(a.debut.replace(/[.…]*$/, '.'));
+      a.ditDebut = true;
+    }
+    if (a.ditFin) courante.annonces.delete(cle);
+  }
+  // Jamais deux fois la même phrase de suite.
+  const neuves = phrases.filter((ph, i) => phrases.indexOf(ph) === i && ph !== courante.annoncesDites[courante.annoncesDites.length - 1]);
+  if (!neuves.length) return;
+  const texte = neuves.join(' ');
+  courante.annoncesDites = [...courante.annoncesDites, ...neuves, texte].slice(-12);
+  try {
+    await courante.serveur.appeler('thread/realtime/appendText', { threadId: courante.threadId, text: consigneDeLAnnonce(texte), role: 'developer' }, 5000);
+  } catch (err) {
+    log.warn(`direct vocal : étape non dite — ${(err as Error).message}`);
+  }
+}
+
+/**
+ * « voix_dossier » : le dossier de la dernière phrase, attendu au plus le temps qu'il lui reste. Une `demande` qui ne
+ * ressemble pas à la phrase en cours (le cerveau creuse un autre sujet) relance une recherche à elle.
+ */
+export async function dossierPourLeCerveau(agentId: string, demande?: string): Promise<{ ok: boolean; text: string }> {
+  const courante = session && session.agentId === agentId && !session.arret ? session : null;
+  const voulue = (demande ?? '').trim();
+  let phrase = courante?.phrase;
+  const recente = phrase && Date.now() - phrase.debut < 5 * 60_000;
+  const autreSujet = voulue && phrase && !normaliserParole(phrase.texte).includes(normaliserParole(voulue).slice(0, 40)) && phrase.trouve;
+  if (courante && (!phrase || !recente || autreSujet) && voulue) {
+    phrase = lancerLeDossier(courante, voulue);
+    courante.phrase = phrase;
+  }
+  if (!phrase) {
+    if (!voulue) return { ok: false, text: 'Aucune phrase à vérifier pour l’instant : passe « demande » (la question, en quelques mots).' };
+    const trouve = await chercherPourLaVoix(voulue);
+    return { ok: true, text: texteDuDossier(voulue, trouve) };
+  }
+  const trouve = await phrase.promesse;
+  return { ok: true, text: texteDuDossier(phrase.texte, trouve) };
+}
+
+/** « voix_silence » : plus aucune étape dite jusqu'à la fin de ce travail (ou jusqu'à la phrase suivante). */
+export function silenceDeLaVoix(agentId: string, actif: boolean): { ok: boolean; text: string } {
+  const courante = session && session.agentId === agentId && !session.arret ? session : null;
+  if (!courante) return { ok: false, text: 'Aucune conversation vocale ouverte.' };
+  courante.silence = actif;
+  if (actif) {
+    courante.annonces.clear();
+    if (courante.minuterieDesAnnonces) clearTimeout(courante.minuterieDesAnnonces);
+    courante.minuterieDesAnnonces = undefined;
+  }
+  return {
+    ok: true,
+    text: actif
+      ? 'Silence posé : plus aucune étape ne sera dite jusqu’à la fin de ce travail. Fais le travail, puis rends le compte rendu en réponse finale.'
+      : 'Les étapes sont de nouveau dites à voix haute.',
+  };
 }
 
 /** Les dernières discussions de cet agent, rédigées pour la voix ; vide quand la lecture échoue (jamais bloquant). */
@@ -720,6 +939,7 @@ export async function demarrerLeDirect(
       consigne = cible ? await consigneDeLaCarte(cible) : await consigneDeLAssistant(agent.id, agent.projectId);
     }
     const lance = Date.now();
+    const cerveau = cerveauDuDirect();
 
     // UNE RELANCE PROCHE REPREND LE MÊME FIL ET LA MÊME DISCUSSION (changement de voix, coupure du réseau).
     const reprise = derniere && derniere.compteId === compteId && derniere.agentId === agent.id && Date.now() - derniere.fin < REPRISE_DU_DIRECT_MS && discussions.lireDiscussion(derniere.discussion) ? derniere : null;
@@ -731,8 +951,8 @@ export async function demarrerLeDirect(
           developerInstructions: consigne,
           approvalPolicy: 'never',
           sandbox: 'danger-full-access',
-          model: MODELE_DU_DIRECT,
-          config: { model_reasoning_effort: EFFORT_DU_DIRECT },
+          model: cerveau.modele,
+          config: { model_reasoning_effort: cerveau.effort },
         });
         threadId = r.thread?.id ?? reprise.threadId;
       } catch {
@@ -746,8 +966,8 @@ export async function demarrerLeDirect(
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         developerInstructions: consigne,
-        model: MODELE_DU_DIRECT,
-          config: { model_reasoning_effort: EFFORT_DU_DIRECT },
+        model: cerveau.modele,
+        config: { model_reasoning_effort: cerveau.effort },
       });
       threadId = r.thread.id;
     }
@@ -781,6 +1001,9 @@ export async function demarrerLeDirect(
       salutVoulu: appel,
       arret: false,
       ouverteLe: Date.now(),
+      silence: false,
+      annonces: new Map(),
+      annoncesDites: [],
     };
     serveur.onNotification = (n) => {
       if (reponse.traiter(n)) return;
@@ -811,6 +1034,7 @@ export async function demarrerLeDirect(
         souvenirs: souvenirsDeLaVoix(agent.id, discussion),
         // CET APPEL, JUSQU'ICI : une reprise du même fil emporte ce qui vient d'être dit (DISC-0038, 06:34).
         appelEnCours: reprise && discussion === reprise.discussion ? appelEnCoursDeLaVoix(discussion) : '',
+        modele: ligneDuModeleDuDirect(cerveau.modele, cerveau.effort, cerveau.libelle),
       }),
     });
     const sdp = await reponse.promesse;
@@ -882,7 +1106,7 @@ async function redigerLaSynthese(courante: Session): Promise<string> {
   const reste = () => Math.max(1000, DELAI_DE_LA_SYNTHESE_MS - (Date.now() - debut));
   const t = await serveur.appeler<{ thread: { id: string } }>(
     'thread/start',
-    { cwd: courante.cwd, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', model: MODELE_DU_DIRECT },
+    { cwd: courante.cwd, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', model: cerveauDuDirect().modele },
     reste(),
   );
   const threadId = t.thread.id;
@@ -922,6 +1146,8 @@ async function redigerLaSynthese(courante: Session): Promise<string> {
 
 function clore(courante: Session): void {
   courante.arret = true;
+  finirLaPhrase(courante);
+  if (courante.minuterieDesAnnonces) clearTimeout(courante.minuterieDesAnnonces);
   if (!toursEnGrace.has(courante.tour)) toursEnGrace.set(courante.tour, { agentId: courante.agentId, jusqua: Date.now() + GRACE_DU_TOUR_VOCAL_MS });
   courante.serveur.fermer();
   // Un tour à moitié dit reste dans le fil : on garde ce qui a été entendu.
@@ -971,7 +1197,9 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       courante.enCours[role] += String(p.delta ?? '');
       // L'appel joué par l'écran ne s'affiche pas pendant qu'il se transcrit.
       if (role === 'user' && courante.appelEnAttente) return;
-      bus.emit({ type: 'voix.direct.tour', role, texte: courante.enCours[role].trim(), final: false, projets: [] });
+      // UNE ÉTAPE DITE est déjà cochée dans la liste : sa bulle serait un doublon.
+      const annonce = role === 'assistant' && estUneAnnonce(courante.enCours[role], courante.annoncesDites);
+      bus.emit({ type: 'voix.direct.tour', role, texte: courante.enCours[role].trim(), final: false, projets: [], ...(annonce ? { annonce: true } : {}) });
       return;
     }
     case 'thread/realtime/transcript/done': {
@@ -983,6 +1211,11 @@ function traiterLaNotification(courante: Session, n: Notification): void {
         courante.appelEnAttente = false;
         if (nEstQueLAppel(texte, nomDeLAssistant(store.getSettings()))) return;
       }
+      /* UNE ÉTAPE DITE PAR LA VOIX n'est pas une réponse : ni bulle (la liste la coche déjà), ni place dans la synthèse. */
+      if (role === 'assistant' && estUneAnnonce(texte, courante.annoncesDites)) {
+        bus.emit({ type: 'voix.direct.tour', role, texte, final: true, projets: [], annonce: true });
+        return;
+      }
       const projets = reunirLesMarques(projetsCites(texte, projetsJoignables()), role === 'assistant' ? courante.projetsEnAttente : []);
       const sources = role === 'assistant' && courante.sourcesEnAttente ? courante.sourcesEnAttente : undefined;
       if (role === 'assistant') {
@@ -991,8 +1224,8 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       }
       discussions.ajouterTour(courante.discussion, role, texte, projets);
       courante.transcription.push({ role, texte });
-      // UNE PHRASE QUI RENVOIE AU PASSÉ : Beluga cherche pour la voix, sans attendre qu'elle le demande.
-      if (role === 'user' && questionSurLePasse(texte)) void glisserLeContexte(courante, texte);
+      // CHAQUE PHRASE QUI A UN CONTENU : Beluga prépare le dossier de vérification, avant même que le cerveau le demande.
+      if (role === 'user') ouvrirLaPhrase(courante, texte);
       bus.emit({ type: 'voix.direct.tour', role, texte, final: true, projets: projets.map(nomDuProjet), ...(sources ? { sources } : {}) });
       return;
     }
@@ -1001,8 +1234,13 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       const item = p.item ?? {};
       if (item.type !== 'mcpToolCall' || !item.id) return;
       const args = (item.arguments && typeof item.arguments === 'object' ? item.arguments : {}) as Record<string, any>;
-      const libelle = libelleDeLActivite(String(item.tool ?? ''), args);
-      if (libelle) bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle, etat: 'en-cours', ...(outilQuiAgit(String(item.tool ?? ''), args) ? { agit: true } : {}) });
+      const outil = String(item.tool ?? '');
+      const libelle = libelleDeLActivite(outil, args);
+      if (libelle) {
+        bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle, etat: 'en-cours', ...phraseDeLEtape(courante), ...(outilQuiAgit(outil, args) ? { agit: true } : {}) });
+        // Le dossier, Beluga l'a déjà dit en le préparant : seules les autres étapes s'annoncent.
+        if (outil !== 'voix_dossier') annoncerLEtape(courante, String(item.id), { debut: libelle });
+      }
       return;
     }
     case 'item/completed': {
@@ -1013,7 +1251,12 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       if (libelleFini) {
         // Un refus rendu par Beluga (`ok: false` → `isError`) est un échec : il se voit, Jarvis le dit à voix haute.
         const echec = !!item.error || item.status === 'failed' || item.result?.isError === true;
-        bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle: libelleFini, etat: echec ? 'echec' : 'finie' });
+        const outil = String(item.tool ?? '');
+        const texteRendu = texteDuResultatMcp(item.result) ?? '';
+        const resultat = echec ? texteRendu.replace(/\s+/g, ' ').trim().slice(0, 140) || null : resultatDeLOutil(outil, args, texteRendu);
+        bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle: libelleFini, etat: echec ? 'echec' : 'finie', ...phraseDeLEtape(courante), ...(resultat ? { resultat } : {}) });
+        const fin = echec ? null : finDeLEtape(outil, args, resultat);
+        if (fin) annoncerLEtape(courante, String(item.id), { fin });
       }
       const projets = projetsDesArguments(args, projetsJoignables());
       courante.projetsEnAttente = reunirLesMarques(courante.projetsEnAttente, projets);
@@ -1039,6 +1282,12 @@ function traiterLaNotification(courante: Session, n: Notification): void {
         const etat = args.action === 'valider_proposition' ? 'creee' : args.action === 'lancer' ? 'lancee' : null;
         if (etat) bus.emit({ type: 'voix.direct.tache', titre: courante.derniereTache, etat });
       }
+      return;
+    }
+    /* LA FIN DU TRAVAIL DU CERVEAU : la liste se referme (« Je recoupe » coché) et un silence demandé retombe. */
+    case 'turn/completed': {
+      finirLaPhrase(courante);
+      courante.silence = false;
       return;
     }
     case 'thread/realtime/error': {

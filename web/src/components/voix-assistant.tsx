@@ -535,7 +535,7 @@ export function VoixAssistant() {
    * replient pour laisser voir l'écran — le chevron les rouvre. Seule une action CONCRÈTE compte (créer, modifier,
    * ouvrir à l'écran…), jamais une lecture.
    */
-  const jarvisAgit = conversationAllumee && fil.some((tour) => (tour.activite?.agit && tour.activite.etat === 'en-cours') || (tour.action && (tour.action.statut === 'en-cours' || tour.action.statut === 'arretee')));
+  const jarvisAgit = conversationAllumee && fil.some((tour) => (tour.activite?.agit && tour.activite.etat === 'en-cours') || !!tour.verifications?.etapes.some((e) => e.agit && e.etat === 'en-cours') || (tour.action && (tour.action.statut === 'en-cours' || tour.action.statut === 'arretee')));
   React.useEffect(() => {
     if (conversationAllumee) rouvrirLesBulles();
   }, [conversationAllumee]);
@@ -565,8 +565,14 @@ export function VoixAssistant() {
   /* L'ÉCOUTE DU MOT QUI NE DÉMARRE PAS (carte « Relier Beluga Pass dans les réglages », 16/11/2026) : « Chargement du
      détecteur… » restait affiché sans fin et ne disait rien. Au-delà de `CHARGEMENT_DU_MOT_MAX_MS`, ou sur une erreur, le
      module le dit en clair, avec ce qui marche encore. */
-  const erreurMicro =
-    attente.erreur && attente.etat !== 'refuse'
+  /* …MAIS SEULEMENT QUAND ELLE EMPÊCHE DE PARLER (carte « Clavier qui se referme sur mobile », 18/11/2026, capture
+     #e1c70) : ce message ne paraît QUE dans la bulle d'une conversation. Le micro ouvert (`attente.entree`), la
+     conversation marche — Jarvis venait de saluer — et l'écoute du mot n'y sert à rien : en parler sous les ondes
+     faisait croire à une panne. Il reste dit quand le micro lui-même manque (refus, son indisponible). La vraie raison
+     d'un modèle qui ne charge pas part au journal des erreurs (`lib/mot-de-reveil.ts`). */
+  const erreurMicro = attente.entree
+    ? null
+    : attente.erreur && attente.etat !== 'refuse'
       ? t('L’écoute de « {v0} » n’a pas pu démarrer. Touchez le bouton du micro pour parler à Jarvis.', { v0: motReveil })
       : attente.erreur ?? (chargementTropLong ? t('L’écoute de « {v0} » n’a pas pu démarrer. Touchez le bouton du micro pour parler à Jarvis.', { v0: motReveil }) : null);
 

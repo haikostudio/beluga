@@ -12,6 +12,7 @@ import { carteMarketingCachee } from './marketing.js';
 import { estEtapeDeSuite } from './suite-de-cartes.js';
 import { horsDuLotDeDeploiement } from './etapes-du-media.js';
 import type { Card } from './models.js';
+import { dateEtHeureDActivite } from './activite-recente.js';
 
 /** Une tâche attend-elle d'être déployée ? La même règle que la colonne et le menu « Publier ». */
 export function estADeployer(card: Card): boolean {
@@ -59,4 +60,34 @@ export function trierLesPublicationsEnAttente(rendu: PublicationsEnAttente): Pub
     aDeployer: [...rendu.aDeployer].sort((a, b) => a.depuis - b.depuis),
     aProduire: [...rendu.aProduire].sort((a, b) => Number(b.echec) - Number(a.echec) || b.taches - a.taches),
   };
+}
+
+/** Le titre de la section du résumé : la voix la garde dans son dossier par ce début (`activitePourLaVoix`). */
+export const TITRE_DES_PUBLICATIONS_EN_ATTENTE = 'PUBLICATIONS EN ATTENTE';
+
+/**
+ * LA SECTION « PUBLICATIONS EN ATTENTE » DU RÉSUMÉ DE JARVIS (carte « Jarvis : déploiements vus et champ masqué »,
+ * 18/11/2026) : Jarvis ne voyait que les publications qui TOURNENT et répondait « rien n'attend la production » quand
+ * l'onglet « Production » des Tableaux de bord en comptait trois. Elle reprend les DEUX tableaux, avec leurs chiffres
+ * (le compteur et la réponse disent la même chose) ; une liste vide se dit en toutes lettres.
+ */
+export function sectionDesPublicationsEnAttente(rendu: PublicationsEnAttente, nom: (projectId: string) => string): string {
+  const date = (at: number | null) => (at ? dateEtHeureDActivite(at) : 'jamais');
+  const taches = (n: number) => `${n} tâche${n > 1 ? 's' : ''}`;
+  const projets = (n: number) => `${n} projet${n > 1 ? 's' : ''}`;
+  const titre = `${TITRE_DES_PUBLICATIONS_EN_ATTENTE} (mêmes chiffres que les Tableaux de bord ; elles ne tournent PAS, elles attendent un geste)`;
+  const deployer = rendu.aDeployer.length
+    ? `À DÉPLOYER (${projets(rendu.aDeployer.length)}, ${taches(rendu.aDeployer.reduce((t, l) => t + l.taches, 0))}) :\n${rendu.aDeployer
+        .map((l) => `- ${nom(l.projectId)} — ${taches(l.taches)}, en attente depuis ${date(l.depuis)}, dernier déploiement ${date(l.dernierDeploiement)}`)
+        .join('\n')}`
+    : "À DÉPLOYER — Rien n'attend le déploiement.";
+  const produire = rendu.aProduire.length
+    ? `EN ATTENTE DE MISE EN PRODUCTION (${projets(rendu.aProduire.length)}, ${taches(rendu.aProduire.reduce((t, l) => t + l.taches, 0))}) :\n${rendu.aProduire
+        .map(
+          (l) =>
+            `- ${nom(l.projectId)} — ${taches(l.taches)}, dernier déploiement ${date(l.dernierDeploiement)}, dernière mise en production ${date(l.derniereProduction)}${l.echec ? ', DERNIÈRE TENTATIVE EN ÉCHEC' : ''}`,
+        )
+        .join('\n')}`
+    : "EN ATTENTE DE MISE EN PRODUCTION — Rien n'attend la mise en production.";
+  return `${titre} :\n${deployer}\n${produire}`;
 }

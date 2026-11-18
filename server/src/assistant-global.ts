@@ -52,6 +52,10 @@ import {
   ligneDActivite,
   limiteDActivite,
   resoudreLeJour,
+  publicationsDuResume,
+  sectionDesPublicationsEnAttente,
+  TITRE_DES_PUBLICATIONS_EN_ATTENTE,
+  agentSystemeActif,
   type ColumnKey,
   type GenreDeGeste,
   type Card,
@@ -178,7 +182,27 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
 /* ------------------------------------------------------------------ */
 
 /** Les deux outils qui ont déjà leur propre « projet » (le projet à gérer). */
-const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage']);
+const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier', 'voix_silence']);
+
+/**
+ * LES OUTILS DE LA CONVERSATION VOCALE SEULE (carte « Jarvis plus fiable et vérifié », 18/11/2026) : servis au cerveau
+ * de la voix (`voix: true`), à personne d'autre. Le dossier de vérification est préparé par Beluga dès la fin de la
+ * phrase ; le silence coupe les étapes dites à voix haute.
+ */
+const OUTILS_DE_LA_VOIX: ToolDef[] = [
+  {
+    name: 'voix_dossier',
+    description:
+      "LE DOSSIER DE VÉRIFICATION de la phrase que l'utilisateur vient de dire, À APPELER EN PREMIER à chaque demande : Beluga y a réuni, dès la fin de sa phrase, la MÉMOIRE du projet (unités et décisions, avec leur id), les DISCUSSIONS vocales passées (DISC-…), les TÂCHES approchantes de tous les projets (avec leur lien) et l'ACTIVITÉ du moment (tâches au travail, mises en ligne et en production avec leur état réel, PUBLICATIONS EN ATTENTE — à déployer et à mettre en production, mêmes chiffres que les Tableaux de bord —, ce qui attend). Ouvre ensuite ce qu'il désigne, autant que la question l'exige. « demande » (facultatif) : un autre sujet à vérifier que la dernière phrase.",
+    inputSchema: { type: 'object', properties: { demande: { type: 'string', description: 'Un autre sujet que la dernière phrase, en quelques mots.' } } },
+  },
+  {
+    name: 'voix_silence',
+    description:
+      "Le SILENCE DEMANDÉ : quand l'utilisateur veut que tu travailles sans lui parler (« fais ça de ton côté », compris au sens), « actif »: true coupe toutes les étapes dites à voix haute jusqu'à la fin de ce travail ; ta réponse finale en est le compte rendu. « actif »: false les rétablit.",
+    inputSchema: { type: 'object', required: ['actif'], properties: { actif: { type: 'boolean' } } },
+  },
+];
 
 const CHAMP_PROJET = {
   type: 'string',
@@ -220,7 +244,7 @@ const OUTILS_PROPRES: ToolDef[] = [
   {
     name: 'assistant_resume',
     description:
-      "Le RÉSUMÉ DATÉ de Beluga, en UN appel, tous projets, en sections titrées : d'abord les TÂCHES EN COURS (celles qui tournent maintenant, colonne « En cours »), puis les DERNIÈRES TÂCHES TERMINÉES avec leur date et heure (déjà finies, rangées en « Archivé » comprises, la plus récente d'abord — elles ne sont PAS en cours), les DÉCISIONS qui attendent l'utilisateur (datées), puis chaque projet avec ses cartes par colonne et ses messages clients non lus. « jour » filtre les terminées sur un jour (« hier », « aujourd'hui », « avant-hier », « 2026-11-15 » ou « 15/11 », heure de Paris) ; « limite » leur nombre (10 par défaut, 30 au plus) ; « projet » restreint à un projet et liste ses cartes. C'est LA réponse à « qu'est-ce qui est en cours » (section EN COURS seulement), « qu'est-ce qui a été fait », « les dernières tâches », « où en est-on » : inutile de chercher ailleurs.",
+      "Le RÉSUMÉ DATÉ de Beluga, en UN appel, tous projets, en sections titrées : d'abord les TÂCHES EN COURS (celles qui tournent maintenant, colonne « En cours »), puis les DERNIÈRES TÂCHES TERMINÉES avec leur date et heure (déjà finies, rangées en « Archivé » comprises, la plus récente d'abord — elles ne sont PAS en cours), les MISES EN LIGNE ET EN PRODUCTION avec leur état réel (en train de tourner, réussie, en échec — une publication qui tourne n'est jamais « en pause »), CE QUI T'ATTEND (décisions, questions d'agents, plans, datés), puis chaque projet avec ses cartes par colonne et ses messages clients non lus. « jour » filtre les terminées sur un jour (« hier », « aujourd'hui », « avant-hier », « 2026-11-15 » ou « 15/11 », heure de Paris) ; « limite » leur nombre (10 par défaut, 30 au plus) ; « projet » restreint à un projet et liste ses cartes. Viennent aussi les PUBLICATIONS EN ATTENTE : les projets qui ont des tâches « À déployer » et ceux dont la version déployée attend la MISE EN PRODUCTION, avec leur nombre de tâches — les mêmes chiffres que les Tableaux de bord. « Qu'est-ce qui tourne » se répond par les TÂCHES EN COURS ET les publications en cours ; « qu'est-ce qui attend la production / le déploiement », « en prod » par les PUBLICATIONS EN ATTENTE — une publication qui ne tourne pas ne veut JAMAIS dire que rien n'attend ; « qu'est-ce qui m'attend » par CE QUI T'ATTEND.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -329,7 +353,7 @@ export function outilsDeLAssistant(agentId: string, options: { realisation?: boo
   const pourLaVoix = options.voix
     ? TOOL_DEFS.filter((t) => !vus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name) && outilServiALaVoix(t.name))
     : [];
-  return [...ordinaires, ...enPlus, ...pourLaVoix, ...OUTILS_PROPRES].map(avecProjet);
+  return [...ordinaires, ...enPlus, ...pourLaVoix, ...OUTILS_PROPRES, ...(options.voix ? OUTILS_DE_LA_VOIX : [])].map(avecProjet);
 }
 
 export function outilServiALAssistant(nom: string, agentId: string, options: { realisation?: boolean; voix?: boolean } = {}): boolean {
@@ -380,7 +404,15 @@ export async function executerPourLAssistant(
   try {
     switch (nom) {
       case 'assistant_resume':
-        return resume(projetVise, args);
+        return await resume(projetVise, args);
+      case 'voix_dossier': {
+        const { dossierPourLeCerveau } = await import('./voix-directe.js');
+        return await dossierPourLeCerveau(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);
+      }
+      case 'voix_silence': {
+        const { silenceDeLaVoix } = await import('./voix-directe.js');
+        return silenceDeLaVoix(ctx.agentId, args.actif !== false);
+      }
       case 'assistant_messagerie':
         return await messagerie(args, projetVise);
       case 'assistant_surveillances':
@@ -585,25 +617,22 @@ export function trouverDesCartesApprochantes(texte: string, o: { projectId?: str
   const limite = o.limite ?? 15;
   const exactes = store.rechercherDesCartes(texte, { projectId: o.projectId, limite });
   if (exactes.length) return exactes.map((t) => ({ ...t, ailleurs: false }));
-  const mots = [
-    ...new Set(
-      texte
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((m) => (m.length >= 3 || /^\d+$/.test(m)) && !MOTS_HORS_DU_TITRE.has(m)),
-    ),
-  ].slice(0, 8);
+  const mots = motsDeRecherche(texte);
   if (!mots.length) return [];
+  const sansAccent = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const chercher = (projectId?: string) => {
     const points = new Map<string, { trouvee: { card: Card; rang: number }; n: number }>();
     for (const mot of mots) {
-      for (const trouvee of store.rechercherDesCartes(mot, { projectId, limite: 50 })) {
-        const avant = points.get(trouvee.card.id);
-        const poids = trouvee.card.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(mot) ? 1 : 0.5;
-        points.set(trouvee.card.id, { trouvee, n: (avant?.n ?? 0) + poids });
+      // UN MOT COMPTE UNE FOIS, par sa meilleure variante (lui, sa racine, ses équivalents).
+      const meilleur = new Map<string, { trouvee: { card: Card; rang: number }; poids: number }>();
+      for (const variante of mot.variantes) {
+        for (const trouvee of store.rechercherDesCartes(variante, { projectId, limite: 50 })) {
+          const poids = sansAccent(trouvee.card.title).includes(sansAccent(variante)) ? 1 : 0.5;
+          const avant = meilleur.get(trouvee.card.id);
+          if (!avant || avant.poids < poids) meilleur.set(trouvee.card.id, { trouvee, poids });
+        }
       }
+      for (const [id, { trouvee, poids }] of meilleur) points.set(id, { trouvee, n: (points.get(id)?.n ?? 0) + poids });
     }
     const seuil = Math.max(1, Math.ceil(mots.length / 2));
     return [...points.values()]
@@ -615,6 +644,43 @@ export function trouverDesCartesApprochantes(texte: string, o: { projectId?: str
   const ici = chercher(o.projectId);
   if (ici.length || !o.projectId) return ici.map((t) => ({ ...t, ailleurs: false }));
   return chercher(undefined).map((t) => ({ ...t, ailleurs: true }));
+}
+
+/**
+ * LES MOTS QUI DÉSIGNENT LA MÊME CHOSE À LA VOIX (carte « Jarvis plus fiable et vérifié », 18/11/2026) : le 18/11,
+ * « améliore Jarvis » ne trouvait pas « Rendre l'assistant vocal beaucoup plus rapide ». L'assistant s'appelle Jarvis
+ * à l'oral et « assistant vocal » dans les titres.
+ */
+const EQUIVALENTS_PARLES: Record<string, readonly string[]> = {
+  jarvis: ['assistant vocal', 'voix', 'vocal'],
+  vocal: ['voix', 'jarvis'],
+  vocale: ['voix', 'jarvis'],
+  voix: ['vocal', 'jarvis'],
+  assistant: ['jarvis'],
+};
+
+/**
+ * Les mots utiles d'une recherche parlée, chacun avec ses variantes : le mot tel qu'il est écrit (accents gardés : la
+ * base compare les lettres telles quelles), sa RACINE quand il est long (« rapidité » → « rapid » trouve « rapide »),
+ * et ses équivalents parlés. « 70% » → « 70 ».
+ */
+export function motsDeRecherche(texte: string): { mot: string; variantes: string[] }[] {
+  const vus = new Set<string>();
+  const sortie: { mot: string; variantes: string[] }[] = [];
+  // « mets à jour la carte de… » : le geste demandé ne dit rien du titre.
+  const sansGeste = texte.toLowerCase().replace(/\b(?:mets|met|mettre|mise|mettez)\s+(?:à|a)\s+jour\b/gu, ' ');
+  for (const brut of sansGeste.split(/[^\p{L}\p{N}]+/u)) {
+    const norme = brut.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!brut || vus.has(norme) || MOTS_HORS_DU_TITRE.has(norme)) continue;
+    if (brut.length < 3 && !/^\d+$/.test(brut)) continue;
+    vus.add(norme);
+    const variantes = new Set<string>([brut]);
+    if (brut.length >= 7) variantes.add(brut.slice(0, Math.max(5, brut.length - 3)));
+    for (const e of EQUIVALENTS_PARLES[norme] ?? []) variantes.add(e);
+    sortie.push({ mot: brut, variantes: [...variantes] });
+    if (sortie.length >= 8) break;
+  }
+  return sortie;
 }
 
 /** Les cartes approchantes, en lignes (projet, colonne, lien) : la note glissée à la voix les cite. */
@@ -711,7 +777,7 @@ function compteAdmin() {
   return admin;
 }
 
-function resume(projetVise?: string, args: Record<string, any> = {}): ToolResult {
+async function resume(projetVise?: string, args: Record<string, any> = {}): Promise<ToolResult> {
   const maintenant = Date.now();
   const jourVoulu = args.jour !== undefined && args.jour !== null && String(args.jour).trim() ? resoudreLeJour(args.jour, maintenant) : null;
   if (args.jour && String(args.jour).trim() && !jourVoulu) {
@@ -776,6 +842,11 @@ function resume(projetVise?: string, args: Record<string, any> = {}): ToolResult
       ? `DERNIÈRES TÂCHES TERMINÉES (déjà finies, ne sont PAS en cours) — Tâches terminées${jourVoulu ? ` le ${jourVoulu}` : ' récemment'} (la plus récente d'abord, ${terminees.length}) :\n${terminees.map((c) => ligneDActivite(c, libelle(c.colonne))).join('\n')}`
       : `DERNIÈRES TÂCHES TERMINÉES (déjà finies, ne sont PAS en cours) — Aucune tâche terminée${jourVoulu ? ` le ${jourVoulu}` : ''}.`,
   );
+  /* LES MISES EN LIGNE ET EN PRODUCTION (carte « Jarvis plus fiable et vérifié », 18/11/2026) : à 10 h 34, des mises
+     en production tournaient pendant que Jarvis disait « aucune tâche en cours » ; il les a ensuite dites « en pause ».
+     Elles ont désormais leur section, avec leur état réel, à part des tâches et de ce qui attend l'utilisateur. */
+  sections.push(sectionDesPublications(maintenant, projetVise, nomParId));
+  sections.push(await sectionDesPublicationsQuiAttendent(projetVise, nomParId));
   const attentes = [...decisions]
     .sort((a, b) => (b.poseeA ?? 0) - (a.poseeA ?? 0))
     .slice(0, LIMITE_DECISIONS_DU_RESUME)
@@ -783,9 +854,87 @@ function resume(projetVise?: string, args: Record<string, any> = {}): ToolResult
       (d) =>
         `- ${d.poseeA ? dateEtHeureDActivite(d.poseeA) : '—'} — ${d.projectName ?? nomParId.get(d.projectId) ?? d.projectId} — ${d.lieuTitre ?? ''}${d.texte ? ` : ${d.texte.slice(0, 140)}` : ''}`,
     );
-  sections.push(attentes.length ? `Décisions qui t'attendent (${decisions.length}) :\n${attentes.join('\n')}` : 'Aucune décision en attente.');
+  // Les décisions portent déjà les questions des agents et les plans à valider (la même liste que la cloche).
+  sections.push(
+    attentes.length
+      ? `CE QUI T'ATTEND (décisions, questions, plans — ${decisions.length}) :\n${attentes.join('\n')}`
+      : "CE QUI T'ATTEND (décisions, questions, plans) — Rien n'attend ta réponse.",
+  );
   sections.push(`Projets :\n${lignes.join('\n') || 'Aucun projet.'}`);
   return { ok: true, text: sections.join('\n\n') };
+}
+
+/**
+ * La section « MISES EN LIGNE ET EN PRODUCTION » du résumé : les publications qui tournent (seules dites « en cours »),
+ * puis celles finies depuis peu, et les agents sans carte au travail (configuration d'une étape, dépannage).
+ */
+export function sectionDesPublications(maintenant: number, projetVise?: string, noms?: Map<string, string>): string {
+  const nom = (id: string) => noms?.get(id) ?? store.getProject(id)?.name ?? id;
+  let runs: ReturnType<typeof store.productionsAAfficher> = [];
+  try {
+    runs = [...store.productionsAAfficher(maintenant), ...store.deploiementsAAfficher(maintenant)];
+  } catch (err) {
+    log.warn(`résumé : publications illisibles — ${(err as Error).message}`);
+  }
+  const { enCours, recentes } = publicationsDuResume(
+    runs
+      .filter((r) => !projetVise || r.projectId === projetVise)
+      .map((r) => ({ projet: nom(r.projectId), cible: r.cible, state: r.state, startedAt: r.startedAt, endedAt: r.endedAt })),
+  );
+  const systeme = store
+    .listAgents()
+    .filter((a) => !a.cardId && !a.assistantGlobal && a.role !== 'analysis' && a.attendReponse !== true && agentSystemeActif(a))
+    .filter((a) => !projetVise || a.projectId === projetVise)
+    .map((a) => `- ${nom(a.projectId)} — agent système « ${a.title} » au travail`);
+  const enTete = 'MISES EN LIGNE ET EN PRODUCTION (en ce moment, état réel)';
+  const morceaux = [
+    enCours.length || systeme.length
+      ? `${enTete} — En cours (${enCours.length + systeme.length}) :\n${[...enCours, ...systeme].join('\n')}`
+      : `${enTete} — Aucune publication en train de tourner.`,
+  ];
+  if (recentes.length) morceaux.push(`Finies récemment (ne tournent PLUS) :\n${recentes.join('\n')}`);
+  return morceaux.join('\n');
+}
+
+/**
+ * LES PUBLICATIONS QUI ATTENDENT UN GESTE (« À déployer », « Mise en production en attente ») : la même source que les
+ * Tableaux de bord (`publicationsEnAttente`, lectures en base seulement), bornée à 3 s pour ne jamais retenir le
+ * dossier de la voix (`avantLeDelai`). Illisible : on le DIT, on n'écrit jamais « rien n'attend ».
+ */
+async function sectionDesPublicationsQuiAttendent(projetVise?: string, noms?: Map<string, string>): Promise<string> {
+  const nom = (id: string) => noms?.get(id) ?? store.getProject(id)?.name ?? id;
+  try {
+    const { publicationsEnAttente } = await import('./deploy.js');
+    let minuterie: NodeJS.Timeout | undefined;
+    const rendu = await Promise.race([
+      publicationsEnAttente(),
+      new Promise<never>((_, refus) => {
+        minuterie = setTimeout(() => refus(new Error('délai de 3 s dépassé')), 3000);
+      }),
+    ]).finally(() => clearTimeout(minuterie));
+    return sectionDesPublicationsEnAttente(
+      {
+        aDeployer: rendu.aDeployer.filter((l) => !projetVise || l.projectId === projetVise),
+        aProduire: rendu.aProduire.filter((l) => !projetVise || l.projectId === projetVise),
+      },
+      nom,
+    );
+  } catch (err) {
+    log.warn(`résumé : publications en attente illisibles — ${(err as Error).message}`);
+    return `${TITRE_DES_PUBLICATIONS_EN_ATTENTE} — illisibles pour l'instant : ne dis PAS que rien n'attend, renvoie aux Tableaux de bord.`;
+  }
+}
+
+/**
+ * L'ACTIVITÉ DU MOMENT, EN COURT, pour le dossier de vérification de la voix : l'heure, les tâches au travail, les mises
+ * en ligne et en production, ce qui attend l'utilisateur — les sections du résumé, sans la liste des projets.
+ */
+export async function activitePourLaVoix(): Promise<string> {
+  const r = await resume(undefined, { limite: 3 });
+  return r.text
+    .split('\n\n')
+    .filter((bloc) => /^(Maintenant|TÂCHES EN COURS|MISES EN LIGNE ET EN PRODUCTION|PUBLICATIONS EN ATTENTE|CE QUI T'ATTEND)/.test(bloc))
+    .join('\n\n');
 }
 
 /** Les décisions listées dans le résumé : au-delà, seul le compte est donné. */

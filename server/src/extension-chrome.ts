@@ -365,6 +365,11 @@ export function chromeEnLigne(appareilId: string): boolean {
   return !!c && c.ws.readyState === WebSocket.OPEN && Date.now() - c.vu < HORS_LIGNE_APRES_MS;
 }
 
+/** Un Chrome relié est-il EN LIGNE en ce moment (ordinateur allumé, extension connectée) ? */
+export function unChromeEstEnLigne(): boolean {
+  return [...connexions.keys()].some((id) => chromeEnLigne(id));
+}
+
 function envoyer(c: Connexion, message: unknown): void {
   if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(message));
 }

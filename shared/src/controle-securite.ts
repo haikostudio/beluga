@@ -37,6 +37,8 @@ export type CategorieSecurite =
   | 'injection-shell'
   | 'xss'
   | 'entetes'
+  /** La protection contre les robots : renvoi des IA, adresses de travail fermées, garde des visiteurs insistants. */
+  | 'robots'
   /** Un point d'une ÉTUDE rédigée à la main par un agent (`etude-de-securite.ts`), jamais du contrôle automatique. */
   | 'etude';
 

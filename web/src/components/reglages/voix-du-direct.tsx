@@ -5,9 +5,18 @@
  * la voix de la ligne sans rien changer au choix (une courte session sans outils, `ecouterUneVoixDuDirect`).
  */
 import * as React from 'react';
-import { VOIX_DU_DIRECT, nomDeLaVoix, voixDuDirectRetenue } from '@beluga/shared';
-import { Loader2, Play, Volume2 } from '@/components/ui/icones';
-import { BulleInfo, Button } from '@/components/ui';
+import {
+  MODELE_DU_DIRECT,
+  REFLEXIONS_DU_DIRECT,
+  VOIX_DU_DIRECT,
+  libelleDuModeleDuDirect,
+  limiterAuxPlusRecents,
+  modeleEtEffortDuDirect,
+  nomDeLaVoix,
+  voixDuDirectRetenue,
+} from '@beluga/shared';
+import { Brain, Loader2, Play, Volume2 } from '@/components/ui/icones';
+import { BulleInfo, Button, ListeDeroulante } from '@/components/ui';
 import { client } from '@/lib/client';
 import { ecouterUneVoixDuDirect } from '@/lib/direct-codex';
 import { useApp } from '@/lib/use-app';
@@ -94,6 +103,64 @@ export function VoixDuDirect() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * « LE CERVEAU DE L'ASSISTANT VOCAL » (Réglages › Voix, carte « Jarvis plus fiable et vérifié », 18/11/2026 — décision
+ * de l'utilisateur : « un bouton pour paramétrer la version de GPT pour l'agent vocal »). Deux menus côte à côte : le
+ * modèle (la version la plus récente de chaque famille du catalogue Codex du compte) et la réflexion. Sol en
+ * réflexion poussée par défaut ; un changement vaut pour la conversation suivante. La voix qui parle, elle, ne se
+ * règle pas : c'est le modèle temps réel de l'abonnement.
+ */
+export function CerveauDeLaVoix() {
+  const state = useApp();
+  const reglage = modeleEtEffortDuDirect(state.settings);
+  const codex = state.engines?.find((e) => e.id === 'codex');
+  // Le catalogue lent ou absent ne bloque rien : le modèle retenu et Sol restent toujours proposés.
+  const modeles = limiterAuxPlusRecents(codex?.models ?? []).map((m) => ({ valeur: m.id, libelle: m.label || libelleDuModeleDuDirect(m.id) }));
+  for (const id of [reglage.modele, MODELE_DU_DIRECT]) {
+    if (!modeles.some((m) => m.valeur === id)) modeles.push({ valeur: id, libelle: libelleDuModeleDuDirect(id) });
+  }
+  const options = modeles.map((m) => ({ ...m, ...(m.valeur === MODELE_DU_DIRECT ? { detail: t('Par défaut : le plus puissant') } : {}) }));
+  const libellesReflexion: Record<string, string> = { low: t('Basse'), medium: t('Moyenne'), high: t('Poussée') };
+  const enregistrer = (patch: Record<string, string>) => void client.geste({ type: 'settings.update', patch }, t('Enregistrement du réglage'));
+
+  return (
+    <div className="mb-6" data-cerveau-de-la-voix>
+      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Brain className="h-3.5 w-3.5 text-faint" /> {t('Le cerveau de l’assistant vocal')}
+        <BulleInfo cote="start">
+          {t('C’est le modèle qui réfléchit, vérifie et agit pendant que vous parlez à l’assistant. Une réflexion plus poussée donne des réponses plus sûres, un peu plus lentes.')}
+          {'\n\n'}
+          {t('La voix qui parle reste celle de votre abonnement : elle ne se règle pas ici.')}
+        </BulleInfo>
+      </h3>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="min-w-0">
+          <p className="mb-1 text-[11.5px] text-faint">{t('Modèle')}</p>
+          <ListeDeroulante
+            titre={t('Modèle de l’assistant vocal')}
+            valeur={reglage.modele}
+            options={options}
+            repere="cerveau-modele"
+            onChoisir={(valeur) => enregistrer({ voixCodexModele: valeur === MODELE_DU_DIRECT ? '' : valeur })}
+          />
+        </div>
+        <div className="min-w-0">
+          <p className="mb-1 text-[11.5px] text-faint">{t('Réflexion')}</p>
+          <ListeDeroulante
+            titre={t('Réflexion de l’assistant vocal')}
+            valeur={reglage.effort}
+            options={REFLEXIONS_DU_DIRECT.map((r) => ({ valeur: r, libelle: libellesReflexion[r] ?? r }))}
+            repere="cerveau-reflexion"
+            onChoisir={(valeur) => enregistrer({ voixCodexReflexion: valeur === 'high' ? '' : valeur })}
+          />
+        </div>
+      </div>
+      <p className="mt-2 text-[11.5px] text-faint">{t('Un changement s’applique à la prochaine conversation.')}</p>
     </div>
   );
 }

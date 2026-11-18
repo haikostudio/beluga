@@ -19,7 +19,7 @@ import { usePref } from '@/lib/prefs';
 import { CLE_JARVIS_DOS, plateformeNative } from '@/lib/natif';
 import { setMicroOuvertGlobal, useEtatVocalGlobal } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
-import { VoixDuDirect } from '@/components/reglages/voix-du-direct';
+import { CerveauDeLaVoix, VoixDuDirect } from '@/components/reglages/voix-du-direct';
 import { SectionVotreAssistant } from '@/components/installation/votre-assistant';
 import { t } from '@/lib/langue';
 
@@ -90,6 +90,7 @@ export function VoiceSection({ open: _open }: { open: boolean }) {
         <SectionVotreAssistant />
       </div>
       <VoixDuDirect />
+      <CerveauDeLaVoix />
 
       <div className="mb-3 space-y-2">
         {/* LE BOUTON DU BORD EST L'ENTRÉE DE L'ASSISTANT (16/11/2026) : toujours là pour qui a l'assistant ; ce choix ne

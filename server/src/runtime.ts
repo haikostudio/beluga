@@ -219,6 +219,7 @@ import {
   demandeCoupeeAvantLeMoteur,
   textesRendusParLaFile,
   RAISON_FILE_EN_ATTENTE,
+  erreurAgentDisparu,
 } from '@beluga/shared';
 import type { DecisionDArret } from '@beluga/shared';
 import { cheminDePieceJointe, dossiersDeDonneesOuverts } from './pieces-jointes.js';
@@ -985,6 +986,7 @@ export function createAgent(input: {
 }
 
 function setStatus(agent: Agent, status: Agent['status'], extra: Partial<Agent> = {}): Agent {
+  if (!agent?.id) throw erreurAgentDisparu(String((agent as Partial<Agent> | undefined)?.id ?? 'inconnu'));
   const updated = store.saveAgent({ ...agent, ...extra, status });
   bus.emit({ type: 'agent.upsert', agent: updated });
   /*
@@ -4716,7 +4718,9 @@ async function startTurn(
    */
   const contextWindow = runState.context?.window ?? catalogContextWindow;
   if (runState.context && contextWindow) {
-    const frais = store.getAgent(agent.id)!;
+    const frais = store.getAgent(agent.id);
+    // Un agent effacé en plein tour (carte supprimée) : rien à mesurer, l'erreur nommée le dit.
+    if (!frais) throw erreurAgentDisparu(agent.id);
     const observation = observerContexte(
       frais.context,
       runState.context.tokens,
@@ -4742,7 +4746,13 @@ async function startTurn(
     }
   }
 
-  const finalAgent = store.getAgent(agent.id)!;
+  const finalAgent = store.getAgent(agent.id);
+  /*
+   * L'AGENT A PU DISPARAÎTRE PENDANT LE TOUR (carte supprimée en cascade) :
+   * le réécrire ferait valider un objet vide, et l'erreur brute de validation
+   * finissait à l'écran (`shared/src/lancement-impossible.ts`).
+   */
+  if (!finalAgent) throw erreurAgentDisparu(agent.id);
   // « stopped » et non « failed » : l'agent n'a pas échoué, il attend de savoir
   // sur quel compte poursuivre. La carte reste au repos, sans voyant d'échec.
   // Même verdict pour une panne du fournisseur qui a résisté à tous les essais :

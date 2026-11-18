@@ -101,3 +101,49 @@ export function activiteRecente(
 export function ligneDActivite(carte: CarteTerminee, libelleColonne: string): string {
   return `- ${dateEtHeureDActivite(carte.doneAt)} — ${carte.projet} — « ${carte.titre} » (${libelleColonne}) [${carte.id}]`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Les mises en ligne et en production                                  */
+/* ------------------------------------------------------------------ */
+
+/** Ce que le résumé lit d'une publication (`DeployRun`). */
+export interface PublicationDuResume {
+  projet: string;
+  /** dev = mise en ligne sur ce serveur ; production = mise en production, ailleurs. */
+  cible?: 'dev' | 'production';
+  state: 'running' | 'success' | 'failed' | 'stopped';
+  startedAt: number;
+  endedAt?: number;
+}
+
+/** L'état d'une publication, dit tel quel : jamais « en pause » ni « en attente » pour une publication qui tourne. */
+export function etatDeLaPublication(state: PublicationDuResume['state']): string {
+  switch (state) {
+    case 'running':
+      return 'en train de tourner';
+    case 'success':
+      return 'réussie';
+    case 'failed':
+      return 'en échec';
+    default:
+      return 'arrêtée';
+  }
+}
+
+/**
+ * LES PUBLICATIONS DU RÉSUMÉ (carte « Jarvis plus fiable et vérifié », 18/11/2026) : à 10 h 34, des mises en
+ * production tournaient pendant que Jarvis disait « aucune tâche en cours » — le résumé ne les portait pas. « En
+ * cours » SEULEMENT si elles tournent ; les finies depuis peu vont sous « récemment », la plus récente d'abord.
+ */
+export function publicationsDuResume(runs: readonly PublicationDuResume[]): { enCours: string[]; recentes: string[] } {
+  const quoi = (r: PublicationDuResume) => (r.cible === 'production' ? 'mise en production' : 'mise en ligne sur ce serveur');
+  const enCours = runs
+    .filter((r) => r.state === 'running')
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .map((r) => `- ${r.projet} — ${quoi(r)} — ${etatDeLaPublication(r.state)}, depuis ${dateEtHeureDActivite(r.startedAt)}`);
+  const recentes = runs
+    .filter((r) => r.state !== 'running')
+    .sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt))
+    .map((r) => `- ${r.projet} — ${quoi(r)} — ${etatDeLaPublication(r.state)}, finie le ${dateEtHeureDActivite(r.endedAt ?? r.startedAt)}`);
+  return { enCours, recentes };
+}

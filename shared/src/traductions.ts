@@ -31,6 +31,29 @@ import type { Dictionnaire } from './traduire.js';
 type Quatre = readonly [anglais: string, espagnol: string, allemand: string, chinois: string];
 
 const TEXTES: Readonly<Record<string, Quatre>> = {
+  // Témoin du serveur en tête de colonne (carte « Colonne repliée et témoin du serveur », 18/11/2026)
+  'Redémarrage du serveur…': ['Server restarting…', 'Reiniciando el servidor…', 'Server wird neu gestartet…', '服务器正在重启…'],
+  // Audit SEO + GEO du Marketing (carte « Anti-robots et référencement des projets », 18/11/2026)
+  // Suivi GEO du Marketing (carte « Audit et suivi du GEO », 18/11/2026)
+  // Visiteurs bloqués (carte « Anti-robots et référencement des projets », 18/11/2026)
+  'Visiteurs bloqués': ['Blocked visitors', 'Visitantes bloqueados', 'Gesperrte Besucher', '已封禁的访客'],
+  'Aucun garde ne coupe les visiteurs insistants sur le serveur de ce projet.': ['No guard cuts off aggressive visitors on this project’s server.', 'Ninguna protección corta a los visitantes insistentes en el servidor de este proyecto.', 'Kein Schutz sperrt aufdringliche Besucher auf dem Server dieses Projekts.', '此项目的服务器上没有拦截频繁访客的防护。'],
+  'Liste non lue : {v0}.': ['List not read: {v0}.', 'Lista no leída: {v0}.', 'Liste nicht gelesen: {v0}.', '未读取列表：{v0}。'],
+  'serveur inconnu': ['unknown server', 'servidor desconocido', 'unbekannter Server', '未知服务器'],
+  'Aucune adresse bloquée en ce moment.': ['No address blocked right now.', 'Ninguna dirección bloqueada en este momento.', 'Derzeit ist keine Adresse gesperrt.', '目前没有被封禁的地址。'],
+  'Un blocage vaut pour tout le serveur qui sert ce projet. Pastille pleine : banni pour toujours ; anneau : coupé pour une durée.': ['A block applies to the whole server hosting this project. Solid dot: banned for good; ring: cut off for a while.', 'Un bloqueo vale para todo el servidor de este proyecto. Punto lleno: vetado para siempre; anillo: cortado por un tiempo.', 'Eine Sperre gilt für den ganzen Server dieses Projekts. Voller Punkt: dauerhaft gesperrt; Ring: vorübergehend gesperrt.', '封禁对托管此项目的整台服务器生效。实心圆点：永久封禁；圆环：临时封禁。'],
+  'banni pour toujours': ['banned for good', 'vetado para siempre', 'dauerhaft gesperrt', '永久封禁'],
+  'coupé pour une durée': ['cut off for a while', 'cortado por un tiempo', 'vorübergehend gesperrt', '临时封禁'],
+  'jusqu’au {v0}': ['until {v0}', 'hasta el {v0}', 'bis {v0}', '直到 {v0}'],
+  '{v0}/{v1} à {v2}': ['{v1}/{v0} at {v2}', '{v0}/{v1} a las {v2}', '{v0}.{v1}. um {v2}', '{v1}/{v0} {v2}'],
+  'Libérer': ['Release', 'Liberar', 'Freigeben', '解除封禁'],
+  'Libération…': ['Releasing…', 'Liberando…', 'Wird freigegeben…', '正在解除…'],
+  'Impossible de libérer {v0} : {v1}': ['Could not release {v0}: {v1}', 'No se pudo liberar {v0}: {v1}', '{v0} konnte nicht freigegeben werden: {v1}', '无法解除 {v0}：{v1}'],
+  'A cherché des fichiers sensibles': ['Looked for sensitive files', 'Buscó archivos sensibles', 'Suchte nach sensiblen Dateien', '探测敏感文件'],
+  'Rafale de demandes sur une application d’équipe': ['Burst of requests on a team app', 'Ráfaga de peticiones en una aplicación de equipo', 'Anfrageflut auf einer Team-App', '团队应用上的请求激增'],
+  'Rafale de pages': ['Burst of pages', 'Ráfaga de páginas', 'Seitenflut', '页面请求激增'],
+  'Récidive': ['Repeat offence', 'Reincidencia', 'Wiederholungstat', '再次违规'],
+  'Bloqué par le garde': ['Blocked by the guard', 'Bloqueado por la protección', 'Vom Schutz gesperrt', '被防护拦截'],
   /* LE BOUTON DU BORD ET LE VOLET DE L'ASSISTANT EN MODE VOIX (carte « Jarvis : volet, voix et rapidité », 16/11/2026). */
   'Parler à Jarvis — glisser pour le poser sur un autre bord': [
     'Talk to Jarvis — drag it to another edge',
@@ -4911,7 +4934,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Mit dem Server verbunden · {v0} Agenten arbeiten',
     '已连接服务器 · {v0} 个智能体在工作',
   ],
-  'Un autre projet attend une réponse': ['Another project is waiting for an answer', 'Otro proyecto espera una respuesta', 'Ein anderes Projekt wartet auf eine Antwort', '另一个项目在等待回复'],
   'Notifications': ['Notifications', 'Notificaciones', 'Benachrichtigungen', '通知'],
   '{compte} notifications non lues': ['{compte} unread notifications', '{compte} notificaciones sin leer', '{compte} ungelesene Benachrichtigungen', '{compte} 条未读通知'],
   'Aucune notification': ['No notifications', 'Ninguna notificación', 'Keine Benachrichtigungen', '暂无通知'],
@@ -5568,6 +5590,15 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Touchez le nom pour l’adopter : c’est la seule voix de Beluga.': ['Tap the name to choose it: it is Beluga’s only voice.', 'Toca el nombre para elegirla: es la única voz de Beluga.', 'Tippen Sie auf den Namen, um sie zu wählen: Es ist die einzige Stimme von Beluga.', '点按名称即可选用：这是 Beluga 唯一的声音。'],
   'C’est elle qui vous répond en direct.': ['This is the one answering you live.', 'Es la que te responde en directo.', 'Diese Stimme antwortet Ihnen live.', '实时回答您的就是这个声音。'],
   'Une voix d’OpenAI pour le direct.': ['An OpenAI voice for live conversation.', 'Una voz de OpenAI para el directo.', 'Eine OpenAI-Stimme für das Live-Gespräch.', '用于实时对话的 OpenAI 声音。'],
+  'Le cerveau de l’assistant vocal': ['The voice assistant’s brain', 'El cerebro del asistente de voz', 'Das Gehirn des Sprachassistenten', '语音助手的大脑'],
+  'C’est le modèle qui réfléchit, vérifie et agit pendant que vous parlez à l’assistant. Une réflexion plus poussée donne des réponses plus sûres, un peu plus lentes.': ['This is the model that thinks, checks and acts while you talk to the assistant. Deeper reasoning gives safer answers, a little slower.', 'Es el modelo que piensa, verifica y actúa mientras hablas con el asistente. Un razonamiento más profundo da respuestas más seguras, algo más lentas.', 'Das ist das Modell, das nachdenkt, prüft und handelt, während Sie mit dem Assistenten sprechen. Gründlicheres Nachdenken gibt sicherere, etwas langsamere Antworten.', '这是您与助手对话时负责思考、核实和执行的模型。思考越深入，回答越可靠，但会稍慢一些。'],
+  'La voix qui parle reste celle de votre abonnement : elle ne se règle pas ici.': ['The speaking voice stays the one from your subscription: it is not set here.', 'La voz que habla sigue siendo la de tu suscripción: no se ajusta aquí.', 'Die sprechende Stimme bleibt die Ihres Abonnements: Sie wird hier nicht eingestellt.', '说话的声音仍来自您的订阅：此处无法设置。'],
+  'Modèle de l’assistant vocal': ['Voice assistant model', 'Modelo del asistente de voz', 'Modell des Sprachassistenten', '语音助手模型'],
+  'Réflexion de l’assistant vocal': ['Voice assistant reasoning', 'Razonamiento del asistente de voz', 'Nachdenken des Sprachassistenten', '语音助手的思考程度'],
+  'Par défaut : le plus puissant': ['Default: the most powerful', 'Por defecto: el más potente', 'Standard: das leistungsstärkste', '默认：最强大的'],
+  'Un changement s’applique à la prochaine conversation.': ['A change applies from the next conversation.', 'Un cambio se aplica a partir de la próxima conversación.', 'Eine Änderung gilt ab dem nächsten Gespräch.', '更改将在下一次对话时生效。'],
+  'Je vérifie avant de répondre': ['Checking before I answer', 'Compruebo antes de responder', 'Ich prüfe, bevor ich antworte', '回答前先核实'],
+  '{faites} sur {total}': ['{faites} of {total}', '{faites} de {total}', '{faites} von {total}', '{faites} / {total}'],
 
   /* ---- Un interrupteur des réglages d'un tour, et la recherche ---- */
   'Rechercher un projet…': ['Search for a project…', 'Buscar un proyecto…', 'Ein Projekt suchen…', '搜索项目…'],
@@ -7619,12 +7650,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'LLM online',
     '模型在线',
   ],
-  'Reconnexion…': [
-    'Reconnecting…',
-    'Reconectando…',
-    'Verbindung wird wiederhergestellt…',
-    '正在重新连接…',
-  ],
 
   'Le brouillon n\'a pas pu être sauvegardé. Votre texte reste dans le champ.': [
     'The draft could not be saved. Your text stays in the field.',
@@ -8532,6 +8557,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   /* LE LECTEUR COMMUN, LE CHOIX DES PAGES ET LA VRAIE CHARTE (carte « Aperçu, chat, Agentik et vraie charte », 06/11/2026). */
   'Pages montrées au client': ['Pages shown to the client', 'Páginas que ve el cliente', 'Seiten für den Kunden', '向客户展示的页面'],
   'Pages du PDF': ['PDF pages', 'Páginas del PDF', 'Seiten im PDF', 'PDF 页面'],
+  'Options d’affichage': ['Display options', 'Opciones de visualización', 'Anzeigeoptionen', '显示选项'],
   'Couverture': ['Cover', 'Portada', 'Titelseite', '封面'],
   'Partie': ['Part', 'Parte', 'Teil', '部分'],
   'Galerie': ['Gallery', 'Galería', 'Galerie', '图库'],
@@ -8702,7 +8728,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Couper le micro': ['Mute the microphone', 'Silenciar el micrófono', 'Mikrofon stummschalten', '关闭麦克风'],
   'Afficher les bulles': ['Show the bubbles', 'Mostrar las burbujas', 'Sprechblasen anzeigen', '显示气泡'],
   'Replier les bulles': ['Collapse the bubbles', 'Plegar las burbujas', 'Sprechblasen einklappen', '收起气泡'],
-  'Parler à Jarvis': ['Talk to Jarvis', 'Hablar con Jarvis', 'Mit Jarvis sprechen', '与 Jarvis 对话'],
   'Toucher deux fois le dos de l’iPhone lance Jarvis': ['Double-tapping the back of the iPhone starts Jarvis', 'Tocar dos veces la parte trasera del iPhone inicia Jarvis', 'Zweimal auf die iPhone-Rückseite tippen startet Jarvis', '轻点两下 iPhone 背面即可启动 Jarvis'],
   'Dernier déploiement': ['Last deployment', 'Último despliegue', 'Letzte Veröffentlichung', '上次部署'],
   'Dernière mise en production': ['Last production release', 'Última puesta en producción', 'Letzte Produktionsfreigabe', '上次上线'],

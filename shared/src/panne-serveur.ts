@@ -304,3 +304,30 @@ export const MOT_GESTE_NON_PARTI =
 /** La même chose, quand l'écran sait NOMMER le geste perdu. */
 export const MOT_GESTE_NOMME_NON_PARTI =
   '{geste} : la demande n’a pas pu partir, le serveur ne répondait pas. Le lien est relancé — réessayez dans un instant.';
+
+/**
+ * LE TÉMOIN DU SERVEUR, EN TÊTE DE LA COLONNE DE GAUCHE (carte « Colonne repliée et témoin du serveur », 18/11/2026).
+ *
+ * L'icône de l'application porte un point au coin haut droit, à trois teintes :
+ *  - `stable`      gris-vert : le lien répond ;
+ *  - `redemarrage` orange qui clignote : le démon redémarre, ou le lien se renoue (reconnexion COURTE, état en cours
+ *                  de récupération, canal muet qu'on vérifie) — une coupure ATTENDUE ou passagère ;
+ *  - `eteint`      rouge : le serveur ne répond plus, DURABLEMENT.
+ *
+ * Le rouge suit le MÊME seuil que l'alerte « le serveur ne répond pas » (`DELAI_CANAL_COUPE`) : un rechargement ou un
+ * changement de réseau ne le fait jamais paraître. Un redémarrage annoncé reste orange, sauf s'il s'éternise au-delà
+ * de `DELAI_REDEMARRAGE_TROP_LONG` : un démon qui ne revient pas est éteint, quoi qu'il ait annoncé.
+ */
+export type TeinteDuTemoinServeur = 'stable' | 'redemarrage' | 'eteint';
+
+/** Un redémarrage ordinaire prend moins d'une minute ; au-delà de trois, le démon n'est pas revenu. */
+export const DELAI_REDEMARRAGE_TROP_LONG = 180_000;
+
+export function teinteDuTemoinServeur(etat: EtatDuCanal, coupeDepuis: number | undefined, maintenant: number): TeinteDuTemoinServeur {
+  if (etat === 'en-ligne') return 'stable';
+  const coupure = coupeDepuis == null ? 0 : maintenant - coupeDepuis;
+  if (etat === 'redemarrage') return coupure >= DELAI_REDEMARRAGE_TROP_LONG ? 'eteint' : 'redemarrage';
+  if (etat === 'reconnexion') return coupure >= DELAI_CANAL_COUPE ? 'eteint' : 'redemarrage';
+  return 'redemarrage';
+}
+

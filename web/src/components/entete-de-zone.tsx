@@ -39,6 +39,15 @@ export const FournirLaCibleDesGestes = CibleDesGestes.Provider;
  * la porte déjà et remet `--zone-sure-entete` à zéro (`FeuilleDeTiroir`).
  */
 const MARGE_HAUTE_DE_LA_BARRE = 'var(--zone-sure-entete, var(--zone-sure-haut, 0px))';
+/*
+ * L'AIR SOUS LES BOUTONS DU HAUT DU TÉLÉPHONE (18/11/2026, capture #b688, maquette #d2f0) : 12 px entre le bas des
+ * boutons (40 px au téléphone, mesurés : ☰ et ⋮) et le bas de la barre, comme la marge latérale (`px-3`). Le haut
+ * ne bouge pas. Les deux barres propres au téléphone ajoutent ce qui manque sous leur rangée : 44 px de rangée en
+ * laissent 2, il en faut 10 de plus ; 48 px en laissent 4, il en faut 8. Contrôle : `scripts/verif-air-sous-le-haut.mjs`.
+ */
+const AIR_SOUS_LES_BOUTONS_DU_TELEPHONE = 12;
+const BOUTON_DU_HAUT = 40;
+const complementSous = (rangee: number) => AIR_SOUS_LES_BOUTONS_DU_TELEPHONE - (rangee - BOUTON_DU_HAUT) / 2;
 
 /**
  * LE MENU PRINCIPAL DU TÉLÉPHONE (la colonne des projets, qui vit dans un
@@ -1252,7 +1261,7 @@ export function EnteteDeZone({
         data-titre-centre
         {...attributs}
         className={cn('shrink-0', className)}
-        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE }}
+        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE, paddingBottom: complementSous(48) }}
       >
         <div className="relative flex h-12 items-center gap-1 px-3" data-rang-du-titre>
           <div ref={refGauche} className="flex shrink-0 items-center gap-1" data-cote-du-haut="gauche">
@@ -1325,7 +1334,11 @@ export function EnteteDeZone({
         className={cn('relative flex shrink-0 items-center gap-1 px-3', className)}
         /* UN HAUT COMPACT (13/11/2026, captures #0175 et #cda3 : « un gap de trop entre l'heure et la barre des
            onglets ») : 44 px, la hauteur d'une barre de navigation iOS, au lieu de 56. */
-        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE, height: `calc(2.75rem + ${MARGE_HAUTE_DE_LA_BARRE})` }}
+        style={{
+          paddingTop: MARGE_HAUTE_DE_LA_BARRE,
+          paddingBottom: complementSous(44),
+          height: `calc(2.75rem + ${complementSous(44)}px + ${MARGE_HAUTE_DE_LA_BARRE})`,
+        }}
       >
         <div ref={refGauche} className="flex shrink-0 items-center gap-1" data-cote-du-haut="gauche">
           {retour}
@@ -1338,8 +1351,9 @@ export function EnteteDeZone({
           {droite}
         </div>
         {hautEnLigne ? null : <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 flex h-11 items-center justify-center"
-          style={{ paddingLeft: cote, paddingRight: cote }}
+          className="pointer-events-none absolute inset-x-0 flex h-11 items-center justify-center"
+          /* Calé sur la rangée des boutons, au-dessus de l'air du bas : le nom reste centré sur eux. */
+          style={{ paddingLeft: cote, paddingRight: cote, bottom: complementSous(44) }}
           data-calque-du-nom
         >
           <div className="pointer-events-auto flex min-w-0 max-w-full flex-1 justify-center">{etagesTelephone}</div>

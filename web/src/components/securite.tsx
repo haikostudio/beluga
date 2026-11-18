@@ -12,7 +12,16 @@ import {
   type ProjetSuiviSecurite,
   type ResumeDAudit,
   type VueDAudit,
+  type VisiteurBloque,
+  type ServeurDesSites,
 } from '@beluga/shared';
+
+interface VisiteursBloquesDuProjet {
+  serveur: ServeurDesSites | null;
+  gardeActif: boolean | null;
+  visiteurs: VisiteurBloque[];
+  note?: string;
+}
 import { Check, ExternalLink, Loader2, Plus, RefreshCw, ShieldCheck, X } from '@/components/ui/icones';
 import { BlocRepliable, Button, Drawer, ListeDeroulante, TitreDePage, ZoneDefilement } from '@/components/ui';
 import { Tableau } from '@/components/ui/tableau';
@@ -510,6 +519,7 @@ function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; 
         onChoisirAudit={setAuditChoisi}
         onDeposer={deposer}
         dernier={!auditChoisi}
+        projectId={projet.projectId}
       />
     </ContexteTexteDuChamp.Provider>
   );
@@ -579,6 +589,7 @@ function RapportDuVolet({
   onChoisirAudit,
   onDeposer,
   dernier,
+  projectId,
 }: {
   vue: VueDAudit | null | undefined;
   audits: ResumeDAudit[];
@@ -590,6 +601,7 @@ function RapportDuVolet({
   onDeposer: (texte: string, retirer: boolean) => void;
   /** Le dernier audit est montré : les cases écrivent dans le champ. Un audit passé se lit seulement. */
   dernier: boolean;
+  projectId: string;
 }) {
   const audit = vue?.audit ?? null;
   const etats = new Map((vue?.points ?? []).map((p) => [p.empreinte, p]));
@@ -664,6 +676,7 @@ function RapportDuVolet({
           ))}
         </ul>
       </BlocRepliable>
+      {dernier ? <VisiteursBloques projectId={projectId} /> : null}
       {!constats.length ? (
         <p className="pb-2 text-[13.5px] text-text" data-securite-aucun-point="">
           {t('Aucun point relevé par cet audit.')}
@@ -685,6 +698,116 @@ function RapportDuVolet({
         );
       })}
     </div>
+  );
+}
+
+/** La raison d'un blocage, d'après la prison du garde (mêmes mots que raisonDeLaPrison, traduits ici). */
+function raisonLisible(prison: string): string {
+  if (/pieges/.test(prison)) return t('A cherché des fichiers sensibles');
+  if (/cadence-apps/.test(prison)) return t('Rafale de demandes sur une application d’équipe');
+  if (/cadence/.test(prison)) return t('Rafale de pages');
+  if (/recidive/.test(prison)) return t('Récidive');
+  return t('Bloqué par le garde');
+}
+
+/** « 2026-11-19 08:43:38 » → « 19/11 à 08:43 ». */
+function dateCourte(texte: string | null): string {
+  const m = texte ? /^\d{4}-(\d\d)-(\d\d) (\d\d:\d\d)/.exec(texte) : null;
+  return m ? t('{v0}/{v1} à {v2}', { v0: m[2]!, v1: m[1]!, v2: m[3]! }) : '';
+}
+
+/**
+ * LES VISITEURS BLOQUÉS (carte « Anti-robots et référencement des projets », 18/11/2026) : les adresses coupées ou
+ * bannies par le garde du serveur qui sert le projet (un bannissement vaut pour tout ce serveur), avec leur raison,
+ * leur date et « Libérer », qui lève le bannissement d'un clic et le dit dès le clic. Pastille PLEINE : banni pour
+ * toujours ; ANNEAU : coupé pour une durée. Lu à l'ouverture du rapport, jamais en boucle.
+ */
+function VisiteursBloques({ projectId }: { projectId: string }) {
+  const [etat, setEtat] = React.useState<VisiteursBloquesDuProjet | null | undefined>(undefined);
+  const [enLiberation, setEnLiberation] = React.useState<string | null>(null);
+  const [panne, setPanne] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let vivant = true;
+    setEtat(undefined);
+    client
+      .call<VisiteursBloquesDuProjet>({ type: 'securite.bloques', projectId }, 45000)
+      .then((r) => vivant && setEtat(r))
+      .catch((e) => {
+        if (!vivant) return;
+        setEtat(null);
+        setPanne((e as Error)?.message ?? String(e));
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [projectId]);
+
+  const liberer = async (ip: string) => {
+    setEnLiberation(ip);
+    setPanne(null);
+    try {
+      setEtat(await client.call<VisiteursBloquesDuProjet>({ type: 'securite.liberer', projectId, ip }, 45000));
+    } catch (e) {
+      setPanne(t('Impossible de libérer {v0} : {v1}', { v0: ip, v1: (e as Error)?.message ?? String(e) }));
+    } finally {
+      setEnLiberation(null);
+    }
+  };
+
+  const visiteurs = etat?.visiteurs ?? [];
+  return (
+    /* Remonté une fois la liste lue : « ouvert d'office » ne se décide qu'à la pose du bloc, et il s'ouvre s'il y a des bannis. */
+    <BlocRepliable key={etat ? 'lu' : 'attente'} titre={t('Visiteurs bloqués')} repere="securite-bloques" defautOuvert={visiteurs.length > 0} compte={etat ? visiteurs.length : undefined}>
+      <div className="flex flex-col gap-1.5 pt-1" data-securite-bloques="">
+        {etat === undefined ? (
+          <div className="h-12 animate-pulse rounded-xl bg-surface" />
+        ) : etat === null ? null : !visiteurs.length ? (
+          <p className="text-[13px] text-muted">
+            {etat.gardeActif === false
+              ? t('Aucun garde ne coupe les visiteurs insistants sur le serveur de ce projet.')
+              : etat.gardeActif === null
+                ? t('Liste non lue : {v0}.', { v0: etat.note ?? t('serveur inconnu') })
+                : t('Aucune adresse bloquée en ce moment.')}
+          </p>
+        ) : (
+          <>
+            <p className="text-[12px] text-faint">
+              {t('Un blocage vaut pour tout le serveur qui sert ce projet. Pastille pleine : banni pour toujours ; anneau : coupé pour une durée.')}
+            </p>
+            <ZoneDefilement className="max-h-[320px]">
+              <div className="flex flex-col gap-0.5 rounded-2xl bg-surface p-1.5">
+                {visiteurs.map((v) => (
+                  <div key={v.ip} className="flex items-center gap-3 rounded-xl px-3 py-2.5" data-securite-bloque={v.ip}>
+                    <span
+                      className={cn('h-[7px] w-[7px] shrink-0 rounded-full', v.definitif ? 'bg-text' : 'ring-[1.5px] ring-inset ring-text')}
+                      aria-label={v.definitif ? t('banni pour toujours') : t('coupé pour une durée')}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-mono text-[13px] text-text">{v.ip}</span>
+                      <span className="block truncate text-[12px] text-muted">
+                        {raisonLisible(v.prison)} · {v.definitif ? t('banni pour toujours') : t('jusqu’au {v0}', { v0: dateCourte(v.jusqua) })}
+                      </span>
+                    </span>
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      disabled={enLiberation !== null}
+                      onClick={() => void liberer(v.ip)}
+                      data-securite-liberer={v.ip}
+                    >
+                      {enLiberation === v.ip ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {enLiberation === v.ip ? t('Libération…') : t('Libérer')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </ZoneDefilement>
+          </>
+        )}
+        {panne ? <p className="text-[12.5px] text-danger">{panne}</p> : null}
+      </div>
+    </BlocRepliable>
   );
 }
 

@@ -114,7 +114,8 @@ import { ServicesDuBasDeLaColonne } from '@/components/services-de-la-colonne';
 import { FlecheDesTaches, TachesDuProjet, TachesTrouvees, useTachesParProjet } from '@/components/taches-du-projet';
 import { TachesEnCours } from '@/components/taches-en-cours';
 import { QuotaBadge } from '@/components/quota-badge';
-import { CLE_COLONNE_REDUITE, useEtatDeLiaison, useMoteurActif } from '@/components/quota-bar';
+import { CLE_COLONNE_REDUITE, useMoteurActif } from '@/components/quota-bar';
+import { TemoinDuServeur, useTeinteDuTemoinServeur, useTexteDuTemoinServeur } from '@/components/temoin-du-serveur';
 import { PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
 import { bulleDuTerminal } from '@/components/pastille-terminal';
 import { ouvrirLeTerminal, useEtatDuTerminal } from '@/lib/ouvrir-terminal';
@@ -945,9 +946,9 @@ export function Sidebar({
     );
   };
 
-  const liaison = useEtatDeLiaison();
   const redemarrage = useRedemarrage();
   const moteurActif = useMoteurActif();
+  const texteDuServeur = useTexteDuTemoinServeur(useTeinteDuTemoinServeur());
   const terminal = useEtatDuTerminal();
 
   const rowProps = (id: string, kind: 'project' | 'group') => ({
@@ -1135,17 +1136,21 @@ export function Sidebar({
           data-titre-projets={bandeSeule ? 'bande' : 'deplie'}
         >
           {bandeSeule ? (
+            /* REPLIÉE, LA TÊTE EST LE TÉMOIN DU SERVEUR, QUI DEVIENT « DÉPLIER » AU SURVOL (façon ChatGPT, 18/11/2026) :
+               l'icône de l'application et son point d'état au repos ; la souris ou le clavier dessus, elle cède la
+               place au bouton qui déplie. Mêmes repères qu'avant pour les contrôles. */
             <Button
               variant="ghost"
               size="icon"
-              className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
+              className="group/deplier h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
               aria-label="Déplier le menu"
-              title={t('Déplier le menu')}
+              title={`${t('Déplier le menu')} · ${texteDuServeur}`}
               data-deplier-colonne
               data-replier-colonne="reduite"
               onClick={() => setReduite(false)}
             >
-              <PanelLeft className="h-4 w-4" />
+              <TemoinDuServeur taille={26} className="group-hover/deplier:hidden group-focus-visible/deplier:hidden" />
+              <PanelLeft className="hidden h-4 w-4 group-hover/deplier:block group-focus-visible/deplier:block" />
             </Button>
           ) : (
             <>
@@ -1171,8 +1176,14 @@ export function Sidebar({
                   {service.titre}
                 </span>
               ) : (
-                <span className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight text-text" data-nom-application>
-                  Beluga
+                /* LE TÉMOIN DU SERVEUR À LA PLACE DU NOM « BELUGA » (demande de l'utilisateur, 18/11/2026) : l'icône de
+                   l'application, avec au coin le point d'état du lien — il a quitté le pied de la colonne. */
+                <span className="flex min-w-0 flex-1 items-center" data-nom-application>
+                  <Tooltip label={texteDuServeur} side="bottom">
+                    <span className="inline-flex" tabIndex={-1}>
+                      <TemoinDuServeur />
+                    </span>
+                  </Tooltip>
                 </span>
               )}
               {telephone ? (
@@ -1792,13 +1803,8 @@ export function Sidebar({
           data-pied-cache-par-la-recherche={filtre ? '' : undefined}
           className={cn('shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'flex-col px-0 pb-3 pt-2' : 'px-2 pb-2.5 pt-1.5', filtre && '!hidden')}
         >
-          {/* LE POINT DU MOTEUR NE DIT QUE LA LIAISON : plein quand elle tient,
-              battant quand elle est rompue. */}
-          <QuotaBadge
-            activeEngine={moteurActif}
-            variante={bandeSeule ? 'bande' : 'pied'}
-            liaison={{ ...liaison, classe: liaison.enLigne ? 'bg-success' : 'animate-pulse-soft bg-text' }}
-          />
+          {/* Le lien avec le serveur ne se lit plus ici : il est au témoin de la tête de colonne (`TemoinDuServeur`). */}
+          <QuotaBadge activeEngine={moteurActif} variante={bandeSeule ? 'bande' : 'pied'} />
           {/* LA CLOCHE DES NOTIFICATIONS, à côté des réglages (demande du
               12/10/2026) : sur ordinateur seulement — sur téléphone, elle
               reste en haut à droite de l'écran (`app.tsx`). */}

@@ -1569,10 +1569,23 @@ function FilDeConversation({
      pièces jointes gardés) — et revient dès qu'il s'arrête. Hors mode Jarvis, ou sur ordinateur, rien ne change. */
   const directVuDuChamp = useDirectVu();
   const champSousJarvis = telephone && !zoneVocale && !remplacantDuChamp && (directVuDuChamp.etat !== 'eteint' || !!directVuDuChamp.redaction);
+  /* …ET LA BULLE PREND SA PLACE EXACTE (carte « Clavier qui se referme sur mobile », 18/11/2026, maquette #801c) : une
+     RÉSERVE de la hauteur de la bulle (`--hauteur-de-la-bulle-vocale`, posée par `BulleVocale`) se pose où était le
+     champ. La bulle se cale sur son bas (aucune bande vide dessous), le fil s'arrête au-dessus d'elle au lieu de passer
+     dessous, et le bouton photo du pied (`bottom-full`) se pose tout seul juste au-dessus, à droite, comme sur le champ. */
+  const placeDeLaBulle = champSousJarvis ? (
+    <div
+      data-place-de-la-bulle
+      aria-hidden
+      className="shrink-0"
+      style={{ height: 'calc(var(--hauteur-de-la-bulle-vocale, 0px) + var(--air-sous-la-bulle, 12px) + 8px)' }}
+    />
+  ) : null;
   const barreDEcriture = remplacantDuChamp ?? zoneVocale ? (
     <div data-remplacant-du-champ>{remplacantDuChamp ?? zoneVocale}</div>
   ) : (
-    <div data-champ-sous-jarvis={champSousJarvis ? '' : undefined} className={champSousJarvis ? 'hidden' : 'contents'}>
+    <>
+    <div data-enveloppe-du-champ data-champ-sous-jarvis={champSousJarvis ? '' : undefined} className={champSousJarvis ? 'hidden' : 'contents'}>
     {actionAuDessusDuChamp}
     <Composer
       agent={agent}
@@ -1722,6 +1735,8 @@ function FilDeConversation({
       }
     />
     </div>
+    {placeDeLaBulle}
+    </>
   );
 
   /*

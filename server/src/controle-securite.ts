@@ -22,7 +22,9 @@ import {
   constatsDeCles,
   constatsDeDependances,
   constatsDEntetes,
+  constatsDeRobots,
   constatsDInjections,
+  noteDeLEtapeRobots,
   fichierAExaminer,
   gardeGlobaleDansLeCode,
   graviteDAudit,
@@ -285,6 +287,21 @@ export async function controlerLaSecurite(options: OptionsDuControle): Promise<R
     }
   } else {
     etapes.push({ nom: "En-têtes de l'adresse publique", etat: 'non-verifie', note: 'aucune adresse publique donnée' });
+  }
+
+  // 4. Protection contre les robots : renvoi des IA, adresse de travail fermée, garde des visiteurs insistants.
+  if (options.adresse) {
+    try {
+      const { releverLesRobots } = await import('./garde-des-robots.js');
+      const releve = await releverLesRobots(options.adresse);
+      if (!releve.ia && !releve.google) throw new Error("l'adresse ne répond pas");
+      constats.push(...constatsDeRobots(releve));
+      etapes.push({ nom: 'Protection contre les robots', etat: 'fait', note: noteDeLEtapeRobots(releve) });
+    } catch (e) {
+      etapes.push({ nom: 'Protection contre les robots', etat: 'non-verifie', note: (e as Error).message });
+    }
+  } else {
+    etapes.push({ nom: 'Protection contre les robots', etat: 'non-verifie', note: 'aucune adresse publique donnée' });
   }
 
   const rapport: RapportDeSecurite = {

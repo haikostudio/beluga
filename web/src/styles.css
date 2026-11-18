@@ -203,6 +203,9 @@
     --bulle-jarvis-texte: 0 0% 100%;
     /* Le vert du rond « terminé » des icônes de projet (16/11/2026). */
     --etat-termine: 142 60% 48%;
+    /* Le témoin du serveur, en tête de colonne (18/11/2026) : gris-vert quand le lien tient, orange au redémarrage. */
+    --temoin-stable: 150 14% 58%;
+    --temoin-redemarrage: 28 92% 55%;
     /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
        seule teinte ajoutée depuis, réservée au badge d'état d'un agent
        (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
@@ -431,6 +434,9 @@
     --bulle-jarvis: 212 95% 80%;
     --bulle-jarvis-texte: 0 0% 4%;
     --etat-termine: 142 64% 36%;
+    /* Le témoin du serveur, en tête de colonne (18/11/2026) : gris-vert quand le lien tient, orange au redémarrage. */
+    --temoin-stable: 150 16% 42%;
+    --temoin-redemarrage: 28 92% 48%;
     --pret: 0 0% 36%;
     --pret-fond: 0 0% 0% / 0.05;
     --pret-trait: 0 0% 0% / 0.2;
@@ -1487,14 +1493,21 @@ html[data-terminal-ouvert] body {
    par la feuille de style, jamais démontés : le champ garde le curseur et le
    clavier ne se referme pas. Le fil prend le reste ; la barre est le dernier
    bloc de la colonne, donc posée sur le clavier, sans rien qui la recouvre. */
-[data-ecriture-au-clavier] > [data-pied-de-conversation] > :not([data-composer]),
+/* LE CHAMP VIT DANS UNE ENVELOPPE (`[data-enveloppe-du-champ]`, `display: contents`, chat.tsx — celle qui le retire en
+   mode Jarvis sur téléphone). La règle « tout sauf le champ » visait les enfants DIRECTS du pied : elle masquait
+   l'enveloppe, donc le champ qui venait de prendre le curseur, et le clavier se refermait aussitôt sur TOUTE carte
+   (carte « Clavier qui se referme sur mobile », 18/11/2026). L'enveloppe est traversée, jamais masquée. */
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > :not([data-composer]):not([data-enveloppe-du-champ]),
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-enveloppe-du-champ] > :not([data-composer]),
 [data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-rangee-principale],
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-enveloppe-du-champ] > [data-composer] > [data-rangee-principale],
 [data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] > [data-file-attente-barre],
+[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-enveloppe-du-champ] > [data-composer] > [data-file-attente-barre],
 [data-ecriture-au-clavier] [data-captures-flottantes] {
   display: none !important;
 }
 /* Le champ ne sort jamais de l'écran : au-delà de la place restante, il défile en lui-même. */
-[data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] [data-champ-d-ecriture] textarea {
+[data-ecriture-au-clavier] > [data-pied-de-conversation] [data-composer] [data-champ-d-ecriture] textarea {
   max-height: var(--hauteur-max-du-champ, 180px) !important;
 }
 /* LA ZONE D'ÉCRITURE D'UNE PAGE DE COMMUNICATION SE POSE SUR LE CLAVIER (carte du 04/11/2026, capture #e16d) : le
@@ -1661,6 +1674,9 @@ html[data-clavier-ouvert] [data-composer] {
   --bulle-jarvis: 212 100% 42%;
   --bulle-jarvis-texte: 0 0% 100%;
   --etat-termine: 142 60% 48%;
+  /* Le témoin du serveur, en tête de colonne (18/11/2026) : gris-vert quand le lien tient, orange au redémarrage. */
+  --temoin-stable: 150 14% 58%;
+  --temoin-redemarrage: 28 92% 55%;
   /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
      seule teinte ajoutée depuis, réservée au badge d'état d'un agent
      (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne

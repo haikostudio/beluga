@@ -35,6 +35,7 @@ import {
 import { ouvrirMicro, type PriseMicro } from './micro';
 import { t } from '@/lib/langue';
 import { plateformeNative } from '@/lib/natif';
+import { signalerErreur } from '@/lib/erreurs';
 
 /** Le modèle servi par le démon. Nom versionné : un modèle neuf changera d'adresse, donc de cache. */
 export const ADRESSE_DU_MODELE = '/api/modele-de-reveil/vosk-model-small-fr-0.22.tar.gz';
@@ -89,12 +90,62 @@ export interface AttenteDuMot {
 /* Le modèle, chargé une seule fois par page                            */
 /* ------------------------------------------------------------------ */
 
-type ModeleVosk = Awaited<ReturnType<typeof import('vosk-browser')['createModel']>>;
+type ModeleVosk = InstanceType<typeof import('vosk-browser')['Model']>;
 let modele: Promise<ModeleVosk> | null = null;
 
+/** Au-delà, un chargement qui n'a rien dit est tenu pour perdu (téléchargement de 42 Mo compris, réseau mobile lent). */
+const CHARGEMENT_DU_MODELE_MAX_MS = 180_000;
+
+/** La dernière raison d'échec du modèle, lisible dans l'écran des mesures (`mesures-ecran.tsx`) sur l'appareil. */
+export let raisonDuDernierEchecDuModele: string | null = null;
+
+/*
+ * LE CHARGEMENT DIT SON ÉCHEC (carte « Clavier qui se referme sur mobile », 18/11/2026). `createModel` de vosk-browser
+ * n'écoute QUE l'événement « load » : quand le travailleur échoue (téléchargement refusé, mémoire, stockage du
+ * navigateur), il émet « error » et la promesse ne rend JAMAIS la main — l'écoute restait « en chargement » sans fin et
+ * l'écran disait seulement « n'a pas pu démarrer », sans que personne ne sache pourquoi. Le modèle est désormais créé
+ * ici, les deux événements écoutés, sous un plafond de temps ; l'échec referme le travailleur et part au journal des
+ * erreurs de l'interface (`/api/erreur`, source « voix ») avec sa raison et la plateforme.
+ */
 function chargerLeModele(): Promise<ModeleVosk> {
   modele ??= import('vosk-browser')
-    .then(({ createModel }) => createModel(new URL(ADRESSE_DU_MODELE, window.location.href).href, -1))
+    .then(
+      ({ Model }) =>
+        new Promise<ModeleVosk>((resolu, refuse) => {
+          const debut = Date.now();
+          const m = new Model(new URL(ADRESSE_DU_MODELE, window.location.href).href, -1);
+          let fini = false;
+          const echouer = (raison: string) => {
+            if (fini) return;
+            fini = true;
+            window.clearTimeout(plafond);
+            try {
+              m.terminate();
+            } catch {
+              /* déjà refermé */
+            }
+            raisonDuDernierEchecDuModele = raison;
+            signalerErreur({
+              source: 'voix',
+              message: `mot de réveil : modèle non chargé — ${raison}`,
+              pile: JSON.stringify({ plateforme: plateformeNative() ?? 'navigateur', depuisMs: Date.now() - debut }),
+            });
+            refuse(new Error(raison));
+          };
+          const plafond = window.setTimeout(() => echouer(`aucune réponse après ${CHARGEMENT_DU_MODELE_MAX_MS / 1000} s`), CHARGEMENT_DU_MODELE_MAX_MS);
+          m.on('load', (message: any) => {
+            if (fini) return;
+            if (!message?.result) return echouer('chargement refusé par le travailleur');
+            fini = true;
+            window.clearTimeout(plafond);
+            raisonDuDernierEchecDuModele = null;
+            resolu(m);
+          });
+          m.on('error', (message: any) => echouer(String(message?.error ?? 'erreur sans message')));
+          // Un travailleur qui tombe (mémoire épuisée, WebAssembly refusé) ne poste rien : son propre événement le dit.
+          (m as unknown as { worker?: Worker }).worker?.addEventListener('error', (e) => echouer(`travailleur tombé : ${e.message || 'sans message'}`));
+        }),
+    )
     .catch((err) => {
       modele = null;
       throw err;
@@ -460,11 +511,24 @@ export function useAttenteDuMot(actif: boolean, mot: string, surReveil: () => vo
       setEntree(sortieDuDirect);
 
       // Le modèle, chargé à la première ouverture du micro. Pendant ce temps, l'état le DIT.
-      setEtat('chargement');
+      await brancherLeModele();
+    };
+
+    /*
+     * UN ÉCHEC DU MODÈLE SE RETENTE (18/11/2026) : un réseau mobile qui coupe le téléchargement de 42 Mo ne condamne plus
+     * l'écoute jusqu'à la prochaine ouverture du micro. Deux nouveaux essais, espacés, tant que le micro reste ouvert ;
+     * la conversation par le bouton reste possible pendant ce temps.
+     */
+    let essaisDuModele = 0;
+    let relanceDuModele = 0;
+    const brancherLeModele = async (): Promise<void> => {
+      if (!enConversation) setEtat('chargement');
+      etatSansModele = 'chargement';
       try {
         const m = await chargerLeModele();
         if (!vivant) return;
         modeleCharge = true;
+        setErreur(null);
         nouveauReconnaisseur(m);
         if (!enConversation) setEtat('attente');
       } catch {
@@ -472,6 +536,8 @@ export function useAttenteDuMot(actif: boolean, mot: string, surReveil: () => vo
         if (!vivant) return;
         if (!enConversation) setEtat('erreur');
         setErreur(t('Le détecteur du mot « {v0} » n’a pas pu se charger : touchez les ondes pour parler.', { v0: motRef.current }));
+        essaisDuModele += 1;
+        if (essaisDuModele <= 2) relanceDuModele = window.setTimeout(() => vivant && void brancherLeModele(), 20_000 * essaisDuModele);
       }
     };
 
@@ -490,6 +556,7 @@ export function useAttenteDuMot(actif: boolean, mot: string, surReveil: () => vo
 
     return () => {
       vivant = false;
+      window.clearTimeout(relanceDuModele);
       refaireRef.current = null;
       try {
         reconnaisseur?.remove();

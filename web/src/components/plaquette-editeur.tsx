@@ -357,6 +357,8 @@ export function DocumentModifiable({
       },
     });
     const page = PAGES_DE_PLAQUETTE[d.format];
+    /* Un changement de format change la feuille de référence du zoom « Ajuster » — avant de lire ce zoom. */
+    lecteur.current?.dimensions(page.largeurPx, page.hauteurPx);
     const marge = tactile || largeur < 640 ? 16 : 40;
     /* LE ZOOM CHOISI (liste, boutons, molette, pincement) est tenu par le lecteur commun : il survit au redessin. */
     const zoom = lecteur.current ? lecteur.current.zoom() : Math.min(PLAFOND_DU_ZOOM, Math.max(0.2, (largeur - marge) / page.largeurPx));

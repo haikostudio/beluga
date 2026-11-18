@@ -327,9 +327,9 @@ export function RecordingBar({
   const reste = seconds % 60;
 
   return (
-    /* UN ESPACE ENTRE L'ENREGISTREUR ET LE CHAMP D'ÉCRITURE (13/11/2026, capture #cda3) : il ne colle plus au bloc
-       du dessous (témoin de travail ou champ). */
-    <div className="mb-2 flex w-full items-center gap-2 rounded-lg bg-record px-2.5 py-2 text-record-fg animate-slide-up" data-enregistreur-en-cours>
+    /* LE BANDEAU TIENT LA PLACE DU CHAMP D'ÉCRITURE pendant la dictée (18/11/2026, maquette #b3342) : posé là où
+       était le champ, collé au bas du pied — aucune marge dessous, sinon une bande vide le sépare du bord. */
+    <div className="flex w-full items-center gap-2 rounded-lg bg-record px-2.5 py-2 text-record-fg animate-slide-up" data-enregistreur-en-cours>
       <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
         <span className="absolute inset-0 rounded-full bg-record-fg/25 animate-pulse-soft" />
         <Mic className="relative h-3 w-3" />

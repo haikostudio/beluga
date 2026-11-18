@@ -2,6 +2,7 @@ import React from 'react';
 import { ZoneDefilement } from './ui';
 import { EVENEMENT_MESURE_DU_CLAVIER } from '@/lib/ecriture-au-clavier';
 import { useMesureDuClavier } from '@/lib/mesure-du-clavier';
+import { raisonDuDernierEchecDuModele } from '@/lib/mot-de-reveil';
 
 /*
  * ÉCRAN CACHÉ DES MESURES (19/10/2026, carte « Marge du haut des applications
@@ -86,6 +87,9 @@ function relever(): Mesures {
     ['clavier dit ouvert', String(document.documentElement.hasAttribute('data-clavier-ouvert'))],
     ['champ actif', actif && actif !== document.body ? actif.tagName.toLowerCase() : 'aucun'],
     ['pointeur grossier', String(window.matchMedia('(pointer: coarse)').matches)],
+    /* LE MOT DE RÉVEIL (carte « Clavier qui se referme sur mobile ») : la raison exacte d'un détecteur qui ne charge pas. */
+    ['MOT DE RÉVEIL', ''],
+    ['dernier échec du détecteur', raisonDuDernierEchecDuModele ?? 'aucun'],
     ['MODE', ''],
     ['display-mode', mode ?? '?'],
     ['navigator.standalone', String(nav.standalone ?? 'non défini')],

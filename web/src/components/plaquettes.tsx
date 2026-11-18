@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { EtatVideDuProjet, useFiltreCentral, useProjetDuService } from '@/components/projet-du-service';
 import { naviguerVers } from '@/components/ui/lien-interne';
 import { creerUnAgentDeType } from '@/lib/creer-un-agent';
@@ -26,6 +27,12 @@ import {
   DialogHeader,
   DialogTitle,
   Drawer,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   EnteteDeFeuille,
   Input,
   ListeDeroulante,
@@ -33,7 +40,6 @@ import {
   TitreDePage,
   ZoneDefilement,
 } from '@/components/ui';
-import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { TitreEtSous } from '@/components/ui/apercu-de-ligne';
 import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
@@ -642,6 +648,9 @@ function CharteAvecSonAgent({
   const [agrandie, setAgrandie] = React.useState(false);
   const [feuille, setFeuille] = React.useState(false);
   const blocs = useBlocsDuDocument(id);
+  /* Les deux places du menu des options d'affichage : l'entête du volet, l'entête de la feuille du téléphone. */
+  const [placeDuVolet, setPlaceDuVolet] = React.useState<HTMLSpanElement | null>(null);
+  const [placeDeLaFeuille, setPlaceDeLaFeuille] = React.useState<HTMLSpanElement | null>(null);
 
   React.useEffect(() => {
     let vivant = true;
@@ -688,7 +697,14 @@ function CharteAvecSonAgent({
   const parcours = blocs ? <LigneDeParcours repere="charte" etapes={parcoursDeLaCharte(blocs).map((e) => ({ cle: e.cle, libelle: noms[e.cle], etat: e.etat }))} /> : null;
   const nom = titre ?? t('Document');
   const leDocument = (compact: boolean) => (
-    <DocumentOuvert id={id} compact={compact} onAgrandir={(a) => (setFeuille(false), setAgrandie(a))} onSupprime={onSupprime} onMarque={onMarque} />
+    <DocumentOuvert
+      id={id}
+      compact={compact}
+      onAgrandir={(a) => (setFeuille(false), setAgrandie(a))}
+      onSupprime={onSupprime}
+      onMarque={onMarque}
+      emplacementDuMenu={telephone ? { noeud: placeDeLaFeuille, ou: 'feuille' } : { noeud: placeDuVolet, ou: 'volet' }}
+    />
   );
 
   return (
@@ -760,6 +776,8 @@ function CharteAvecSonAgent({
                 <div className="flex shrink-0 items-center gap-1 pb-2 pl-5 pr-3 pt-3" data-charte-entete-du-volet>
                   <FileText className="h-4 w-4 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1 truncate pl-1 text-[14.5px] font-medium text-text">{nom}</span>
+                  {/* LE MENU DES OPTIONS D'AFFICHAGE (format, PDF, lien), rendu par le document lui-même. */}
+                  <span ref={setPlaceDuVolet} className="contents" data-charte-place-du-menu="volet" />
                   <Button
                     size="icon"
                     variant="ghost"
@@ -794,10 +812,13 @@ function CharteAvecSonAgent({
         <Drawer feuille plein open={feuille && !agrandie} onClose={() => setFeuille(false)}>
           <EnteteDeFeuille
             titre={nom}
+            gauche={<span ref={setPlaceDeLaFeuille} className="contents" data-charte-place-du-menu="feuille" />}
             droite={
-              <Button size="icon" variant="ghost" className="h-[38px] w-[38px] shrink-0 text-muted" aria-label="Agrandir la charte" title={t('Agrandir la charte')} onClick={() => (setFeuille(false), setAgrandie(true))} data-charte-agrandir="feuille">
-                <Maximize2 className="h-4 w-4" />
-              </Button>
+              <span className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" className="h-[38px] w-[38px] shrink-0 text-muted" aria-label="Agrandir la charte" title={t('Agrandir la charte')} onClick={() => (setFeuille(false), setAgrandie(true))} data-charte-agrandir="feuille">
+                  <Maximize2 className="h-4 w-4" />
+                </Button>
+              </span>
             }
             data-charte-feuille
           />
@@ -824,6 +845,7 @@ function DocumentOuvert({
   onMarque,
   compact = false,
   onAgrandir,
+  emplacementDuMenu,
 }: {
   id: string;
   onSupprime: () => void;
@@ -836,6 +858,12 @@ function DocumentOuvert({
   compact?: boolean;
   /** Agrandir (vrai) ou remettre dans le volet (faux) ; absent : le document n'a pas de volet. */
   onAgrandir?: (agrandir: boolean) => void;
+  /**
+   * OÙ POSER LE MENU DES OPTIONS D'AFFICHAGE quand le document est compact : l'entête du volet, ou celle de la
+   * feuille du téléphone, posées par la page (`CharteAvecSonAgent`). Le menu reste rendu ICI, où vivent le format,
+   * le PDF et le lien — il ne fait que s'afficher là-haut.
+   */
+  emplacementDuMenu?: { noeud: HTMLElement | null; ou: 'volet' | 'feuille' };
 }) {
   const telephone = useTelephone();
   const [fiche, setFiche] = React.useState<Fiche | null>(null);
@@ -1081,9 +1109,24 @@ function DocumentOuvert({
                     ? t('Version {n} · {c} commentaire(s) ouvert(s)', { n: p.version, c: ouverts })
                     : t('Version {n} — c’est celle que voit votre client', { n: p.version });
 
+  const menuDAffichage = (ou: 'volet' | 'agrandi' | 'feuille', onPages?: (sortie: 'pdf' | 'client') => void) => (
+    <MenuDAffichage
+      emplacement={ou}
+      format={brouillon.format}
+      onFormat={(f) => changer({ format: f })}
+      occupe={occupe === 'telecharger'}
+      onTelecharger={() => void telechargerLePdf()}
+      lienActif={p.lienActif}
+      copie={copie}
+      onCopier={() => void copierLeLien()}
+      onPages={onPages}
+    />
+  );
+
   return (
     <>
       {/* LE FIL D'ARIANE (« Charte graphique › <document> ») est posé par la page de la charte (`CharteAvecSonAgent`). */}
+      {compact && emplacementDuMenu?.noeud ? createPortal(menuDAffichage(emplacementDuMenu.ou), emplacementDuMenu.noeud) : null}
 
       {/*
         LE HAUT DE LA PAGE, EN ICÔNES (décision de l'utilisateur) : les COMMENTAIRES (pastille des non lus, liste façon
@@ -1156,81 +1199,26 @@ function DocumentOuvert({
             </PopoverPrimitive.Content>
           </PopoverPrimitive.Portal>
         </PopoverPrimitive.Root>
-        <BarreDOnglets
-          className="shrink-0"
-          repere="plaquette-format"
-          libelle={t('Format')}
-          valeur={brouillon.format}
-          onChange={(f) => changer({ format: f })}
-          onglets={FORMATS_DE_PLAQUETTE.map((f) => ({ cle: f, libelle: libelleDuFormat(f), icone: <IconeDuFormat format={f} />, iconeSeule: true }))}
-          attributs={{ 'data-plaquette-format': brouillon.format }}
-          attributsOnglet={(f) => ({ 'data-plaquette-choix-format': f })}
-        />
+        {/* LES OPTIONS D'AFFICHAGE EN UN MENU (18/11/2026) : format, PDF et lien du client — le même que dans le volet.
+            Les fenêtres du choix des pages s'ancrent sur son bouton. */}
         <MenuDesPages
           ouvert={volet === 'pdf'}
           onOuvert={(o) => setVolet(o ? 'pdf' : null)}
           sortie="pdf"
           contenu={<ChoixDesPages sortie="pdf" blocs={brouillon.blocs} pages={pagesDesSections} onChange={(blocs) => changer({ blocs })} />}
         >
-          <span role="group" className={CLASSE_GROUPE_DE_LA_BARRE} data-bouton-groupe data-plaquette-groupe-pdf>
-            <Button
-              size="icon-barre"
-              variant="ghost"
-              className="shrink-0 bg-champ text-muted hover:bg-fond-survol"
-              disabled={occupe !== null}
-              onClick={() => void telechargerLePdf()}
-              aria-label="Télécharger le PDF"
-              title={occupe === 'telecharger' ? t('Fabrication du PDF…') : t('Télécharger le PDF')}
-              data-plaquette-telecharger
+          <span className="inline-flex shrink-0" data-plaquette-groupe-pdf>
+            <MenuDesPages
+              ouvert={volet === 'client'}
+              onOuvert={(o) => setVolet(o ? 'client' : null)}
+              sortie="client"
+              contenu={<ChoixDesPages sortie="client" blocs={brouillon.blocs} pages={pagesDesSections} onChange={(blocs) => changer({ blocs })} />}
             >
-              {occupe === 'telecharger' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            </Button>
-            <PopoverPrimitive.Trigger asChild>
-              <Button
-                size="icon-barre"
-                variant="ghost"
-                className={cn('w-7 shrink-0 bg-champ text-muted hover:bg-fond-survol sm:w-6', volet === 'pdf' && 'text-text')}
-                aria-label="Pages du PDF"
-                title={t('Pages du PDF')}
-                data-plaquette-pages-pdf-bouton
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </PopoverPrimitive.Trigger>
+              <span className="inline-flex shrink-0" data-plaquette-groupe-lien>
+                {menuDAffichage('agrandi', (sortie) => requestAnimationFrame(() => setVolet(sortie)))}
+              </span>
+            </MenuDesPages>
           </span>
-        </MenuDesPages>
-        <MenuDesPages
-          ouvert={volet === 'client'}
-          onOuvert={(o) => setVolet(o ? 'client' : null)}
-          sortie="client"
-          contenu={<ChoixDesPages sortie="client" blocs={brouillon.blocs} pages={pagesDesSections} onChange={(blocs) => changer({ blocs })} />}
-        >
-        <span role="group" className={CLASSE_GROUPE_DE_LA_BARRE} data-bouton-groupe data-plaquette-groupe-lien>
-          <Button
-            size="icon-barre"
-            variant="ghost"
-            className="shrink-0 bg-champ text-muted hover:bg-fond-survol"
-            disabled={!p.lienActif || occupe === 'copier'}
-            onClick={() => void copierLeLien()}
-            aria-label="Copier le lien du client"
-            title={!p.lienActif ? t('Lien coupé : rouvrez-le depuis le menu') : copie ? t('Lien copié') : t('Copier le lien du client')}
-            data-plaquette-copier={copie ? 'copie' : ''}
-          >
-            {copie ? <Check className="h-4 w-4" /> : p.lienActif ? <Link2 className="h-4 w-4" /> : <Link2Off className="h-4 w-4" />}
-          </Button>
-          <PopoverPrimitive.Trigger asChild>
-            <Button
-              size="icon-barre"
-              variant="ghost"
-              className={cn('w-7 shrink-0 bg-champ text-muted hover:bg-fond-survol sm:w-6', volet === 'client' && 'text-text')}
-              aria-label="Pages montrées au client"
-              title={t('Pages montrées au client')}
-              data-plaquette-pages-client-bouton
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </Button>
-          </PopoverPrimitive.Trigger>
-        </span>
         </MenuDesPages>
         {/* LE MÊME BOUTON REMET LE DOCUMENT DANS SON VOLET, à droite de la conversation (Échap aussi). */}
         {onAgrandir ? (
@@ -1377,24 +1365,9 @@ function DocumentOuvert({
               <Pencil className="h-4 w-4" />
             </Button>
           ) : null}
-          {/* SUR TÉLÉPHONE, le format est une liste compacte : les trois onglets ne tiennent pas sur 390 px. */}
+          {/* SUR TÉLÉPHONE, le menu des options d'affichage dans la rangée : les trois onglets ne tiennent pas sur 390 px. */}
           {telephone && !compact ? (
-            <div className="min-w-0 shrink" data-plaquette-format={brouillon.format}>
-              <ListeDeroulante
-                valeur={brouillon.format}
-                titre={t('Format')}
-                options={FORMATS_DE_PLAQUETTE.map((f) => ({ valeur: f, libelle: libelleDuFormat(f) }))}
-                onChoisir={(f) => changer({ format: f as FormatDePlaquette })}
-                repere="plaquette-format"
-                seuilRecherche={99}
-                declencheur={(ouvrir, libelle) => (
-                  <Button size="sm" variant="ghost" className="max-w-full bg-raised px-2.5 text-text" onClick={(e) => ouvrir(e)} data-plaquette-choix-format-liste>
-                    <span className="min-w-0 truncate">{libelle}</span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" />
-                  </Button>
-                )}
-              />
-            </div>
+            <div className="min-w-0 shrink">{menuDAffichage('agrandi')}</div>
           ) : null}
         </div>
 
@@ -1627,6 +1600,97 @@ function nomDuGenre(genre: BlocDePlaquette['genre']): string {
  * Une case cochée ne le referme pas (fenêtre ancrée, pas un menu d'actions). Sur téléphone : la feuille du bas.
  */
 /* LES FORMATS EN ICÔNES (décision de l'utilisateur) : la forme de la page dit le format, son nom passe en infobulle. */
+/**
+ * LES OPTIONS D'AFFICHAGE DE LA CHARTE, EN UN SEUL MENU (18/11/2026, capture #ba07 : « les options d'affichage dans
+ * la partie haute du volet de droite, dans un dropdown »). Le bouton montre le format en cours ; le menu propose les
+ * trois formats, puis « Télécharger le PDF » et « Copier le lien du client » — et, là où leurs fenêtres existent,
+ * le choix des pages de chaque sortie. LE MÊME MENU sert dans l'entête du volet, dans le document agrandi et dans la
+ * feuille du téléphone : les repères des anciens boutons (`data-plaquette-choix-format`, `data-plaquette-telecharger`,
+ * `data-plaquette-copier`) vivent sur ses lignes.
+ */
+function MenuDAffichage({
+  format,
+  onFormat,
+  occupe,
+  onTelecharger,
+  lienActif,
+  copie,
+  onCopier,
+  onPages,
+  emplacement,
+}: {
+  format: FormatDePlaquette;
+  onFormat: (f: FormatDePlaquette) => void;
+  occupe: boolean;
+  onTelecharger: () => void;
+  lienActif: boolean;
+  copie: boolean;
+  onCopier: () => void;
+  /** Ouvre le choix des pages d'une sortie — absent là où ce choix n'a pas de fenêtre. */
+  onPages?: (sortie: 'pdf' | 'client') => void;
+  /** Où le menu se pose — pour la hauteur de son bouton. */
+  emplacement: 'volet' | 'agrandi' | 'feuille';
+}) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        {/* DANS LA FEUILLE DU TÉLÉPHONE, une icône carrée : l'entête centre son titre entre deux côtés étroits. */}
+        <Button
+          size={emplacement === 'feuille' ? 'icon' : 'sm'}
+          variant="ghost"
+          className={cn(
+            'shrink-0 text-muted hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text',
+            emplacement === 'feuille' ? 'h-[38px] w-[38px]' : cn('gap-1.5 px-2', emplacement === 'agrandi' ? HAUTEUR_DE_CONTROLE : 'h-8'),
+          )}
+          aria-label={`${t('Options d’affichage')} — ${libelleDuFormat(format)}`}
+          title={t('Options d’affichage')}
+          data-plaquette-options-affichage={emplacement}
+          data-plaquette-format={format}
+        >
+          {occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeDuFormat format={format} />}
+          {emplacement === 'feuille' ? null : (
+            <>
+              <span className="max-w-[120px] truncate text-[13px]">{libelleDuFormat(format)}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+            </>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" titre={t('Options d’affichage')} data-plaquette-menu-affichage="">
+        <DropdownMenuLabel>{t('Format')}</DropdownMenuLabel>
+        {FORMATS_DE_PLAQUETTE.map((f) => (
+          <DropdownMenuItem key={f} onSelect={() => onFormat(f)} data-plaquette-choix-format={f} data-state={f === format ? 'on' : 'off'}>
+            <IconeDuFormat format={f} />
+            <span className="min-w-0 flex-1 truncate">{libelleDuFormat(f)}</span>
+            {f === format ? <Check className="h-4 w-4 shrink-0 text-teinte" /> : <span className="h-4 w-4 shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={occupe} onSelect={onTelecharger} data-plaquette-telecharger>
+          <Download className="h-4 w-4" />
+          {occupe ? t('Fabrication du PDF…') : t('Télécharger le PDF')}
+        </DropdownMenuItem>
+        {onPages ? (
+          <DropdownMenuItem onSelect={() => onPages('pdf')} data-plaquette-pages-pdf-bouton>
+            <ListChecks className="h-4 w-4" />
+            {t('Pages du PDF')}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem disabled={!lienActif} onSelect={onCopier} data-plaquette-copier={copie ? 'copie' : ''}>
+          {copie ? <Check className="h-4 w-4" /> : lienActif ? <Link2 className="h-4 w-4" /> : <Link2Off className="h-4 w-4" />}
+          {!lienActif ? t('Lien coupé : rouvrez-le depuis le menu') : copie ? t('Lien copié') : t('Copier le lien du client')}
+        </DropdownMenuItem>
+        {onPages ? (
+          <DropdownMenuItem onSelect={() => onPages('client')} data-plaquette-pages-client-bouton>
+            <ListChecks className="h-4 w-4" />
+            {t('Pages montrées au client')}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function IconeDuFormat({ format }: { format: FormatDePlaquette }) {
   const Icone = format === 'a4-paysage' ? RectangleHorizontal : format === 'diapositives' ? Presentation : RectangleVertical;
   return <Icone className="h-4 w-4" aria-hidden />;

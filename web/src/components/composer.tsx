@@ -84,9 +84,8 @@ import {
 } from '@/components/ui';
 import { type DragItem, type DropTarget, usePointerDrag } from '@/lib/dnd';
 import { IndicateurComprehension } from '@/components/indicateur-comprehension';
-import { BoutonVoixDuChamp } from '@/components/voix-du-champ';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
-import { useDicteeInstallee, useVoixDisponible } from '@/lib/voix-disponible';
+import { useDicteeInstallee } from '@/lib/voix-disponible';
 import { MenuSlash } from '@/components/menu-slash';
 import { BoutonOrdinateur, commandesDesOrdinateurs, useOrdinateurs } from '@/components/bouton-ordinateur';
 import { AnneauContexte } from '@/components/anneau-contexte';
@@ -1020,11 +1019,11 @@ export function Composer({
     return () => observateur.disconnect();
   }, [aDesDrapeaux, texteAvecDrapeaux, calage]);
 
-  /* LE MICRO REVIENT QUAND LA VOIX N'EST PAS ACTIVE (décision de l'utilisateur, 17/11/2026) : sans compte ChatGPT, ou
-     l'assistant vocal éteint, le bouton voix cède sa place exacte au micro de DICTÉE, qui transcrit sur ce serveur et
-     dépose le texte à la suite de ce qui est écrit — rien ne part tout seul. Sans dictée installée, il reste grisé. */
-  const { disponible: voixDisponible } = useVoixDisponible();
-  const dicteeInstallee = useDicteeInstallee(!voixDisponible);
+  /* LE MICRO DE DICTÉE, DANS TOUS LES CHAMPS (décision de l'utilisateur, 18/11/2026, carte « Audit et suivi du GEO ») :
+     il transcrit sur ce serveur et dépose le texte à la suite de ce qui est écrit — rien ne part tout seul. Sans dictée
+     installée, il reste grisé. La conversation vocale ne s'ouvre plus d'un champ : seulement par le bouton du bord, le
+     raccourci clavier ou « Dis Jarvis ». Remplace la règle du 17/11 « bouton voix si la voix est active, sinon micro ». */
+  const dicteeInstallee = useDicteeInstallee(true);
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
 
 
@@ -2133,15 +2132,6 @@ export function Composer({
 
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={attachments.filter((p) => p.mime.startsWith('image/'))} />
 
-      {recorder.recording ? (
-        <RecordingBar
-          levels={recorder.levels}
-          seconds={recorder.seconds}
-          onValidate={() => recorder.finish(true)}
-          onDiscard={() => recorder.finish(false)}
-        />
-      ) : null}
-
       {recorder.error ? <RecorderErrorBar message={recorder.error} onRetry={recorder.retry} onDiscard={recorder.discardError} /> : null}
 
       {auDessusDuTravail}
@@ -2154,7 +2144,7 @@ export function Composer({
           l'ordre du DOM qui met le suivant par-dessus. Sans témoin, c'est le
           champ qui la recouvre. Plus rien ne flotte en bas à droite du fil :
           cette place est celle du bouton photo. */}
-      {queue.length ? (
+      {queue.length && !recorder.recording ? (
         <FileDAttente
           queue={queue}
           enEdition={edition?.id}
@@ -2170,7 +2160,10 @@ export function Composer({
       {/* Le menu des commandes « / » prend la place du repère des tâches : même
           habillage, même endroit, collé au champ — deux bandeaux empilés là se
           disputeraient le recouvrement de 8px. */}
-      {slashOuvert ? (
+      {/* …ET LA TÊTE DU CHAMP PART AVEC LUI (« Demande · 1 sur 5 », témoin de travail, repère des tâches, menu « / ») :
+          elle est collée au champ, elle n'a plus rien à coiffer — restée seule, elle laissait un trou entre « Lancer et
+          valider » et le bandeau (capture #21ae). */}
+      {recorder.recording ? null : slashOuvert ? (
         <MenuSlash
           commandes={commandesVisibles}
           index={Math.min(slashVise, Math.max(0, commandesVisibles.length - 1))}
@@ -2186,7 +2179,21 @@ export function Composer({
         <ChampFocaliseSurTelephone.Provider value={telephone && champFocalise}>{barreTravail}</ChampFocaliseSurTelephone.Provider>
       )}
 
-      <div className={'flex items-end gap-1.5'}>
+      {/* PENDANT UNE DICTÉE, LE BANDEAU PREND LA PLACE EXACTE DU CHAMP (carte « Jarvis : déploiements vus et champ
+          masqué », 18/11/2026, maquette #b3342) : il ne s'empile plus au-dessus. Le champ sort du flux (`hidden`,
+          jamais une hauteur gardée — MEM-7041) mais reste MONTÉ : brouillon, tags et pièces jointes sont gardés, et le
+          texte dicté y revient à la validation. La rangée « Lancer et valider » redescend contre le bandeau, avec son
+          seul écart habituel (`mb-2`). */}
+      {recorder.recording ? (
+        <RecordingBar
+          levels={recorder.levels}
+          seconds={recorder.seconds}
+          onValidate={() => recorder.finish(true)}
+          onDiscard={() => recorder.finish(false)}
+        />
+      ) : null}
+
+      <div className={cn('flex items-end gap-1.5', recorder.recording && 'hidden')} data-champ-sous-la-dictee={recorder.recording ? '' : undefined}>
         {/* LE CHAMP D'ÉCRITURE : une boîte sur un fond gris pâle, aux coins
             de l'échelle commune (`rounded-lg`, 12 px, comme les boutons et le
             bloc de configuration de l'agent) — le texte en haut, ses boutons
@@ -2601,18 +2608,9 @@ export function Composer({
 
             <AnneauContexte agent={agent ?? undefined} />
 
-            {/* LE BOUTON VOIX (17/11/2026) : la conversation vocale avec l'agent de CE champ ; sa synthèse revient ici, à
-                la suite du brouillon (`voix-du-champ.tsx`). Sans voix active, le MICRO de dictée à sa place exacte. */}
-            {voixDisponible ? (
-              <BoutonVoixDuChamp agentId={agent?.id} disabled={ecritureGelee} />
-            ) : (
-              <MicButton
-                onStart={recorder.start}
-                working={recorder.working}
-                disabled={!agent || ecritureGelee}
-                indisponible={dicteeInstallee === false}
-              />
-            )}
+            {/* LE MICRO DE DICTÉE, toujours (18/11/2026) : jamais le bouton voix — l'agent vocal ne s'ouvre que par le
+                bouton du bord. */}
+            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent || ecritureGelee} indisponible={dicteeInstallee === false} />
 
             {boutons.envoi ? (
               <Button

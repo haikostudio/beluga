@@ -53,6 +53,7 @@ import {
 } from '@/components/barre-du-projet';
 import { naviguerVers } from '@/components/ui/lien-interne';
 import { BoutonPublier, BoutonPublierDuHaut, EVENEMENT_OUVRIR_PUBLIER, FeuillePublier, useCompteAPublier } from '@/components/menu-publier';
+import { ouvrirLePublierDuProjet } from '@/components/mises-en-ligne';
 import { FournirLeFiltreCentral, FournirLeProjetDuService } from '@/components/projet-du-service';
 import { CLE_CALENDRIER_GENERAL, FilDesPagesDeService, FiltreDuProjetDeLaPage, TOUS_LES_PROJETS, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
 import { creerUnAgentDeType, ouvrirDansLeProjet } from '@/lib/creer-un-agent';
@@ -817,12 +818,15 @@ export function App() {
       // pas l'un des trois genres qui alertent (`messageAlerte`).
       // L'Assistant Beluga porte le rôle « deploy » sans être une publication.
       if (agent.role === 'deploy' && !agent.assistantGlobal) {
-        /* UN AGENT DE CONFIGURATION (déploiement ou mise en production) ouvre
-           son TIROIR, sans fenêtre de réglages (30/09/2026). */
+        /* UN AGENT DE CONFIGURATION (déploiement ou mise en production) ouvre le MENU « PUBLIER » du haut, où sa
+           préparation se suit et sa question se répond (« Répondre ») — plus son tiroir (décision de l'utilisateur,
+           18/11/2026 : « on ne doit pas avoir de tiroir sauf si on débogue manuellement »). Seul un appel EXPLICITE
+           de sa conversation (`avecFil`, `client.openConversation`) ouvre encore le tiroir. */
         const projetDeLAgent = etat.projects.find((p) => p.id === agent.projectId);
         const etapeConfiguree = etapeDeLAgentDeConfiguration(projetDeLAgent, agent.id);
         if (etapeConfiguree && !agent.depannagePublication) {
-          ouvrirAgentDeConfiguration(agent.projectId, etapeConfiguree);
+          if (avecFil) ouvrirAgentDeConfiguration(agent.projectId, etapeConfiguree);
+          else ouvrirLePublierDuProjet(agent.projectId);
           return;
         }
         /* CHAQUE AUTRE AGENT DE PUBLICATION OUVRE LE VOLET DE SON ÉTAPE

@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
-import { blocReverseProxySousDomaine, identiteDInstallation, ipsPubliquesDesInterfaces, zoneDesProjets } from '@beluga/shared';
+import fs from 'node:fs';
+import { blocReverseProxySousDomaine, identiteDInstallation, snippetsCaddyDisponibles, ipsPubliquesDesInterfaces, zoneDesProjets } from '@beluga/shared';
 import { fournisseurRetenu, piloteDeNoms, secretsDuFournisseur, type PiloteDeNoms } from './fournisseurs-de-noms.js';
 import { log } from './logger.js';
 
@@ -168,7 +169,14 @@ export async function publishSubdomain(subdomain: string, port: number): Promise
   // 3. Le reverse-proxy, une fois le nom résolu.
   try {
     // L'adresse demandée arrive INTACTE au projet : voir blocReverseProxySousDomaine.
-    const bloc = blocReverseProxySousDomaine(nom, port);
+    // Les blocs communs du serveur (journal des visites, garde des robots), seulement s'il les définit.
+    let caddyfile = '';
+    try {
+      caddyfile = fs.readFileSync('/etc/caddy/Caddyfile', 'utf8');
+    } catch {
+      /* Caddyfile illisible : bloc sans import, toujours valide. */
+    }
+    const bloc = blocReverseProxySousDomaine(nom, port, snippetsCaddyDisponibles(caddyfile));
     await exec(
       'sudo',
       ['-n', 'bash', '-c', `cat > /etc/caddy/project-autostart.d/${slug}.caddy <<'FIN'\n${bloc}FIN`],

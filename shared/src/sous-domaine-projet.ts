@@ -143,10 +143,15 @@ export function consigneCreationProjet(zone = zoneDesProjets()): string {
  *
  * Les connexions permanentes (WebSocket) passent par un relais sans délai
  * d'attente : sans ça, le temps réel se coupe au bout de quelques secondes.
+ *
+ * `snippets` : les blocs communs que le Caddyfile du serveur DÉFINIT (« journal-acces » pour le garde des visiteurs
+ * insistants, « garde-robots » pour le renvoi des IA et la fermeture des adresses de travail). Le démon ne les passe
+ * que s'il les a vus dans le Caddyfile : un serveur neuf sans eux reçoit un bloc qui reste valide.
  */
-export function blocReverseProxySousDomaine(nom: string, port: number): string {
+export function blocReverseProxySousDomaine(nom: string, port: number, snippets: readonly string[] = []): string {
   return (
     `${nom} {\n` +
+    snippets.map((s) => `\timport ${s}\n`).join('') +
     `\tencode gzip\n\n` +
     `\t@ws {\n\t\theader Connection *Upgrade*\n\t\theader Upgrade websocket\n\t}\n` +
     `\thandle @ws {\n\t\treverse_proxy 127.0.0.1:${port} {\n` +
@@ -157,4 +162,13 @@ export function blocReverseProxySousDomaine(nom: string, port: number): string {
     `\t\t}\n\t}\n` +
     `}\n`
   );
+}
+
+/** Les blocs communs qu'un Caddyfile définit, parmi ceux qu'un site de projet importe. */
+export function snippetsCaddyDisponibles(caddyfile: string): string[] {
+  const voulus: Array<[string, RegExp]> = [
+    ['journal-acces', /^\(journal-acces\)\s*\{/m],
+    ['garde-robots', /^\s*import\s+\S*garde-robots\.caddy\s*$|^\(garde-robots\)\s*\{/m],
+  ];
+  return voulus.filter(([, re]) => re.test(caddyfile)).map(([nom]) => nom);
 }

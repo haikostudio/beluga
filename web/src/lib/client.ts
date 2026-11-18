@@ -400,6 +400,7 @@ export interface AppState {
   marketingVersions: Record<string, number>;
   /** Le service Sécurité a changé (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
   securiteVersion: number;
+  /** L'audit SEO + GEO du Marketing a changé : la page ouverte relit. */
   /** La liaison Beluga Pass a changé : la rubrique du coffre relit son état. */
   belugapassVersion: number;
   /** Les marques de l'espace Communication ont changé : ses lieux se relisent. */
@@ -2159,6 +2160,7 @@ class Client {
       case 'securite':
         this.set({ securiteVersion: this.state.securiteVersion + 1 });
         break;
+
 
       case 'belugapass':
         this.set({ belugapassVersion: this.state.belugapassVersion + 1 });

@@ -61,7 +61,7 @@ export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTML
         if (getComputedStyle(enfant).flexGrow === '0') fixeAuDessus += enfant.offsetHeight;
       }
       const hauteur = Math.max(0, noeud.clientHeight - fixeAuDessus - BANDE_DE_FIL);
-      const barre = pied?.querySelector<HTMLElement>(':scope > [data-composer]');
+      const barre = pied?.querySelector<HTMLElement>(':scope > [data-composer], :scope > [data-enveloppe-du-champ] > [data-composer]');
       const zone = barre?.querySelector<HTMLElement>('[data-champ-d-ecriture] textarea');
       if (!barre || !zone) return;
       const autour = barre.offsetHeight - zone.offsetHeight;

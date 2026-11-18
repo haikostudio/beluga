@@ -45,6 +45,11 @@ import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 
 /** La préférence des services épinglés au-dessus de « Services » : leurs clés, partagées entre appareils. */
+/* LE POINT D'ALERTE, COLONNE REPLIÉE : posé en pastille au coin haut droit de l'icône, avec un liseré du fond de la colonne.
+   Laissé dans le flux, il poussait l'icône hors de l'axe des autres (capture #9b17). Déplié, il reste en bout de ligne. */
+export const CLASSE_POINT_SUR_L_ICONE =
+  'pointer-events-none absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-teinte ring-2 ring-[hsl(var(--fond-zone))]';
+
 export const CLE_DES_SERVICES_EPINGLES = 'colonne.servicesEpingles';
 
 /** Les services que ce compte peut ouvrir, dans l'ordre du menu, avec leur groupe. */
@@ -190,9 +195,12 @@ export function ServicesDuBasDeLaColonne({
           onClick={() => ouvrir(s)}
           className={cn(ligne, bandeSeule ? 'justify-center px-0' : 'px-2.5', actif === s.cle ? 'text-important' : 'text-text')}
         >
-          <s.Icone className={cn('h-4 w-4 shrink-0', actif === s.cle ? 'text-important' : 'text-muted')} />
+          <span className="relative flex shrink-0">
+            <s.Icone className={cn('h-4 w-4 shrink-0', actif === s.cle ? 'text-important' : 'text-muted')} />
+            {bandeSeule && alerte(s.cle) ? <span className={CLASSE_POINT_SUR_L_ICONE} data-alerte-de-tuile aria-hidden /> : null}
+          </span>
           <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{s.libelle}</span>
-          {alerte(s.cle) ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teinte" data-alerte-de-tuile aria-hidden /> : null}
+          {!bandeSeule && alerte(s.cle) ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teinte" data-alerte-de-tuile aria-hidden /> : null}
         </button>
       ));
   /* LE SERVICE OUVERT SE LIT AUSSI SUR LA LIGNE « SERVICES » quand il n'est pas épinglé : son nom s'affiche en orange à
@@ -216,7 +224,10 @@ export function ServicesDuBasDeLaColonne({
             title={bandeSeule ? t('Services') : undefined}
             className={cn(ligne, bandeSeule ? 'justify-center px-0' : 'px-2.5', 'text-text data-[state=open]:bg-raised')}
           >
-            <LayoutGrid className={cn('h-4 w-4 shrink-0', actifCache ? 'text-important' : 'text-muted')} />
+            <span className="relative flex shrink-0">
+              <LayoutGrid className={cn('h-4 w-4 shrink-0', actifCache ? 'text-important' : 'text-muted')} />
+              {bandeSeule && uneAlerteCachee ? <span className={CLASSE_POINT_SUR_L_ICONE} data-alerte-navigation aria-hidden /> : null}
+            </span>
             <span className={cn('min-w-0 shrink-0 truncate', bandeSeule && 'sr-only')}>{t('Services')}</span>
             {actifCache && !bandeSeule ? (
               <span className="min-w-0 flex-1 truncate text-right text-[13px] text-important" data-service-actif-sur-la-ligne={actifCache.cle}>
@@ -225,7 +236,7 @@ export function ServicesDuBasDeLaColonne({
             ) : (
               <span className={cn('flex-1', bandeSeule && 'hidden')} />
             )}
-            {uneAlerteCachee ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teinte" data-alerte-navigation aria-hidden /> : null}
+            {!bandeSeule && uneAlerteCachee ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teinte" data-alerte-navigation aria-hidden /> : null}
             {bandeSeule ? null : enTete ? (
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
             ) : (

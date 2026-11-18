@@ -605,6 +605,7 @@ async function main(): Promise<void> {
   const archivesTimers = planifierPurgeDesArchives();
   // Les gestes répétés dans Chrome partent à leur échéance, ou au retour de Chrome (`server/src/extension-chrome.ts`).
   void import('./extension-chrome.js').then((m) => m.planifierLesRoutines()).catch(() => {});
+  // L'audit SEO + GEO du Marketing : contrôle technique hebdomadaire, test des IA mensuel (`server/src/referencement.ts`).
   // Les médias de Communication restés 30 jours à la corbeille s'effacent (`server/src/communication.ts`).
   const corbeilleDesMediasTimers = planifierPurgeDeLaCorbeilleDesMedias();
   // La remise en ordre des fiches (chaque valeur dans sa case), UNE fois, après une copie sur le disque de stockage.

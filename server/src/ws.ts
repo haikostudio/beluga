@@ -5639,6 +5639,27 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ...resultat, projets: listerProjetsSuivis() };
     }
 
+    case 'securite.bloques': {
+      const { estSuivi } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      const projet = store.getProject(projectId);
+      const { visiteursBloques } = await import('./garde-des-robots.js');
+      return visiteursBloques(projet?.adresseProduction || projet?.devUrl || null);
+    }
+
+    case 'securite.liberer': {
+      const { estSuivi } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      const projet = store.getProject(projectId);
+      const { libererUnVisiteur } = await import('./garde-des-robots.js');
+      const ip = String(cmd.ip ?? '').trim();
+      const resultat = await libererUnVisiteur(projet?.adresseProduction || projet?.devUrl || null, ip);
+      log.info(`sécurité : ${ip} libéré par l'interface (projet « ${projet?.name ?? projectId} »)`);
+      return resultat;
+    }
+
     case 'securite.agent': {
       const { assurerLAgent } = await import('./service-securite.js');
       const agentId = await assurerLAgent(String(cmd.projectId ?? ''));

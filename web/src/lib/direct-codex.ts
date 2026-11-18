@@ -54,9 +54,20 @@ export interface ActionDuDirect {
 export interface ActiviteDuDirect {
   id: string;
   libelle: string;
-  etat: 'en-cours' | 'finie' | 'echec';
+  etat: 'en-cours' | 'finie' | 'echec' | 'a-venir';
   /** Une action concrète dans l'application (pas une lecture) : la conversation se montre (18/11/2026). */
   agit?: boolean;
+  /** Le court résultat d'une étape finie, ou la raison d'un échec. */
+  resultat?: string;
+}
+
+/**
+ * LA LISTE « JE VÉRIFIE AVANT DE RÉPONDRE » d'une phrase (carte « Jarvis plus fiable et vérifié », 18/11/2026) : les
+ * sources du dossier, puis chaque outil du cerveau, cochés à mesure ; « Je recoupe les réponses » reste en dernier.
+ */
+export interface VerificationsDuDirect {
+  phrase: string;
+  etapes: ActiviteDuDirect[];
 }
 
 export interface TourDuDirect {
@@ -72,6 +83,7 @@ export interface TourDuDirect {
   tache?: TacheDuDirect;
   action?: ActionDuDirect;
   activite?: ActiviteDuDirect;
+  verifications?: VerificationsDuDirect;
 }
 
 export interface DirectCodex {
@@ -163,14 +175,45 @@ function message(err: unknown): string {
   return err instanceof Error && err.message ? err.message : t('Le direct avec Codex n’a pas pu s’ouvrir.');
 }
 
+/** Le repère de la dernière étape d'une liste : « Je recoupe les réponses » (`…:recoupe`). */
+const estLeRecoupement = (etape: ActiviteDuDirect) => etape.id.endsWith(':recoupe');
+
+/**
+ * Range une étape dans la liste de SA phrase : mise à jour en place (en gardant ce qu'on savait d'elle), ou ajoutée
+ * juste avant « Je recoupe les réponses », qui reste la dernière. Une liste neuve se pose à la suite du fil.
+ */
+export function listeApres(fil: TourDuDirect[], phrase: string, etape: ActiviteDuDirect, prochainId: () => number): TourDuDirect[] {
+  const suite = [...fil];
+  for (let k = suite.length - 1; k >= 0; k -= 1) {
+    const liste = suite[k].verifications;
+    if (liste?.phrase !== phrase) continue;
+    const etapes = [...liste.etapes];
+    const i = etapes.findIndex((e) => e.id === etape.id);
+    if (i >= 0) {
+      const avant = etapes[i]!;
+      etapes[i] = { ...etape, ...(avant.agit ? { agit: true } : {}), ...(!etape.resultat && avant.resultat ? { resultat: avant.resultat } : {}) };
+    } else {
+      const fin = etapes.findIndex(estLeRecoupement);
+      if (fin >= 0 && !estLeRecoupement(etape)) etapes.splice(fin, 0, etape);
+      else etapes.push(etape);
+    }
+    suite[k] = { ...suite[k], verifications: { phrase, etapes } };
+    return suite;
+  }
+  suite.push({ id: prochainId(), le: Date.now(), role: 'assistant', texte: '', final: true, projets: [], verifications: { phrase, etapes: [etape] } });
+  return suite.slice(-TOURS_A_L_ECRAN);
+}
+
 /** Range une nouvelle du démon dans le fil. Règle pure, exportée pour être testée par les contrôles. */
 export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => number): TourDuDirect[] {
   if (evenement?.type === 'voix.direct.tour') {
+    // Une étape que Beluga a fait dire à la voix : déjà cochée dans la liste, elle n'a pas de bulle.
+    if (evenement.annonce) return fil;
     const role = evenement.role === 'user' ? 'user' : 'assistant';
     const suite = [...fil];
     let i = -1;
     for (let k = suite.length - 1; k >= 0; k -= 1) {
-      if (suite[k].role === role && !suite[k].final && !suite[k].tache && !suite[k].action && !suite[k].activite) {
+      if (suite[k].role === role && !suite[k].final && !suite[k].tache && !suite[k].action && !suite[k].activite && !suite[k].verifications) {
         i = k;
         break;
       }
@@ -238,10 +281,12 @@ export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => 
     const activite: ActiviteDuDirect = {
       id: String(evenement.id ?? ''),
       libelle: String(evenement.libelle ?? ''),
-      etat: evenement.etat === 'finie' || evenement.etat === 'echec' ? evenement.etat : 'en-cours',
+      etat: evenement.etat === 'finie' || evenement.etat === 'echec' || evenement.etat === 'a-venir' ? evenement.etat : 'en-cours',
       ...(evenement.agit ? { agit: true } : {}),
+      ...(typeof evenement.resultat === 'string' && evenement.resultat ? { resultat: evenement.resultat } : {}),
     };
     if (!activite.id || !activite.libelle) return fil;
+    if (typeof evenement.phrase === 'string' && evenement.phrase) return listeApres(fil, evenement.phrase, activite, prochainId);
     const suite = [...fil];
     for (let k = suite.length - 1; k >= 0; k -= 1) {
       if (suite[k].activite?.id === activite.id) {

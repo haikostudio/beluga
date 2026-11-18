@@ -3101,6 +3101,13 @@ export const Settings = z.object({
    */
   voixCodexDirect: z.string().default('cove'),
   /**
+   * LE CERVEAU DE LA VOIX (Réglages › Voix, décision de l'utilisateur du 18/11/2026) : le modèle Codex qui réfléchit
+   * pour la conversation vocale et sa réflexion (low | medium | high). Vides = GPT-5.6 Sol en réflexion poussée
+   * (`modeleEtEffortDuDirect`). Un changement vaut pour la conversation suivante.
+   */
+  voixCodexModele: z.string().default(''),
+  voixCodexReflexion: z.string().default(''),
+  /**
    * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
    */

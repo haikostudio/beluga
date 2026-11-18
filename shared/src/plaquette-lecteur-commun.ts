@@ -95,7 +95,7 @@ export function cssDuLecteur(couleur: string, sur: string): string {
  *  - `L` : les libellés (langue et tutoiement du document) ;
  *  - `ancrer` : `ancrerUnFil` ; `api` : `charger`, `creer`, `repondre`, `resoudre`, `supprimer`, `lu` (facultatif) —
  *    chacune rend une promesse `{ ok, statut, fil }` (ou la liste des fils pour `charger`).
- * Rend `{ maj(fils), rafraichir(), placer(), ouvrir(id), allerAuFil(id), zoom(), detruire() }`.
+ * Rend `{ maj(fils), rafraichir(), placer(), ouvrir(id), allerAuFil(id), zoom(), dimensions(l, h), detruire() }`.
  */
 export function monterLeLecteur(o: any): any {
   var G: any = globalThis,
@@ -154,7 +154,8 @@ export function monterLeLecteur(o: any): any {
     LISTE_DU_ZOOM = [0.5, 0.75, 1, 1.25, 1.5, 2],
     niveau: any = 'ajuster',
     zoomCourant = 1,
-    barreZoom: any = null;
+    barreZoom: any = null,
+    observateurDeTaille: any = null;
   function borner(z: number) {
     return Math.min(4, Math.max(0.25, Math.round(z * 1000) / 1000));
   }
@@ -823,6 +824,13 @@ export function monterLeLecteur(o: any): any {
     });
     ecouter(defile, 'scroll', suivre, { passive: true });
     ecouter(win, 'resize', zoomer);
+    /* LA ZONE CHANGE DE LARGEUR SANS QUE LA FENÊTRE BOUGE (volet agrandi, volet tiré) : le zoom « Ajuster » suit aussi. */
+    if (win.ResizeObserver) {
+      observateurDeTaille = new win.ResizeObserver(function () {
+        if (vivant) zoomer();
+      });
+      observateurDeTaille.observe(defile);
+    }
     monterBarreZoom();
     ecouterLeZoom();
   }
@@ -877,6 +885,15 @@ export function monterLeLecteur(o: any): any {
     zoom: function () {
       return R.zoomAuto ? (niveau === 'ajuster' ? ajuste() : niveau) : zoomCourant;
     },
+    /**
+     * LE FORMAT DES FEUILLES A CHANGÉ (A4 portrait, paysage, diapositives) : le zoom « Ajuster » et la hauteur des
+     * miniatures se calculent sur la largeur d'UNE feuille — gardée du montage, elle laissait des diapositives
+     * mesurées comme des A4 (18/11/2026, capture #6c39). À appeler avant `rafraichir`.
+     */
+    dimensions: function (largeur: number, hauteur: number) {
+      R.largeur = largeur;
+      R.hauteur = hauteur;
+    },
     resolus: function (v: boolean) {
       voirResolus = v;
       placer();
@@ -886,6 +903,7 @@ export function monterLeLecteur(o: any): any {
     },
     detruire: function () {
       vivant = false;
+      if (observateurDeTaille) observateurDeTaille.disconnect();
       racine.removeEventListener('click', surLien);
       ecouteurs.forEach(function (e: any) {
         e[0].removeEventListener(e[1], e[2], e[3]);

@@ -58,6 +58,7 @@ import {
   consigneDesDepots,
   depotsDuProjet,
   carteEnPause,
+  phraseDeLancementImpossible,
 } from '@beluga/shared';
 import { avecLesBasesAnnexes, copiesAnnexesOccupees, ouvrirLesCopiesAnnexes, type CopieAnnexe } from './copies-des-depots.js';
 import { menageDesDossiers, ouvrirDossierDeCarte, travailDejaSurLaBranche } from './dossier-de-carte.js';
@@ -1494,7 +1495,7 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
     // rien ne prépare plus rien, et l'erreur est dite juste en dessous.
     finDeLaPreparation();
     const fresh = store.getCard(cardId);
-    bus.toast('error', `Lancement impossible : ${String(err?.message ?? err).slice(0, 200)}`, fresh?.id);
+    bus.toast('error', phraseDeLancementImpossible(err), fresh?.id);
   });
 
   return { ok: true };

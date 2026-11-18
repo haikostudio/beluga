@@ -1471,6 +1471,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('securite.audits'), projectId: z.string() }),
   z.object({ type: z.literal('securite.audit'), projectId: z.string(), auditId: z.string().nullish() }),
   z.object({ type: z.literal('securite.agent'), projectId: z.string() }),
+  /** Les adresses bloquées par le garde du serveur qui sert le projet, et « Libérer » (une IP validée côté démon). */
+  z.object({ type: z.literal('securite.bloques'), projectId: z.string() }),
+  z.object({ type: z.literal('securite.liberer'), projectId: z.string(), ip: z.string().min(3).max(45) }),
   /** « Corriger la sélection » : une carte de correction par projet coché, créée PUIS lancée. */
   z.object({ type: z.literal('securite.corriger'), projets: z.array(z.string()).min(1).max(200) }),
   /**
@@ -2547,6 +2550,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('marketing'), projectId: z.string() }),
   /** LE SERVICE SÉCURITÉ A CHANGÉ pour ce projet (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
   z.object({ type: z.literal('securite'), projectId: z.string() }),
+  /** L'AUDIT SEO + GEO DU MARKETING A CHANGÉ (contrôle lancé ou fini, test des IA posé) : la page ouverte relit. */
   /** LA LIAISON BELUGA PASS A CHANGÉ (liée, sauvegarde reçue, accès des agents, lecture) : la rubrique ouverte relit. */
   z.object({ type: z.literal('belugapass') }),
   /** Les marques de l'espace Communication ont changé : l'écran relit sa colonne. */
@@ -2780,6 +2784,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     final: z.boolean(),
     projets: z.array(z.string()).default([]),
     sources: z.number().optional(),
+    /** Une étape que Beluga a fait dire à la voix : la liste cochée la montre déjà, aucune bulle (18/11/2026). */
+    annonce: z.boolean().optional(),
   }),
   /**
    * UN GESTE DE JARVIS À JOUER, pour le SEUL navigateur `client` qui tient la conversation vocale : il le joue avec
@@ -2827,9 +2833,17 @@ export const ServerEvent = z.discriminatedUnion('type', [
     type: z.literal('voix.direct.activite'),
     id: z.string(),
     libelle: z.string(),
-    etat: z.enum(['en-cours', 'finie', 'echec']),
+    /** « a-venir » : l'étape annoncée dans la liste cochée, pas encore commencée (« Je recoupe les réponses »). */
+    etat: z.enum(['en-cours', 'finie', 'echec', 'a-venir']),
     /** Une action CONCRÈTE dans l'application (créer, modifier, ouvrir à l'écran…), pas une lecture (18/11/2026). */
     agit: z.boolean().optional(),
+    /**
+     * LA PHRASE VÉRIFIÉE à laquelle l'étape appartient (carte « Jarvis plus fiable et vérifié », 18/11/2026) : l'écran
+     * range ses étapes dans UNE liste « Je vérifie avant de répondre », cochée à mesure.
+     */
+    phrase: z.string().optional(),
+    /** Le court résultat d'une étape finie (« 3 éléments trouvés », « aucune tâche au travail »), ou la raison d'un échec. */
+    resultat: z.string().optional(),
   }),
   z.object({
     type: z.literal('ready.client'),

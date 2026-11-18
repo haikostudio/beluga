@@ -3948,8 +3948,16 @@ export function pieceJointeDesignee(ref: unknown, projectId?: string): Attachmen
 export const apresUnePieceEnregistree: ((id: string) => void)[] = [];
 
 export function saveAttachment(attachment: Attachment): Attachment {
+  /*
+   * RÉENREGISTRER UNE PIÈCE CONNUE LA MET À JOUR. `rangerUneCaptureDeLAgent`
+   * ajoute un chemin à une pièce déjà rangée (même empreinte) : l'INSERT nu
+   * levait « UNIQUE constraint failed: attachments.id » en rafale.
+   */
   getDb()
-    .prepare('INSERT INTO attachments (id, project_id, sha, data, created_at) VALUES (?, ?, ?, ?, ?)')
+    .prepare(
+      `INSERT INTO attachments (id, project_id, sha, data, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
+    )
     .run(attachment.id, attachment.projectId, attachment.sha, JSON.stringify(attachment), attachment.createdAt);
   for (const ecouteur of apresUnePieceEnregistree) {
     try {

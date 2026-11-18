@@ -43,49 +43,6 @@ import { t, formatRegional } from '@/lib/langue';
  */
 export const CLE_COLONNE_REDUITE = 'colonne.reduite';
 
-/**
- * OÙ EN EST LA LIAISON AVEC LE SERVEUR, ET QUI ATTEND AILLEURS.
- *
- * Un seul calcul, lu par le bouton des projets du téléphone et par le pied de
- * la colonne sur ordinateur : la liaison rompue passe devant, puis « un autre
- * projet attend une réponse », puis le calme. `enLigne` dit le premier seul —
- * c'est lui que montre le point du moteur, au pied de la colonne.
- */
-export function useEtatDeLiaison(): {
-  classe: string;
-  texte: string;
-  enLigne: boolean;
-  ailleurs: boolean;
-  agentsEnCours: number;
-} {
-  const state = useApp();
-  // « starting » compte aussi : un tour resté coincé dans sa préparation est
-  // justement celui qu'on veut pouvoir arrêter.
-  const agentsEnCours = Object.values(state.agents).filter(
-    (agent) => agent.status === 'running' || agent.status === 'starting',
-  ).length;
-  // Un autre projet que celui affiché attend une réponse.
-  const ailleurs = Object.entries(state.attention).some(
-    ([projectId, compte]) => compte > 0 && projectId !== state.activeProjectId,
-  );
-  if (!state.connected) {
-    return { classe: 'animate-pulse-soft bg-warning', texte: 'Reconnexion…', enLigne: false, ailleurs, agentsEnCours };
-  }
-  if (ailleurs) {
-    return { classe: 'bg-warning', texte: t('Un autre projet attend une réponse'), enLigne: true, ailleurs, agentsEnCours };
-  }
-  return {
-    classe: 'bg-success',
-    texte:
-      agentsEnCours > 1
-        ? t('Connecté au serveur · {v0} agents travaillent', { v0: agentsEnCours })
-        : t('Connecté au serveur'),
-    enLigne: true,
-    ailleurs,
-    agentsEnCours,
-  };
-}
-
 /** Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet ouvert. */
 export function useMoteurActif() {
   const state = useApp();

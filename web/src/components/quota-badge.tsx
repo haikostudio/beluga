@@ -300,19 +300,17 @@ function textesDAide(
 /**
  * LE TÉMOIN DU MOTEUR. Deux tenues pour le même menu des quotas :
  *  - `pied` : la carte au bas de la colonne des projets — logo, « LLM en
- *    ligne » et son point de liaison, puis le compte qui défile et ses deux
- *    pourcentages consommés ; le détail se lit en ouvrant ;
+ *    ligne », puis le compte qui défile et ses deux pourcentages consommés ; le
+ *    détail se lit en ouvrant. Le lien avec le serveur ne se lit plus ici, mais
+ *    au témoin de la tête de colonne (`temoin-du-serveur.tsx`, 18/11/2026) ;
  *  - `bande` : la même, réduite au logo, quand la colonne est repliée.
  */
 export function QuotaBadge({
   activeEngine,
   variante = 'pied',
-  liaison,
 }: {
   activeEngine: EngineId;
   variante?: 'pied' | 'bande';
-  /** L'état de la liaison avec le serveur : le point à côté de « LLM en ligne ». */
-  liaison?: { classe: string; texte: string; enLigne: boolean };
 }) {
   const [open, setOpen] = React.useState(false);
   const state = client.lireEtat();
@@ -551,7 +549,7 @@ export function QuotaBadge({
             'flex min-w-0 items-center rounded-lg text-left transition-colors hover:bg-raised',
             variante === 'bande' ? 'relative h-[43px] sm:h-9 w-[43px] sm:w-9 flex-col justify-center gap-0.5' : 'h-11 flex-1 gap-2.5 px-2.5',
           )}
-          title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair, texteAlerteServices].filter(Boolean).join(' · ')}
+          title={[current?.label ?? t('Quotas des moteurs'), pourcentsEnClair, texteAlerteServices].filter(Boolean).join(' · ')}
           aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
           onMouseEnter={() => setSurvole(true)}
           onMouseLeave={() => setSurvole(false)}
@@ -580,9 +578,6 @@ export function QuotaBadge({
                   {chiffreBande} %
                 </span>
               ) : null}
-              {liaison ? (
-                <span data-point-etat className={cn('absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full', liaison.classe)} />
-              ) : null}
               {texteAlerteServices ? (
                 <span data-alerte-services-ia={alertesServices.map((a) => a.solde.id).join(' ')} className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
               ) : null}
@@ -591,8 +586,7 @@ export function QuotaBadge({
             <>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 text-[13.5px] font-medium leading-tight text-text">
-                  <span className="truncate">{liaison && !liaison.enLigne ? t('Reconnexion…') : t('LLM en ligne')}</span>
-                  {liaison ? <span data-point-etat className={cn('h-1.5 w-1.5 shrink-0 rounded-full', liaison.classe)} /> : null}
+                  <span className="truncate">{t('LLM en ligne')}</span>
                 </span>
                 {/* Le compte qui défile, puis ses pourcentages : c'est le nom
                     qui se tronque, jamais les chiffres. La ligne garde sa
