@@ -265,15 +265,45 @@ async function lOrdinateurDuGeste(
   return { navigateurId: choix.navigateur.id, ordinateurId: choix.ordinateur.id };
 }
 
-/** Le groupe de l'agent se prépare dans la fenêtre de la personne ; l'onglet confié à la carte y entre, sur place, la première fois. */
+/**
+ * LES CARTES QUI TRAVAILLENT DANS UNE FENÊTRE PRIVÉE RÉDUITE, À PART (carte « Audits SEO et GEO dans le Marketing »,
+ * 18/11/2026) : les passages du suivi GEO posent leurs questions aux IA sans jamais ouvrir un onglet dans la fenêtre de
+ * travail de la personne, ni se servir de ses comptes. Repérées par leur ÉTIQUETTE, jamais par leur titre.
+ */
+const ETIQUETTES_EN_FENETRE_PRIVEE: readonly string[] = ['suivi-geo'];
+/** La réponse de l'extension quand la case « Autoriser en navigation privée » n'est pas cochée. */
+const REFUS_NAVIGATION_PRIVEE = 'navigation-privee-non-autorisee';
+
+function enFenetrePrivee(cardId: string | null | undefined): boolean {
+  if (!cardId) return false;
+  const labels = (store.getCard(cardId) as { labels?: string[] } | null)?.labels ?? [];
+  return labels.some((l) => ETIQUETTES_EN_FENETRE_PRIVEE.includes(l));
+}
+
+/**
+ * Le groupe de l'agent se prépare dans la fenêtre de la personne ; l'onglet confié à la carte y entre, sur place, la
+ * première fois. Une carte « en fenêtre privée » reçoit à la place SA fenêtre privée, réduite, qui ne passe jamais
+ * devant ; sans l'autorisation de l'extension en navigation privée, rien ne s'ouvre ailleurs : le geste est refusé.
+ */
 async function preparer(c: Contexte): Promise<void> {
-  const confie = ongletConfie(c.ctx.agentId, c.ctx.cardId);
-  await demanderAuChrome(c.session.appareilId, 'preparer', {
-    agentId: c.ctx.agentId,
-    titre: c.session.titre,
-    couleur: c.session.couleur,
-    ...(confie ? { ongletConfie: confie } : {}),
-  });
+  const prive = enFenetrePrivee(c.ctx.cardId);
+  const confie = prive ? null : ongletConfie(c.ctx.agentId, c.ctx.cardId);
+  try {
+    await demanderAuChrome(c.session.appareilId, 'preparer', {
+      agentId: c.ctx.agentId,
+      titre: c.session.titre,
+      couleur: c.session.couleur,
+      ...(confie ? { ongletConfie: confie } : {}),
+      ...(prive ? { fenetre: 'privee-reduite' } : {}),
+    });
+  } catch (err: any) {
+    if (prive && String(err?.message ?? err).includes(REFUS_NAVIGATION_PRIVEE)) {
+      throw new Error(
+        "la navigation privée n'est pas autorisée pour l'extension Beluga : rien n'a été ouvert. La personne doit cocher « Autoriser en navigation privée » dans chrome://extensions › Beluga. Arrête la séance et dis-le dans ton compte rendu.",
+      );
+    }
+    throw err;
+  }
 }
 
 function attendreLaMain(c: Contexte, raison: string): ToolResult {

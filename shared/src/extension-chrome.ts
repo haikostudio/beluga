@@ -17,7 +17,7 @@
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
 
 /** La version de l'extension SERVIE par ce démon. Une extension reliée plus ancienne voit « nouvelle version ». */
-export const VERSION_EXTENSION_CHROME = '1.0.8';
+export const VERSION_EXTENSION_CHROME = '1.0.9';
 
 /** La voie WebSocket de l'extension — authentifiée par la clé de l'appareil, JAMAIS par le témoin de session. */
 export const ROUTE_WS_CHROME = '/ws/chrome';

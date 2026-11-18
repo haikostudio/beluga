@@ -146,6 +146,11 @@ const LARGEUR_BANDE = 52;
 
 /** La souris à ce nombre de pixels du bord gauche de la fenêtre ouvre le menu des agents. */
 const BORD_QUI_OUVRE_LE_MENU = 4;
+/**
+ * LA MARGE LATÉRALE DE LA COLONNE DÉPLIÉE, une seule pour la tête et pour la zone qui défile : les bords de la tête
+ * (icône à gauche, dernier bouton à droite) tombent ainsi sur ceux des pastilles du dessous (capture #0134).
+ */
+const MARGE_DE_LA_COLONNE = 'px-2';
 
 export function Sidebar({
   onOpenAgent,
@@ -1130,8 +1135,11 @@ export function Sidebar({
          * projet, replier la colonne. Rien d'autre. Rétrécie, la colonne n'en
          * garde que le bouton qui la déplie.
          */}
+        {/* LA TÊTE S'ALIGNE SUR LES LIGNES DU DESSOUS (capture #0134, maquette #fbcc, 18/11/2026) : même marge que la
+            zone qui défile, si bien que le bord gauche de l'icône (ou du bouton menu d'un service) tombe sur le bord
+            gauche de la pastille « Tableaux de bord », et le bord droit du dernier bouton sur son bord droit. */}
         <div
-          className={cn('h-14 shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'justify-center px-0' : 'pl-4 pr-2.5')}
+          className={cn('h-14 shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'justify-center px-0' : MARGE_DE_LA_COLONNE)}
           data-rangee-de-boutons
           data-titre-projets={bandeSeule ? 'bande' : 'deplie'}
         >
@@ -1161,7 +1169,7 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={cn('relative -ml-2 h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', projetsParDessus && 'bg-raised text-text')}
+                    className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', projetsParDessus && 'bg-raised text-text')}
                     aria-label="Agents et projets"
                     aria-expanded={projetsParDessus}
                     data-menu-de-colonne={projetsParDessus ? 'ouvert' : 'ferme'}
@@ -1359,7 +1367,7 @@ export function Sidebar({
             data-bande={bandeSeule ? '' : undefined}
             className={cn(
               'group/colonne flex min-h-0 flex-1 flex-col',
-              bandeSeule ? 'px-1.5' : 'px-2',
+              bandeSeule ? 'px-1.5' : MARGE_DE_LA_COLONNE,
               bandeSeule && 'invisible',
               (service.plan === 'page' || projetsParDessus) && 'hidden',
             )}
@@ -1368,7 +1376,7 @@ export function Sidebar({
         <ZoneDefilement
           hauteur={16}
           classeEnveloppe={serviceVisible ? 'hidden' : projetsParDessus ? 'animate-glisse-du-bord' : undefined}
-          className={cn('touch-pan-y pb-4', bandeSeule ? 'px-1.5' : 'px-2')}
+          className={cn('touch-pan-y pb-4', bandeSeule ? 'px-1.5' : MARGE_DE_LA_COLONNE)}
           data-drop-root
         >
           {/* ------------------------------------------------------------------

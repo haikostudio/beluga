@@ -1,4 +1,5 @@
 import { ChampDeRecherche } from '@/components/ui/champ-de-recherche';
+import { useBasDeLaZoneQuiDefile } from '@/components/ui/bas-de-zone';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Filter, Search, X } from '@/components/ui/icones';
@@ -89,6 +90,45 @@ const LARGEUR_MAX_DE_TEXTE = 'max-w-[26rem] whitespace-normal [overflow-wrap:any
 const LARGEUR_MIN_SECONDAIRES = 760;
 
 const INTERACTIFS = 'a,button,input,select,textarea,label,[role=menu],[role=dialog],[role=button],[data-pas-de-clic-de-ligne]';
+
+/** La place des boutons flottants du bas à droite (terminal, bulle vocale : MEM-7630), sur ordinateur. */
+const PLACE_DES_BOUTONS_FLOTTANTS = 132;
+
+/**
+ * UN PIED COLLÉ AU BAS DE L'ÉCRAN NE PASSE PLUS SOUS LES BOUTONS FLOTTANTS (carte « Audits SEO et GEO dans le
+ * Marketing », 18/11/2026). Depuis que le pied touche le vrai bas de la zone (`useBasDeLaZoneQuiDefile`), la flèche
+ * « Page suivante » tombait sous le terminal et la bulle vocale, posés à 16 px du coin bas droit. Quand le pied est au
+ * bas de la fenêtre (collé, ou en bout de liste), il réserve à droite ce qu'il faut pour sortir de leur coin — rien
+ * ailleurs, ni s'il en est assez loin. Relu au défilement (un nombre : aucun rendu s'il ne bouge pas).
+ */
+function useReserveDesBoutonsFlottants(pied: HTMLElement | null, actif: boolean): number {
+  const [reserve, setReserve] = React.useState(0);
+  React.useLayoutEffect(() => {
+    if (!pied || !actif) {
+      setReserve(0);
+      return;
+    }
+    let zone: HTMLElement | null = pied.parentElement;
+    while (zone && zone !== document.body && !/(auto|scroll)/.test(getComputedStyle(zone).overflowY)) zone = zone.parentElement;
+    const laZone = zone && zone !== document.body ? zone : null;
+    const mesurer = () => {
+      const cadre = pied.getBoundingClientRect();
+      const auBas = cadre.bottom >= window.innerHeight - 72;
+      setReserve(auBas ? Math.max(0, Math.round(cadre.right - (window.innerWidth - PLACE_DES_BOUTONS_FLOTTANTS))) : 0);
+    };
+    mesurer();
+    const observateur = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(mesurer) : null;
+    observateur?.observe(pied);
+    window.addEventListener('resize', mesurer);
+    laZone?.addEventListener('scroll', mesurer, { passive: true });
+    return () => {
+      observateur?.disconnect();
+      window.removeEventListener('resize', mesurer);
+      laZone?.removeEventListener('scroll', mesurer);
+    };
+  }, [pied, actif]);
+  return reserve;
+}
 
 export function Tableau<L>({
   repere,
@@ -271,6 +311,9 @@ export function Tableau<L>({
     setFocusFiltre(colonne);
   };
 
+  const [noeudDuPied, setPied] = React.useState<HTMLDivElement | null>(null);
+  const basDuPied = useBasDeLaZoneQuiDefile(noeudDuPied);
+  const reserveDroite = useReserveDesBoutonsFlottants(noeudDuPied, !telephone);
   const montrerLePied = lignes.length > 0 && (pied === 'toujours' || (pied === 'si-besoin' && (triees.length > TAILLES_DE_PAGE[0] || nbFiltres > 0)));
 
   const ouvrirLaLigne = onLigne
@@ -371,6 +414,8 @@ export function Tableau<L>({
       </div>
     ) : null;
 
+  /* LE PIED TOUCHE LE BAS DE LA ZONE QUI DÉFILE (capture #7e81, 18/11/2026) : le retrait bas de la zone est rendu en
+     décalage négatif (`useBasDeLaZoneQuiDefile`), sinon le pied flottait au-dessus du bord et les lignes passaient dessous. */
   const piedDuTableau = montrerLePied ? (
     /* SUR TÉLÉPHONE, LE PIED A LA TAILLE DES AUTRES COMMANDES (03/11/2026, capture #b6622 : « 10 20 50 » et les flèches
        à 24 px, en caractères de machine à écrire) : 38 px de haut, le texte de l'interface. */
@@ -380,9 +425,11 @@ export function Tableau<L>({
        teinte dans une feuille. Une page dont le pied touche le bas de l'écran réserve à droite la place du bouton vocal
        flottant (`--retrait-droit-pied-tableau`), sinon il recouvre la flèche « Page suivante ». */
     <div
-      className="sticky bottom-0 z-[1] flex flex-wrap items-center justify-between gap-2 pb-1.5 pl-1 pr-[var(--retrait-droit-pied-tableau,0.25rem)] pt-2 text-[13px] text-faint [background:var(--fond-pied-tableau,var(--fond-zone-defilement,hsl(var(--bg))))] sm:text-[12px]"
+      className="sticky bottom-0 z-[1] flex flex-wrap items-center justify-between gap-2 pb-1.5 pl-1 pr-[max(var(--retrait-droit-pied-tableau,0.25rem),var(--retrait-auto-pied-tableau,0px))] pt-2 text-[13px] text-faint [background:var(--fond-pied-tableau,var(--fond-zone-defilement,hsl(var(--bg))))] sm:text-[12px]"
       data-tableau-pied
       data-pied-colle=""
+      ref={setPied}
+      style={{ ...(basDuPied ? { bottom: basDuPied } : {}), ...(reserveDroite ? ({ '--retrait-auto-pied-tableau': `${reserveDroite}px` } as React.CSSProperties) : {}) }}
     >
       <span className="flex items-center gap-2 tabular-nums">
         {nbFiltres > 0 ? (

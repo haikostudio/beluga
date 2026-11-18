@@ -35,6 +35,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Redémarrage du serveur…': ['Server restarting…', 'Reiniciando el servidor…', 'Server wird neu gestartet…', '服务器正在重启…'],
   // Audit SEO + GEO du Marketing (carte « Anti-robots et référencement des projets », 18/11/2026)
   // Suivi GEO du Marketing (carte « Audit et suivi du GEO », 18/11/2026)
+  // Audits SEO et GEO dans le Marketing (carte « Audits SEO et GEO dans le Marketing », 18/11/2026)
   // Visiteurs bloqués (carte « Anti-robots et référencement des projets », 18/11/2026)
   'Visiteurs bloqués': ['Blocked visitors', 'Visitantes bloqueados', 'Gesperrte Besucher', '已封禁的访客'],
   'Aucun garde ne coupe les visiteurs insistants sur le serveur de ce projet.': ['No guard cuts off aggressive visitors on this project’s server.', 'Ninguna protección corta a los visitantes insistentes en el servidor de este proyecto.', 'Kein Schutz sperrt aufdringliche Besucher auf dem Server dieses Projekts.', '此项目的服务器上没有拦截频繁访客的防护。'],

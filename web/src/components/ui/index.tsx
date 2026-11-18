@@ -1791,9 +1791,10 @@ export const Dialog = RacineDeDialogue;
  * feuille des quotas : flou gris clair qui fondait vers le voile sous l'heure).
  * WebKit n'échantillonne que l'élément FIXE qui touche le bord : une bande
  * `absolute` dans le voile laissait iOS lire le voile lui-même, translucide, et
- * remettre son flou. Le voile n'est ni transformé ni filtré au point de
- * déplacer la bande (il couvre déjà toute la fenêtre), elle reste donc collée
- * au bord. Sa couleur se relit à la fin du fondu d'ouverture et à chaque
+ * remettre son flou. Le voile porte un `backdrop-filter` (`CLASSE_FOND_DE_VOILE`),
+ * qui fait de lui le bloc conteneur de la bande ; mais il est lui-même `fixed
+ * inset-0` et jamais transformé : la bande garde exactement sa place, collée au
+ * bord, et elle-même n'est ni translucide ni filtrée. Sa couleur se relit à la fin du fondu d'ouverture et à chaque
  * changement de thème, pour rester l'aplat exact du voile.
  */
 function couleurOpaqueSous(x: number, y: number, ignorer: Element): [number, number, number] | null {
@@ -1902,7 +1903,7 @@ function FenetreCentree({
   const glisser = useGlisserPourFermer(() => fermeur.current?.click(), telephone);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
+      <DialogPrimitive.Overlay data-voile-de-fenetre className={cn('fixed inset-0 z-50 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out', CLASSE_FOND_DE_VOILE)}>
         <BandeDuVoile />
       </DialogPrimitive.Overlay>
       {/*
@@ -2101,7 +2102,7 @@ export function FenetreDeVisionneuse({
   return (
     <DialogPrimitive.Portal>
       {nonModale ? (
-        <div data-voile-de-fenetre data-state="open" aria-hidden className={cn('fixed inset-0 z-50 animate-fade-in', telephone ? 'bg-voile/70' : 'bg-voile/80 backdrop-blur-[3px]')}>
+        <div data-voile-de-fenetre data-state="open" aria-hidden className={cn('fixed inset-0 z-50 animate-fade-in', CLASSE_FOND_DE_VOILE)}>
           <BandeDuVoile />
         </div>
       ) : (
@@ -2109,7 +2110,7 @@ export function FenetreDeVisionneuse({
           data-voile-de-fenetre
           className={cn(
             'fixed inset-0 z-50 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-            telephone ? 'bg-voile/70' : 'bg-voile/80 backdrop-blur-[3px]',
+            CLASSE_FOND_DE_VOILE,
           )}
         >
           <BandeDuVoile />
@@ -2314,8 +2315,15 @@ export const FOND_DE_FEUILLE: React.CSSProperties = {
   ['--surface' as string]: 'var(--fond-du-menu)',
   ['--fond-zone-defilement' as string]: 'hsl(var(--fond-du-menu))',
 };
+/**
+ * LE FOND DE TOUT VOILE MODAL — fenêtres centrées, feuilles du bas, volet du téléphone, visionneuse — sur ordinateur
+ * comme sur téléphone, dans les douze palettes (carte « Fond flouté sous les fenêtres », capture #909e7, maquette
+ * #40930) : 55 % du jeton `--voile` et un flou de 8 px. Un SEUL réglage : un voile qui l'écrit à la main dérive.
+ * Le flou ne touche pas `BandeDuVoile` : le voile couvre déjà toute la fenêtre, la bande y garde sa place exacte.
+ */
+export const CLASSE_FOND_DE_VOILE = 'bg-voile/55 backdrop-blur-[8px]';
 /** Le voile : il couvre tout l'écran et se fond avec la feuille. Le rang (`z-…`) est posé par celui qui l'emploie. */
-export const CLASSE_VOILE_DE_FEUILLE = 'fixed inset-0 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out';
+export const CLASSE_VOILE_DE_FEUILLE = `fixed inset-0 ${CLASSE_FOND_DE_VOILE} data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out`;
 /** Le titre d'une feuille : centré sous la poignée, la même taille partout (`EnteteDeFeuille`, liste, page devenue feuille). */
 export const CLASSE_TITRE_DE_FEUILLE = 'min-w-0 truncate text-center text-[15.5px] font-semibold text-text';
 /**
@@ -3056,7 +3064,7 @@ export function SidePanel({
   return (
     <RacineDeDialogue open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
+        <DialogPrimitive.Overlay data-voile-de-fenetre className={cn('fixed inset-0 z-50 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out', CLASSE_FOND_DE_VOILE)}>
           <BandeDuVoile />
         </DialogPrimitive.Overlay>
         <DialogPrimitive.Content

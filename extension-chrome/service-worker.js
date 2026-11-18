@@ -434,7 +434,8 @@ function garderLesOuvertsALaMain() {
 
 async function groupesDesAgents() {
   const espace = await etat();
-  return new Set(Object.values(espace.groupes).filter(Number.isInteger));
+  /* Une fenêtre privée réduite (passage du suivi GEO) ne porte jamais de panneau : rien n'y attire le regard. */
+  return new Set(Object.entries(espace.groupes).filter(([agentId, g]) => Number.isInteger(g) && !espace.privees[agentId]).map(([, g]) => g));
 }
 
 async function poserLePanneau(tab, groupes) {
@@ -546,6 +547,9 @@ async function etat() {
   /* `fenetreId` (l'ancienne fenêtre réservée) est ignoré : un groupe déjà ouvert là-bas reste utilisable. */
   const e = espace ?? { groupes: {}, courants: {}, titres: {} };
   e.fenetres ??= {};
+  /* Les agents qui travaillent dans LEUR fenêtre privée réduite, à part (et l'onglet vide qu'elle a ouvert). */
+  e.privees ??= {};
+  e.vierges ??= {};
   return e;
 }
 async function ecrire(espace) {
@@ -565,10 +569,43 @@ async function fenetreExiste(id) {
 }
 
 /**
+ * LA FENÊTRE PRIVÉE RÉDUITE D'UN AGENT (carte « Audits SEO et GEO dans le Marketing », 18/11/2026). Les passages du
+ * suivi GEO posent leurs questions aux IA dans une fenêtre de navigation PRIVÉE — aucun compte ni historique de la
+ * personne —, ouverte RÉDUITE et sans focus : elle ne passe jamais devant son travail. Sans l'autorisation de
+ * l'extension en navigation privée, RIEN ne s'ouvre ailleurs (jamais de repli sur la fenêtre de travail, qui porte les
+ * comptes de la personne). Fermée par la personne, elle est recréée au geste suivant.
+ */
+const REFUS_NAVIGATION_PRIVEE = 'navigation-privee-non-autorisee';
+
+async function fenetrePriveeDeLAgent(espace, agentId) {
+  const id = espace.fenetres[agentId];
+  if (Number.isInteger(id)) {
+    try {
+      const w = await chrome.windows.get(id);
+      if (w.incognito) return id;
+    } catch {
+      /* fermée par la personne : on la recrée */
+    }
+  }
+  if (!(await chrome.extension.isAllowedIncognitoAccess())) {
+    throw new Error(`${REFUS_NAVIGATION_PRIVEE} : cochez « Autoriser en navigation privée » pour l'extension Beluga (chrome://extensions).`);
+  }
+  const w = await chrome.windows.create({ incognito: true, focused: false, state: 'minimized', type: 'normal', url: 'about:blank' });
+  espace.fenetres[agentId] = w.id;
+  delete espace.groupes[agentId];
+  delete espace.courants[agentId];
+  const vierge = w.tabs?.[0]?.id;
+  if (Number.isInteger(vierge)) espace.vierges[agentId] = vierge;
+  return w.id;
+}
+
+/**
  * LA FENÊTRE DE L'AGENT : celle de son groupe s'il en a un, sinon celle d'où la demande est partie (retenue à la
- * préparation), sinon la dernière fenêtre ordinaire que la personne a utilisée. JAMAIS une fenêtre neuve.
+ * préparation), sinon la dernière fenêtre ordinaire que la personne a utilisée. JAMAIS une fenêtre neuve — sauf pour un
+ * agent en fenêtre privée, qui a la sienne.
  */
 async function fenetreDeLAgent(espace, agentId) {
+  if (espace.privees[agentId]) return fenetrePriveeDeLAgent(espace, agentId);
   const groupe = await groupeDeLAgent(espace, agentId);
   if (groupe !== null) {
     try {
@@ -640,6 +677,12 @@ async function suivreLAgent(agentId, tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
     if (tab.active) return;
+    /* Fenêtre privée réduite : l'onglet devient l'onglet actif DE SA fenêtre (la page se dessine mieux), sans jamais
+       toucher à la fenêtre elle-même — elle reste réduite, derrière. Aucun signal vers les panneaux de la personne. */
+    if (tab.incognito) {
+      await chrome.tabs.update(tabId, { active: true });
+      return;
+    }
     const [actif] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     /* Un panneau d'onglet ne suit pas tout seul : amener la personne, panneau sous les yeux, sur un onglet qui n'a pas
        le sien le lui retirerait. On le lui propose alors (« Y aller », dont le clic ouvre le panneau là-bas). */
@@ -1134,6 +1177,19 @@ async function executer(geste, args) {
   switch (geste) {
     case 'preparer': {
       espace.titres[agentId] = { titre: String(args.titre ?? 'Agent'), couleur: String(args.couleur ?? 'purple') };
+      if (args.fenetre === 'privee-reduite') {
+        espace.privees[agentId] = true;
+        await fenetrePriveeDeLAgent(espace, agentId);
+        await ecrire(espace);
+        return {};
+      }
+      if (espace.privees[agentId]) {
+        /* La même carte repart en fenêtre ordinaire : sa fenêtre privée n'est plus la sienne. */
+        delete espace.privees[agentId];
+        delete espace.fenetres[agentId];
+        delete espace.groupes[agentId];
+        delete espace.courants[agentId];
+      }
       /* L'onglet confié à la carte (demande lancée depuis le panneau) rejoint le groupe de l'agent, SUR PLACE, une
          fois : sa fenêtre devient celle de l'agent. Rien n'est déplacé, aucune fenêtre ne s'ouvre. */
       if (Number.isInteger(args.ongletConfie) && espace.courants[agentId] === undefined) {
@@ -1161,9 +1217,15 @@ async function executer(geste, args) {
       /* Dans la fenêtre de la personne, au bout du groupe de l'agent ; jamais au premier plan d'office : le suivi
          décide (`suivreLAgent`). */
       const fenetre = await fenetreDeLAgent(espace, agentId);
-      const tab = await chrome.tabs.create({ windowId: fenetre, url: args.url, active: false });
+      const prive = !!espace.privees[agentId];
+      /* Dans la fenêtre privée réduite, l'onglet neuf est l'actif de SA fenêtre : la fenêtre, elle, ne bouge pas. */
+      const tab = await chrome.tabs.create({ windowId: fenetre, url: args.url, active: prive });
       await rangerDansLeGroupe(espace, agentId, tab.id);
       espace.courants[agentId] = tab.id;
+      if (prive && Number.isInteger(espace.vierges[agentId])) {
+        await chrome.tabs.remove(espace.vierges[agentId]).catch(() => {});
+        delete espace.vierges[agentId];
+      }
       await ecrire(espace);
       await suivreLAgent(agentId, tab.id);
       const fini = await attendreLeChargement(tab.id);

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useBasDeLaZoneQuiDefile } from '@/components/ui/bas-de-zone';
 import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from '@/components/ui/icones';
 import { createPortal } from 'react-dom';
 import { Attachment, OPTION_VOIR_LA_BIBLIOTHEQUE, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, lettreDeLExemple, lettreDeLaLegende, lettresDesOptions, libellesDUneReponseEnImages, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
@@ -486,28 +487,7 @@ function zoneQuiDefile(element: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/**
- * LA BARRE SE COLLE AU VRAI BAS DE LA ZONE QUI DÉFILE (capture #d4b1, 04/11/2026). Un `sticky bottom-0` respecte le
- * retrait intérieur de la zone (`py-3` du fil de conversation) : la barre s'arrêtait 12 px au-dessus du bord, et la
- * fin de la question défilait dans cet interstice, visible entre « Répondre » et la liste des tâches. On rend ce
- * retrait en décalage négatif : collée, la barre touche le bord, et rien ne passe plus sous elle.
- */
-function useBasDeLaZoneQuiDefile(barreRef: React.RefObject<HTMLDivElement | null>): number {
-  const [bas, setBas] = React.useState(0);
-  React.useLayoutEffect(() => {
-    let parent = barreRef.current?.parentElement ?? null;
-    while (parent && parent !== document.body) {
-      const style = getComputedStyle(parent);
-      if (/(auto|scroll)/.test(style.overflowY)) {
-        const retrait = parseFloat(style.paddingBottom) || 0;
-        setBas(retrait > 0 ? -retrait : 0);
-        return;
-      }
-      parent = parent.parentElement;
-    }
-  }, [barreRef]);
-  return bas;
-}
+/* LA BARRE SE COLLE AU VRAI BAS DE LA ZONE QUI DÉFILE (capture #d4b1) : `useBasDeLaZoneQuiDefile`, `ui/bas-de-zone.ts`. */
 
 function useChampAuDessusDeLaBarre(barreRef: React.RefObject<HTMLDivElement | null>) {
   return React.useCallback(

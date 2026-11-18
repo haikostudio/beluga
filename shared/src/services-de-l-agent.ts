@@ -36,12 +36,18 @@ export const SERVICES_DE_L_AGENT = [
   'studio',
   'coffre',
   'memoire',
+  'referencement',
 ] as const;
 export type ServiceDeLAgent = (typeof SERVICES_DE_L_AGENT)[number];
 export type AccesDeLAgent = 'aucun' | 'lire' | 'agir';
 
 /** Les services qui ne vivent dans aucun projet : propriétaire seul. */
 const SERVICES_SANS_PROJET: ReadonlySet<ServiceDeLAgent> = new Set(['surveillances']);
+/**
+ * Les services réservés au PROPRIÉTAIRE, même sur un projet ouvert à un accès tiers : l'audit SEO + GEO vit dans le
+ * service Marketing, qui est à lui seul. Un tour lancé par le démon (interlocuteur inconnu) le LIT sur son projet.
+ */
+const SERVICES_DU_PROPRIETAIRE: ReadonlySet<ServiceDeLAgent> = new Set(['referencement']);
 
 export const LIBELLE_DU_SERVICE_DE_L_AGENT: Readonly<Record<ServiceDeLAgent, string>> = {
   messagerie: 'Messagerie',
@@ -54,6 +60,7 @@ export const LIBELLE_DU_SERVICE_DE_L_AGENT: Readonly<Record<ServiceDeLAgent, str
   studio: 'Studio',
   coffre: 'Coffre-fort',
   memoire: 'Mémoire',
+  referencement: 'Référencement SEO + GEO',
 };
 
 /** Ce que la règle lit d'un compte. */
@@ -88,7 +95,7 @@ export function accesDeLAgent(entree: {
   }
   if (interlocuteur.role === 'admin') return 'agir';
   if (interlocuteur.role !== 'membre' && interlocuteur.role !== 'lecteur') return 'aucun';
-  if (SERVICES_SANS_PROJET.has(service) || !projectId) return 'aucun';
+  if (SERVICES_SANS_PROJET.has(service) || SERVICES_DU_PROPRIETAIRE.has(service) || !projectId) return 'aucun';
   const droits = droitsDuCompte({ role: interlocuteur.role, projets: interlocuteur.projets, droits: interlocuteur.droits });
   const niveau = droits.projets[projectId];
   if (!niveau) return 'aucun';
@@ -130,6 +137,10 @@ const CE_QUE_FAIT: Readonly<Record<ServiceDeLAgent, { lire: string; agir: string
   },
   coffre: { lire: 'lire les accès (outil « coffre_fort »)', agir: 'enregistrer un accès' },
   memoire: { lire: 'chercher dans la mémoire du projet (outil « memoire »)', agir: 'y proposer un fait' },
+  referencement: {
+    lire: 'lire l’audit SEO + GEO d’un projet : notes, passage en cours, historique',
+    agir: 'lancer un audit SEO + GEO (action « auditer ») quand la personne le DEMANDE — jamais de toi-même',
+  },
 };
 
 /**

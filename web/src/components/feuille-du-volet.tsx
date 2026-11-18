@@ -19,7 +19,7 @@
  */
 import * as React from 'react';
 import { X } from '@/components/ui/icones';
-import { CLASSE_BARRE_DE_PRISE, CLASSE_COINS_DE_FEUILLE, CLASSE_PRISE_DE_FEUILLE, HAUTEUR_DE_FEUILLE_HAUTE } from '@/components/ui';
+import { CLASSE_BARRE_DE_PRISE, CLASSE_FOND_DE_VOILE, CLASSE_COINS_DE_FEUILLE, CLASSE_PRISE_DE_FEUILLE, HAUTEUR_DE_FEUILLE_HAUTE } from '@/components/ui';
 import { useGlisserPourFermer } from '@/lib/glisser-pour-fermer';
 import { useVoileAffiche } from '@/lib/barre-de-l-heure';
 import { t } from '@/lib/langue';
@@ -79,7 +79,7 @@ export function VoileDuVolet({ onFermer }: { onFermer: () => void }) {
         event.stopPropagation();
         onFermer();
       }}
-      className="fixed inset-0 z-50 animate-fade-in bg-voile/70"
+      className={cn('fixed inset-0 z-50 animate-fade-in', CLASSE_FOND_DE_VOILE)}
     />
   );
 }
