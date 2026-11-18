@@ -3,7 +3,7 @@ import { mentionBrancheParDefaut, mentionEcartAuSchema } from '@beluga/shared';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';
 import { Input, Label, LigneFormulaire } from '@/components/ui';
 import { t } from '@/lib/langue';
-import { CLASSE_TITRE_DE_TEMPS, OuJEnSuis, ProcessusEnPlace } from './processus-en-place';
+import { CLASSE_TITRE_DE_TEMPS, OuJEnSuis } from './processus-en-place';
 import { ChoixDeBranche, EcartAuSchema, Repli, TeteDeRubrique, type ContexteConfig } from './communs';
 
 /**
@@ -54,7 +54,6 @@ export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
 
       {actif ? (
         <>
-          <ProcessusEnPlace projet={ctx.project} cible="production" branche={ctx.project.branchesDePublication?.production} />
 
           <section className="space-y-3" data-reglages-de-l-etape="production">
             <h3 className={CLASSE_TITRE_DE_TEMPS}>{t('Réglages')}</h3>

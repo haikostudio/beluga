@@ -1,5 +1,6 @@
+import { useTenueDesOptions } from '@/components/entete-de-zone';
 import * as React from 'react';
-import { EyeOff, GripVertical, LayoutGrid, RotateCcw } from 'lucide-react';
+import { EyeOff, GripVertical, LayoutGrid, RotateCcw } from '@/components/ui/icones';
 import { deplacerLeBloc, dispositionDesBlocs, type DispositionDesBlocs } from '@beluga/shared';
 import {
   Button,
@@ -16,7 +17,6 @@ import {
 import { usePointerDrag, type DropTarget } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
 import { t } from '@/lib/langue';
-import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 
 /**
@@ -112,7 +112,11 @@ function ChoixDesBlocs({ onglet, blocs }: BlocsDeLaPage) {
  * n'a déclaré ses blocs.
  */
 export function LignesDesBlocs({ declares }: { declares: BlocsDeLaPage | null }) {
-  if (!declares?.blocs.length) return null;
+  /* HORS D'UN MENU, RIEN (14/11/2026) : dans la feuille du téléphone, les options de la page se posent en rangée,
+     sans menu autour ; un sous-menu Radix y jetait « MenuSub must be used within Menu » et toute la page des
+     statistiques tombait. */
+  const tenue = useTenueDesOptions();
+  if (tenue !== 'ligne' || !declares?.blocs.length) return null;
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger className="gap-2.5 rounded-lg px-2.5 py-2 text-text" data-stats-blocs-menu>
@@ -148,7 +152,9 @@ export function TableauDeBlocs({
      déclare ses blocs, par leur identité et leur titre seulement — une liste
      comparée par son texte, pour ne pas redessiner la page à chaque rendu. */
   const declarer = React.useContext(DeclarerLesBlocs);
-  const dansLeMenuDeLaPage = useTelephone() && !!declarer;
+  /* SUR ORDINATEUR AUSSI depuis le 13/11/2026 : « Blocs » rejoint le chevron des options, au coin haut droit (plus de
+     barre qui ne porte que lui). */
+  const dansLeMenuDeLaPage = !!declarer;
   const declaration = JSON.stringify(blocs.map((b) => ({ id: b.id, titre: b.titre })));
   React.useEffect(() => {
     if (!dansLeMenuDeLaPage || !declarer) return;

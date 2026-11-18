@@ -24,7 +24,7 @@
  */
 import * as React from 'react';
 import { nomCourtDeLInstallation } from '@beluga/shared';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import { BulleInfo, Button, ChampMotDePasse, Input, Label, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 

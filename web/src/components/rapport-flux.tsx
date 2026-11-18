@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { rangerLeRapport, type CleDeSection, type SectionRangee } from '@beluga/shared';
-import { Markdown } from '@/lib/markdown';
+import { ContexteBlocsDeCode, Markdown } from '@/lib/markdown';
 import { PointDuFil } from '@/components/point-du-fil';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -37,13 +37,6 @@ function nomAffiche(cle: CleDeSection, nom: string): string {
   return nom;
 }
 
-/**
- * LA BULLE GRISE D'UNE RÉPONSE DE L'AGENT, à gauche, symétrique de la vôtre
- * (`bg-encre`, à droite) — demande du 22/10/2026. Seules les RÉPONSES en
- * portent une : la compréhension et le compte rendu restent à plat.
- */
-export const BULLE_DE_L_AGENT = 'bulle-agent min-w-0 overflow-hidden rounded-[20px] bg-raised px-4 py-2.5';
-
 export interface RapportEnFluxProps {
   contenu: string;
   onToggleEvolution?: (text: string) => void;
@@ -59,8 +52,6 @@ export interface RapportEnFluxProps {
    * et garde son alignement.
    */
   dansLaCarte?: boolean;
-  /** Une réponse LIBRE (texte qui n'est pas un compte rendu à sections) se pose dans la bulle grise. */
-  enBulle?: boolean;
 }
 
 export function RapportEnFlux({
@@ -69,11 +60,12 @@ export function RapportEnFlux({
   onToggleAll,
   streaming,
   dansLaCarte,
-  enBulle,
 }: RapportEnFluxProps) {
   const range = React.useMemo(() => rangerLeRapport(contenu), [contenu]);
+  /* DANS LA CONVERSATION DU DIRECTEUR, UN MESSAGE EST UN MESSAGE : ni titre « Réponse », ni sections. */
+  const messagerie = React.useContext(ContexteBlocsDeCode);
 
-  if (streaming || !range.conforme) {
+  if (streaming || !range.conforme || messagerie) {
     const texte = (
       <Markdown
         /* Dans la carte, le texte brut se cale lui aussi sur le bord du titre. */
@@ -82,17 +74,13 @@ export function RapportEnFlux({
         onToggleEvolution={onToggleEvolution}
         onToggleAll={onToggleAll}
         streaming={streaming}
+        /* UN COMPTE RENDU EN POINTS (« ### » par point) : sommaire en tête, titres en gras alignés à gauche. */
+        enPoints={!messagerie}
       />
     );
-    /* UNE RÉPONSE LIBRE (pas un compte rendu à sections) d'un agent sans carte
-       se lit dans la bulle grise, comme sur une carte (`MomentDeReponse`). */
-    return enBulle && !dansLaCarte ? (
-      <div data-bulle="agent" data-bulle-reponse className={cn(BULLE_DE_L_AGENT, 'w-fit max-w-full')}>
-        {texte}
-      </div>
-    ) : (
-      texte
-    );
+    /* UNE RÉPONSE SE LIT À PLAT, SANS TITRE « Réponse » (17/11/2026) : comme sur une carte (DEC-399), dans TOUS les
+       fils d'agent. */
+    return texte;
   }
 
   return (

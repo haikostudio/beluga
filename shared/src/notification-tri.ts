@@ -78,6 +78,8 @@ export type MotifNotification =
   | 'agent-interrompu'
   | 'geste-lent'
   | 'site-indisponible'
+  | 'service-ia-a-sec'
+  | 'chrome-ferme'
   /* --- L'espace client : les deux sens, chacun visant UNE personne ----- */
   | 'espace-message'
   | 'espace-demande'
@@ -85,7 +87,10 @@ export type MotifNotification =
   | 'espace-prise-en-charge'
   | 'espace-archivage'
   | 'espace-avancement'
-  | 'espace-en-ligne';
+  | 'espace-en-ligne'
+  /* --- La plaquette client : le client l'a ouverte, ou y a laissé une remarque */
+  | 'plaquette-ouverte'
+  | 'plaquette-remarque';
 
 interface RegleMotif {
   /** La famille de réglage : c'est elle que l'utilisateur active ou coupe. */
@@ -175,6 +180,13 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
   'espace-avancement': { famille: 'done', genre: 'termine', sujet: 'espace-avancement', icone: 'termine' },
   // La carte liée est EN LIGNE : l'image d'une publication, comme chez Haiko.
   'espace-en-ligne': { famille: 'deploy', genre: 'termine', sujet: 'espace-en-ligne', icone: 'publication' },
+  /*
+   * LA PLAQUETTE CLIENT (`server/src/plaquettes.ts`) : la PREMIÈRE ouverture du lien par le client est une étape
+   * franchie (« termine ») ; une remarque laissée attend qu'on la lise et qu'on y réponde (« attente »). Sujets à part :
+   * une remarque n'est jamais avalée par l'ouverture qui la précède.
+   */
+  'plaquette-ouverte': { famille: 'done', genre: 'termine', sujet: 'plaquette-ouverte', icone: 'termine' },
+  'plaquette-remarque': { famille: 'waiting', genre: 'attente', sujet: 'plaquette-remarque', icone: 'attention' },
 
   /* --- « erreur » : cassé, ou bloqué ---------------------------------- */
   'tache-echec': { famille: 'failed', genre: 'erreur', sujet: 'echec', icone: 'erreur' },
@@ -192,6 +204,12 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
    * même lot ; icône du BLOCAGE, pas de la publication.
    */
   'publication-en-retard': { famille: 'deploy', genre: 'erreur', sujet: 'publication-retard', icone: 'erreur' },
+  /*
+   * CHROME FERMÉ AVANT UN POST QUI PASSE PAR LUI (carte « Réseaux sociaux reliés par Chrome », 09/11/2026) : une heure
+   * avant l'heure prévue, le post ne pourra pas partir — un BLOCAGE, donc une erreur, jamais un genre de plus. Le
+   * post part à la réouverture de Chrome. Sujet à part, une alerte par envoi.
+   */
+  'chrome-ferme': { famille: 'failed', genre: 'erreur', sujet: 'chrome-ferme', icone: 'erreur' },
   /*
    * UN BLOCAGE EST UNE ERREUR. Un compte dont la limite est atteinte et un
    * amorçage refusé trois fois de suite (identifiant qui ne répond plus)
@@ -238,6 +256,13 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
    * pas une interruption.
    */
   'site-indisponible': { famille: 'systeme', genre: 'erreur', sujet: 'site-indisponible', icone: 'erreur' },
+  /*
+   * UN SERVICE D'IA À SEC (OpenRouter, kie.ai, HeyGen, Agentik…) fait échouer la prochaine génération qui
+   * s'en sert : c'est une panne annoncée, au même genre qu'un site tombé. Elle ne part qu'à la BASCULE vers
+   * « vide » (`basculesASec`, `shared/src/services-ia.ts`), jamais à chaque relevé ni pour un solde simplement
+   * BAS — celui-là se lit en orange dans le volet des quotas et par le point au pied de la colonne.
+   */
+  'service-ia-a-sec': { famille: 'systeme', genre: 'erreur', sujet: 'service-ia-a-sec', icone: 'erreur' },
 
   /* --- CE QUI N'ALERTE PLUS ------------------------------------------- */
   /*

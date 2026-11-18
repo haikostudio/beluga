@@ -3,6 +3,7 @@ import {
   BarChart3,
   EllipsisVertical,
   FolderOpen,
+  LayoutGrid,
   Loader2,
   MessageCircleQuestion,
   Paperclip,
@@ -10,8 +11,7 @@ import {
   Rocket,
   Settings2,
   Square,
-  Volume2,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Button,
   CLASSE_POINT_DE_BOUTON,
@@ -24,9 +24,9 @@ import {
   DropdownMenuTrigger,
   Pastille,
 } from '@/components/ui';
+import { ouvrirLesOutilsDuProjet } from '@/components/barre-du-projet';
+import { usePublication } from '@/components/menu-publier';
 import { client } from '@/lib/client';
-import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
-import { usePref } from '@/lib/prefs';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { useSignalDePublication, type SignalLu } from '@/lib/signal-publication';
 import { useApp } from '@/lib/use-app';
@@ -115,13 +115,19 @@ export const BoutonOptionsDuProjet = React.forwardRef<
   const state = useApp();
   const deploiement = useSignalDePublication(state.activeProjectId, 'deploiement');
   const production = useSignalDePublication(state.activeProjectId, 'production');
-  const gestes = [production, deploiement].filter((geste): geste is SignalLu => !!geste);
+  /* LE BOUTON « PUBLIER » DIT DÉJÀ L'AVANCEMENT (15/11/2026, capture #69d2) : « ◌ 50 % » se lisait deux fois dans la
+     barre, ici et dans « Déploiement · 50 % ». Quand le projet a son bouton, ces trois points restent trois points. */
+  const { permis } = usePublication(state.activeProjectId ?? '');
+  const gestes = permis ? [] : [production, deploiement].filter((geste): geste is SignalLu => !!geste);
   const enRoute = gestes.find((geste) => geste.enRoute) ?? null;
   const tombe = gestes.find((geste) => geste.tombee) ?? null;
   /* Ce que le bouton chiffre : la publication en route d'abord, sinon celle
      qui vient de finir ou de tomber. */
   const suivi = enRoute ?? tombe ?? gestes.find((geste) => geste.pourcent !== null) ?? null;
-  const enAttente = production && production.pourcent === null ? production.compte : 0;
+  /* PLUS DE PASTILLE « VERSIONS EN ATTENTE DE PRODUCTION » (13/11/2026) : elle redisait, en « 99+ », ce que la fenêtre
+     « Publier » montre déjà. Le bouton ne chiffre plus qu'une publication en route ou tombée. */
+  const enAttente = 0;
+  void production?.compte;
   return (
     <Button
       ref={ref}
@@ -168,9 +174,9 @@ function EtatDeLaLigneDePublication({ geste, pastille }: { geste: SignalLu; past
   /* L'agent de configuration au travail ou en attente : la ligne mène à lui, et le dit. */
   if (geste.pourcent === null && (geste.agent === 'travail' || geste.agent === 'question')) {
     return geste.agent === 'travail' ? (
-      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" data-etat-ligne-agent="travail" aria-label={t('Agent au travail…')} />
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" data-etat-ligne-agent="travail" aria-label="Agent au travail…" />
     ) : (
-      <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-warning" data-etat-ligne-agent="question" aria-label={t('Répondre à l’agent')} />
+      <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-warning" data-etat-ligne-agent="question" aria-label="Répondre à l’agent" />
     );
   }
   if (geste.pourcent !== null) {
@@ -207,12 +213,21 @@ function EtatDeLaLigneDePublication({ geste, pastille }: { geste: SignalLu; past
  * UN SEUL À L'ÉCRAN. Il porte sa fenêtre de confirmation d'arrêt.
  */
 export function MenuGeneral({
-  onOpenDashboard,
+  onOpenDashboard: _resume,
   onOuvrirFichiers,
+  onOuvrirVue,
   cote = 'end',
   declencheur,
+  enTete,
 }: {
-  /** Sur téléphone seulement : le résumé se rejoint par ce menu. */
+  /** Sur téléphone, ce qui précède les options du projet : le geste de la page, la cloche (03/11/2026). */
+  enTete?: React.ReactNode;
+  /**
+   * SUR TÉLÉPHONE, LES STATISTIQUES DU PROJET (03/11/2026) : le bas d'un projet ne porte plus que
+   * Déployer, le + d'un nouvel agent et Mise en production ; le reste vit derrière ces trois points.
+   */
+  onOuvrirVue?: (vue: 'statistiques') => void;
+  /** Gardé pour les appelants : le résumé se rejoint par la liste des services du haut (03/11/2026). */
   onOpenDashboard?: () => void;
   /** Ouvre le tiroir des fichiers ou celui des pièces jointes du projet ouvert. */
   onOuvrirFichiers?: (vue: 'fichiers' | 'pieces') => void;
@@ -230,12 +245,10 @@ export function MenuGeneral({
   const telephone = useTelephone();
   const deploiement = useSignalDePublication(state.activeProjectId, 'deploiement');
   const production = useSignalDePublication(state.activeProjectId, 'production');
-  const [speaking, setSpeaking] = React.useState(false);
   const [arretGroupe, setArretGroupe] = React.useState(false);
   /* « ÉCOUTER LE POINT » N'EST PROPOSÉ QUE SI LE MODULE VOCAL FLOTTANT EST
      AFFICHÉ (réglage « Afficher le module vocal flottant », éteint d'origine) :
      sans lui, une entrée de plus qui ne mène à rien d'attendu. */
-  const [voixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
 
   /*
    * Les agents du projet affiché qui travaillent à cet instant : on n'arrête
@@ -271,11 +284,6 @@ export function MenuGeneral({
     });
   };
 
-  const listen = () => {
-    setSpeaking(true);
-    void ecouterLePoint(state.activeProjectId, () => setSpeaking(false));
-  };
-
   const sansProjet = !state.activeProjectId;
   const fenetres = (
     <>
@@ -301,6 +309,12 @@ export function MenuGeneral({
         <DropdownMenuTrigger asChild>{declencheur}</DropdownMenuTrigger>
         {/* Les sélecteurs `data-*` des contrôles ont suivi leur entrée. */}
         <DropdownMenuContent align={cote} className="min-w-[230px]">
+          {enTete ? (
+            <>
+              {enTete}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           {/* LES RÉGLAGES DU PROJET, TOUT EN HAUT : sur téléphone aussi, comme
               dans le menu du grand écran. Éteints tant qu'aucun projet n'est ouvert. */}
           <DropdownMenuItem
@@ -312,12 +326,19 @@ export function MenuGeneral({
             <Settings2 className="h-3.5 w-3.5" />
             {t('Réglages du projet')}
           </DropdownMenuItem>
+          {/* LES OUTILS DU PROJET, SUR TÉLÉPHONE (13/11/2026) : le bas ne porte plus que « Publier ». */}
+          {telephone && !sansProjet ? (
+            <DropdownMenuItem data-option-du-projet="outils" data-ouvrir-outils-du-projet onSelect={ouvrirLesOutilsDuProjet}>
+              <LayoutGrid className="h-3.5 w-3.5" />
+              {t('Outils du projet')}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           {/* LES DEUX GESTES DE PUBLICATION, EN TÊTE (téléphone) : chacun dit
               ce qui attend ou son avancement, et OUVRE sa page — le déroulé
               du déploiement, la page de mise en production. C'est de là
               qu'on lance, jamais d'un toucher dans ce menu. */}
-          {deploiement || production ? (
+          {!telephone && (deploiement || production) ? (
             <>
               <DropdownMenuLabel data-menu-groupe="publication">{t('Mise en ligne')}</DropdownMenuLabel>
               {deploiement ? (
@@ -341,12 +362,6 @@ export function MenuGeneral({
           {/* Sur téléphone, le module de voix a pris la colonne centrale du menu
               du bas : le tableau de bord se rejoint donc ICI. Sur grand écran,
               la colonne de gauche y mène déjà, on ne double pas l'entrée. */}
-          {telephone && onOpenDashboard ? (
-            <DropdownMenuItem onSelect={onOpenDashboard}>
-              <BarChart3 className="h-3.5 w-3.5" />
-              {t('Résumé')}
-            </DropdownMenuItem>
-          ) : null}
           {onOuvrirFichiers ? (
             <>
               <DropdownMenuItem
@@ -367,14 +382,16 @@ export function MenuGeneral({
               </DropdownMenuItem>
             </>
           ) : null}
+          {telephone && onOuvrirVue ? (
+            <>
+              <DropdownMenuItem data-menu-statistiques disabled={sansProjet} onSelect={() => onOuvrirVue('statistiques')}>
+                <BarChart3 className="h-3.5 w-3.5" />
+                {t('Statistiques')}
+              </DropdownMenuItem>
+            </>
+          ) : null}
           {/* « MÉMOIRE DU PROJET » A QUITTÉ CE MENU (demande du 30/10/2026) : la
               mémoire se lit dans son service, « Mémoire », comme pour tous les projets. */}
-          {voixVisible ? (
-            <DropdownMenuItem disabled={speaking} onSelect={listen}>
-              <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-              {t('Écouter le point')}
-            </DropdownMenuItem>
-          ) : null}
           {/* L'arrêt, en rouge, ferme le menu : un geste qui coupe du travail
               ne se pose jamais au milieu des entrées anodines. */}
           {duProjet.length ? (
@@ -392,48 +409,4 @@ export function MenuGeneral({
       {fenetres}
     </>
   );
-}
-
-/**
- * « ÉCOUTER LE POINT » du projet : la lecture du point du jour, pilotable écran
- * verrouillé comme un podcast, avec la voix du navigateur en repli. Écrite une
- * fois : le menu du projet et celui d'un agent (« Ce projet ») s'en servent.
- * `fin` est appelé quand la lecture s'arrête, qu'elle ait abouti ou non.
- */
-export async function ecouterLePoint(projectId: string | null, fin: () => void): Promise<void> {
-  try {
-    const audio = new Audio(`/api/digest?audio=1&project=${projectId ?? ''}`);
-
-    // Lecture pilotable écran verrouillé, comme un podcast : commandes du
-    // téléphone et Bluetooth de la voiture (PLAN §22).
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: t('Le point du jour'),
-        artist: 'Beluga Build',
-        artwork: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],
-      });
-      navigator.mediaSession.setActionHandler('play', () => void audio.play());
-      navigator.mediaSession.setActionHandler('pause', () => audio.pause());
-      navigator.mediaSession.setActionHandler('stop', () => {
-        audio.pause();
-        audio.currentTime = 0;
-        fin();
-      });
-    }
-
-    audio.addEventListener('ended', fin);
-    audio.addEventListener('error', async () => {
-      fin();
-      // Repli : la voix du navigateur, si le serveur n'a pas de moteur.
-      const data = await client.call<{ text: string }>({ type: 'digest.speak', projectId: projectId ?? undefined });
-      if ('speechSynthesis' in window && data?.text) {
-        const utterance = new SpeechSynthesisUtterance(data.text);
-        utterance.lang = formatRegional();
-        speechSynthesis.speak(utterance);
-      }
-    });
-    await audio.play();
-  } catch {
-    fin();
-  }
 }

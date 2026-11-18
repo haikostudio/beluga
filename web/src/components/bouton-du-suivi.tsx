@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Clapperboard } from 'lucide-react';
+import { Clapperboard } from '@/components/ui/icones';
 import { CLASSE_BLOC_DU_PIED } from '@/components/ui';
 import { useDocumentDeCarte } from '@/lib/document-de-carte';
 import { fermerLeSuivi, ouvrirLeSuivi } from '@/lib/suivi-de-carte';

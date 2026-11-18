@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { INTITULE_DE_LA_VOIX } from '@beluga/shared';
 import { createPortal } from 'react-dom';
 import { FichiersCites } from '@/components/fichiers-cites';
 import {
@@ -13,7 +14,8 @@ import {
   MessageSquare,
   RotateCcw,
   RotateCw,
-} from 'lucide-react';
+  Zap,
+} from '@/components/ui/icones';
 import {
   Agent,
   type Card,
@@ -57,6 +59,7 @@ import {
   pointsDuParcours,
   pointsOuvertsDOffice,
   questionsOuvertesDuFil,
+  tourClosSansListe,
   decisionsEnAttente,
   type ReglagesCarte,
   tourLanceApresLaDemande,
@@ -81,6 +84,9 @@ import {
   type MediaLivre,
   veilleTientLaRangee,
   cheminDeLaRealisation,
+  auteurDeLaDemandeEcrite,
+  LIBELLE_AUTEUR_DE_CARTE,
+  deployeeNonVue,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -88,8 +94,11 @@ import {
   ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
+  Switch,
   Tooltip,
   ZoneDefilement,
   ouvertureAuClic,
@@ -99,15 +108,18 @@ import {
 import { IndicateurActivite } from '@/components/indicateur-activite';
 import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
-import { MessageView } from '@/components/message-view';
+import { useActionAuDessusDuChamp, useZoneVocale } from '@/components/voix-du-champ';
+import { CLASSE_LARGEUR_DE_LA_REPONSE, MessageView } from '@/components/message-view';
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
 import { GalerieDesMediasLivres, iconeDuMediaLivre, LigneDeMediaLivre, useMediasLivres } from '@/components/medias-livres';
 import { ChampFocaliseSurTelephone, Composer } from '@/components/composer';
-import { BandeDesCaptures, BoutonDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
-import { SuggestionsDeCarte, groupesDeSuggestions, suggestionsDeLaCarte, useSuggestionsFermees } from '@/components/suggestions-de-carte';
-import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
+import { ApercuDesCaptures, BoutonDesCaptures, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, useGalerieDesCaptures } from '@/components/captures-du-flux';
+import { ouvrirUnMedia } from '@/lib/ouvrir-un-media';
+import { ContexteOuvrirUneImageDuTexte } from '@/lib/markdown';
+import { SuggestionsDansLeFil, groupesDeSuggestions } from '@/components/suggestions-de-carte';
+import { FluxEnPoints, RenduDesSuggestionsDuFil, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
-import { BarreDEtapes } from '@/components/barre-etapes';
+import { BarreDEtapes, type TachesDeLaLigne } from '@/components/barre-etapes';
 import { CheminDuCahier } from '@/components/cahier-des-charges';
 import { CheminDeRealisation, GaleriesDuTournage } from '@/components/chemin-de-realisation';
 import { BoutonDuSuivi } from '@/components/bouton-du-suivi';
@@ -117,11 +129,12 @@ import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
 import { useTelephone } from '@/lib/telephone';
+import { useDirectVu } from '@/lib/etat-vocal';
 import { usePiedCompact } from '@/lib/pied-compact';
 import { useEcritureAuClavier } from '@/lib/ecriture-au-clavier';
 import { CarteDeConfiguration, choixDeLaCarte } from '@/components/carte-de-configuration';
 export { LigneDeConfiguration } from '@/components/carte-de-configuration';
-import { CorpsListeTaches, resumeDesTaches, usePliDesTaches } from '@/components/todos';
+import { CorpsListeTaches, resumeDesTaches, usePliDesTaches, useRepliDeFinDeTour } from '@/components/todos';
 import { BandeauPropositions, VignetteProposition } from '@/components/propositions';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
@@ -133,12 +146,15 @@ import {
   creerTexteDuChamp,
   ligneDansLeTexte,
   useTextesEnvoyes,
+  type TexteDuChamp,
 } from '@/lib/texte-du-champ';
 import { cn, duration, jourDuMessage } from '@/lib/utils';
 import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
 import { useSeconde } from '@/lib/horloge';
 import { useIntervalleVisible } from '@/lib/veille';
+import { unGesteDepuisLeChargement } from '@/lib/geste-depuis-le-chargement';
+import { useVueVisible } from '@/lib/vue-visible';
 import { BandeauDeVeille } from '@/components/veille-de-carte';
 
 /**
@@ -174,12 +190,50 @@ function FilDeConversation({
   emplacementBarre,
   reponsesProposees,
   libelleDuChamp,
-  avancementDansLeFil,
+  suiviAilleurs,
   enTeteDuFil,
+  enTeteDuFilLibre,
   depot,
   auDessusDuChamp,
   largeurMax,
+  outilsDuChamp,
+  sansBarreDEtapes,
+  actionDuStudio,
+  viserLeRapportALOuverture,
+  filtreDesMessages,
+  blocsALHeure,
+  parcours,
+  champ: champFourni,
+  remplacantDuChamp,
+  sansReglagesDuChamp,
 }: {
+  /**
+   * SANS LE BOUTON DES RÉGLAGES DANS LE CHAMP : l'écran qui porte la conversation le pose ailleurs (le volet de
+   * l'assistant, dans son entête à gauche de la croix — 17/11/2026).
+   */
+  sansReglagesDuChamp?: boolean;
+  /**
+   * LE TEXTE DU CHAMP, TENU PAR L'ÉCRAN QUI PORTE CETTE CONVERSATION (le service Sécurité, 15/11/2026) : les cases du
+   * rapport, posées HORS du fil, y lisent si leur ligne est écrite. Absent : la conversation tient le sien.
+   */
+  champ?: TexteDuChamp;
+  /**
+   * LE PARCOURS D'UN SERVICE, EN BAS COMME CELUI D'UN AGENT (campagne, étude Marketing — 14/11/2026) : la ligne posée
+   * dans le décroché au-dessus du champ, à la place de « Procédures précédentes » (`LigneDeParcours`).
+   */
+  parcours?: React.ReactNode;
+  /**
+   * DES BLOCS POSÉS DANS LE FIL À LEUR HEURE (Marketing 2, 08/11/2026 : devis, étude en direct, rapport) : chacun se
+   * place après le dernier message commencé avant lui. Absents : le fil de toujours.
+   */
+  blocsALHeure?: readonly { cle: string; le: number; noeud: React.ReactNode; /** Toute la largeur du fil (un tour du direct, qui se place lui-même à gauche ou à droite). */ pleine?: boolean }[];
+  /**
+   * CE QUI REMPLACE LA ZONE D'ÉCRITURE (le volet de l'assistant en mode voix, 16/11/2026 : les ondes de Jarvis, avec
+   * Muet et Arrêter). Absent : la barre d'écriture de toujours.
+   */
+  remplacantDuChamp?: React.ReactNode;
+  /** N'afficher que ces messages : un filtre d'affichage, local, jamais une suppression (conversation du directeur). */
+  filtreDesMessages?: (message: Message) => boolean;
   agent: Agent | null;
   projectId: string;
   header?: React.ReactNode;
@@ -206,14 +260,8 @@ function FilDeConversation({
   reponsesProposees?: readonly string[];
   /** Le libellé du champ, quand la conversation n'est pas celle d'une carte. */
   libelleDuChamp?: string;
-  /**
-   * LA LISTE DE TÂCHES DANS LE FIL — exception décidée pour le STUDIO SEUL
-   * (DEC-058 garde le repère compact partout ailleurs). Fourni, il rend le bloc
-   * d'avancement posé au bout du fil, et le repère compact ne garde que le
-   * témoin de travail (et son bouton d'arrêt), sans la liste. Il reçoit aussi le
-   * dernier texte de l'agent : le Studio y lit les styles cités (« [style:<id>] »).
-   */
-  avancementDansLeFil?: (etat: { todos: TodoItem[]; busy: boolean; dernierTexte: string }) => React.ReactNode;
+  /** LE SUIVI DE LA PRODUCTION N'A PAS DE VOLET ICI (le Studio) : ni suivi à côté, ni bouton « Suivi » ; le chemin du tournage reste dans le repère collé au champ. */
+  suiviAilleurs?: boolean;
   /**
    * UN EN-TÊTE QUI DÉFILE AVEC LE FIL (conversation sans carte seulement). Le
    * volet d'un site surveillé y pose son état — adresse, WordPress, frise — :
@@ -222,8 +270,13 @@ function FilDeConversation({
    * dernier message, et redescend dès qu'on y envoie un message.
    */
   enTeteDuFil?: React.ReactNode;
-  /** Un texte à écrire dans le champ de saisie, sans l'envoyer (chaque `nonce` neuf est un nouveau dépôt). */
-  depot?: { texte: string; nonce: number } | null;
+  /** Ses enfants sont ceux du fil : un `sticky` y reste collé tout le long de la conversation. */
+  enTeteDuFilLibre?: boolean;
+  /**
+   * Un texte à écrire dans le champ de saisie, sans l'envoyer (chaque `nonce` neuf est un nouveau dépôt). `retirer` le
+   * reprend au lieu de l'ajouter (une case décochée), à condition que personne ne l'ait retouché.
+   */
+  depot?: { texte: string; nonce: number; retirer?: boolean } | null;
   /** Un geste posé juste au-dessus de la barre d'écriture (le Marketing : « Passer à la configuration »). */
   auDessusDuChamp?: React.ReactNode;
   /**
@@ -232,6 +285,20 @@ function FilDeConversation({
    * centrés tous les deux. Absente : toute la largeur, comme partout ailleurs.
    */
   largeurMax?: number;
+  /**
+   * DES BOUTONS EN PLUS DANS LA RANGÉE DU BAS DU CHAMP, à droite du trombone (le Studio, 31/10/2026 : la
+   * bibliothèque de styles et le menu des modèles de fabrication). Absents : la rangée de toujours.
+   */
+  outilsDuChamp?: React.ReactNode;
+  /**
+   * SANS LA BARRE D'ÉTAPES EN TÊTE DU FIL d'une carte (le Studio, décision de l'utilisateur du 31/10/2026 : « peu
+   * pertinente » au-dessus de la conversation du directeur). Le chemin du tournage reste dans le repère du champ.
+   */
+  /** LE SEUL BOUTON DU STUDIO, à la place du bouton d'étape d'une création de média (`BarreDAction`). */
+  actionDuStudio?: { noeud: React.ReactNode; allume: boolean } | null;
+  sansBarreDEtapes?: boolean;
+  /** À l'ouverture sur un tour fini, se poser au début du rapport ou de la réponse. */
+  viserLeRapportALOuverture?: boolean;
 }) {
   const state = useApp();
   /* L'état du lien : il éteint les gestes du parcours au lieu de les laisser
@@ -240,7 +307,8 @@ function FilDeConversation({
   /* LE TEXTE DU CHAMP D'ÉCRITURE DE CETTE CONVERSATION, tenu hors de l'état du
      fil : la barre d'écriture l'y dépose à chaque frappe, et les idées à
      cocher d'un compte rendu y lisent leur case (`web/src/lib/texte-du-champ.ts`). */
-  const [champ] = React.useState(creerTexteDuChamp);
+  const [champLocal] = React.useState(creerTexteDuChamp);
+  const champ = champFourni ?? champLocal;
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
   /*
@@ -250,7 +318,7 @@ function FilDeConversation({
    * deux clics sur la MÊME pastille : sans lui, le second ne changerait rien et
    * la barre resterait muette.
    */
-  const [aEcrire, setAEcrire] = React.useState<{ texte: string; nonce: number } | null>(null);
+  const [aEcrire, setAEcrire] = React.useState<{ texte: string; nonce: number; retirer?: boolean } | null>(null);
   const ecrireDansLeChamp = React.useCallback(
     (texte: string) => setAEcrire((avant) => ({ texte, nonce: (avant?.nonce ?? 0) + 1 })),
     [],
@@ -259,19 +327,39 @@ function FilDeConversation({
   /* UN TEXTE DÉPOSÉ PAR L'ÉCRAN QUI PORTE CETTE CONVERSATION (le Studio : « Appliquer » un style) : même chemin que
      le refus d'un plan — il s'ajoute au champ, sans rien envoyer. */
   React.useEffect(() => {
-    if (depot) ecrireDansLeChamp(depot.texte);
+    if (depot) setAEcrire((avant) => ({ texte: depot.texte, retirer: depot.retirer === true, nonce: (avant?.nonce ?? 0) + 1 }));
   }, [depot]);
 
   const conversation = cardId ? state.cardMessages[cardId] : undefined;
-  const messages = cardId
+  const messagesDuFil = cardId
     ? (conversation?.messages ?? [])
     : agent
       ? (state.messages[agent.id] ?? [])
       : [];
+  const messages = React.useMemo(() => (filtreDesMessages ? messagesDuFil.filter(filtreDesMessages) : messagesDuFil), [messagesDuFil, filtreDesMessages]);
   /* LES MESSAGES DÉJÀ PARTIS : une idée à cocher dont la ligne y figure reste
      cochée après l'envoi (`useIdeeEnvoyee`). La liste ne change que lorsqu'un
      message part, jamais à chaque signe de la réponse qui s'écrit. */
   const textesEnvoyes = useTextesEnvoyes(messages);
+  /* LES BLOCS À LEUR HEURE : avant le premier message, ou après le dernier message commencé avant eux. */
+  const blocsDuFil = React.useMemo(() => {
+    const apres = new Map<string, React.ReactNode[]>();
+    const avant: React.ReactNode[] = [];
+    for (const b of [...(blocsALHeure ?? [])].sort((x, y) => x.le - y.le)) {
+      let porteur: Message | null = null;
+      for (const m of messages) if (m.createdAt <= b.le) porteur = m;
+      /* À LA LARGEUR DU CÔTÉ AGENT, alignés à gauche comme une réponse : un bloc ne dépasse jamais la bulle de l'agent
+         ni la zone d'écriture (demande du 09/11/2026, Marketing 2). */
+      const noeud = (
+        <div key={b.cle} className={b.pleine ? 'w-full min-w-0' : CLASSE_LARGEUR_DE_LA_REPONSE} data-bloc-a-l-heure={b.cle}>
+          {b.noeud}
+        </div>
+      );
+      if (!porteur) avant.push(noeud);
+      else apres.set(porteur.id, [...(apres.get(porteur.id) ?? []), noeud]);
+    }
+    return { avant, apres };
+  }, [blocsALHeure, messages]);
   /*
    * LES MÉDIAS EN FABRICATION DE CETTE CONVERSATION (`medias-en-fabrication.tsx`) :
    * leurs blocs se posent au bas du fil, ceux partis depuis la dernière demande
@@ -376,15 +464,17 @@ function FilDeConversation({
    * flux ouvre ses vignettes dans la même galerie (`OuvrirUneCapture`). Sans
    * carte, les listes sont vides et rien ne se demande.
    */
-  const messagesDeLaCarte = conversation?.messages;
+  /* UN SEUL FIL POUR TOUS LES AGENTS (17/11/2026) : sans carte, ce sont les messages de la conversation affichée — le
+     bouton photo remplace la bande « Ce que l'agent a vu » dans les services comme sur une carte. */
+  const messagesDeLaCarte = cardId ? conversation?.messages : messages;
   /*
    * …ET LES IMAGES QU'IL A FABRIQUÉES (30/10/2026) : un exemple de choix ou un
    * média livré n'est rattaché à aucun message, mais c'est l'agent qui l'a
    * créé — il rejoint la bande, sur ordinateur comme sur téléphone.
    */
   const imagesFabriquees = React.useMemo(
-    () => (cardId ? mediasLivresDuFil.filter((m) => m.genre === 'image').map((m) => m.attachmentId) : []),
-    [cardId, mediasLivresDuFil],
+    () => mediasLivresDuFil.filter((m) => m.genre === 'image').map((m) => m.attachmentId),
+    [mediasLivresDuFil],
   );
   const { etapesDesCaptures, idsDesPieces } = React.useMemo(() => {
     const deLAgent = (messagesDeLaCarte ?? []).filter((m) => m.role === 'assistant');
@@ -394,6 +484,17 @@ function FilDeConversation({
     };
   }, [messagesDeLaCarte, imagesFabriquees]);
   const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
+  /* UNE IMAGE POSÉE DANS UNE RÉPONSE D'AGENT (`![…](piece:…)`) s'ouvre dans la galerie du fil, comme dans une carte
+     — sinon dans la visionneuse commune. Sans ce branchement, la conversation d'un agent (un chef de marque)
+     ouvrait chaque visuel dans un nouvel onglet (03/11/2026). */
+  const ouvrirUnePieceDuTexte = React.useCallback(
+    (piece: string) => {
+      const capture = galerieDesCaptures.captures.find((c) => c.genre === 'jointe' && c.id === piece);
+      if (capture) galerieDesCaptures.ouvrir(capture);
+      else ouvrirUnMedia({ adresse: `/api/attachment?id=${encodeURIComponent(piece)}`, piece, genre: 'inconnu', nom: piece });
+    },
+    [galerieDesCaptures],
+  );
   /*
    * LA CONFIGURATION S'OUVRE EN MENU, SOUS LE BOUTON QU'ON A CLIQUÉ : le bloc
    * du point « Configuration » a le sien, et le bouton de la barre d'écriture
@@ -592,6 +693,24 @@ function FilDeConversation({
      montée, et sa demande ne partirait jamais. C'est donc le tiroir qui ouvre
      les données de la carte (`client.ouvrirLesDonneesDeCarte`). */
   const questionsOuvertes = React.useMemo(() => questionsOuvertesDuFil(messages), [messages]);
+  /* L'AGENT ATTEND, MAIS SA QUESTION N'EST PAS LÀ (13/11/2026, capture #7b1a) : le drapeau d'attente arrive par
+     l'agent, la question par son message. Si, une seconde et demie après, l'écran n'a toujours aucune question
+     ouverte, il redemande le fil de la carte — UNE fois par attente, jamais en boucle. */
+  const attendSansQuestion = !chargement && !!cardId && !!agent?.attendReponse && questionsOuvertes === 0;
+  const relanceDeLaQuestion = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!agent?.attendReponse) relanceDeLaQuestion.current = null;
+  }, [agent?.attendReponse]);
+  React.useEffect(() => {
+    if (!attendSansQuestion || !cardId) return;
+    const cle = `${cardId}:${agent?.id ?? ''}`;
+    if (relanceDeLaQuestion.current === cle) return;
+    const minuteur = window.setTimeout(() => {
+      relanceDeLaQuestion.current = cle;
+      client.ouvrirLesDonneesDeCarte(cardId);
+    }, 1500);
+    return () => window.clearTimeout(minuteur);
+  }, [attendSansQuestion, cardId, agent?.id]);
   const decisionsDeTour = React.useMemo(() => decisionsEnAttente(messages), [messages]);
   /* LE CADRAGE N'A JAMAIS DÉMARRÉ (carte posée par un agent, aucun message,
      aucun tour, rien en file) : le point « Compréhension » attend, il ne
@@ -620,6 +739,9 @@ function FilDeConversation({
         : null,
     [carteDeNuit, chargement, messages, carte?.column, carte?.scheduling?.waitingReason],
   );
+  const agentDOrigine = carte?.origineAgentId ? state.agents[carte.origineAgentId] : undefined;
+  const auteurDeLaDemande = carte ? auteurDeLaDemandeEcrite(carte, agentDOrigine) : undefined;
+  const auteurDeLaDemandeAffiche = auteurDeLaDemande ? LIBELLE_AUTEUR_DE_CARTE[auteurDeLaDemande] : undefined;
   const points = React.useMemo(
     () =>
       pointsDuParcours(
@@ -659,6 +781,9 @@ function FilDeConversation({
           /* CE QUE LA CARTE PORTE : une étape sans journal le montre, au lieu
              d'une coche sur du vide (`avecLeContenuDeLaCarte`). */
           descriptionDeLaCarte: carte?.description,
+          /* UNE CARTE POSÉE PAR UN AGENT montre SA demande en bulle, avec son auteur (capture #6e9b). */
+          demandeDeLAgent: carte?.origin === 'agent' ? carte?.briefing : undefined,
+          auteurDeLaDemande: auteurDeLaDemandeAffiche,
           analyseDeLaCarte: carte?.analysisContext,
           creeeA: carte?.createdAt,
         },
@@ -669,6 +794,9 @@ function FilDeConversation({
       carnet,
       geste.chapitre,
       carte?.description,
+      carte?.briefing,
+      carte?.origin,
+      auteurDeLaDemandeAffiche,
       carte?.analysisContext,
       carte?.createdAt,
       carte?.column,
@@ -761,6 +889,8 @@ function FilDeConversation({
     [messages],
   );
   const barreRendueAuVolet = barreDEcritureDuVolet(carte, { travaille: busy, questionEnAttente });
+  /* LA FIN D'UN TRAVAIL REPLIE la liste des tâches et « Ce que l'agent a vu » ; le travail suivant les rouvre. */
+  const finDeTour = useRepliDeFinDeTour(busy, agent?.id, questionEnAttente);
   /* LA QUESTION D'ACCORD DU DIRECTEUR ENCORE OUVERTE (idée, images clés et
      prix, film monté) : le bouton d'une création de média y répond. */
   const accordEnAttente = React.useMemo(() => {
@@ -780,7 +910,7 @@ function FilDeConversation({
      ordinateur, le chemin du tournage lui cède la place — les mêmes étapes
      écrites deux fois feraient doublon. Refermé, le chemin revient. */
   const documentDeLaCarte = useDocumentDeCarte(cardId);
-  const suiviACote = documentDeLaCarte?.genre === 'suivi' && !telephone;
+  const suiviACote = documentDeLaCarte?.genre === 'suivi' && !telephone && !suiviAilleurs;
   const cheminDuTournage = !!carte && cheminDeRealisationVisible(carte) && !suiviACote;
   /* …ET IL SE REPLIE PAR ORDRE D'APPARITION (demande du 22/10/2026) : sur
      téléphone, quand les blocs collés sous le fil dépassent leur part de
@@ -788,10 +918,12 @@ function FilDeConversation({
      et un appui rouvre un bloc replié (`usePiedCompact`,
      `shared/src/pied-compact.ts`). */
   const avecCaptures = !!projectId && galerieDesCaptures.captures.length > 0;
-  /* …ET SA CROIX LE FERME EN ENTIER : fermé, il quitte le pied ; une
-     suggestion nouvelle ou le bouton « Voir » du fil le ramène. */
-  const suggestionsFermees = useSuggestionsFermees(carte?.id, messages);
-  const avecSuggestions = !!carte && !suggestionsFermees && suggestionsDeLaCarte(messages).length > 0;
+  /* LES CARTES PROPOSÉES NE SONT PLUS UN BLOC DU PIED (décision du 14/11/2026) : elles se lisent dans le fil, à
+     l'endroit où l'agent les a proposées (`SuggestionsDansLeFil`) — le champ d'écriture reste toujours visible. */
+  const renduDesSuggestions = React.useCallback(
+    (groupe: Parameters<typeof SuggestionsDansLeFil>[0]['groupe']) => <SuggestionsDansLeFil messages={messages} groupe={groupe} />,
+    [messages],
+  );
   const groupesDuFil = React.useMemo(() => (carte ? groupesDeSuggestions(messages) : []), [carte?.id, messages]);
   const blocsDuPied = React.useMemo(
     () => [
@@ -799,19 +931,12 @@ function FilDeConversation({
          25/10/2026) : les autres blocs se replient pour elles ; seul le chevron
          de la ligne du témoin les replie. Le déroulé du cahier, lui, reste
          repliable. */
-      ...(cheminDuTournage
-        ? [{ cle: 'chemin', repliable: false, garde: true }]
-        : cahier
-          ? [{ cle: 'chemin', repliable: true }]
-          : []),
-      /* SUR TÉLÉPHONE, LES IMAGES NE SONT PLUS UN BLOC DU PIED (demande du
-         27/10/2026) : elles flottent derrière le bouton photo
-         (`BoutonDesCaptures`) et ne prennent aucune hauteur à replier. */
-      ...(avecCaptures && !telephone ? [{ cle: 'captures', repliable: true }] : []),
-      ...(avecSuggestions ? [{ cle: 'suggestions', repliable: true }] : []),
+      ...(cahier ? [{ cle: 'chemin', repliable: true }] : []),
+      /* LES IMAGES NE SONT PLUS UN BLOC DU PIED, NI SUR TÉLÉPHONE (27/10/2026) NI SUR ORDINATEUR (14/11/2026) : elles
+         flottent derrière le bouton photo (`BoutonDesCaptures`) et ne prennent aucune hauteur à replier. */
       { cle: 'decision', repliable: false },
     ],
-    [cheminDuTournage, !!cahier, avecCaptures, telephone, avecSuggestions],
+    [!!cahier],
   );
   const pied = usePiedCompact(telephone && !!carte, blocsDuPied);
   /* CLAVIER OUVERT, LA BARRE D'ÉCRITURE PASSE PAR-DESSUS LE PIED (décision du
@@ -862,10 +987,11 @@ function FilDeConversation({
   const allerAuPoint = React.useCallback(
     (etape: EtapeDeSuivi) => {
       setEtapeVisible(etape);
-      /* « À déployer » et « Archivée » visent le point « Déploiement », posé
-         en bas du flux dès que la carte y est arrivée. */
+      /* « À déployer » et « Archivée » n'ont plus de point dans le fil (13/11/2026, #b6079 : leur date se lit
+         sur la ligne des étapes) : les toucher mène au bas de la conversation. */
       if (etape === 'a_deployer' || etape === 'archivee') {
-        setOuverture((avant) => ({ ancre: ANCRE_DU_DEPLOIEMENT, etape: 'deploiement', nonce: (avant?.nonce ?? 0) + 1 }));
+        const fil = filRef.current;
+        fil?.scrollTo({ top: fil.scrollHeight, behavior: 'smooth' });
         return;
       }
       const passage = passageViseParLeSegment(points, etape);
@@ -941,10 +1067,15 @@ function FilDeConversation({
    * s'éteignaient sans que personne ait rien vu. La lecture attend donc que la
    * page soit visible et au premier plan.
    */
+  /* UN ONGLET CACHÉ N'EST PAS REGARDÉ (13/11/2026) : la tâche gardée en mémoire derrière un autre onglet ne se lit
+     qu'au retour sous les yeux. */
+  const vueVisible = useVueVisible();
+  /* UNE TÂCHE DÉPLOYÉE NON VUE REPOSÉE PAR LE CHARGEMENT N'EST PAS LUE (15/11/2026) : seul un vrai geste l'ouvre. */
+  const reposeeSansGeste = !!carte && deployeeNonVue(carte) && !unGesteDepuisLeChargement();
   React.useEffect(() => {
-    if (!cardId || busy) return;
+    if (!cardId || busy || !vueVisible || reposeeSansGeste) return;
     return quandLEcranEstRegarde(() => client.send({ type: 'card.read', cardId }));
-  }, [cardId, busy]);
+  }, [cardId, busy, vueVisible]);
   /*
    * …ET UN RENDU ARRIVÉ PENDANT QU'ON REGARDE NE RALLUME RIEN. L'instant du
    * rendu (`carte.renduA`) peut atteindre l'écran APRÈS que le témoin de
@@ -965,11 +1096,11 @@ function FilDeConversation({
   const renduNonConsulteRef = React.useRef(renduNonConsulte);
   renduNonConsulteRef.current = renduNonConsulte;
   React.useEffect(() => {
-    if (!cardId || !renduA) return;
+    if (!cardId || !renduA || !vueVisible || reposeeSansGeste) return;
     return quandLEcranEstRegarde(() => {
       if (renduNonConsulteRef.current) client.send({ type: 'card.read', cardId });
     });
-  }, [cardId, renduA]);
+  }, [cardId, renduA, vueVisible]);
 
   /*
    * Le fil suit l'agent, MAIS il ne tire jamais la page sous les yeux de
@@ -991,6 +1122,46 @@ function FilDeConversation({
   cleDuFilRef.current = cleDuFil;
   /** Une lecture remontée à retrouver, tant que le contenu se charge encore et que le lecteur n'a rien touché. */
   const aRetrouver = React.useRef<{ top: number; jusqua: number } | null>(null);
+  /**
+   * UN BLOC RENDU À TENIR PAR SON DÉBUT (07/11/2026) : une compréhension, un
+   * compte rendu ou une réponse qu'on vient de viser. Tant que `jusqua` court et
+   * que le lecteur n'a rien touché, chaque changement de taille du fil (la
+   * réflexion qui se replie au-dessus, les vignettes qui arrivent, le texte qui
+   * finit de se poser) remet son début en tête, au lieu du recollage au bas.
+   */
+  const ancreDuBloc = React.useRef<{ cle: string | undefined; cible: () => HTMLElement | null; jusqua: number } | null>(null);
+  /** Le bloc est-il encore tenu, pour CETTE conversation ? */
+  const blocTenu = () => {
+    const ancre = ancreDuBloc.current;
+    return !!ancre && ancre.cle === cleDuFilRef.current && Date.now() <= ancre.jusqua;
+  };
+  /**
+   * Le défilement qui pose le début d'un bloc SOUS le fondu du haut du fil (44 px, `ZoneDefilement`) : sa marge
+   * `scroll-mt-12` (48 px) laissait encore son titre flou sur téléphone — on garde 64 px au moins.
+   */
+  const hautVisePour = (fil: HTMLElement, bloc: HTMLElement) => {
+    const marge = Math.max(64, parseFloat(getComputedStyle(bloc).scrollMarginTop) || 0);
+    const ecart = bloc.getBoundingClientRect().top - fil.getBoundingClientRect().top - marge;
+    return Math.max(0, Math.min(fil.scrollHeight - fil.clientHeight, fil.scrollTop + ecart));
+  };
+  /** Pose le début du bloc ancré sous le haut du fil. Rend faux s'il n'y a plus rien à tenir. */
+  const tenirLeBloc = (): boolean => {
+    const ancre = ancreDuBloc.current;
+    const fil = filRef.current;
+    if (!ancre || !fil) return false;
+    if (Date.now() > ancre.jusqua) {
+      ancreDuBloc.current = null;
+      return false;
+    }
+    const bloc = ancre.cible();
+    if (!bloc) return true;
+    const vise = hautVisePour(fil, bloc);
+    if (Math.abs(vise - fil.scrollTop) > 1) {
+      marquerNotreDefilement(150);
+      fil.scrollTop = vise;
+    }
+    return true;
+  };
 
   /**
    * Jusqu'à quand un défilement du fil est le NÔTRE (glissé d'un message neuf,
@@ -1020,16 +1191,20 @@ function FilDeConversation({
         else POSITIONS_DE_LECTURE.delete(cle);
       }
       if (Date.now() < defilementDeNousJusqua.current) return;
+      /* Un bloc tenu par son début n'est pas « en bas » même quand il y touche : un bloc court ne rallume pas le suivi. */
+      if (blocTenu()) return;
       suit.current = reste < EN_BAS_PX;
     };
     const remonte = () => {
       suit.current = false;
       aRetrouver.current = null;
+      ancreDuBloc.current = null;
       defilementDeNousJusqua.current = 0;
     };
-    /* Tout geste du lecteur arrête de chercher la lecture retrouvée : il a pris la main. */
+    /* Tout geste du lecteur arrête de chercher la lecture retrouvée ou le bloc tenu : il a pris la main. */
     const prendLaMain = () => {
       aRetrouver.current = null;
+      ancreDuBloc.current = null;
     };
     let toucheY = 0;
     const toucheDebut = (e: TouchEvent) => {
@@ -1102,6 +1277,9 @@ function FilDeConversation({
     if (ouvertePour.current !== cle && messages.length) {
       ouvertePour.current = cle;
       nombreVu.current = messages.length;
+      /* Le dernier texte rendu est déjà visé par son début (`viserALOuverture`) : on ne repart pas au bas. */
+      if (blocTenu()) return;
+      ancreDuBloc.current = null;
       const lue = cle ? POSITIONS_DE_LECTURE.get(cle) : undefined;
       if (lue != null && filRef.current) {
         suit.current = false;
@@ -1119,11 +1297,16 @@ function FilDeConversation({
     // COLLÉ. Pendant qu'un agent écrit, un glissé doux relancé à chaque
     // morceau courait derrière le texte et finissait par décrocher du bas.
     const nouveauMessage = messages.length !== nombreVu.current;
+    /* Remonté lire, le fil redescend dès qu'on y écrit soi-même — même quand le
+       message écrit n'est pas le DERNIER arrivé (une ligne de l'agent arrivée
+       dans le même rendu passait devant, et le lecteur restait en haut). */
+    const ecritParLUtilisateur =
+      nouveauMessage && messages.slice(Math.min(nombreVu.current, messages.length - 1)).some((message) => message.role === 'user');
     nombreVu.current = messages.length;
-    // Remonté lire, le fil redescend dès qu'on y écrit soi-même.
-    if (nouveauMessage && messages[messages.length - 1]?.role === 'user') {
+    if (ecritParLUtilisateur) {
       suit.current = true;
       aRetrouver.current = null;
+      ancreDuBloc.current = null;
     }
     if (suit.current) {
       if (nouveauMessage) glisseJusqua.current = Date.now() + 450;
@@ -1163,6 +1346,16 @@ function FilDeConversation({
         if (Date.now() > lecture.jusqua) aRetrouver.current = null;
         else if (Math.abs(fil.scrollTop - lecture.top) > 1) fil.scrollTop = lecture.top;
         return;
+      }
+      /* Un bloc rendu tenu par son début : on le remet en tête, jamais au bas (on attend la fin de son glissé). */
+      if (ancreDuBloc.current) {
+        const glisse = defilementDeNousJusqua.current - Date.now();
+        if (glisse > 0) {
+          window.clearTimeout(minuteur);
+          minuteur = window.setTimeout(recoller, glisse + 30);
+          return;
+        }
+        if (tenirLeBloc()) return;
       }
       if (!suit.current) return;
       /* Un message neuf est en train de glisser : on le laisse arriver, puis on
@@ -1332,7 +1525,8 @@ function FilDeConversation({
      icône posée tout au bout à droite de la rangée d'action, quel que soit le
      geste affiché. Jamais dans la barre d'écriture d'une carte. */
   /* LA MISE EN LIGNE EST FAITE : la rangée d'action s'efface quand elle n'a
-     plus de bouton, et le résumé de l'agent se lit sous « Déploiement ». */
+     plus de bouton ; le moteur qui a traité la carte se lit à droite de « Travail »
+     dans la ligne des étapes (13/11/2026, #b6079). */
   const miseEnLigneFaite = deploiement.etat === 'en_ligne' || deploiement.etat === 'archivee';
   const menuReglagesCarte =
     carte && cardId && reglagesCarte.vu && reglagesCarte.libelles
@@ -1341,18 +1535,48 @@ function FilDeConversation({
             card={carte}
             vu={reglagesCarte.vu!}
             libelles={reglagesCarte.libelles!}
-            declencheur={declencheur}
+            /* AUTO ALLUMÉ SE VOIT SUR LE BOUTON DES RÉGLAGES (14/11/2026) : une pastille violette « Auto » à son coin. */
+            declencheur={carte.parcours?.lancementAutomatique ? avecLaPastilleAuto(declencheur) : declencheur}
           />
         )
       : undefined;
   /* ÉTAPES ET TÂCHES EN UN SEUL BLOC (demande du 23/10/2026, capture #8023) :
      dès que la barre d'écriture est là, le chemin du tournage quitte le pied
      pour devenir la tête du repère des tâches collé au champ. */
-  const cheminDansLeRepere =
-    cheminDuTournage && !(voletDuCahier && !barreRendueAuVolet) && !avancementDansLeFil && !(configurationOuverte && reglagesCarte.libelles);
-  const barreDEcriture = (
+  /* PLUS DE LISTE D'ÉTAPES PAR DÉFAUT (demande du 31/10/2026, capture #21ec : « y a pas de todo par défaut, c'est une
+     todo dynamique suivant le projet et le travail en cours ») : les quatre étapes du média (Brief, Esquisses, Montage,
+     Téléchargement) ne se posent plus au-dessus du champ ni dans le pied. Le repère compact ne montre que la vraie
+     liste de tâches annoncée par l'agent (DEC-058). Le passage d'étape (« Passer aux esquisses ») et le bouton
+     « Suivi » restent. */
+  const cheminDansLeRepere = false;
+  /* LA CONVERSATION VOCALE DE CET AGENT (17/11/2026) : ses bulles et ses ondes prennent la place du champ, dans TOUT
+     Chat de l'agent qui la porte — l'assistant comme une carte (`voix-du-champ.tsx`). */
+  const zoneVocale = useZoneVocale(agent?.id);
+  // …et, hors voix, l'encadré d'une action de Jarvis à l'écran flotte au-dessus du champ de l'assistant.
+  const actionAuDessusDuChamp = useActionAuDessusDuChamp(agent?.id);
+  const productionsDeLaVoix = React.useMemo(() => messages.filter((m) => m.role === 'assistant' && m.content === INTITULE_DE_LA_VOIX), [messages]);
+  /* QUI A TRAITÉ LA CARTE, À DROITE DE « TRAVAIL » (13/11/2026, #b6079) : ce qui a RÉELLEMENT servi
+     (`useReglagesCarte`), jamais le dernier choix de la barre d'écriture. Remplace « Traité par … » du fil. */
+  const moteurDuTravail =
+    reglagesCarte.vu && reglagesCarte.libelles
+      ? [reglagesCarte.libelles.moteur, reglagesCarte.libelles.modele, reglagesCarte.libelles.reflexion, reglagesCarte.vu.compte]
+          .filter((valeur): valeur is string => !!valeur && valeur !== '—')
+          .join(' · ') || null
+      : null;
+  /* EN MODE JARVIS SUR TÉLÉPHONE, RIEN QUE LE PANNEAU VOCAL (décision du 18/11/2026, capture #07e1) : la bulle vocale
+     se pose sur le bas de l'écran, et la rangée du champ de la page (pièce jointe, ordinateur cible, contexte, voix,
+     envoi) dépassait dessous. Le champ de la page se retire le temps du mode Jarvis — il reste monté (brouillon et
+     pièces jointes gardés) — et revient dès qu'il s'arrête. Hors mode Jarvis, ou sur ordinateur, rien ne change. */
+  const directVuDuChamp = useDirectVu();
+  const champSousJarvis = telephone && !zoneVocale && !remplacantDuChamp && (directVuDuChamp.etat !== 'eteint' || !!directVuDuChamp.redaction);
+  const barreDEcriture = remplacantDuChamp ?? zoneVocale ? (
+    <div data-remplacant-du-champ>{remplacantDuChamp ?? zoneVocale}</div>
+  ) : (
+    <div data-champ-sous-jarvis={champSousJarvis ? '' : undefined} className={champSousJarvis ? 'hidden' : 'contents'}>
+    {actionAuDessusDuChamp}
     <Composer
       agent={agent}
+      sansInterrupteursDuMode={!!actionDuStudio}
       /* LE GESTE PRINCIPAL DU CHAPITRE, et sa raison quand il est éteint
          (`BarreDAction`, `parcours-carte.tsx`). Sur une carte seulement :
          une conversation sans carte n'a pas de parcours. */
@@ -1376,6 +1600,7 @@ function FilDeConversation({
                   reglagesModifiables={reglagesCarte.vu?.modifiable === true}
                   resumeSousLeDeploiement={miseEnLigneFaite}
                   accordEnAttente={accordEnAttente}
+                  actionDuStudio={actionDuStudio}
                 />
               </>
             )}
@@ -1389,7 +1614,16 @@ function FilDeConversation({
          sans carte seulement (moteur, modèle, réflexion, compte). Ceux d'une
          carte sont la moitié collée du bouton principal de la rangée d'action
          (`GestesDuChapitre`). */
-      reglages={!carte && agent ? <BoutonReglagesAgent agent={agent} /> : undefined}
+      reglages={
+        outilsDuChamp ? (
+          <>
+            {!carte && agent && !sansReglagesDuChamp ? <BoutonReglagesAgent agent={agent} /> : null}
+            {outilsDuChamp}
+          </>
+        ) : !carte && agent && !sansReglagesDuChamp ? (
+          <BoutonReglagesAgent agent={agent} />
+        ) : undefined
+      }
       /* L'arrêt vit dans la barre d'action quand c'est le geste du chapitre :
          un second carré d'arrêt dans le champ le redirait. */
       sansArret={!!carte && geste.geste === 'arreter' && !voletDuCahier}
@@ -1442,7 +1676,26 @@ function FilDeConversation({
             messages={messages}
             busy={busy}
             cardId={cardId}
-            sansListe={!!avancementDansLeFil}
+            etapes={
+              carte && cardId && !sansBarreDEtapes
+                ? (taches) => (
+                    <BarreDEtapes
+                      key={cardId}
+                      enLigne
+                      moteurDuTravail={moteurDuTravail}
+                      deployeeA={suivi.deployeeA}
+                      segments={segments}
+                      active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)}
+                      courante={etapeCourante}
+                      onAller={barreFigee ? () => {} : allerAuPoint}
+                      taches={taches}
+                    />
+                  )
+                : parcours
+                  ? () => parcours
+                  : undefined
+            }
+            replieParLaFin={finDeTour}
             entete={
               cheminDansLeRepere && carte
                 ? (taches) => (
@@ -1468,6 +1721,7 @@ function FilDeConversation({
         setEnvoiLocal((echo) => (echo && echo.texte.trim() === avant.trim() ? { ...echo, texte: apres } : echo))
       }
     />
+    </div>
   );
 
   /*
@@ -1515,23 +1769,19 @@ function FilDeConversation({
                 donc collée à la barre son ombre mangeait le bas des libellés.
                 Sur téléphone la barre part dans l'en-tête par portail : rien à
                 écarter ici. */}
-            <div className={cn('shrink-0 space-y-1.5 px-4 pt-1.5', !emplacementBarre?.current && 'pb-3')} data-barre-du-fil>
-              {emplacementBarre?.current
-                ? createPortal(
-                    <BarreDEtapes segments={segments} active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={barreFigee ? () => {} : allerAuPoint} />,
-                    emplacementBarre.current,
-                  )
-                : <BarreDEtapes segments={segments} active={barreFigee ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={barreFigee ? () => {} : allerAuPoint} />}
-            </div>
+            {/* LES ÉTAPES DU TRAVAIL NE SONT PLUS EN HAUT (refonte du 13/11/2026, maquettes #d250 et #168a) : elles se
+                rangent, compactes, dans le repère collé au-dessus du champ d'écriture (`TravailEnCours`, `etapes`),
+                avec la liste des tâches — la conversation récupère toute la hauteur. */}
 
             {/* LE FLUX EN CINQ POINTS, dans la zone qui défile : chaque point
                 replie ses traces, sa mémoire et ses boutons secondaires ; le
                 plan est un point du flux (`FluxEnPoints`). */}
-            <ZoneDefilement ref={filRef} data-fil="parcours" className="flex flex-col">
+            <ZoneDefilement ref={filRef} data-fil="parcours" className="flex flex-col" voileCaleSur="[data-composer]" fonduLateral={64}>
               {/* Les idées à cocher du compte rendu lisent leur case dans le
                   champ d'écriture de CETTE carte (`ContexteTexteDuChamp`). */}
               <ContexteTexteDuChamp.Provider value={champ}>
               <ContexteTextesEnvoyes.Provider value={textesEnvoyes}>
+              <RenduDesSuggestionsDuFil.Provider value={carte ? renduDesSuggestions : null}>
               <FluxEnPoints
                 carte={carte}
                 projectId={projectId}
@@ -1555,19 +1805,37 @@ function FilDeConversation({
                 ouvertsDOffice={ouvertsDOffice}
                 ouverture={ouverture}
                 onEtapeVisible={surPointVisible}
-                deploiement={deploiement}
-                resumeDeLAgent={
-                  miseEnLigneFaite && reglagesCarte.vu && reglagesCarte.libelles ? (
-                    <ResumeDeLAgent card={carte} vu={reglagesCarte.vu} libelles={reglagesCarte.libelles} />
-                  ) : null
-                }
-                /* LE BLOC RENDU SE VISE PAR SON DÉBUT : on coupe le suivi du
-                   bas, sinon le fil y redescendrait au message suivant. */
-                onBlocRendu={() => {
-                  if (!suit.current) return false;
+                /* LE BLOC RENDU SE VISE PAR SON DÉBUT (07/11/2026) : à son arrivée
+                   si l'on suivait le bas, à l'ouverture si aucune lecture n'est
+                   retenue. On coupe le suivi du bas, et on TIENT le bloc en tête
+                   1,5 s pendant qu'il se pose (`ancreDuBloc`) — sinon le
+                   recollage au bas le reprenait au premier changement de taille. */
+                onBlocRendu={(cible, aLOuverture) => {
+                  if (aLOuverture) {
+                    const cle = cleDuFilRef.current;
+                    if (aRetrouver.current || (cle && POSITIONS_DE_LECTURE.has(cle))) return false;
+                  } else if (!suit.current) return false;
                   suit.current = false;
+                  aRetrouver.current = null;
+                  ancreDuBloc.current = { cle: cleDuFilRef.current, cible, jusqua: Date.now() + 1500 };
+                  window.requestAnimationFrame(() =>
+                    window.requestAnimationFrame(() => {
+                      const bloc = cible();
+                      const fil = filRef.current;
+                      if (!bloc || !fil || !ancreDuBloc.current) return;
+                      if (aLOuverture) {
+                        tenirLeBloc();
+                        return;
+                      }
+                      /* À l'arrivée, un glissé doux ; ses événements « scroll » sont les nôtres. */
+                      marquerNotreDefilement(700);
+                      fil.scrollTo({ top: hautVisePour(fil, bloc), behavior: 'smooth' });
+                      window.setTimeout(tenirLeBloc, 730);
+                    }),
+                  );
                   return true;
                 }}
+                viserALOuverture={(viserLeRapportALOuverture ?? true) && !busy}
                 attente={attente}
                 /* L'étape franchie donne sa largeur à la barre du point
                    « Préparation », comme sur la carte en colonne. */
@@ -1575,9 +1843,19 @@ function FilDeConversation({
                 onToggleEvolution={toggleEvolution}
                 onToggleAll={toggleAll}
               />
+              </RenduDesSuggestionsDuFil.Provider>
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
               <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} className="px-4 pb-3 pt-1" />
+              {/* CE QUE JARVIS A PRODUIT À LA VOIX SUR CETTE CARTE (17/11/2026) : la carte proposée, les images et les
+                  documents, sous « Jarvis · conversation vocale » — le flux en points ne lit que les tours de l'agent. */}
+              {productionsDeLaVoix.length ? (
+                <div className="flex flex-col gap-4 px-4 pb-3 pt-1" data-productions-de-la-voix={productionsDeLaVoix.length}>
+                  {productionsDeLaVoix.map((message) => (
+                    <MessageView key={message.id} message={message} allMessages={messages} projectId={projectId} onToggleEvolution={toggleEvolution} onToggleAll={toggleAll} />
+                  ))}
+                </div>
+              ) : null}
               {/* Les galeries du tournage, sous le plan et les médias en fabrication. La
                   lecture du cahier de réalisation vit dans le PIED FIXE du volet
                   « Suivi de la production » (`volet-de-suivi.tsx`, 25/10/2026) ;
@@ -1605,15 +1883,6 @@ function FilDeConversation({
             {/* Le chemin du tournage ne reste ici que sans barre d'écriture
                 (questionnaire, rangée d'action) : avec elle, il est la tête du
                 repère des tâches (`cheminDansLeRepere`). */}
-            {cheminDuTournage && !cheminDansLeRepere ? (
-              <div className="shrink-0" ref={pied.mesurer('chemin')} data-bloc-du-pied="chemin" data-bloc-replie={pied.estReplie('chemin') ? '' : undefined}>
-                <CheminDeRealisation
-                  carte={carte}
-                  reduit={!auBas || pied.estReplie('chemin')}
-                  onDeplier={pied.estReplie('chemin') ? () => pied.rouvrir('chemin') : undefined}
-                />
-              </div>
-            ) : null}
             {cahier ? (
               <div className="shrink-0" ref={pied.mesurer('chemin')} data-bloc-du-pied="chemin" data-bloc-replie={pied.estReplie('chemin') ? '' : undefined}>
                 <CheminDuCahier
@@ -1636,37 +1905,12 @@ function FilDeConversation({
             {/* LE BOUTON « SUIVI », JUSTE AU-DESSUS DE « CE QUE L'AGENT A VU »
                 (28/10/2026) : il ouvre et ferme le suivi de la production, et la
                 carte s'en souvient. Sur ordinateur seulement. */}
-            {carte && !telephone && cheminDeRealisationVisible(carte) ? <BoutonDuSuivi cardId={carte.id} /> : null}
-            {avecCaptures && telephone ? <BoutonDesCaptures key={carte?.id} galerie={galerieDesCaptures} /> : null}
-            {avecCaptures && !telephone ? (
-              <div
-                className={CLASSE_BLOC_DU_PIED}
-                ref={pied.mesurer('captures')}
-                data-bloc-du-pied="captures"
-                data-captures-de-la-carte={galerieDesCaptures.captures.length}
-              >
-                <BandeDesCaptures
-                  galerie={galerieDesCaptures}
-                  className=""
-                  replieeDOffice={pied.estReplie('captures')}
-                  onDeplie={() => pied.rouvrir('captures')}
-                />
-              </div>
-            ) : null}
+            {/* Au Studio, le suivi n'a plus de place (refonte du 31/10/2026 : « Supprimer Suivi ») : pas de bouton qui n'ouvrirait rien. */}
+            {carte && !suiviAilleurs && cheminDeRealisationVisible(carte) ? <BoutonDuSuivi cardId={carte.id} /> : null}
+            {/* « CE QUE L'AGENT A VU » EST UN BOUTON ROND PARTOUT (décision du 14/11/2026) : sur ordinateur aussi, la
+                bande du pied devient le rond appareil photo et son nombre d'images nouvelles. */}
+            {avecCaptures ? <BoutonDesCaptures key={carte?.id} galerie={galerieDesCaptures} fermerAuSignal={finDeTour} /> : null}
 
-            {/* LES CARTES SUGGÉRÉES, EN RANGÉE (demande du 23/10/2026) : un bloc
-                du pied comme la bande des captures, juste au-dessus du panneau
-                de décision. Plus aucune vignette verticale dans le fil. */}
-            {avecSuggestions ? (
-              <div className={CLASSE_BLOC_DU_PIED} ref={pied.mesurer('suggestions')} data-bloc-du-pied="suggestions">
-                <SuggestionsDeCarte
-                  cardId={carte!.id}
-                  messages={messages}
-                  replieeDOffice={pied.estReplie('suggestions')}
-                  onDeplie={() => pied.rouvrir('suggestions')}
-                />
-              </div>
-            ) : null}
           </>
         )}
 
@@ -1703,6 +1947,7 @@ function FilDeConversation({
               menuReglages={menuReglagesCarte}
               reglagesModifiables={reglagesCarte.vu?.modifiable === true}
               accordEnAttente={accordEnAttente}
+              actionDuStudio={actionDuStudio}
             />
           </div>
         ) : (
@@ -1743,15 +1988,21 @@ function FilDeConversation({
           </div>
         ) : null}
 
+      <ContexteOuvrirUneImageDuTexte.Provider value={ouvrirUnePieceDuTexte}>
+      <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
+      <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
+      <PieceDUneCapture.Provider value={galerieDesCaptures.pieceDuChemin}>
       <ZoneDefilement
         ref={filRef}
         data-fil="conversation"
         onScroll={(event) => {
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
         }}
-        className={cn('flex flex-col', enTeteDuFil ? 'pb-3' : 'px-3 py-3')}
+        /* `--retrait-du-fil` : un hôte qui veut les bulles au retrait EXACT de la zone d'écriture (16 px, Marketing 2)
+           le pose ; partout ailleurs le fil garde ses 12 px. */
+        className={cn('flex flex-col', enTeteDuFil ? 'pb-3' : 'px-[var(--retrait-du-fil,0.75rem)] py-3')}
       >
-        {enTeteDuFil ? <div className="shrink-0">{enTeteDuFil}</div> : null}
+        {enTeteDuFil ? <div className={enTeteDuFilLibre ? 'contents' : 'shrink-0'}>{enTeteDuFil}</div> : null}
         {/*
          * Un échange court — une phrase de l'agent et sa carte proposée — ne
          * remplit pas la hauteur du fil, et le contenu resterait collé EN HAUT
@@ -1785,10 +2036,12 @@ function FilDeConversation({
             <ContextePiecesDesBlocs.Provider value={blocsDeMedias.pieces}>
               <GalerieDesMediasLivres medias={cardId ? [] : mediasLivresDuFil}>
                 <LignesDeMediasDuMessage medias={mediasParMessage.avant} />
+                {blocsDuFil.avant}
                 {messages.map((message, index) => (
                   <React.Fragment key={message.id}>
                     {rendreMessage(index)}
                     <LignesDeMediasDuMessage medias={mediasParMessage.apres.get(message.id)} />
+                    {blocsDuFil.apres.get(message.id)}
                   </React.Fragment>
                 ))}
               </GalerieDesMediasLivres>
@@ -1814,6 +2067,8 @@ function FilDeConversation({
                silhouette, jamais « Aucun échange pour le moment » — une phrase
                qui annoncerait une conversation vide sur un fil bien fourni. */
             <SilhouetteConversation />
+          ) : blocsALHeure?.length ? (
+            blocsDuFil.avant
           ) : (
             <EmptyState
               icon={<MessageSquare className="h-5 w-5" />}
@@ -1821,17 +2076,14 @@ function FilDeConversation({
               hint={motDeLaConversationVide.indice}
             />
           )}
-          {avancementDansLeFil
-            ? avancementDansLeFil({
-                todos: [...messages].reverse().find((message) => message.todos?.length)?.todos ?? [],
-                busy,
-                dernierTexte: [...messages].reverse().find((message) => message.role === 'assistant' && typeof message.content === 'string' && message.content.trim())?.content ?? '',
-              })
-            : null}
           <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} />
           <div ref={bottomRef} />
         </div>
       </ZoneDefilement>
+      </PieceDUneCapture.Provider>
+      </RepereDUneCapture.Provider>
+      </OuvrirUneCapture.Provider>
+      </ContexteOuvrirUneImageDuTexte.Provider>
       </div>
 
       {/* Les cartes proposées qui attendent encore un clic sont posées en
@@ -1843,6 +2095,12 @@ function FilDeConversation({
           décroché au-dessus de la ligne d'état (`FileDAttente`). */}
       <div className="relative shrink-0" data-pied-du-fil style={largeurMax ? { maxWidth: largeurMax, width: '100%', marginInline: 'auto' } : undefined}>
         <BandeauPropositions messages={messages} />
+
+        {/* LE BOUTON PHOTO, COMME SUR UNE CARTE (17/11/2026) : la bande « Ce que l'agent a vu » sous chaque réponse
+            n'existe plus dans les services. */}
+        {avecCaptures ? <BoutonDesCaptures key={agent?.id} galerie={galerieDesCaptures} fermerAuSignal={finDeTour} /> : null}
+        {/* …ET SA VISIONNEUSE : une capture du fil s'y ouvre, feuilletable avec les autres images de l'agent. */}
+        {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
 
         {barreDEcriture}
       </div>
@@ -2001,16 +2259,24 @@ function TravailEnCours({
   messages,
   busy,
   cardId,
-  sansListe,
   entete,
+  etapes,
+  replieParLaFin = false,
 }: {
+  /**
+   * LES ÉTAPES DU TRAVAIL D'UNE CARTE (refonte du 13/11/2026), en tête du repère. Elles reçoivent la liste des tâches
+   * pour la RANGER SOUS « TRAVAIL » (décision du 13/11/2026 : les deux listes fusionnent) : le repère n'a alors plus de
+   * seconde ligne « Liste des tâches ».
+   */
+  etapes?: (taches: TachesDeLaLigne) => React.ReactNode;
   agent: Agent | null;
   messages: Message[];
   busy: boolean;
+  /** Replié par la fin du tour (`useRepliDeFinDeTour`) : un appui rouvre, le pli retenu n'est pas touché. */
+  replieParLaFin?: boolean;
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
   /** La liste vit DANS LE FIL (Studio) : le repère ne garde que le témoin de travail. */
-  sansListe?: boolean;
   /**
    * Les étapes du tournage posées en TÊTE du repère : un seul bloc. Elles
    * reçoivent la ligne de travail et la liste de tâches (`taches`) pour les
@@ -2028,6 +2294,7 @@ function TravailEnCours({
   // La liste des tâches se déplie depuis CETTE barre, et de nulle part
   // ailleurs. Le pli est retenu d'une fois sur l'autre (`usePliDesTaches`,
   // `todos.tsx`) : téléphone replié, ordinateur déplié, sauf choix contraire.
+  const telephoneDuTravail = useTelephone();
   const [listeOuverte, basculerListe] = usePliDesTaches();
   /*
    * LE CHAMP A LE FOCUS, SUR TÉLÉPHONE : le bloc se replie sur sa seule ligne
@@ -2043,6 +2310,16 @@ function TravailEnCours({
     if (!champFocalise) setDerogation(false);
   }, [champFocalise]);
   const replieParLeChamp = champFocalise && !derogation;
+  /* LA COMPENSATION DU RECOUVREMENT (`-mb-3`, 12 px sous le champ) : `pb-5` laisse 8 px d'air visible sous la dernière
+     ligne, qui marquent la marche entre le décroché et le champ en thème sombre. CHAMP ACTIF SUR TÉLÉPHONE (clavier
+     ouvert, repère replié sur sa seule ligne) : `pb-3`, rien de visible — en thème clair le décroché et le champ ont
+     presque le même gris, et ces 8 px s'ajoutaient au retrait du champ en un vide lu comme un blanc en trop (carte
+     « Marges iPhone et voix introuvable », capture #985b0). */
+  const compensation = replieParLeChamp ? 'pb-3' : 'pb-5';
+  /* LE REPLI DE FIN DE TOUR, levé d'un appui jusqu'au tour suivant — comme le repli du champ, sans toucher au pli retenu. */
+  const [rouvertMalgreLaFin, setRouvertMalgreLaFin] = React.useState(false);
+  React.useEffect(() => setRouvertMalgreLaFin(false), [replieParLaFin]);
+  const replieParLeTour = replieParLaFin && !rouvertMalgreLaFin;
 
   // Le temps écoulé avance tout seul, seconde par seconde.
   useSeconde(busy);
@@ -2065,7 +2342,7 @@ function TravailEnCours({
    * rangent sous l'étape en cours, comme celles d'un agent de tâche. Seul le
    * cadrage ORDINAIRE (sans barre d'étapes) retire sa liste refermée.
    */
-  const listeRetiree = (agent?.role === 'cadrage' && !entete) || !!sansListe;
+  const listeRetiree = agent?.role === 'cadrage' && !entete;
   const [rang, setRang] = React.useState<number | null>(null);
   React.useEffect(() => setRang(null), [passees.length]);
   /*
@@ -2078,7 +2355,12 @@ function TravailEnCours({
    * flèches ne comptent que les procédures passées : jamais un « N/N » vide.
    */
   const courante = dernier?.todos?.length ? dernier.todos : undefined;
-  const total = passees.length + (courante ? 1 : 0);
+  /* UN TOUR CLOS SANS LISTE RANGE LA LISTE D'AVANT (`tourClosSansListe`) : la
+     réponse rendue après une question ne laisse plus l'ancienne liste « 0/6 ·
+     6 non faites » comme liste courante. Une case vide prend la place par
+     défaut, et les flèches rouvrent les procédures passées. */
+  const rangee = !courante && passees.length > 0 && !listeRetiree && tourClosSansListe(dernier, busy);
+  const total = passees.length + (courante || rangee ? 1 : 0);
   const defaut = total - 1;
   const position = rang !== null && rang < defaut ? rang : defaut;
   const enPasse = position < defaut && !listeRetiree;
@@ -2099,10 +2381,17 @@ function TravailEnCours({
    * la liste REFERMÉE qu'on retire, pas le signe qu'il travaille.
    */
   const todosDisponibles = !!todos?.length && !listeRetiree;
+  /* LA QUESTION RESTE OUVERTE : le tour s'est refermé faute de réponse dans le
+     délai, mais le travail reprendra avec elle. Les lignes laissées de la liste
+     la plus récente l'attendent, elles ne sont pas « non faites ». */
+  const listeLaPlusRecente = courante ?? (rangee ? undefined : passees[passees.length - 1]?.todos);
+  const enAttenteDeReponse =
+    !!todos && todos === listeLaPlusRecente &&
+    messages.some((m) => m.questions?.some((q) => !q.answer && !q.cancelled && !q.competence));
 
   const avecFleches = total > 1 && !listeRetiree;
   // Rien ne tourne et aucune liste à garder sous les yeux : le repère s'efface.
-  if (!busy && !todosDisponibles && !entete && !avecFleches) return null;
+  if (!busy && !todosDisponibles && !entete && !avecFleches && !etapes) return null;
   /* La ligne du témoin : ce qui tourne, le bilan de la liste montrée, ou les
      flèches des procédures — elles n'ont plus d'autre place. Sans rien de
      tout cela, le bloc ne garde que ses étapes. */
@@ -2115,9 +2404,10 @@ function TravailEnCours({
    */
   const avecLigne = busy || todosDisponibles || enPasse || avecFleches || niche;
   /* Une procédure passée se lit en entier : sa liste est dépliée d'office.
-     Pour le reste, SEUL le chevron replie la liste — rien ne la referme à la
-     fin d'un tour ni à l'envoi d'un message. */
-  const listeVisible = todosDisponibles && (listeOuverte || enPasse) && !replieParLeChamp;
+     Pour le reste, le chevron replie la liste ; la FIN D'UN TOUR la replie
+     aussi, pour la session seulement (décision du 06/11/2026), et le tour
+     suivant la rouvre. L'envoi d'un message n'y touche pas. */
+  const listeVisible = todosDisponibles && (enPasse || (listeOuverte && !replieParLeTour)) && !replieParLeChamp;
   /*
    * UN SEUL PLI POUR TOUT LE BLOC (demande du 23/10/2026) : en mode
    * Réalisation, la ligne d'état replie les étapes ET les tâches rangées sous
@@ -2125,7 +2415,7 @@ function TravailEnCours({
    * ligne (rien ne tourne, aucune liste), les étapes restent : rien ne les
    * rouvrirait.
    */
-  const etapesVisibles = niche && (listeOuverte || enPasse) && !replieParLeChamp;
+  const etapesVisibles = niche && (enPasse || (listeOuverte && !replieParLeTour)) && !replieParLeChamp;
   const repliable = todosDisponibles || niche;
   const deplie = niche ? etapesVisibles : listeVisible;
   /* Replié par le champ, un appui DÉPLIE toujours : la dérogation lève le
@@ -2136,14 +2426,21 @@ function TravailEnCours({
     : replieParLeChamp
       ? () => {
           setDerogation(true);
+          if (replieParLeTour) setRouvertMalgreLaFin(true);
           if (!listeOuverte) basculerListe();
         }
-      : basculerListe;
+      : replieParLeTour
+        ? () => {
+            /* Replié par la fin du tour : l'appui DÉPLIE, et le pli retenu ne change que s'il était replié par choix. */
+            setRouvertMalgreLaFin(true);
+            if (!listeOuverte) basculerListe();
+          }
+        : basculerListe;
   const fleches = avecFleches ? (
-    <span className="flex shrink-0 items-center gap-0.5 text-faint" data-fleches-procedures={`${position + 1}/${total}`}>
+    <span className="flex shrink-0 items-center gap-0.5 text-faint" data-fleches-procedures={rangee && position === defaut ? 'rangee' : `${position + 1}/${total}`}>
       <button
         type="button"
-        aria-label={t('Procédure précédente')}
+        aria-label="Procédure précédente"
         title={t('Procédure précédente')}
         disabled={position === 0}
         onClick={() => setRang(position - 1)}
@@ -2152,10 +2449,12 @@ function TravailEnCours({
       >
         <ChevronLeft className="h-3.5 w-3.5" />
       </button>
-      <span className="text-[11px] tabular-nums">{`${position + 1}/${total}`}</span>
+      {rangee && position === defaut ? null : (
+        <span className="text-[11px] tabular-nums">{`${position + 1}/${rangee ? passees.length : total}`}</span>
+      )}
       <button
         type="button"
-        aria-label={t('Procédure suivante')}
+        aria-label="Procédure suivante"
         title={t('Procédure suivante')}
         disabled={!enPasse}
         onClick={() => setRang(position + 1 >= defaut ? null : position + 1)}
@@ -2191,13 +2490,13 @@ function TravailEnCours({
   const etapesDuChemin: readonly { etat: string }[] = !carteDuChemin ? [] : etapesDuMedia ? etapesDuMedia.segments : cheminDeLaRealisation(carteDuChemin).etapes;
   const etapesFaites = etapesDuChemin.filter((etape) => etape.etat === 'fait').length;
   const quoi = enPasse
-    ? resumeDesTaches(todos!)
+    ? resumeDesTaches(todos!, { enAttenteDeReponse })
     : niche && !busy && !todosDisponibles
     ? t('Liste des étapes — {faites}/{v0} faite{v1}', { faites: etapesFaites, v0: etapesDuChemin.length, v1: etapesFaites > 1 ? 's' : '' })
     : !busy && !todosDisponibles
     ? t('Procédures précédentes')
     : !busy
-    ? resumeDesTaches(todos!, { examen: estCarteDuRendezVousDeNuit(cardId ? state.cards[cardId] : undefined) })
+    ? resumeDesTaches(todos!, { examen: estCarteDuRendezVousDeNuit(cardId ? state.cards[cardId] : undefined), enAttenteDeReponse })
     : agent?.attendReponse
       ? TEXTE_BARRE_EN_ATTENTE
       : rangeLeTour
@@ -2257,7 +2556,7 @@ function TravailEnCours({
         // — cette marge ne vaut que pour la DERNIÈRE ligne visible : une
         // fois la liste dépliée sous elle, c'est elle qui la porte à la
         // place.
-        etapesVisibles || listeVisible ? 'pb-1.5' : 'pb-5',
+        etapesVisibles || listeVisible ? 'pb-1.5' : compensation,
       )}
       data-ligne-du-temoin
     >
@@ -2301,6 +2600,28 @@ function TravailEnCours({
       )}
     </div>
   );
+  /* LA LISTE CONFIÉE À LA LIGNE DES ÉTAPES (carte avec `etapes`, hors Réalisation) : rangée sous « Travail », en
+     branches. Le témoin garde tout le calcul (procédure affichée, temps, replis). */
+  const tachesDeLaLigne: TachesDeLaLigne = {
+    corps: todosDisponibles ? (
+      <CorpsListeTaches todos={todos!} streaming={busy && listeDuTour} maintenant={Date.now()} enBranches enAttente={enAttenteDeReponse} />
+    ) : null,
+    faites: todosDisponibles ? todos!.filter((todo) => todo.state === 'done').length : 0,
+    total: todosDisponibles ? todos!.length : 0,
+    fleches,
+    enTravail: busy && !enPasse,
+    /* SUR TÉLÉPHONE, LE COMPTE ET LE TEMPS ALTERNENT (14/11/2026, capture #9dd1b) : « 115/116 · 35 min 21 s » sortait
+       du cadre de la ligne et le chevron le chevauchait. Comme sur les cartes du tableau, l'un puis l'autre. */
+    /* SANS ROUE NI POINT (15/11/2026, capture #e5085) : le rond qui tourne devant le nom de l'étape suffit. */
+    resume: busy && !enPasse ? <InfoTravail quoi={quoi} avancement={avancement} temps={temps} sansIcone classeDuTexte="text-muted" alterner={telephoneDuTravail} /> : null,
+    enPasse,
+    replie: replieParLeChamp,
+    onLeverLeRepli: () => {
+      setDerogation(true);
+      if (replieParLeTour) setRouvertMalgreLaFin(true);
+    },
+    replieParLeTour,
+  };
   /* Sous l'étape, les cases s'alignent sur le nom de l'étape (la liste porte
      ses propres retraits, `CorpsListeTaches`). */
   const liste = listeVisible ? (
@@ -2309,8 +2630,8 @@ function TravailEnCours({
        (`BrancheDeTache`, `todos.tsx`) ; les cases tombent sous le nom. À
        DROITE, AUCUN DÉBORD (capture #b153) : un `-mr-3` poussait la durée des
        tâches 12 px hors de la colonne des étapes, contre le bord du bloc. */
-    <div className={niche ? '-ml-[27px]' : 'pb-5'} data-liste-du-temoin>
-      <CorpsListeTaches todos={todos!} streaming={busy && listeDuTour} maintenant={Date.now()} enBranches={niche} />
+    <div className={niche ? '-ml-[27px]' : compensation} data-liste-du-temoin>
+      <CorpsListeTaches todos={todos!} streaming={busy && listeDuTour} maintenant={Date.now()} enBranches={niche} enAttente={enAttenteDeReponse} />
     </div>
   ) : null;
 
@@ -2322,6 +2643,7 @@ function TravailEnCours({
       data-volet="taches"
       data-procedure-passee={enPasse ? '' : undefined}
       data-liste-repliee-par-le-champ={replieParLeChamp && (todosDisponibles || niche) ? '' : undefined}
+      data-liste-repliee-par-le-tour={replieParLeTour && (todosDisponibles || niche) ? '' : undefined}
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
@@ -2341,13 +2663,24 @@ function TravailEnCours({
         'decroche-degrade decroche-gris [--hauteur-du-degrade:34px]',
       )}
     >
-      {entete ? (
+      {etapes && !entete ? (
+        /* LES ÉTAPES ET LES TÂCHES, UN SEUL BLOC (13/11/2026) : la ligne des étapes porte tout — ce que fait l'agent sur
+           sa ligne d'en-tête, la liste sous « Travail ». Elle porte seule la compensation du recouvrement (`pb-5`). */
+        <div className={cn('flex min-w-0 items-center px-3 pt-1', compensation)} data-etapes-du-repere data-barre-du-fil>
+          {etapes(tachesDeLaLigne)}
+        </div>
+      ) : etapes ? (
+        <div className={cn('flex min-w-0 items-center px-3 pt-1', avecLigne || entete ? 'pb-0' : compensation)} data-etapes-du-repere data-barre-du-fil>
+          {etapes(tachesDeLaLigne)}
+        </div>
+      ) : null}
+      {etapes && !entete ? null : entete ? (
         /* La ligne du témoin en tête, puis les étapes, et les tâches du tour
            rangées sous l'étape où l'on est. */
         <>
           {avecLigne ? ligne : null}
           {etapesVisibles ? (
-            <div className={cn('flex min-w-0 items-start gap-2 px-3 pb-5', avecLigne ? 'pt-0.5' : 'pt-1.5')} data-entete-du-repere>
+            <div className={cn('flex min-w-0 items-start gap-2 px-3', compensation, avecLigne ? 'pt-0.5' : 'pt-1.5')} data-entete-du-repere>
               {entete(liste)}
             </div>
           ) : null}
@@ -2496,52 +2829,84 @@ function ReglagesAgent({
   );
 }
 
+/** Le bouton des réglages d'une carte en Auto : la même icône, une pastille violette « Auto » à son coin haut droit. */
+function avecLaPastilleAuto(declencheur: React.ReactElement): React.ReactElement {
+  const props = declencheur.props as { className?: string; children?: React.ReactNode };
+  return React.cloneElement(declencheur, {
+    className: cn(props.className, 'relative overflow-visible'),
+    'data-auto-allume': '',
+    children: (
+      <>
+        {props.children}
+        <span className="pointer-events-none absolute -right-1.5 -top-1.5 rounded-full bg-teinte-plein px-1 text-[9.5px] font-semibold leading-[14px] text-sur-couleur" data-pastille-auto aria-hidden>
+          {t('Auto')}
+        </span>
+      </>
+    ),
+  } as Record<string, unknown>);
+}
+
 /**
- * QUI A TRAITÉ LA DEMANDE — UNE LIGNE SOUS LE POINT « DÉPLOIEMENT ». Une carte
- * mise en ligne n'a plus de bouton, donc plus d'icône des réglages : ce résumé
- * la remplace. Il lit ce qui a RÉELLEMENT servi (`useReglagesCarte`, agent
- * d'exécution), jamais le dernier choix de la barre d'écriture. Un clic ouvre
- * le même menu, en lecture.
+ * L'INTERRUPTEUR « AUTO » D'UNE CARTE (carte « Services homogènes et centrés », 14/11/2026, `mode-auto.ts`) : une ligne
+ * du menu des réglages, dans ses DEUX états — il se change à tout moment, carte lancée comprise, alors que moteur,
+ * modèle, réflexion et compte se figent au lancement. Éteint à la naissance de la carte, jamais retenu pour la suivante.
+ * Toucher la ligne bascule sans refermer le menu. Repère `data-interrupteur-auto`.
  */
-function ResumeDeLAgent({
-  card,
-  vu,
-  libelles,
-}: {
-  card: Card;
-  vu: ReglagesCarte;
-  libelles: { moteur: string; modele: string; reflexion: string };
-}) {
-  const valeurs = [libelles.moteur, libelles.modele, libelles.reflexion, vu.compte].filter(
-    (valeur): valeur is string => !!valeur && valeur !== '—',
-  );
+function InterrupteurAuto({ card }: { card: Card }) {
+  const actif = !!card.parcours?.lancementAutomatique;
+  const [voulu, setVoulu] = React.useState<boolean | null>(null);
+  const [attente, setAttente] = React.useState(false);
+  React.useEffect(() => {
+    if (voulu !== null && voulu === actif && !attente) setVoulu(null);
+  }, [actif, voulu, attente]);
+  const coche = voulu ?? actif;
+  const basculer = async () => {
+    const v = !coche;
+    setVoulu(v);
+    setAttente(true);
+    try {
+      await client.call({ type: 'card.lancement.automatique', cardId: card.id, actif: v });
+    } catch (err: any) {
+      setVoulu(null);
+      client.pushToast('error', err?.message ?? t('Réglage impossible'));
+    } finally {
+      setAttente(false);
+    }
+  };
   return (
-    <MenuDesReglagesDeLaCarte
-      card={card}
-      vu={vu}
-      libelles={libelles}
-      declencheur={
-        <button
-          type="button"
-          data-resume-agent
-          title={titreDesReglages(vu)}
-          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-3 sm:px-2.5 py-2 sm:py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-fond-survol"
-        >
-          <Cpu className="h-3 w-3 shrink-0 text-faint" aria-hidden />
-          <span className="min-w-0 break-words">
-            {t('Traité par {v0}', { v0: valeurs.join(' · ') })}
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onSelect={(e) => {
+          e.preventDefault();
+          if (!attente) void basculer();
+        }}
+        className="items-start gap-2.5"
+        data-interrupteur-auto={coche ? 'allume' : 'eteint'}
+      >
+        <span className="flex h-5 w-4 shrink-0 items-center justify-center text-muted">
+          <Zap className={cn('h-4 w-4', coche && 'text-teinte')} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className={cn('font-medium', coche ? 'text-teinte' : 'text-text')}>{t('Auto')}</span>
+          <span className="whitespace-normal text-[12px] leading-snug text-muted">
+            {t('Répond seul aux questions avec la réponse conseillée, lance le travail et le relance s’il reste à faire. La mise en ligne reste votre geste.')}
           </span>
-        </button>
-      }
-    />
+        </span>
+        {/* La ligne entière est le geste : l'interrupteur n'en est que le dessin. */}
+        <span className="pointer-events-none mt-0.5 flex shrink-0" aria-hidden>
+          <Switch checked={coche} attente={attente} tabIndex={-1} />
+        </span>
+      </DropdownMenuItem>
+    </>
   );
 }
 
 /**
  * LE MENU DE LA CONFIGURATION D'UNE CARTE, ANCRÉ AU BOUTON QU'ON LUI CONFIE.
  *
- * Plusieurs boutons l'ouvrent — le bloc du fil (`ReglagesAgent`, menu sous lui),
- * l'icône au bout de la rangée d'action et le résumé sous « Déploiement » : chacun
+ * Plusieurs boutons l'ouvrent — le bloc du fil (`ReglagesAgent`, menu sous lui)
+ * et l'icône au bout de la rangée d'action : chacun
  * a SON menu, et tous montrent le même contenu.
  *
  *  - MODIFIABLE (`data-tiroir-reglages="modifiable"`) : les entrées des
@@ -2592,6 +2957,7 @@ function MenuDesReglagesDeLaCarte({
               onSelect={choixDeLaCarte(card, state.engines)}
               comptes={state.quotas}
             />
+            <InterrupteurAuto card={card} />
           </div>
         ) : (
           <div className="flex flex-col gap-0.5" data-tiroir-reglages="lecture">
@@ -2600,6 +2966,7 @@ function MenuDesReglagesDeLaCarte({
               <Lock className="h-3 w-3 shrink-0 text-faint" aria-hidden />
             </div>
             <ReglagesLusDeLaCarte card={card} vu={vu} libelles={libelles} />
+            <InterrupteurAuto card={card} />
           </div>
         )}
       </DropdownMenuContent>

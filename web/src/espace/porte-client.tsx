@@ -12,7 +12,7 @@
  * et les cinq langues.
  */
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import { abonnerAuxNotifications } from '@/lib/abonnement-push';
 import { appliquerLeTheme, useSystemeSombre } from '@/lib/theme';
 import { appliquerLaLangue, langueInitiale, t } from '@/lib/langue';
@@ -259,9 +259,9 @@ export function PorteClient() {
 
   return (
     /*
-     * LA PORTE COMMENCE SOUS LA BARRE D'ÉTAT. L'application installée s'étend
-     * jusqu'au bord (`viewport-fit=cover`) : sans ce décalage, l'entête passait
-     * sous l'heure et la batterie de l'iPhone. Le décalage est posé ICI, pas
+     * LA PORTE COMMENCE SOUS LA BARRE D'ÉTAT. Une icône ancienne, en
+     * `black-translucent`, passe encore sous l'heure : sans ce décalage (0 partout
+     * ailleurs, `web/index.html`), l'entête s'y logerait. Le décalage est posé ICI, pas
      * dans l'entête : la vue Haiko réutilise l'entête SOUS la barre de quotas,
      * qui compte déjà la zone sûre. Le fond `bg-bg` monte jusqu'au bord.
      */

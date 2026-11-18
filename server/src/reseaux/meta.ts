@@ -1,5 +1,5 @@
 import { DROITS_DEMANDES } from '@beluga/shared';
-import { type Adaptateur, type CompteTrouve, type IdentifiantsApplication, type MessageRelu, ErreurReseau, adresse, appel, attendre, formulaire, instantDe, premierMedia } from './commun.js';
+import { chiffre, type Adaptateur, type CompteTrouve, type IdentifiantsApplication, type MessageRelu, ErreurReseau, adresse, appel, attendre, formulaire, instantDe, premierMedia } from './commun.js';
 
 /**
  * FACEBOOK (pages) ET INSTAGRAM (comptes professionnels) — l'API Graph de Meta.
@@ -9,27 +9,67 @@ import { type Adaptateur, type CompteTrouve, type IdentifiantsApplication, type 
  * tire n'expirent pas. Instagram passe par la page Facebook à laquelle le
  * compte professionnel est rattaché : c'est son jeton qui publie, commente et
  * répond aux messages.
+ *
+ * INSTAGRAM SANS PAGE — LA CONNEXION UNIFIÉE (12/11/2026) : quand l'application
+ * a sa configuration « Facebook Login for Business » (`configConnexion`), le
+ * bouton Relier d'Instagram ouvre `dialog/oauth?config_id=…` ; la personne se
+ * connecte avec Facebook OU avec Instagram, choisit le portefeuille et le compte.
+ * Le code rend un jeton d'utilisateur SYSTÈME de l'entreprise cliente (sans
+ * échéance, pas d'échange long) ; `me/assigned_instagram_accounts` donne les
+ * comptes, et tout se fait sur l'identifiant Instagram lui-même (messages
+ * compris), sans page. Les applications Meta récentes n'offrent plus la
+ * connexion « Instagram seul » : c'est la seule voie pour un compte qu'aucune
+ * page ne porte (@belugabuild).
  */
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
 function urlDeConnexion(reseau: 'facebook' | 'instagram') {
   return ({ app, retour, etat }: { app: IdentifiantsApplication; retour: string; etat: string }) =>
-    adresse('https://www.facebook.com/v21.0/dialog/oauth', {
-      client_id: app.clientId,
-      redirect_uri: retour,
-      state: etat,
-      response_type: 'code',
-      scope: DROITS_DEMANDES[reseau].join(','),
-    });
+    reseau === 'instagram' && app.configConnexion
+      ? /* Connexion unifiée : les droits viennent de la configuration ; `prompt=login` offre « Continuer avec Instagram ». */
+        adresse('https://www.facebook.com/v21.0/dialog/oauth', {
+          client_id: app.clientId,
+          config_id: app.configConnexion,
+          redirect_uri: retour,
+          state: etat,
+          response_type: 'code',
+          override_default_response_type: 'true',
+          prompt: 'login',
+        })
+      : adresse('https://www.facebook.com/v21.0/dialog/oauth', {
+          client_id: app.clientId,
+          redirect_uri: retour,
+          state: etat,
+          response_type: 'code',
+          scope: DROITS_DEMANDES[reseau].join(','),
+        });
 }
 
+async function jetonCourt(app: IdentifiantsApplication, retour: string, code: string): Promise<string> {
+  const r = await appel<{ access_token: string }>(adresse(`${GRAPH}/oauth/access_token`, { client_id: app.clientId, client_secret: app.secret, redirect_uri: retour, code }));
+  return r.corps.access_token;
+}
+
+/** Les comptes Instagram confiés par la connexion unifiée, toutes pages de résultats lues. */
+async function comptesInstagramConfies(jeton: string): Promise<{ id: string; username?: string; profile_picture_url?: string }[]> {
+  const sortie: { id: string; username?: string; profile_picture_url?: string }[] = [];
+  let url: string | undefined = adresse(`${GRAPH}/me/assigned_instagram_accounts`, { access_token: jeton, limit: 100, fields: 'id,username,profile_picture_url' });
+  for (let i = 0; url && i < 10; i += 1) {
+    const r: { corps: { data?: { id: string; username?: string; profile_picture_url?: string }[]; paging?: { next?: string } } } = await appel(url);
+    sortie.push(...(r.corps.data ?? []));
+    url = r.corps.paging?.next;
+  }
+  return sortie;
+}
+
+/** L'objet qui porte les messages privés d'un compte Instagram : sa page, ou lui-même s'il est relié sans page. */
+const porteurDesMessages = (ctx: { distantId: string; details: Record<string, any> }) => String(ctx.details.pageId || ctx.distantId);
+
 async function jetonLong(app: IdentifiantsApplication, retour: string, code: string): Promise<string> {
-  const court = await appel<{ access_token: string }>(
-    adresse(`${GRAPH}/oauth/access_token`, { client_id: app.clientId, client_secret: app.secret, redirect_uri: retour, code }),
-  );
+  const court = await jetonCourt(app, retour, code);
   const long = await appel<{ access_token: string }>(
-    adresse(`${GRAPH}/oauth/access_token`, { grant_type: 'fb_exchange_token', client_id: app.clientId, client_secret: app.secret, fb_exchange_token: court.corps.access_token }),
+    adresse(`${GRAPH}/oauth/access_token`, { grant_type: 'fb_exchange_token', client_id: app.clientId, client_secret: app.secret, fb_exchange_token: court }),
   );
   return long.corps.access_token;
 }
@@ -165,7 +205,39 @@ export const facebook: Adaptateur = {
     return { distantId: r.corps.id };
   },
 
+  /* Graph API, commentaire de page : `is_hidden` le masque au public, DELETE le supprime. */
+  async masquerCommentaire({ ctx, message }) {
+    await appel(`${GRAPH}/${message.distantId}`, { method: 'POST', body: formulaire({ is_hidden: 'true', access_token: ctx.jeton }) });
+  },
+
+  async supprimerCommentaire({ ctx, message }) {
+    await appel(adresse(`${GRAPH}/${message.distantId}`, { access_token: ctx.jeton }), { method: 'DELETE' });
+  },
+
   lireMessages: ({ ctx }) => conversations(ctx.distantId, ctx.jeton, 'messenger', ctx.distantId),
+
+  async lireStatistiques({ ctx, publications }) {
+    const abonnes = await chiffre(async () => (await appel<{ followers_count?: number }>(adresse(`${GRAPH}/${ctx.distantId}`, { fields: 'followers_count', access_token: ctx.jeton }))).corps.followers_count ?? null);
+    const lignes = [];
+    for (const p of publications) {
+      /* Meta renomme ses métriques : « post_media_view » d'abord, l'ancienne ensuite. */
+      const lireVues = (metrique: string) => async () => valeurDInsights((await appel(adresse(`${GRAPH}/${p.distantId}/insights`, { metric: metrique, access_token: ctx.jeton }))).corps);
+      const vues = (await chiffre(lireVues('post_media_view'))) ?? (await chiffre(lireVues('post_impressions')));
+      let commentaires: number | null = null;
+      let reactions: number | null = null;
+      try {
+        const r = await appel<{ comments?: { summary?: { total_count?: number } }; reactions?: { summary?: { total_count?: number } } }>(
+          adresse(`${GRAPH}/${p.distantId}`, { fields: 'comments.summary(true).limit(0),reactions.summary(true).limit(0)', access_token: ctx.jeton }),
+        );
+        commentaires = r.corps.comments?.summary?.total_count ?? null;
+        reactions = r.corps.reactions?.summary?.total_count ?? null;
+      } catch {
+        /* Non fournis. */
+      }
+      lignes.push({ distantId: p.distantId, vues, commentaires, reactions });
+    }
+    return { abonnes, publications: lignes };
+  },
 
   async repondreMessage({ ctx, message, texte }) {
     const id = await destinataire(message.fil, ctx.jeton, ctx.distantId, message.auteurId);
@@ -177,6 +249,12 @@ export const facebook: Adaptateur = {
     return { distantId: r.corps.message_id };
   },
 };
+
+/** Une métrique de `…/insights` : sa première valeur, `null` lue comme absente. */
+function valeurDInsights(corps: { data?: { name?: string; values?: { value?: unknown }[]; total_value?: { value?: unknown } }[] }, nom?: string): unknown {
+  const ligne = nom ? corps.data?.find((d) => d.name === nom) : corps.data?.[0];
+  return ligne?.total_value?.value ?? ligne?.values?.[0]?.value ?? null;
+}
 
 /** Attend qu'un conteneur Instagram (vidéo surtout) soit prêt à publier. */
 async function conteneurPret(id: string, jeton: string): Promise<void> {
@@ -193,6 +271,34 @@ export const instagram: Adaptateur = {
   urlDeConnexion: urlDeConnexion('instagram'),
 
   async echangerCode({ app, retour, code }) {
+    if (app.configConnexion) {
+      /* Connexion unifiée : jeton système sans échéance ; les comptes confiés, puis ceux des pages qu'il ouvrirait aussi. */
+      const jeton = await jetonCourt(app, retour, code);
+      let entreprise: string | undefined;
+      try {
+        entreprise = (await appel<{ client_business_id?: string }>(adresse(`${GRAPH}/me`, { fields: 'client_business_id', access_token: jeton }))).corps.client_business_id;
+      } catch {
+        /* Facultatif : sert seulement à retrouver le portefeuille. */
+      }
+      const trouves = new Map<string, CompteTrouve>();
+      for (const c of await comptesInstagramConfies(jeton)) {
+        trouves.set(c.id, {
+          reseau: 'instagram',
+          distantId: c.id,
+          nom: c.username ? `@${c.username}` : c.id,
+          avatar: c.profile_picture_url,
+          jetons: { acces: jeton },
+          renouvelable: false,
+          details: { voie: 'unifiee', ...(entreprise ? { entreprise } : {}) },
+        });
+      }
+      for (const p of await pages(jeton).catch(() => [] as PageMeta[])) {
+        const ig = p.instagram_business_account;
+        if (!ig?.id || trouves.has(ig.id)) continue;
+        trouves.set(ig.id, { reseau: 'instagram', distantId: ig.id, nom: ig.username ? `@${ig.username}` : p.name, avatar: ig.profile_picture_url, jetons: { acces: p.access_token }, renouvelable: false, details: { pageId: p.id } });
+      }
+      return [...trouves.values()];
+    }
     const jeton = await jetonLong(app, retour, code);
     return (await pages(jeton))
       .filter((p) => p.instagram_business_account?.id)
@@ -250,12 +356,39 @@ export const instagram: Adaptateur = {
     return { distantId: r.corps.id };
   },
 
-  lireMessages: ({ ctx }) => conversations(String(ctx.details.pageId ?? ''), ctx.jeton, 'instagram', ctx.distantId),
+  /* Instagram Graph API : `hide` masque le commentaire, DELETE le supprime. */
+  async masquerCommentaire({ ctx, message }) {
+    await appel(`${GRAPH}/${message.distantId}`, { method: 'POST', body: formulaire({ hide: 'true', access_token: ctx.jeton }) });
+  },
+
+  async supprimerCommentaire({ ctx, message }) {
+    await appel(adresse(`${GRAPH}/${message.distantId}`, { access_token: ctx.jeton }), { method: 'DELETE' });
+  },
+
+  lireMessages: ({ ctx }) => conversations(porteurDesMessages(ctx), ctx.jeton, 'instagram', ctx.distantId),
+
+  async lireStatistiques({ ctx, publications }) {
+    const abonnes = await chiffre(async () => (await appel<{ followers_count?: number }>(adresse(`${GRAPH}/${ctx.distantId}`, { fields: 'followers_count', access_token: ctx.jeton }))).corps.followers_count ?? null);
+    const lignes = [];
+    for (const p of publications) {
+      const vues = await chiffre(async () => valeurDInsights((await appel(adresse(`${GRAPH}/${p.distantId}/insights`, { metric: 'views', access_token: ctx.jeton }))).corps));
+      let commentaires: number | null = null;
+      let reactions: number | null = null;
+      try {
+        const r = await appel<{ comments_count?: number; like_count?: number }>(adresse(`${GRAPH}/${p.distantId}`, { fields: 'comments_count,like_count', access_token: ctx.jeton }));
+        commentaires = r.corps.comments_count ?? null;
+        reactions = r.corps.like_count ?? null;
+      } catch {
+        /* Non fournis. */
+      }
+      lignes.push({ distantId: p.distantId, vues, commentaires, reactions });
+    }
+    return { abonnes, publications: lignes };
+  },
 
   async repondreMessage({ ctx, message, texte }) {
-    const pageId = String(ctx.details.pageId ?? '');
     const id = await destinataire(message.fil, ctx.jeton, ctx.distantId, message.auteurId);
-    const r = await appel<{ message_id: string }>(adresse(`${GRAPH}/${pageId}/messages`, { access_token: ctx.jeton }), {
+    const r = await appel<{ message_id: string }>(adresse(`${GRAPH}/${porteurDesMessages(ctx)}/messages`, { access_token: ctx.jeton }), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ recipient: { id }, message: { text: texte } }),

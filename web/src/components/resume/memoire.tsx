@@ -1,4 +1,4 @@
-import { BookOpen, Library, PencilLine, Search, ShieldX, Sparkles, Target } from 'lucide-react';
+import { BookOpen, Library, PencilLine, Search, ShieldX, Sparkles, Target } from '@/components/ui/icones';
 import { partRendue, tauxDAide, type ResumeMemoire } from '@beluga/shared';
 import { TableauDeDonnees } from '@/components/ui/tableau-de-donnees';
 import { t } from '@/lib/langue';

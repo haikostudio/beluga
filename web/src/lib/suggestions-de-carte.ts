@@ -19,6 +19,8 @@ interface DemandeDeVoir {
 }
 
 const fermees = new Set<string>();
+/** Rouvert par le bouton « Voir » du fil : montré même quand plus rien n'attend de clic. */
+const ouvertes = new Set<string>();
 const demandes = new Map<string, DemandeDeVoir>();
 let version = 0;
 const abonnes = new Set<() => void>();
@@ -36,12 +38,14 @@ function abonner(abonne: () => void) {
 export function fermerLesSuggestions(cardId: string): void {
   if (fermees.has(cardId)) return;
   fermees.add(cardId);
+  ouvertes.delete(cardId);
   prevenir();
 }
 
 /** Rouvre le bloc ; avec des propositions, la rangée défile jusqu'à elles. */
 export function voirLesSuggestions(cardId: string, ids: string[] = []): void {
   fermees.delete(cardId);
+  ouvertes.add(cardId);
   if (ids.length) demandes.set(cardId, { proposalId: ids[0], ids, n: (demandes.get(cardId)?.n ?? 0) + 1 });
   prevenir();
 }
@@ -51,10 +55,10 @@ export function consommerLaDemande(cardId: string): void {
   if (demandes.delete(cardId)) prevenir();
 }
 
-export function useSuggestionsDeCarte(cardId: string | undefined): { fermee: boolean; demande?: DemandeDeVoir } {
+export function useSuggestionsDeCarte(cardId: string | undefined): { fermee: boolean; ouverte: boolean; demande?: DemandeDeVoir } {
   React.useSyncExternalStore(abonner, () => version, () => 0);
-  if (!cardId) return { fermee: false };
-  return { fermee: fermees.has(cardId), demande: demandes.get(cardId) };
+  if (!cardId) return { fermee: false, ouverte: false };
+  return { fermee: fermees.has(cardId), ouverte: ouvertes.has(cardId), demande: demandes.get(cardId) };
 }
 
 /**

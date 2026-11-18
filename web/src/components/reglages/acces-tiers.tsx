@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, ChevronRight, KeyRound, Loader2, Plus, ShieldOff, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, Loader2, Plus, ShieldOff, UserPlus } from '@/components/ui/icones';
 import {
   NIVEAUX_PROJET,
   NIVEAUX_SERVICE,

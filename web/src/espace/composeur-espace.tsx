@@ -22,7 +22,7 @@
  * fiche) se détache par son fond, et un liseré coupait l'écran en deux.
  */
 import * as React from 'react';
-import { ChevronDown, Paperclip, Send, X } from 'lucide-react';
+import { ChevronDown, Paperclip, Send, X } from '@/components/ui/icones';
 import { Button, Textarea } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

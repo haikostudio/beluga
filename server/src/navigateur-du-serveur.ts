@@ -1,7 +1,7 @@
 /**
  * LE NAVIGATEUR DU SERVEUR, UN SEUL À LA FOIS (machine de 7 Go) — un jeton que
- * chaque service prend avant d'ouvrir un Chrome et rend ensuite (la relève des
- * annonces, `leads.ts`). Sorti du Studio, dont la vérification anti-robot des
+ * chaque service prend avant d'ouvrir un Chrome et rend ensuite (captures d'écran,
+ * plaquettes, relevé de charte). Sorti du Studio, dont la vérification anti-robot des
  * sources de styles a été retirée avec lui (26/10/2026).
  */
 let tenuPar: string | null = null;

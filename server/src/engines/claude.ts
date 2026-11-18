@@ -258,7 +258,10 @@ export const claudeAdapter: EngineAdapter = {
 
   async detect() {
     try {
-      const { stdout } = await execFileAsync(claudeAdapter.binary, ['--version'], { timeout: 15000 });
+      /* LE DÉLAI ACHÈVE, IL NE DEMANDE PLUS (15/11/2026). Avec le signal par
+         défaut, un outil qui ignore SIGTERM laissait cette promesse pendue
+         malgré le délai — et avec elle le catalogue de tous les moteurs. */
+      const { stdout } = await execFileAsync(claudeAdapter.binary, ['--version'], { timeout: 15000, killSignal: 'SIGKILL' });
       return { installed: true, version: stdout.trim().split('\n')[0] };
     } catch {
       return { installed: false };
@@ -516,16 +519,20 @@ export function partDesAides(
   event: any,
   /** Le principal CUMULÉ sur tous les résultats du processus (`CumulDesResultats`). */
   principalCumule?: UsageDuResultat,
-): { tokens: number; sortie: number; modeles: string[] } | null {
+): { tokens: number; sortie: number; entree: number; relu: number; modeles: string[] } | null {
   const usage = principalCumule ?? event?.usage ?? {};
   const entrees = Object.entries(event?.modelUsage ?? {}) as [string, any][];
   if (!entrees.length) return null;
   const somme = (cle: string) => entrees.reduce((total, [, u]) => total + (Number(u?.[cle]) || 0), 0);
   const ecart = (total: number, principal: unknown) => Math.max(0, total - (Number(principal) || 0));
-  const entree =
+  // `entree` : entrée neuve + écriture de cache ; `relu` : relecture de cache —
+  // séparées pour que la valorisation au tarif public (`valeur-des-jetons.ts`)
+  // et l'affichage envoyé / relu / rendu n'aient plus à les deviner.
+  const entreeNeuve =
     ecart(somme('inputTokens'), usage.input_tokens) +
-    ecart(somme('cacheReadInputTokens'), usage.cache_read_input_tokens) +
     ecart(somme('cacheCreationInputTokens'), usage.cache_creation_input_tokens);
+  const relu = ecart(somme('cacheReadInputTokens'), usage.cache_read_input_tokens);
+  const entree = entreeNeuve + relu;
   const sortie = ecart(somme('outputTokens'), usage.output_tokens);
   if (entree + sortie <= 0) return null;
   // Les modèles des aides : tous ceux qui ne portent pas le principal, plus le
@@ -539,7 +546,7 @@ export function partDesAides(
   const modeles = entrees
     .filter(([nom, u]) => nom !== principal[0] || poids(u) > poidsPrincipal || (u?.outputTokens ?? 0) > (usage.output_tokens ?? 0))
     .map(([nom]) => nom);
-  return { tokens: entree + sortie, sortie, modeles };
+  return { tokens: entree + sortie, sortie, entree: entreeNeuve, relu, modeles };
 }
 
 /**

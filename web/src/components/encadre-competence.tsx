@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Loader2, Sparkles, X } from 'lucide-react';
+import { Check, Loader2, Sparkles, X } from '@/components/ui/icones';
 import { REPONSE_PAS_UTILE, REPONSE_UTILISER, type CompetenceProposee, type Message } from '@beluga/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui';
 import { client } from '@/lib/client';

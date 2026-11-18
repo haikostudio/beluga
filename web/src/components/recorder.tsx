@@ -1,9 +1,11 @@
 import * as React from 'react';
-import { AlertTriangle, Check, Loader2, Mic, RotateCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, Mic, RotateCw, Trash2 } from '@/components/ui/icones';
 import { client } from '@/lib/client';
 import { ouvrirMicro, type PriseMicro } from '@/lib/micro';
 import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui';
 import { t } from '@/lib/langue';
+import { naviguerVers } from '@/components/ui/lien-interne';
 
 /**
  * La dictée (PLAN §21). Au repos : un simple bouton micro, juste à gauche du
@@ -271,26 +273,38 @@ export function MicButton({
   onStart,
   working,
   disabled,
+  indisponible,
 }: {
   onStart: () => void;
   working: boolean;
   disabled?: boolean;
+  /** La dictée n'est pas installée sur ce serveur (17/11/2026) : grisé, et le clic mène à son installation. */
+  indisponible?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={onStart}
+      onClick={() => {
+        if (indisponible) {
+          naviguerVers('#reglages/installation');
+          return;
+        }
+        onStart();
+      }}
       disabled={working || disabled}
       data-mic-button
-      title={t('Dicter')}
+      data-dictee-absente={indisponible ? '' : undefined}
+      aria-label={indisponible ? t('La dictée n’est pas installée sur ce serveur.') : t('Dicter')}
+      title={indisponible ? t('La dictée n’est pas installée sur ce serveur. Cliquez pour l’installer.') : t('Dicter')}
       /*
        * LE MICRO EST UN BOUTON À PART ENTIÈRE, PAS UNE ICÔNE NUE. Il vit à
        * DROITE de la rangée du bas du composeur, juste à gauche de l'envoi :
        * sans fond il se lisait comme une décoration du champ. Même fond que
        * la variante « outline » des boutons (`bg-controle`, un voile), et
-       * comme eux AUCUN trait.
+       * comme eux AUCUN trait. Sur téléphone (15/11/2026), la pastille douce
+       * commune du champ (`doux` + `pastille-champ`) : icône plus grande.
        */
-      className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-fond-survol hover:text-text disabled:opacity-40"
+      className={cn(buttonVariants({ variant: 'doux', size: 'pastille-champ' }), 'shrink-0 sm:bg-controle sm:hover:bg-fond-survol', indisponible && 'opacity-45')}
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
     </button>
@@ -313,7 +327,9 @@ export function RecordingBar({
   const reste = seconds % 60;
 
   return (
-    <div className="flex w-full items-center gap-2 rounded-lg bg-record px-2.5 py-2 text-record-fg animate-slide-up">
+    /* UN ESPACE ENTRE L'ENREGISTREUR ET LE CHAMP D'ÉCRITURE (13/11/2026, capture #cda3) : il ne colle plus au bloc
+       du dessous (témoin de travail ou champ). */
+    <div className="mb-2 flex w-full items-center gap-2 rounded-lg bg-record px-2.5 py-2 text-record-fg animate-slide-up" data-enregistreur-en-cours>
       <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
         <span className="absolute inset-0 rounded-full bg-record-fg/25 animate-pulse-soft" />
         <Mic className="relative h-3 w-3" />
@@ -346,7 +362,7 @@ export function RecordingBar({
         <button
           type="button"
           onClick={onDiscard}
-          title={t('Jeter l\'enregistrement')}
+          title={t('Jeter l’enregistrement')}
           className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md transition-colors hover:bg-record-fg/20"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -371,14 +387,14 @@ export function RecorderErrorBar({
   onDiscard: () => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-2 rounded-lg bg-danger/10 px-2.5 py-2 text-[13px] text-danger animate-slide-up">
+    <div className="mb-2 flex w-full items-center gap-2 rounded-lg bg-danger/10 px-2.5 py-2 text-[13px] text-danger animate-slide-up">
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{message}</span>
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
           onClick={onRetry}
-          title={t('Réessayer l\'envoi')}
+          title={t('Réessayer l’envoi')}
           className="inline-flex h-[34px] sm:h-7 items-center gap-1 rounded-md bg-danger/10 px-2 text-[12.5px] transition-colors hover:bg-danger/20"
         >
           <RotateCw className="h-3.5 w-3.5" />
@@ -388,7 +404,7 @@ export function RecorderErrorBar({
         <button
           type="button"
           onClick={onDiscard}
-          title={t('Jeter l\'enregistrement')}
+          title={t('Jeter l’enregistrement')}
           className="inline-flex h-[34px] sm:h-7 w-[34px] sm:w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10"
         >
           <Trash2 className="h-3.5 w-3.5" />

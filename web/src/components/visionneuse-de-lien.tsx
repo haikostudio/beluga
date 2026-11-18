@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2 } from '@/components/ui/icones';
 import { affichageSurPlace, lienAOuvrirSurPlace, nomDepuisDisposition, type LienSurPlace } from '@beluga/shared';
 import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
 import { estInstallee } from '@/lib/application-installee';

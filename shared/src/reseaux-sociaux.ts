@@ -49,6 +49,8 @@ export interface FicheReseau {
   publier: boolean;
   commentaires: boolean;
   messages: boolean;
+  /** Le réseau donne-t-il ses chiffres (vues, réactions, abonnés) ? Vérifié contre les adaptateurs par un test. */
+  chiffres: boolean;
   media: MediaExige;
   /** Le plafond de signes d'une publication. */
   limiteTexte: number;
@@ -68,6 +70,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: true,
+    chiffres: true,
     media: 'image-ou-video',
     limiteTexte: 2200,
     lienCliquable: false,
@@ -81,6 +84,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: true,
+    chiffres: true,
     media: 'aucun',
     limiteTexte: 63206,
     lienCliquable: true,
@@ -94,6 +98,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: false,
+    chiffres: false,
     media: 'aucun',
     limiteTexte: 3000,
     lienCliquable: true,
@@ -106,6 +111,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: false,
+    chiffres: true,
     media: 'aucun',
     limiteTexte: 500,
     lienCliquable: true,
@@ -118,6 +124,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: false,
+    chiffres: true,
     media: 'video',
     limiteTexte: 5000,
     lienCliquable: true,
@@ -130,6 +137,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: false,
     messages: false,
+    chiffres: false,
     media: 'video',
     limiteTexte: 2200,
     lienCliquable: false,
@@ -142,10 +150,11 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: true,
+    chiffres: false,
     media: 'aucun',
     limiteTexte: 280,
     lienCliquable: true,
-    note: 'L’accès gratuit de X ne permet que de publier, en petit nombre. Lire les réponses et les messages demande un abonnement payant chez X.',
+    note: 'X facture à l’usage : chaque publication, lecture de réponse ou message puise dans des crédits achetés d’avance dans la console développeur de X.',
   },
   pinterest: {
     cle: 'pinterest',
@@ -154,6 +163,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: false,
     messages: false,
+    chiffres: false,
     media: 'image',
     limiteTexte: 500,
     lienCliquable: true,
@@ -166,6 +176,7 @@ export const FICHES_RESEAUX: Readonly<Record<ReseauSocial, FicheReseau>> = {
     publier: true,
     commentaires: true,
     messages: false,
+    chiffres: false,
     media: 'aucun',
     limiteTexte: 1500,
     lienCliquable: false,
@@ -201,7 +212,7 @@ export const CONSOLE_APPLICATION: Readonly<Record<ApplicationSociale, string>> =
 
 /** Les droits demandés à la connexion, par réseau : ce que les dossiers de validation doivent justifier. */
 export const DROITS_DEMANDES: Readonly<Record<ReseauSocial, readonly string[]>> = {
-  facebook: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'pages_manage_engagement', 'pages_read_user_content', 'pages_messaging', 'business_management'],
+  facebook: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'pages_manage_engagement', 'pages_read_user_content', 'pages_messaging', 'business_management', 'read_insights'],
   instagram: [
     'pages_show_list',
     'pages_read_engagement',
@@ -210,8 +221,9 @@ export const DROITS_DEMANDES: Readonly<Record<ReseauSocial, readonly string[]>> 
     'instagram_content_publish',
     'instagram_manage_comments',
     'instagram_manage_messages',
+    'instagram_manage_insights',
   ],
-  threads: ['threads_basic', 'threads_content_publish', 'threads_read_replies', 'threads_manage_replies'],
+  threads: ['threads_basic', 'threads_content_publish', 'threads_read_replies', 'threads_manage_replies', 'threads_manage_insights'],
   linkedin: ['openid', 'profile', 'w_member_social', 'r_organization_social', 'w_organization_social', 'rw_organization_admin'],
   youtube: ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.force-ssl'],
   'google-business': ['https://www.googleapis.com/auth/business.manage'],
@@ -247,6 +259,8 @@ export interface ApplicationDeveloppeur {
   note?: string;
   /** La carte de l'agent qui l'ouvre (état « en_creation »). */
   cardId?: string;
+  /** Meta : l'ID de la configuration de connexion unifiée — Instagram se relie alors aussi sans page Facebook. */
+  configConnexion?: string;
   majLe: number;
 }
 
@@ -284,6 +298,8 @@ export interface CompteSocial {
   erreur?: string;
   creeLe: number;
   majLe: number;
+  /** Comment il publie : par l'interface officielle (défaut), ou par un agent dans Chrome (`connexion-des-reseaux.ts`). */
+  mode?: 'officiel' | 'chrome';
 }
 
 /** Un accès qui expire dans moins de ce délai est renouvelé par le minuteur. */
@@ -348,6 +364,9 @@ export type BilanDePublication = 'aucune' | 'en_attente' | 'en_cours' | 'publie'
 export function bilanDePublication(cibles: readonly Pick<CibleSociale, 'etat'>[]): BilanDePublication {
   if (!cibles.length) return 'aucune';
   if (cibles.some((c) => c.etat === 'en_cours')) return 'en_cours';
+  /* UN ENVOI QUI ATTEND ENCORE (un compte publié par Chrome, Chrome fermé : il part à la réouverture) n'est pas fini :
+     le contenu reste programmé tant qu'un de ses comptes attend, même si un autre est déjà parti. */
+  if (cibles.some((c) => c.etat === 'en_attente') && cibles.some((c) => c.etat !== 'en_attente')) return 'en_cours';
   const publies = cibles.filter((c) => c.etat === 'publie').length;
   const echecs = cibles.filter((c) => c.etat === 'echec').length;
   if (publies === cibles.length) return 'publie';
@@ -450,6 +469,8 @@ export interface MessageSocial {
   brouillon?: string;
   /** L'adresse du commentaire ou de la publication chez le réseau. */
   url?: string;
+  /** Masqué au public par la marque (`modererCommentaire`) : l'instant du geste. */
+  masqueLe?: number;
 }
 
 export const REPONSE_SOCIALE_MAX = 2000;
@@ -511,6 +532,7 @@ export function demandeDeCreationDeCompte(entree: {
   const fiche = FICHES_RESEAUX[entree.reseau];
   const app = fiche.application;
   const appPrete = !raisonReliureImpossible(entree.application);
+  if (app === 'meta') return demandeMetaParLeVraiCompte(entree, appPrete);
   return [
     `OUVRIR ${fiche.libelle.toUpperCase()} POUR « ${entree.nomProjet} » ET Y DONNER ACCÈS À L'ATELIER MARKETING.`,
     '',
@@ -524,7 +546,8 @@ export function demandeDeCreationDeCompte(entree: {
     `5. Rends le résultat à l'atelier avec l'outil « marketing », action « application » : reseau « ${entree.reseau} », clientId, secret (rangé au coffre par l'atelier, ne l'écris nulle part ailleurs), etat « en_validation » tant que le réseau n'a pas accepté (« validee » sinon), et une note qui dit ce qui reste à faire.`,
     '',
     'RÈGLES :',
-    '- Le navigateur : le Chrome du système, par playwright (`channel: \'chrome\'`), jamais un navigateur téléchargé.',
+    '- Le navigateur : le Chrome du système, par playwright (`channel: \'chrome\'`), jamais un navigateur téléchargé. Un PROFIL DE NAVIGATEUR GARDÉ sur le serveur porte peut-être déjà la session du compte (outil « memoire », geste « chercher » : « profil navigateur ») : rouvre-le avant toute connexion, il évite un nouveau code SMS.',
+    '- Tu FAIS le travail toi-même, du début à la fin : la personne ne suit aucune marche à suivre. Tu ne lui demandes que ce que toi seul ne peux pas obtenir.',
     '- Chaque identifiant obtenu (courriel, mot de passe, clé, secret) s’enregistre aussitôt au coffre, une fiche par secret.',
     '- Un code reçu par SMS ou par courriel, une pièce d’identité, un paiement : déclenche l’envoi PUIS pose la question avec « ask_user » dans le même tour — jamais un point laissé « à vérifier ».',
     '- Un captcha ou un contrôle anti-robot : ne force jamais. Demande à l’utilisateur, avec « ask_user », de faire ce pas lui-même et de te dire quand c’est fait.',
@@ -534,7 +557,117 @@ export function demandeDeCreationDeCompte(entree: {
   ].join('\n');
 }
 
-/** La demande envoyée à l'agent marketing quand l'utilisateur lui réclame une proposition de réponse. */
-export function demandeDePropositionDeReponse(m: Pick<MessageSocial, 'id' | 'genre' | 'reseau' | 'auteur' | 'texte'>): string {
-  return `Propose une réponse au ${m.genre === 'commentaire' ? 'commentaire' : 'message privé'} [${m.id}] (${FICHES_RESEAUX[m.reseau].libelle}, de ${m.auteur || 'quelqu’un'}) : « ${m.texte.slice(0, 600)} ». Utilise l’action « reponse » de l’outil marketing : tu proposes, l’utilisateur enverra.`;
+/**
+ * FACEBOOK ET INSTAGRAM PAR LE VRAI COMPTE DE L'UTILISATEUR (décision du 03/11/2026 ; Threads a sa propre application et garde sa marche) : un compte Facebook créé
+ * par un robot depuis le serveur est vérifié puis bloqué sans appel. Plus aucun compte créé, plus aucune connexion au
+ * compte personnel : l'agent GUIDE l'utilisateur pour créer UNE application Meta (une fois, pour toutes les marques),
+ * PRÉPARE la page de chaque marque que l'utilisateur crée lui-même, puis « Relier » (connexion officielle) ramène
+ * toutes ses pages et ses comptes Instagram professionnels d'un coup.
+ */
+export const RESEAUX_PAR_LE_VRAI_COMPTE: readonly ReseauSocial[] = ['facebook', 'instagram'];
+
+function demandeMetaParLeVraiCompte(
+  entree: { reseau: ReseauSocial; nomProjet: string; adresseRetour: string; adresseProduit?: string | null; application: Pick<ApplicationDeveloppeur, 'etat' | 'clientId' | 'aUnSecret'> | null },
+  appPrete: boolean,
+): string {
+  const fiche = FICHES_RESEAUX[entree.reseau];
+  const instagram = entree.reseau === 'instagram';
+  return [
+    `PRÉPARER ${fiche.libelle.toUpperCase()} POUR « ${entree.nomProjet} », PAR LE VRAI COMPTE DE L'UTILISATEUR.`,
+    '',
+    `${fiche.libelle} passe par l'application Meta de l'utilisateur, UNE seule pour toutes ses marques. Tu ne crées AUCUN compte Facebook ou Instagram, tu ne te connectes JAMAIS à son compte personnel, aucun navigateur du serveur n'ouvre facebook.com : un compte ouvert par un robot est vérifié puis bloqué sans appel.`,
+    '',
+    'MARCHE À SUIVRE :',
+    '1. Ouvre d’abord le coffre-fort (outil « coffre_fort », geste « lister ») : l’identifiant et le secret de l’application Meta y sont peut-être déjà.',
+    appPrete
+      ? `2. L'application Meta existe déjà (identifiant ${entree.application?.clientId}) : passe à l'étape 3.`
+      : [
+          "2. L'APPLICATION META, UNE FOIS POUR TOUTES : guide l'utilisateur pas à pas, UN ÉCRAN À LA FOIS, avec « ask_user » (il répond « C'est fait » ou colle ce qu'on lui demande). Donne à chaque fois l'adresse exacte et les valeurs EXACTES à coller :",
+          '   a. developers.facebook.com → « Mes apps » → « Créer une app » ; cas d’usage : « Gérer tout sur votre Page » (et « Gérer les messages et le contenu sur Instagram ») ; nom de l’app : celui de son entreprise.',
+          `   b. Produit « Facebook Login » → Paramètres → « URI de redirection OAuth valides » : ${entree.adresseRetour}`,
+          `   c. Autorisations à ajouter : ${DROITS_DEMANDES.facebook.concat(DROITS_DEMANDES.instagram).filter((d, i, t) => t.indexOf(d) === i).join(', ')}.`,
+          "   d. Paramètres → Général : il te colle l'« ID de l'app » puis la « Clé secrète ».",
+          "   L'application reste en mode développement : l'utilisateur en est administrateur, l'accès standard suffit pour SES propres pages — aucune revue Meta à demander.",
+          `   Rends-la à l'atelier : outil « marketing », action « application », reseau « ${entree.reseau} », clientId, secret (rangé au coffre par l'atelier, jamais écrit ailleurs), etat « validee », et une note.`,
+        ].join('\n'),
+    `3. LA PAGE DE LA MARQUE : prépare tout ce qu'il faut pour que l'utilisateur la crée en deux minutes sur son téléphone (application Facebook → Menu → Pages → Créer) — nom « ${entree.nomProjet} », catégorie, description courte, site${entree.adresseProduit ? ` ${entree.adresseProduit}` : ''}, photo de profil et photo de couverture tirées du kit de la marque (fabrique-les au Studio s'il n'y en a pas, prix d'abord). Remets-les dans un message, prêtes à copier et à télécharger.`,
+    instagram
+      ? '4. INSTAGRAM : le compte Instagram de la marque passe en compte PROFESSIONNEL (application Instagram → Paramètres → Type de compte). Il n’a PAS besoin d’être relié à la page : « Relier » passe par la connexion unifiée de Meta (« Continuer avec Instagram », le compte connecté sur instagram.com) dès que sa configuration est réglée, et le compte doit d’abord être invité « Testeur(se) Instagram » de l’application Meta (Rôles) puis accepter (instagram.com → Paramètres → Applications et sites Web → Invitations à tester) tant que l’application n’est pas publiée.'
+      : '4. Rien d’autre à créer : la page suffit.',
+    "5. RELIER : quand la page existe, propose le bouton « Relier » (geste « compte.relier ») : la connexion officielle de Meta ramène TOUTES ses pages et leurs comptes Instagram ; s'il y en a plusieurs, demande avec « ask_user » laquelle va à quelle marque.",
+    '',
+    'RÈGLES :',
+    "- Un identifiant reçu (ID et clé secrète de l'application) s'enregistre aussitôt au coffre, une fiche par secret.",
+    '- Une question à la fois, « ask_user », et les valeurs exactes à coller dans la question elle-même.',
+    '- Tu ne publies rien : la publication reste un geste de l’utilisateur.',
+    '- Termine par un compte rendu court : ce qui est prêt, ce que l’utilisateur doit encore faire (créer la page, puis « Relier »).',
+  ].join('\n');
+}
+
+const nomSimple = (nom: string) =>
+  nom
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+/**
+ * LE MÊME COMPTE, QUELLE QUE SOIT SA VOIE (12/11/2026) : un compte relié « par Chrome » faute de mieux (@belugabuild,
+ * sans page Facebook) porte le même nom que celui que la voie officielle rend ensuite. Quand la voie officielle le
+ * relie, la ligne « par Chrome » de même réseau et de même nom (sans @, accents, espaces ni casse) lui cède la place :
+ * jamais deux fois la même marque sur un réseau, l'une publiant par Chrome.
+ */
+export function memeCompteSocial(a: string, b: string): boolean {
+  const x = nomSimple(a.replace(/^@/, ''));
+  return !!x && x === nomSimple(b.replace(/^@/, ''));
+}
+
+/**
+ * LES NOMS QUE « Relier » COMPARE AUX PAGES META (12/11/2026) : ranger par nom de PROJET envoyait la page « ProjetA »
+ * sur le dossier de regroupement « ProjetA » et l'Instagram @projeta.app sur « ProjetA app », alors que Communication
+ * montre la MARQUE (son projet de référence) — ces comptes n'y paraissaient pas. Un regroupement n'est plus un
+ * candidat ; un projet rangé dans une marque renvoie au projet de référence de cette marque ; le nom de la marque
+ * s'ajoute comme candidat, vers ce même projet.
+ */
+export function candidatsDesPagesMeta(
+  projets: readonly { id: string; nom: string; regroupement?: boolean }[],
+  marques: readonly { nom: string; principal: string | null; projets: readonly string[] }[],
+): { id: string; nom: string }[] {
+  const reference = new Map<string, string>();
+  for (const m of marques) {
+    if (!m.principal) continue;
+    for (const p of m.projets) reference.set(p, m.principal);
+  }
+  const reels = projets.filter((p) => !p.regroupement);
+  const existe = new Set(reels.map((p) => p.id));
+  return [
+    ...reels.map((p) => ({ id: reference.get(p.id) ?? p.id, nom: p.nom })),
+    ...marques.filter((m) => m.principal && existe.has(m.principal)).map((m) => ({ id: m.principal!, nom: m.nom })),
+  ];
+}
+
+/** Le projet que le NOM d'une page Meta désigne, ou null si aucun ne s'y reconnaît (voir `projetDUnePageMeta`). */
+export function projetNommeParLaPage(nomDeLaPage: string, projets: readonly { id: string; nom: string }[], projetDuClic: string): string | null {
+  const page = nomSimple(nomDeLaPage.replace(/^@/, ''));
+  if (!page) return null;
+  const candidats = projets
+    .map((p) => ({ id: p.id, nom: nomSimple(p.nom) }))
+    .filter((p) => p.nom.length >= 3 && (page === p.nom || page.includes(p.nom) || p.nom.includes(page)))
+    .sort((a, b) => (a.id === projetDuClic ? -1 : 0) - (b.id === projetDuClic ? -1 : 0) || b.nom.length - a.nom.length);
+  const exact = candidats.find((p) => p.nom === page);
+  return (exact ?? candidats[0])?.id ?? null;
+}
+
+/**
+ * À QUELLE MARQUE VA UNE PAGE META (03/11/2026) : « Relier » ramène TOUTES les pages et les comptes Instagram de
+ * l'utilisateur d'un coup. Chacun va au projet dont il porte le nom (sans accents, espaces ni casse ; le nom du projet
+ * contenu dans celui de la page, ou l'inverse) ; le projet d'où l'on a cliqué « Relier » l'emporte à égalité. Le nom le
+ * plus long l'emporte (« Haiko Studio » avant « Haiko »).
+ *
+ * CE QU'AUCUN NOM NE DÉSIGNE (12/11/2026) : le projet du clic ne le garde que si Meta n'a rendu QU'UN compte — c'est
+ * alors celui qu'on vient de choisir. Quand Meta en rend plusieurs, un compte sans projet à son nom est écarté (null) :
+ * relier l'Instagram de Beluga Build avait posé @studhunt.ch sur Beluga Build, qui y aurait publié.
+ */
+export function projetDUnePageMeta(nomDeLaPage: string, projets: readonly { id: string; nom: string }[], projetDuClic: string, seulCompteRendu = true): string | null {
+  return projetNommeParLaPage(nomDeLaPage, projets, projetDuClic) ?? (seulCompteRendu ? projetDuClic : null);
 }

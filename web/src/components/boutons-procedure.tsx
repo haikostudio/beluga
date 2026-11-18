@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles } from '@/components/ui/icones';
 import { CiblePublication, libelleInitier } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';

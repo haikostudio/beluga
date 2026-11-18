@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, ClipboardList, Download, FileText, FileType, Loader2 } from 'lucide-react';
+import { BookOpen, ClipboardList, Download, FileText, FileType, Loader2 } from '@/components/ui/icones';
 import { Card, LIBELLES_PHASES_DU_CAHIER, cheminDuCahier, nomDuCahierExporte, partiesDuCahier } from '@beluga/shared';
 import { RondDEtape } from '@/components/barre-etapes';
 import {
@@ -113,8 +113,11 @@ export function CheminDuCahier({
                     {nom}
                   </span>
                 </span>
-                {/* Un trait qui porte une information : plein jusqu'où l'on est arrivé, pâle au-delà. */}
-                {dernier ? null : <span aria-hidden className={cn('h-px min-w-2 flex-1', etape.etat === 'fait' ? 'bg-text/60' : 'bg-border')} />}
+                {/* Un trait qui porte une information : plein jusqu'où l'on est arrivé, pâle au-delà — en `--faint`,
+                    jamais `--border`, invisible dans onze palettes sur douze. */}
+                {dernier ? null : (
+                  <span aria-hidden data-trait-cahier className={cn('h-px min-w-2 flex-1', etape.etat === 'fait' ? 'bg-text/60' : 'bg-faint/60')} />
+                )}
               </li>
             );
           })}

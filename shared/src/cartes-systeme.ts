@@ -74,6 +74,10 @@ export interface PublicationSysteme {
   cible?: 'dev' | 'production';
   startedAt: number;
   endedAt?: number;
+  /** Rangée à la main : elle quitte le flux (`sansEchecsRemplaces`). */
+  masquee?: boolean;
+  /** Reprise après dépannage, dans la MÊME publication (17/11/2026) : l'instant où elle est repartie. */
+  reprisA?: number;
 }
 
 /** Une mise en production FINIE (réussie, tombée ou arrêtée) depuis moins de 24 heures. */
@@ -130,4 +134,18 @@ export function productionsApres<T extends PublicationSysteme>(
   if (miseEnProductionAffichee(run, maintenant)) suite[run.projectId] = run;
   else delete suite[run.projectId];
   return suite;
+}
+
+/** Une mise en ligne finie reste à l'écran ce temps-là, le temps d'en lire le résultat (demande du 31/10/2026). */
+export const DUREE_MISE_EN_LIGNE_FINIE_MS = 5 * 60_000;
+
+/**
+ * LA TABLE DES DÉPLOIEMENTS DE L'ÉCRAN, tous projets : le pendant de `productionsApres`. Un événement en retard ne
+ * remplace jamais une publication plus récente ; la sortie se fait à l'affichage, relu avec l'heure.
+ */
+export function deploiementsApres<T extends PublicationSysteme>(table: Readonly<Record<string, T>>, run: T): Record<string, T> {
+  if (run.cible === 'production') return table as Record<string, T>;
+  const retenue = table[run.projectId];
+  if (retenue && retenue.id !== run.id && retenue.startedAt > run.startedAt) return table as Record<string, T>;
+  return { ...table, [run.projectId]: run };
 }

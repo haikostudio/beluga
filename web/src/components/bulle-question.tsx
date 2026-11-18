@@ -1,15 +1,17 @@
 import * as React from 'react';
-import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from 'lucide-react';
+import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from '@/components/ui/icones';
 import { createPortal } from 'react-dom';
-import { Attachment, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, lettreDeLExemple, lettreDeLaLegende, lettresDesOptions, libellesDUneReponseEnImages, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
+import { Attachment, OPTION_VOIR_LA_BIBLIOTHEQUE, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, arrondi, genreDeMedia, lettreDeLExemple, lettreDeLaLegende, lettresDesOptions, libellesDUneReponseEnImages, mediaDeLOption, questionAMontrer, repereDuLibelle, reponseDuFormulaire, reponsePrete, texteDeReponse, type DevisDeLaQuestion, type FormulaireDeQuestions as Formulaire, type SphereDeLaQuestion } from '@beluga/shared';
 import { EmplacementDeLaPagination } from '@/components/carousel-questions';
 import { BarrePagination } from '@/components/ui/pagination-fleches';
 import { BranchementDeService } from '@/components/branchement-de-service';
 import { DevisDuLot } from '@/components/devis-du-lot';
 import { ValidationAvecCout } from '@/components/validation-avec-cout';
+import { ValidationDuLot } from '@/components/validation-du-lot';
 import { CubeDeLumiere } from '@/components/scene-3d';
 import { Button, Drawer, EnteteDeFeuille, Textarea, ZoneDefilement } from '@/components/ui';
 import { useTelephone } from '@/lib/telephone';
+import { EVENEMENT_MESURE_DU_CLAVIER } from '@/lib/ecriture-au-clavier';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
 import { ImageDePiece, PastilleDeFichier } from '@/components/pastille-de-fichier';
@@ -19,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useClasseDuCadreDeQuestion } from '@/lib/cadre-de-question';
 import { t } from '@/lib/langue';
 import { writePref } from '@/lib/prefs';
+import { ouvrirLaBibliothequeDuStudio } from '@/lib/bibliotheque-du-studio';
 import { arreterLeSon, basculerSon, useLectureDeSon } from '@/lib/lecture-de-media';
 
 /**
@@ -119,10 +122,16 @@ export interface OptionDeQuestion {
   image?: string;
   /** Une pièce jointe son ou vidéo que le choix fait écouter : un bouton lecture à droite. */
   media?: string;
+  /** Les teintes « #rrggbb » d'un choix de couleurs, en points devant le libellé. */
+  couleurs?: string[];
+  /** La lettre de piste de l'exemple montré, écrite par le démon (« C ») : elle prime sur le nom de la pièce. */
+  lettre?: string;
 }
 
 /** Une question à poser, quelle que soit la façon dont elle est arrivée. */
 export interface QuestionAAfficher {
+  /** La voix finale ou le personnage 3D proposés dans le fil : le même encart à prix qu'un lot. */
+  depenseDuFil?: { genre: string; plafond: number | null };
   /** Le texte de la question. Vide quand l'entête le dit déjà. */
   question?: string;
   /** Ce qu'il faut savoir pour répondre, lu sous la question et avant les choix. */
@@ -178,18 +187,37 @@ export function BulleQuestion(props: ProprietesDeLaBulle) {
      RÉDIGER : titre, une ligne, deux boutons (`ValidationAvecCout`). Ni champ
      de réponse, ni Joindre, ni Annuler. */
   const devis = props.question.devis;
-  if (devis?.bouton) {
-    const cout = devis.sansPrix && !devis.total ? t('prix non publié') : `${arrondi(devis.total)} $${devis.sansPrix ? ` + ${t('prix non publié')}` : ''}`;
+  const depenseDuFil = props.question.depenseDuFil;
+  if (depenseDuFil) {
+    const cout = depenseDuFil.plafond === null ? t('prix non publié') : `${arrondi(depenseDuFil.plafond)} $`;
     return (
       <ValidationAvecCout
-        titre={props.question.question ?? devis.titre}
+        titre={props.question.question ?? ''}
         description={props.question.description}
         cout={cout}
         entete={props.entete}
         variante={props.variante}
-        repere={{ ...(props.repere ?? {}), 'data-bulle-question': props.variante ?? 'neutre', 'data-validation-du-lot': devis.lotId }}
+        repere={{ ...(props.repere ?? {}), 'data-bulle-question': props.variante ?? 'neutre', 'data-validation-de-depense': depenseDuFil.genre }}
         onValider={() => props.onRepondre(REPONSE_GENERER_LE_LOT, [])}
         onRefuser={() => props.onRepondre(REPONSE_REFUSER_LE_LOT, [])}
+      />
+    );
+  }
+  if (devis?.bouton) {
+    /* LE MENU DES MODÈLES (01/11/2026) : la ligne du modèle se choisit, le bouton suit son prix (`ValidationDuLot`). */
+    return (
+      <ValidationDuLot
+        /* La clé suit le devis relu : un modèle changé ailleurs remet l'encart d'aplomb. */
+        key={`${devis.lotId}:${devis.total}:${props.question.description ?? ''}`}
+        devis={devis}
+        titre={props.question.question ?? devis.titre}
+        description={props.question.description}
+        messageId={props.messageId}
+        questionId={props.questionId}
+        entete={props.entete}
+        variante={props.variante}
+        repere={{ ...(props.repere ?? {}), 'data-bulle-question': props.variante ?? 'neutre', 'data-validation-du-lot': devis.lotId }}
+        onRepondre={props.onRepondre}
       />
     );
   }
@@ -425,6 +453,9 @@ interface ProprietesDeLaBulle {
    * cherche d'abord le son ou la vidéo d'un choix (`mediaDeLOption`).
    */
   piecesDuMessage?: string[];
+  /** Le message et la question de l'outil : l'encart « Générer » d'une génération s'en sert pour changer de modèle. */
+  messageId?: string;
+  questionId?: string;
   /** Le libellé du bouton qui valide (« Répondre » par défaut ; « Suivant » dans un formulaire). */
   libelleRepondre?: string;
   /** Sans « Plus de choix » : une sous-question du formulaire ne relance pas l'agent. */
@@ -455,6 +486,29 @@ function zoneQuiDefile(element: HTMLElement): HTMLElement | null {
   return null;
 }
 
+/**
+ * LA BARRE SE COLLE AU VRAI BAS DE LA ZONE QUI DÉFILE (capture #d4b1, 04/11/2026). Un `sticky bottom-0` respecte le
+ * retrait intérieur de la zone (`py-3` du fil de conversation) : la barre s'arrêtait 12 px au-dessus du bord, et la
+ * fin de la question défilait dans cet interstice, visible entre « Répondre » et la liste des tâches. On rend ce
+ * retrait en décalage négatif : collée, la barre touche le bord, et rien ne passe plus sous elle.
+ */
+function useBasDeLaZoneQuiDefile(barreRef: React.RefObject<HTMLDivElement | null>): number {
+  const [bas, setBas] = React.useState(0);
+  React.useLayoutEffect(() => {
+    let parent = barreRef.current?.parentElement ?? null;
+    while (parent && parent !== document.body) {
+      const style = getComputedStyle(parent);
+      if (/(auto|scroll)/.test(style.overflowY)) {
+        const retrait = parseFloat(style.paddingBottom) || 0;
+        setBas(retrait > 0 ? -retrait : 0);
+        return;
+      }
+      parent = parent.parentElement;
+    }
+  }, [barreRef]);
+  return bas;
+}
+
 function useChampAuDessusDeLaBarre(barreRef: React.RefObject<HTMLDivElement | null>) {
   return React.useCallback(
     (event: React.FocusEvent<HTMLTextAreaElement>) => {
@@ -465,7 +519,14 @@ function useChampAuDessusDeLaBarre(barreRef: React.RefObject<HTMLDivElement | nu
         if (!barre || document.activeElement !== champ) return;
         const boite = champ.getBoundingClientRect();
         const hautBarre = barre.getBoundingClientRect().top;
-        const basVisible = vue ? vue.offsetTop + vue.height : window.innerHeight;
+        // La zone visible peut rester bloquée à pleine hauteur (iOS 26) : la
+        // hauteur de clavier posée par l'application (`--clavier`, mesurée ou
+        // reprise en secours) borne aussi le bas visible.
+        const clavier = parseFloat(document.documentElement.style.getPropertyValue('--clavier')) || 0;
+        const basVisible = Math.min(
+          vue ? vue.offsetTop + vue.height : window.innerHeight,
+          window.innerHeight - clavier,
+        );
         // La barre vient APRÈS le champ dans le flux : à sa place, son haut est
         // déjà 8 px sous lui (mt-2) ; collée par-dessus, il remonte sur lui.
         const limite = Math.min(hautBarre, basVisible) - 8;
@@ -478,11 +539,15 @@ function useChampAuDessusDeLaBarre(barreRef: React.RefObject<HTMLDivElement | nu
       const minuteurs = [120, 380].map((delai) => window.setTimeout(recaler, delai));
       const surRedimension = () => window.requestAnimationFrame(recaler);
       vue?.addEventListener('resize', surRedimension);
+      // Le `resize` n'arrive pas quand la zone visible est bloquée : la mesure
+      // de l'application (secours compris) prévient par son propre événement.
+      window.addEventListener(EVENEMENT_MESURE_DU_CLAVIER, surRedimension);
       champ.addEventListener(
         'blur',
         () => {
           minuteurs.forEach((m) => window.clearTimeout(m));
           vue?.removeEventListener('resize', surRedimension);
+          window.removeEventListener(EVENEMENT_MESURE_DU_CLAVIER, surRedimension);
         },
         { once: true },
       );
@@ -571,6 +636,7 @@ function BulleQuestionComplete({
   const fileRef = React.useRef<HTMLInputElement>(null);
   const barreRef = React.useRef<HTMLDivElement>(null);
   const suivreLeClavier = useChampAuDessusDeLaBarre(barreRef);
+  const basDeLaBarre = useBasDeLaZoneQuiDefile(barreRef);
   // Une question sans choix ni réponse libre n'offre aucune façon de répondre.
   // Elle doit alors donner une sortie nette, plutôt que laisser une zone vide
   // qui ressemble à un blocage.
@@ -650,7 +716,13 @@ function BulleQuestionComplete({
     }
   };
 
-  const basculer = (id: string) =>
+  const basculer = (id: string) => {
+    /* « VOIR LA BIBLIOTHÈQUE » (directeur du Studio, 31/10/2026) : ce choix ne répond pas, il OUVRE le tiroir des
+       styles ; le style choisi s'y pose en étiquette dans le champ, et l'utilisateur envoie lui-même. */
+    if (question.options.find((o) => o.id === id)?.label === OPTION_VOIR_LA_BIBLIOTHEQUE && ouvrirLaBibliothequeDuStudio()) return;
+    basculerLeChoix(id);
+  };
+  const basculerLeChoix = (id: string) =>
     setChoisis((current) =>
       question.kind === 'multiple'
         ? current.includes(id)
@@ -674,6 +746,89 @@ function BulleQuestionComplete({
      ce qui se dessine par-dessus (zone de choix, pastille retenue, barre des
      issues) suit ce fond, pas le liseré. */
   const surFondRaised = variante !== 'neutre';
+
+  /**
+   * UNE LIGNE DE CHOIX EN MOTS — celle d'une question ordinaire, et celle d'un
+   * choix sans image sous une grille d'images (décision du 04/11/2026) : une
+   * seule façon de la dessiner. `rang` : son numéro de préférence, posé
+   * seulement sous une grille à plusieurs réponses.
+   */
+  const ligneDeChoix = (option: OptionDeQuestion, rang?: number) => {
+    const actif = choisis.includes(option.id);
+    const media = mediaDe(option);
+    return (
+      /* LE BOUTON LECTURE EST VOISIN DU CHOIX, jamais dedans : un bouton
+         ne s'imbrique pas dans un autre, et écouter ne coche rien. */
+      <div key={option.id} className="flex items-start gap-1">
+      <button
+        type="button"
+        onClick={() => basculer(option.id)}
+        data-option-question={option.id}
+        data-option-retenue={actif ? '' : undefined}
+        className={cn(
+          'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--cadre-question))]',
+          /* LE CHOIX RETENU, ENCADRÉ DE JAUNE SUR UN FOND LÉGÈREMENT JAUNE
+             (demande du 28/10/2026, capture #4088) : le jaune des questions
+             (`--cadre-question`), déclaré dans chaque palette. Plus de violet ni d'anneau bleu de focus sur le choix.
+             LE FOND JAUNE CLAIR (décision de l'utilisateur du 16/11/2026, #23ad) : `--comprehension-fond` était passé
+             au BLEU avec DEC-534 ; le fond se tire désormais du jaune des questions lui-même, à 16 %. */
+          actif
+            ? 'bg-[hsl(var(--cadre-question)/0.16)] text-text ring-1 ring-inset ring-[hsl(var(--cadre-question))]'
+            : surFondRaised
+              ? 'text-muted hover:bg-text/5'
+              : 'text-muted hover:bg-raised/60',
+        )}
+      >
+        <span className="mt-0.5 shrink-0">
+          {/* SOUS UNE GRILLE D'IMAGES À PLUSIEURS RÉPONSES, la ligne porte le
+              même rang que les vignettes : 1, 2, 3 dans l'ordre des touchers. */}
+          {actif && rang ? (
+            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-teinte text-[10px] font-semibold tabular-nums text-bg" data-option-rang-ligne={rang}>
+              {rang}
+            </span>
+          ) : actif ? (
+            <Check className="h-3 w-3 text-text" />
+          ) : (
+            <Circle className="h-3 w-3 text-faint" />
+          )}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-[14px] leading-snug">
+            {/* LES POINTS DE COULEUR D'UN CHOIX DE TEINTES (29/10/2026) : la
+                couleur PROPOSÉE, d'office, devant le libellé — une
+                exception de contenu à la palette monochrome. Le liseré
+                `--faint` laisse voir un blanc en clair et un noir en sombre. */}
+            {option.couleurs?.length ? (
+              <span className="mr-1.5 inline-flex translate-y-[1px] items-center -space-x-1 align-baseline" data-couleurs-option={option.id}>
+                {option.couleurs.map((couleur, i) => (
+                  <span
+                    key={`${couleur}-${i}`}
+                    data-point-couleur={couleur}
+                    className="inline-block h-3 w-3 rounded-full ring-1 ring-inset ring-[hsl(var(--faint)/0.45)]"
+                    style={{ backgroundColor: couleur }}
+                  />
+                ))}
+              </span>
+            ) : null}
+            {option.label}
+            {question.recommandee && option.label === question.recommandee ? (
+              <span
+                className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-[11.5px] font-medium text-accent"
+                data-option-conseillee
+              >
+                {t('Conseillé')}
+              </span>
+            ) : null}
+          </span>
+          {option.description ? (
+            <span className="block text-[12.5px] text-faint">{option.description}</span>
+          ) : null}
+        </span>
+      </button>
+      {media ? <BoutonLecture piece={media} onVideo={setVideo} /> : null}
+      </div>
+    );
+  };
   /* …SAUF DANS LE PANNEAU « UNE DÉCISION ATTEND », qui porte le trait jaune
      autour de lui (`CadreDuPanneau`, demande du 27/10/2026). */
   const cadre = useClasseDuCadreDeQuestion();
@@ -788,74 +943,11 @@ function BulleQuestionComplete({
               reperes={reperesDesImages}
               recommandee={question.recommandee}
               onBasculer={basculer}
+              ligneDe={ligneDeChoix}
             />
           ) : (
           <div className="space-y-1" data-choix-question>
-          {question.options.map((option) => {
-            const actif = choisis.includes(option.id);
-            const media = mediaDe(option);
-            return (
-              /* LE BOUTON LECTURE EST VOISIN DU CHOIX, jamais dedans : un bouton
-                 ne s'imbrique pas dans un autre, et écouter ne coche rien. */
-              <div key={option.id} className="flex items-start gap-1">
-              <button
-                type="button"
-                onClick={() => basculer(option.id)}
-                data-option-question={option.id}
-                data-option-retenue={actif ? '' : undefined}
-                className={cn(
-                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[hsl(var(--cadre-question))]',
-                  /* LE CHOIX RETENU, ENCADRÉ DE JAUNE SUR UN FOND LÉGÈREMENT JAUNE
-                     (demande du 28/10/2026, capture #4088) : le jaune des questions
-                     (`--cadre-question`, `--comprehension-fond`), déclaré dans chaque
-                     palette. Plus de violet ni d'anneau bleu de focus sur le choix. */
-                  actif
-                    ? 'bg-comprehension-fond text-text ring-1 ring-inset ring-[hsl(var(--cadre-question))]'
-                    : surFondRaised
-                      ? 'text-muted hover:bg-text/5'
-                      : 'text-muted hover:bg-raised/60',
-                )}
-              >
-                <span className="mt-0.5 shrink-0">
-                  {actif ? <Check className="h-3 w-3 text-text" /> : <Circle className="h-3 w-3 text-faint" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[14px] leading-snug">
-                    {/* LES POINTS DE COULEUR D'UN CHOIX DE TEINTES (29/10/2026) : la
-                        couleur PROPOSÉE, d'office, devant le libellé — une
-                        exception de contenu à la palette monochrome. Le liseré
-                        `--faint` laisse voir un blanc en clair et un noir en sombre. */}
-                    {option.couleurs?.length ? (
-                      <span className="mr-1.5 inline-flex translate-y-[1px] items-center -space-x-1 align-baseline" data-couleurs-option={option.id}>
-                        {option.couleurs.map((couleur, i) => (
-                          <span
-                            key={`${couleur}-${i}`}
-                            data-point-couleur={couleur}
-                            className="inline-block h-3 w-3 rounded-full ring-1 ring-inset ring-[hsl(var(--faint)/0.45)]"
-                            style={{ backgroundColor: couleur }}
-                          />
-                        ))}
-                      </span>
-                    ) : null}
-                    {option.label}
-                    {question.recommandee && option.label === question.recommandee ? (
-                      <span
-                        className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-[11.5px] font-medium text-accent"
-                        data-option-conseillee
-                      >
-                        {t('Conseillé')}
-                      </span>
-                    ) : null}
-                  </span>
-                  {option.description ? (
-                    <span className="block text-[12.5px] text-faint">{option.description}</span>
-                  ) : null}
-                </span>
-              </button>
-              {media ? <BoutonLecture piece={media} onVideo={setVideo} /> : null}
-              </div>
-            );
-          })}
+            {question.options.map((option) => ligneDeChoix(option))}
           </div>
           )}
           {reponsePossible && !sansPlusDeChoix ? (
@@ -943,10 +1035,12 @@ function BulleQuestionComplete({
           la preuve est `elementsFromPoint` (`verif-question-choix-et-fondu`). */}
       <div
         className={cn(
-          'sticky bottom-0 z-20 -mx-3 -mb-2.5 mt-2 flex flex-wrap items-center gap-1.5 border-t border-faint/15 px-3 py-2 backdrop-blur-sm',
+          /* LE BAS DE LA BARRE SUIT L'ARRONDI DE LA QUESTION (capture #dfd3, 31/10/2026) : plus de coins carrés. */
+          'sticky bottom-0 z-20 -mx-3 -mb-2.5 mt-2 flex flex-wrap items-center gap-1.5 rounded-b-lg border-t border-faint/15 px-3 py-2 backdrop-blur-sm',
           surFondRaised ? 'bg-raised/95' : 'bg-bloc-fil-voile',
         )}
         ref={barreRef}
+        style={basDeLaBarre ? { bottom: basDeLaBarre } : undefined}
         data-actions-question
         data-pied-colle
         data-question-sans-reponse={reponsePossible ? undefined : ''}
@@ -1031,8 +1125,13 @@ function BulleQuestionComplete({
  * du coin choisit, aussi depuis l'aperçu (décision du 30/10/2026). « Un seul
  * choix » n'en garde qu'une ; « plusieurs réponses » numérote les retenues
  * 1, 2, 3 dans l'ordre des touchers — l'ordre de préférence envoyé à l'agent.
- * Chaque image porte sa LETTRE (A, B…) et sa référence « #xxxx ». Une option
- * sans image garde sa vignette vide, son libellé dessous, et se coche au toucher.
+ * Chaque image porte sa LETTRE (A, B…) et sa référence « #xxxx ».
+ *
+ * UN CHOIX SANS IMAGE N'EST PAS UNE VIGNETTE (décision du 04/11/2026, capture
+ * #f4b2) : sa case vide marquée d'une croix se lisait comme une image cassée.
+ * Il se dessine SOUS la grille, en ligne à cocher — la même que dans une
+ * question ordinaire (`ligneDe`), numérotée avec les vignettes en « plusieurs
+ * réponses ».
  */
 function ChoixEnImages({
   options,
@@ -1041,6 +1140,7 @@ function ChoixEnImages({
   reperes,
   recommandee,
   onBasculer,
+  ligneDe,
 }: {
   options: OptionDeQuestion[];
   choisis: string[];
@@ -1048,7 +1148,10 @@ function ChoixEnImages({
   reperes: ReadonlyMap<string, RepereDUnChoixEnImage>;
   recommandee?: string;
   onBasculer: (id: string) => void;
+  ligneDe: (option: OptionDeQuestion, rang?: number) => React.ReactNode;
 }) {
+  const enImages = options.filter((o) => o.image);
+  const enMots = options.filter((o) => !o.image);
   /* L'APERÇU FEUILLETTE LES IMAGES DE LA QUESTION, dans l'ordre des options. */
   const galerie = React.useMemo(
     () => options.map((o) => reperes.get(o.id)?.piece).filter((p): p is Attachment => !!p),
@@ -1076,8 +1179,9 @@ function ChoixEnImages({
   };
   const enCours = optionDe(ouverte);
   return (
+    <div className="space-y-2">
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-choix-question data-choix-en-images>
-      {options.map((option) => {
+      {enImages.map((option) => {
         const actif = choisis.includes(option.id);
         const repere = reperes.get(option.id);
         const rang = choisis.indexOf(option.id) + 1;
@@ -1087,7 +1191,7 @@ function ChoixEnImages({
              dans l'autre. */
           <div
             key={option.id}
-            data-option-image={option.image ?? undefined}
+            data-option-image={option.image}
             data-option-lettre={repere?.lettre ?? undefined}
             data-option-retenue={actif ? '' : undefined}
             data-option-rang={actif && plusieurs ? rang : undefined}
@@ -1099,14 +1203,14 @@ function ChoixEnImages({
             <button
               type="button"
               onClick={() => (repere?.piece ? setOuverte(repere.piece) : onBasculer(option.id))}
-              title={repere?.piece ? t('Ouvrir en grand') : (option.description ?? option.label)}
+              title={t('Ouvrir en grand')}
               data-option-apercu={option.id}
               className={cn(
                 'relative block aspect-square w-full overflow-hidden bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teinte',
                 actif && 'ring-2 ring-inset ring-teinte',
               )}
             >
-              {option.image ? <ImageDePiece id={option.image} alt={option.label} className="h-full w-full object-cover" /> : null}
+              <ImageDePiece id={option.image!} alt={option.label} className="h-full w-full object-cover" />
               {repere?.lettre ? (
                 <span
                   className="pointer-events-none absolute left-1.5 top-1.5 flex min-w-[1.6em] items-center justify-center rounded-md bg-surface/90 px-1 text-[16px] font-semibold leading-6 text-text"
@@ -1132,6 +1236,12 @@ function ChoixEnImages({
             </button>
             <span className="block min-w-0 px-2 py-1.5">
               <span className="block truncate text-[13px] font-medium leading-snug">{option.label}</span>
+              {/* DEUX LIGNES DE DESCRIPTION SOUS LE TITRE (17/11/2026) ; le texte entier se lit sous l'image en grand. */}
+              {option.description ? (
+                <span className="line-clamp-2 block text-[12px] leading-snug text-muted" data-option-description>
+                  {option.description}
+                </span>
+              ) : null}
               <span className="flex min-w-0 items-center gap-1.5">
                 {repere?.alias ? (
                   <span className="shrink-0 font-mono text-[11px] text-faint texte-copiable" data-option-reference>
@@ -1158,6 +1268,18 @@ function ChoixEnImages({
           const r = reperes.get(optionDe(piece)?.id ?? '');
           return r ? [r.lettre, r.alias ? `#${r.alias}` : ''].filter(Boolean).join(' · ') : null;
         }}
+        legendeDe={(piece) => {
+          const option = optionDe(piece);
+          if (!option) return null;
+          const r = reperes.get(option.id);
+          return {
+            lettre: r?.lettre,
+            reference: r?.alias ? `#${r.alias}` : null,
+            titre: option.label,
+            description: option.description,
+            conseillee: !!recommandee && option.label === recommandee,
+          };
+        }}
         actionDe={() =>
           enCours ? (
             /* LA COCHE SE COCHE AUSSI DEPUIS L'APERÇU, pour l'image montrée. */
@@ -1178,6 +1300,15 @@ function ChoixEnImages({
           ) : null
         }
       />
+    </div>
+    {enMots.length ? (
+      <div className="space-y-1" data-choix-en-mots>
+        {enMots.map((option) => {
+          const rang = choisis.indexOf(option.id) + 1;
+          return ligneDe(option, plusieurs && rang > 0 ? rang : undefined);
+        })}
+      </div>
+    ) : null}
     </div>
   );
 }

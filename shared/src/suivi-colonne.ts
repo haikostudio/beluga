@@ -56,9 +56,13 @@ import { estUnePhraseDeMere } from './regroupements.js';
  * n'est pas un rapport rendu (la carte reste là où on la relance), et un rôle
  * qui n'exécute pas ne déplace jamais rien.
  *
- * Conséquence ASSUMÉE, et qui doit se lire sur la carte : une carte peut être
- * « À déployée » sans qu'aucun code n'ait changé. Elle le DIT alors en clair
- * (`RAISON_RENDU_SANS_CODE`), plutôt que de laisser croire à une livraison.
+ * Et une carte rendue SANS AUCUNE MODIFICATION dans sa branche ne passe plus
+ * par « À déployer » : il n'y a rien à mettre en ligne, elle va DIRECTEMENT
+ * dans « Archivé » (décision de l'utilisateur, 12.11.2026), et le DIT
+ * (`RAISON_RENDU_SANS_CODE`). Le travail VU AILLEURS (dossier partagé), le
+ * constat IMPOSSIBLE et le code DÉJÀ enregistré par un tour précédent restent,
+ * eux, en « À déployer » : dans ces trois cas, il peut y avoir quelque chose à
+ * publier. C'est le seul saut de plus d'un cran d'une fin de tour.
  *
  * Les règles sont PURES : elles ne connaissent ni la base ni le moteur, elles
  * disent seulement où la carte devrait être. Le démon observe le dépôt (le même
@@ -357,16 +361,30 @@ export const RAISON_SANS_MODIFICATION =
   "Réponse rendue, mais aucun fichier du projet n'a changé : la carte revient en « À planifier » plutôt que d'être annoncée terminée.";
 
 /**
- * La phrase d'une carte CLOSE alors qu'aucun fichier n'a changé — le cas neuf,
- * et celui qu'il faut dire sans ambiguïté.
+ * La phrase d'une carte CLOSE alors qu'aucun fichier n'a changé.
  *
- * C'est la conséquence assumée de la règle : le rapport rendu ferme la carte.
- * Une carte de vérification, une carte dont l'agent conclut qu'il n'y avait
- * rien à faire arrivent donc dans « À déployer » sans une ligne de code. La carte
- * ne doit surtout pas laisser croire à une livraison : elle annonce le rapport
- * ET l'absence de code, dans la même phrase.
+ * Le rapport rendu ferme la carte : une carte de vérification, une carte dont
+ * l'agent conclut qu'il n'y avait rien à faire n'ont pas une ligne de code.
+ * Rien à publier, donc elles vont DIRECTEMENT dans « Archivé »
+ * (`COLONNE_D_UN_RENDU_SANS_CODE`) — et la carte le dit, pour qu'on ne la
+ * cherche pas dans « À déployer ».
  */
 export const RAISON_RENDU_SANS_CODE =
+  'Rapport rendu, aucune modification dans la branche : il n’y a rien à déployer, la carte est archivée.';
+
+/**
+ * OÙ VA UNE CARTE RENDUE SANS AUCUNE MODIFICATION : « Archivé », directement.
+ * Le démon range ensuite sa branche vide et sa copie de travail par le chemin
+ * d'archivage ordinaire (`archiveCard`), qui ne supprime jamais une branche
+ * portant des enregistrements non fusionnés.
+ */
+export const COLONNE_D_UN_RENDU_SANS_CODE: ColumnKey = 'archived';
+
+/**
+ * L'ANCIENNE phrase d'un rendu sans code, d'avant l'archivage d'office (13/11/2026). Plus jamais écrite, mais
+ * plus de cent cartes la portent encore : elle se LIT comme une information, comme sa remplaçante.
+ */
+export const ANCIENNE_RAISON_RENDU_SANS_CODE =
   'Rapport rendu, aucun fichier du projet modifié : la carte est terminée, mais rien n’a été livré — il n’y a donc rien à déployer.';
 
 /**
@@ -428,7 +446,7 @@ const MENTIONS_DE_TRAVAIL: string[] = [RAISON_DEJA_LIVRE, RAISON_TRAVAIL_SAUVE];
  * encore vide.
  */
 function mentionsDInformation(): string[] {
-  return [RAISON_RENDU_SANS_CODE, RAISON_TRACE_INCONNUE, RAISON_TOUR_SANS_ISSUE];
+  return [RAISON_RENDU_SANS_CODE, ANCIENNE_RAISON_RENDU_SANS_CODE, RAISON_TRACE_INCONNUE, RAISON_TOUR_SANS_ISSUE];
 }
 
 export function natureDeLaMention(raison?: string | null): NatureDeLaMention {
@@ -1072,5 +1090,9 @@ export function issueDeFinDeTour(
   // d'observation, et elle se dit autrement.
   if (trace === 'inconnue') return { colonne: cloture, raison: RAISON_TRACE_INCONNUE };
 
-  return { colonne: cloture, raison: RAISON_RENDU_SANS_CODE };
+  /*
+   * RIEN DANS LA BRANCHE, RIEN AILLEURS : il n'y a rien à publier. La carte
+   * saute « À déployer » et va directement dans « Archivé ».
+   */
+  return { colonne: COLONNE_D_UN_RENDU_SANS_CODE, raison: RAISON_RENDU_SANS_CODE };
 }

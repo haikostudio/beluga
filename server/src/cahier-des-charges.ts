@@ -31,15 +31,19 @@ import {
   lireAvancement,
   pausePossible,
   reprisePossible,
+  resumeDeLaDemandeDeSuite,
   type Card,
   type Project,
 } from '@beluga/shared';
+import { viderLaFileEnRendant } from './file-rendue.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import { PATHS } from './config.js';
 import { safeJoin } from './files.js';
 import { cheminDuModeDEmploiRea } from './rea.js';
+import { joindreUnFichier } from './joindre-fichier.js';
+import { ajouterAuJournal, entreesDuJournal } from './journal-carte.js';
 
 /*
  * LE MOTEUR, LES OUTILS ET LE CADRAGE SE CHARGENT À LA DEMANDE : les outils
@@ -311,7 +315,109 @@ async function creerLaCarteDeSuite(projet: Project, cahierId: string): Promise<C
   });
   const marquee = store.saveCard({ ...carte, suiteDuCahier: { cahierId } });
   bus.emit({ type: 'card.upsert', card: marquee });
-  return marquee;
+  return (await poserLaDemandeDeLaSuite(marquee, projet)) ?? marquee;
+}
+
+/**
+ * LA CARTE DE CONSTRUCTION NAÎT AVEC SA DEMANDE ÉCRITE ET LE CAHIER JOINT.
+ *
+ * Elle n'ouvre pas de cadrage (MEM-4606), donc personne n'écrivait le jalon
+ * « Demande » de son journal (`ouvrirLeCadrageDeLaCarte` le fait pour les
+ * autres) : le point « Demande » tournait dans le vide jusqu'au lancement. Le
+ * jalon est écrit ici, SANS agent (aucun n'existe avant le lancement), avec le
+ * briefing entier et le cahier des charges — copie figée du document à la fin
+ * des questions — en pièce jointe. La pièce entre aussi dans `attachments` de la
+ * carte : le lancement la liste à l'agent d'exécution (« PIÈCES JOINTES »).
+ * Aucun moteur ne part (règle « rien ne part au moteur avant le lancement »).
+ *
+ * Idempotent : une carte qui a déjà son jalon « Demande » n'est pas touchée.
+ * Une jointure qui échoue n'empêche ni la naissance ni le jalon. Rend la carte
+ * relue, ou `null` si rien n'a été écrit.
+ */
+const demandesEnCoursDEcriture = new Set<string>();
+
+export async function poserLaDemandeDeLaSuite(carte: Card, projet: Project): Promise<Card | null> {
+  /* La jointure est asynchrone : deux rattrapages simultanés (démarrage et
+     ouverture) écriraient deux jalons sans ce verrou. */
+  if (demandesEnCoursDEcriture.has(carte.id)) return null;
+  demandesEnCoursDEcriture.add(carte.id);
+  try {
+    return await ecrireLaDemandeDeLaSuite(carte, projet);
+  } finally {
+    demandesEnCoursDEcriture.delete(carte.id);
+  }
+}
+
+async function ecrireLaDemandeDeLaSuite(carte: Card, projet: Project): Promise<Card | null> {
+  if (entreesDuJournal(carte.id).some((e) => e.nature === 'jalon' && e.libelle === 'Demande')) return null;
+  const briefing = carte.briefing?.trim();
+  if (!briefing) return null;
+  let pieces: string[] = [];
+  const fichier = safeJoin(projet.path, DOCUMENT_DU_CAHIER);
+  if (fichier && fs.existsSync(fichier)) {
+    try {
+      const jointure = await joindreUnFichier({
+        projectId: projet.id,
+        cardId: carte.id,
+        fichier,
+        nom: nomDuCahierExporte(projet.name, 'md'),
+      });
+      if (jointure.ok) pieces = [jointure.attachment.id];
+      else log.warn(`cahier des charges de « ${projet.name} » non joint à sa carte de construction : ${jointure.refus}`);
+    } catch (err) {
+      log.warn(`cahier des charges de « ${projet.name} » non joint à sa carte de construction`, err);
+    }
+  }
+  const relue = store.getCard(carte.id) ?? carte;
+  const jointes = [...new Set([...(relue.attachments ?? []), ...pieces])];
+  const avecPiece = jointes.length !== (relue.attachments ?? []).length ? store.saveCard({ ...relue, attachments: jointes }) : relue;
+  if (avecPiece !== relue) bus.emit({ type: 'card.upsert', card: avecPiece });
+  const jalon = ajouterAuJournal({
+    cardId: carte.id,
+    // La demande PRÉCÈDE le travail : une phase « exécution » ferait croire la carte déjà partie.
+    phase: 'cadrage',
+    nature: 'jalon',
+    libelle: 'Demande',
+    resultat: briefing,
+    at: carte.createdAt,
+    donnees: {
+      resumeDemande: resumeDeLaDemandeDeSuite(projet.name),
+      pieces: pieces.length ? pieces : undefined,
+    },
+  });
+  if (!jalon) return null;
+  bus.emit({ type: 'journal.entree', entree: jalon });
+  return avecPiece;
+}
+
+/**
+ * AU DÉMARRAGE : les cartes de construction nées AVANT cette règle (sans jalon
+ * « Demande », sans agent, encore avant le travail) reçoivent leur demande et
+ * leur pièce jointe — rien d'autre, aucun moteur. Rend le nombre de cartes
+ * complétées. Idempotent.
+ */
+export async function completerLesDemandesDesSuites(): Promise<number> {
+  let completees = 0;
+  for (const projet of store.listProjects(true)) {
+    for (const carte of store.listCardsInColumn(projet.id, 'planned')) {
+      if (await rattraperLaDemandeDeLaSuite(carte)) completees += 1;
+    }
+  }
+  return completees;
+}
+
+/**
+ * UNE CARTE DE CONSTRUCTION SANS DEMANDE la reçoit — au démarrage, ou à son
+ * ouverture (une carte posée pendant que le démon tourne déjà, par une copie
+ * de base ou un ancien démon). Seulement avant le travail, non rangée, sans
+ * agent. Rend vrai si la demande a été écrite.
+ */
+export async function rattraperLaDemandeDeLaSuite(carte: Card): Promise<boolean> {
+  if (!carte.suiteDuCahier || carte.archivedAt || carte.column !== 'planned') return false;
+  if (carte.agentId || carte.conversationAgentId || store.getLastAgentByCard(carte.id)) return false;
+  const projet = store.getProject(carte.projectId);
+  if (!projet) return false;
+  return (await poserLaDemandeDeLaSuite(carte, projet)) !== null;
 }
 
 async function rangerLeCahier(cardId: string, agentId: string, suiteId: string): Promise<void> {
@@ -321,8 +427,7 @@ async function rangerLeCahier(cardId: string, agentId: string, suiteId: string):
     await new Promise((r) => setTimeout(r, 1000));
   }
   if (isRunning(agentId)) {
-    const vides = store.clearQueue(agentId);
-    if (vides) bus.emit({ type: 'queue.etat', agentId, queue: [] });
+    viderLaFileEnRendant(agentId, 'Le cahier des charges est rangé : votre message en attente revient dans le champ.');
     arreterLAgent(agentId);
     await new Promise((r) => setTimeout(r, 2000));
   }
@@ -350,8 +455,7 @@ export async function mettreEnPause(cardId: string): Promise<Card> {
   const agent = cadrageDeLaCarte(cardId);
   if (agent) {
     const { arreterLAgent, isRunning } = await moteur();
-    const vides = store.clearQueue(agent.id);
-    if (vides) bus.emit({ type: 'queue.etat', agentId: agent.id, queue: [] });
+    viderLaFileEnRendant(agent.id, 'Le cahier des charges est en pause : votre message en attente revient dans le champ.');
     if (isRunning(agent.id) || agent.status === 'running') arreterLAgent(agent.id);
   }
   return pausee;

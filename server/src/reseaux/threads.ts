@@ -1,5 +1,5 @@
 import { DROITS_DEMANDES } from '@beluga/shared';
-import { type Adaptateur, type MessageRelu, ErreurReseau, adresse, appel, attendre, echeance, formulaire, instantDe, premierMedia } from './commun.js';
+import { chiffre, type Adaptateur, type MessageRelu, ErreurReseau, adresse, appel, attendre, echeance, formulaire, instantDe, premierMedia } from './commun.js';
 
 /**
  * THREADS — l'API Threads de Meta (application à part de celle de Facebook).
@@ -107,5 +107,32 @@ export const threads: Adaptateur = {
   async repondreCommentaire({ ctx, message, texte }) {
     const id = await publierConteneur(ctx, { media_type: 'TEXT', text: texte, reply_to_id: message.distantId });
     return { distantId: id };
+  },
+
+  /* Threads API : `manage_reply` masque une réponse aux publications de la marque. */
+  async masquerCommentaire({ ctx, message }) {
+    await appel(`${API}/${encodeURIComponent(message.distantId)}/manage_reply`, { method: 'POST', body: formulaire({ hide: 'true', access_token: ctx.jeton }) });
+  },
+
+  async lireStatistiques({ ctx, publications }) {
+    const abonnes = await chiffre(async () => {
+      const r = await appel<{ data?: { total_value?: { value?: number } }[] }>(adresse(`${API}/${ctx.distantId}/threads_insights`, { metric: 'followers_count', access_token: ctx.jeton }));
+      return r.corps.data?.[0]?.total_value?.value ?? null;
+    });
+    const lignes = [];
+    for (const p of publications) {
+      let metriques: { name: string; values?: { value?: number }[]; total_value?: { value?: number } }[] = [];
+      try {
+        metriques = (await appel<{ data?: typeof metriques }>(adresse(`${API}/${p.distantId}/insights`, { metric: 'views,likes,replies', access_token: ctx.jeton }))).corps.data ?? [];
+      } catch {
+        /* Non fournis. */
+      }
+      const lire = (nom: string) => {
+        const m = metriques.find((d) => d.name === nom);
+        return m?.total_value?.value ?? m?.values?.[0]?.value ?? null;
+      };
+      lignes.push({ distantId: p.distantId, vues: lire('views'), commentaires: lire('replies'), reactions: lire('likes') });
+    }
+    return { abonnes, publications: lignes };
   },
 };

@@ -1,3 +1,4 @@
+import { ChampDeRecherche } from '@/components/ui/champ-de-recherche';
 /**
  * UNE COLONNE DU TABLEAU — SON NOM, SON COMPTE, SON FILTRE, SA RECHERCHE.
  *
@@ -25,7 +26,7 @@
  * colonne ; l'espace client n'en veut pas.
  */
 import * as React from 'react';
-import { Archive, Inbox, ListFilter, MessageSquare, Plus, Search, X } from 'lucide-react';
+import { Archive, BadgeCheck, CircleCheck, CircleDashed, Inbox, ListFilter, ListTodo, MessageSquare, Plus, Search, X, type LucideIcon } from '@/components/ui/icones';
 import {
   ActionTiroir,
   Button,
@@ -38,7 +39,6 @@ import {
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
-  COULEURS_COLONNES_DEMANDE,
   IMPORTANCES,
   TITRES_COLONNES_DEMANDE,
   TITRES_IMPORTANCE,
@@ -51,8 +51,20 @@ import {
   type ImportanceDemande,
   type TriDemande,
 } from '@beluga/shared';
-import { TON_COLONNE } from './formats';
 import { VignetteDemande, type GestesDeVignette } from './vignette-demande';
+
+/**
+ * LA TÊTE D'UNE COLONNE SE LIT COMME UNE PASTILLE TEINTÉE (demande du 08/11/2026, capture #12cb) : une icône à
+ * gauche, le nom, le compte dans sa propre pastille, sur un fond léger de la teinte de la colonne. Les teintes —
+ * gris, bleu, vert, vert — sont une exception VOULUE à la charte monochrome, limitée à ces têtes (jetons
+ * `--colonne-*` de styles.css, déclarés en clair et en sombre).
+ */
+const TETE_DE_COLONNE: Record<ColonneDemande, { icone: LucideIcon; fond: string; texte: string; compte: string }> = {
+  'a-faire': { icone: ListTodo, fond: 'bg-colonne-gris-fond', texte: 'text-muted', compte: 'bg-colonne-gris-fond text-muted' },
+  'en-cours': { icone: CircleDashed, fond: 'bg-colonne-bleu-fond', texte: 'text-colonne-bleu', compte: 'bg-colonne-bleu-fond text-colonne-bleu' },
+  termine: { icone: CircleCheck, fond: 'bg-colonne-vert-fond', texte: 'text-colonne-vert', compte: 'bg-colonne-vert-fond text-colonne-vert' },
+  valide: { icone: BadgeCheck, fond: 'bg-colonne-vert-fond', texte: 'text-colonne-vert', compte: 'bg-colonne-vert-fond text-colonne-vert' },
+};
 
 export function ColonneDemandes({
   colonne,
@@ -98,6 +110,11 @@ export function ColonneDemandes({
 }) {
   const titre = t(TITRES_COLONNES_DEMANDE[colonne]);
   const actifs = filtresActifs(filtre);
+  /* SUR ORDINATEUR, LA RECHERCHE EST UNE LOUPE DANS LA TÊTE (carte « Refonte de l'espace Médias », 05/11/2026 :
+     « recherche et filtres en icônes en haut à droite, partout ») ; le champ ne s'ouvre que sur demande, ou tant
+     qu'il porte un texte. Sur téléphone, il reste toujours là. */
+  const [rechercheOuverte, setRechercheOuverte] = React.useState(false);
+  const champVisible = telephone || rechercheOuverte || !!recherche;
 
   const optionsEtiquette: { valeur: string; libelle: string }[] = [
     { valeur: '', libelle: t('Toutes les étiquettes') },
@@ -128,16 +145,21 @@ export function ColonneDemandes({
       data-compte={cartes.length}
       data-colonne-visee={visee ? '' : undefined}
     >
-      <div className="flex min-w-0 shrink-0 items-center gap-2 px-2.5 pb-1 pt-1.5" data-tete-colonne={colonne}>
+      <div
+        className={cn('mx-2.5 mb-1.5 mt-1 flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1 pl-2.5 pr-1', TETE_DE_COLONNE[colonne].fond)}
+        data-tete-colonne={colonne}
+      >
+        {React.createElement(TETE_DE_COLONNE[colonne].icone, {
+          className: cn('h-4 w-4 shrink-0', TETE_DE_COLONNE[colonne].texte),
+          'aria-hidden': true,
+        })}
+        <span className={cn('min-w-0 truncate text-[13.5px] font-medium', TETE_DE_COLONNE[colonne].texte)}>{titre}</span>
         <span
-          className={cn(
-            'min-w-0 truncate text-[13.5px] font-medium',
-            TON_COLONNE[COULEURS_COLONNES_DEMANDE[colonne]],
-          )}
+          className={cn('shrink-0 rounded-md px-1.5 text-[11px] font-medium leading-[18px] tabular-nums', TETE_DE_COLONNE[colonne].compte)}
+          data-compte-colonne={cartes.length}
         >
-          {titre}
+          {cartes.length}
         </span>
-        <span className="text-[11px] text-faint">{cartes.length}</span>
         {/* CE QUE JE N'AI PAS LU DANS CETTE COLONNE, à côté de son compte. */}
         {nonLues ? (
           <span
@@ -150,6 +172,20 @@ export function ColonneDemandes({
         ) : null}
 
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          {!telephone ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setRechercheOuverte((o) => !o || !!recherche)}
+              title={t('Rechercher…')}
+              aria-label="Rechercher"
+              aria-pressed={champVisible}
+              className={cn(recherche ? 'text-accent' : null)}
+              data-recherche-colonne-bouton={colonne}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          ) : null}
           {onNouvelle ? (
             <Button
               size="icon-sm"
@@ -290,17 +326,21 @@ export function ColonneDemandes({
       </div>
 
       {/* LA RECHERCHE DE LA COLONNE, pleine largeur, sous sa tête. */}
-      <div className="relative shrink-0 px-2.5">
-        <Search className="pointer-events-none absolute left-[18px] top-[15px] h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-        <Input
-          value={recherche}
-          onChange={(event) => onRecherche(event.target.value)}
-          placeholder={t('Rechercher…')}
-          className="h-[30px] w-full pl-7 text-[13px]"
-          aria-label={`${t('Rechercher…')} ${titre}`}
-          data-recherche-colonne={colonne}
-        />
-      </div>
+      {champVisible ? (
+        <div className="shrink-0 px-2.5">
+          <ChampDeRecherche
+            valeur={recherche}
+            onChange={onRecherche}
+            placeholder={t('Rechercher…')}
+            aria-label={`${t('Rechercher…')} ${titre}`}
+            autoFocus={rechercheOuverte && !telephone}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !recherche) setRechercheOuverte(false);
+            }}
+            data-recherche-colonne={colonne}
+          />
+        </div>
+      ) : null}
 
       {/*
        * LA LISTE DÉFILE CHEZ ELLE, tête de colonne comprise dans la boîte mais

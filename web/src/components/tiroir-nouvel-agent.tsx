@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search } from '@/components/ui/icones';
 import { TITRE_CARTE_DE_CADRAGE, filtrerProjetsParNom, projetsEnArbre, projetsParActivite, type Card } from '@beluga/shared';
 import { Dialog, DialogContentLibre, DialogHeader, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
 import {

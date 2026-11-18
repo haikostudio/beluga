@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Brain, FileText, MessageCircle, Search } from 'lucide-react';
+import { Brain, FileText, MessageCircle, Search } from '@/components/ui/icones';
 import { BulleDuFilAgent, SentContextEtat, filVisuelDeLAgent } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -8,7 +8,7 @@ import { t } from '@/lib/langue';
  * Le suivi des recherches faites par l'agent.
  *
  * Il vit à gauche, comme une parole de l'agent. Chaque résultat ajoute ses
- * propres bulles courtes à la suite : la recherche, ce qui a été compris et les
+ * propres étapes courtes à la suite, À PLAT (aucun cadre, fond ni arrondi) : la recherche, ce qui a été compris et les
  * directives éventuellement retrouvées. Le texte entier du prompt ne tient pas
  * dans ces bulles : il se lit par le lien de `prompt-envoye-complet.tsx`.
  */
@@ -40,7 +40,7 @@ export function BullesDuPromptEnvoye({
 export function ListeDesBullesDuFil({ bulles }: { bulles: BulleDuFilAgent[] }) {
   if (!bulles.length) return null;
   return (
-      <ol className="relative space-y-2 pl-7 before:absolute before:bottom-4 before:left-[9.5px] before:top-4 before:w-px before:bg-faint/30">
+      <ol className="relative space-y-3 pl-7 before:absolute before:bottom-3 before:left-[9.5px] before:top-3 before:w-px before:bg-faint/30">
         {bulles.map((bulle) => {
           const Icone = bulle.nature === 'requete'
             ? MessageCircle
@@ -58,15 +58,18 @@ export function ListeDesBullesDuFil({ bulles }: { bulles: BulleDuFilAgent[] }) {
             >
               <span
                 className={cn(
-                  'absolute -left-7 top-2 flex h-5 w-5 items-center justify-center rounded-full border bg-surface',
+                  'absolute -left-7 top-0 flex h-5 w-5 items-center justify-center rounded-full border bg-surface',
                   bulle.reussie ? 'border-faint/60 text-faint' : 'border-danger/60 text-danger',
                 )}
                 aria-hidden="true"
               >
                 <Icone className="h-2.5 w-2.5" />
               </span>
-              <div className="min-w-0 rounded-xl rounded-tl-sm border border-border bg-surface/80 px-3 py-2">
-                <p className="text-[11.5px] font-medium text-faint">{t(bulle.titre)}</p>
+              {/* À PLAT (16/11/2026, captures #b82e et #3109) : plus de cadre,
+                  de fond ni d'arrondi — l'étape se lit comme le parcours d'un
+                  agent, un intitulé estompé puis son texte, sur le fil à icônes. */}
+              <div data-etape-a-plat className="min-w-0">
+                <p className="text-[11.5px] font-medium leading-5 text-faint">{t(bulle.titre)}</p>
                 <p className="mt-0.5 whitespace-pre-line break-words text-[13.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
                   {bulle.texte}
                 </p>

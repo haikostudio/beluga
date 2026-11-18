@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { RechercheDesArchives } from './recherche-des-archives';
-import { Layers, Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
+import { Layers, Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from '@/components/ui/icones';
 import {
   serviceDeLaCarte,
   debutDeLaDemande,
@@ -96,7 +96,6 @@ import { RepereAttention } from '@/components/repere-attention';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { nomCourtMoteur } from '@/components/run-selectors';
-import { SilhouetteTableau } from '@/components/silhouettes';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { BadgeDuService } from '@/components/badge-du-service';
 import { IndicateurActivite } from '@/components/indicateur-activite';
@@ -1320,7 +1319,7 @@ export function Board({
   if (!state.cartesChargees[projectId]) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <SilhouetteTableau />
+        <Loader2 className="m-auto h-5 w-5 animate-spin text-faint" aria-hidden />
       </div>
     );
   }
@@ -1446,8 +1445,8 @@ export function Board({
             {/* LE BANDEAU DE TITRE DE LA RANGÉE, SUR TOUTE SA LARGEUR. Le
                 repère de couleur (« En cours » / « À déployer ») est un fond
                 PLAT posé directement sur ce bandeau — jamais un dégradé,
-                jamais une bordure : `verif-couleurs-avancement` le lit
-                désormais sur `backgroundColor` de `[data-tete-colonne]`. */}
+                jamais une bordure : le contrôle des thèmes le lit
+                sur `backgroundColor` de `[data-tete-colonne]`. */}
             <div
               className={cn(
                 CLASSES_TETE_RANGEE,
@@ -2218,7 +2217,7 @@ export function CardTile({
     mentions.push({ cle: 'sans-suite', repere: { 'data-mention-sans-suite': true }, classe: 'text-faint', icone: Clock, texte: sansSuite });
   }
   /* LA VEILLE : ce qu'on attend d'un tiers, jusqu'à quand, et ses contrôles (`veille-de-carte.tsx`). */
-  if (card.veille && (card.veille.etat === 'en_cours' || card.veille.etat === 'expiree')) {
+  if (card.veille && (card.veille.etat === 'en_cours' || card.veille.etat === 'expiree' || card.veille.etat === 'attend_deploiement')) {
     mentions.push({ cle: 'veille', repere: { 'data-veille': card.veille.etat }, classe: 'text-muted', icone: Eye, texte: phraseDeLaVeille(card.veille) });
   }
   const archivage = mentionArchivage(card);

@@ -64,6 +64,108 @@ if [ -f "$journal" ]; then
   fi
 fi
 
+# LES QUINZE PLUS GROS, AVEC LEUR COMMANDE ET LEUR SERVICE. Le seul nom (`node`,
+# `chrome`) ne disait pas QUI pesait 1,5 Go le 15/11/2026 : la commande
+# (tronquée à 200 signes) et le groupe systemd du processus le disent. Rien de
+# secret ne doit y passer : toute valeur qui suit un mot de passe, un jeton ou
+# une clé est masquée, comme l'identifiant d'une adresse et les clés connues.
+masquer_secrets() {
+  sed -E \
+    -e 's#(://)[^/@ ]+@#\1***@#g' \
+    -e 's/(bearer[ ]+)[^ ]+/\1***/Ig' \
+    -e 's/((token|key|secret|password|passwd|pass|pwd|bearer|auth|cle|motdepasse)[A-Za-z0-9_-]*[=: ]+)[^ ]+/\1***/Ig' \
+    -e 's/(sk-|ghp_|gho_|github_pat_|xox[bp]-)[A-Za-z0-9_-]{8,}/\1***/g'
+}
+
+# Pour chaque gros processus : la CARTE qui l'a lancé (copie de travail
+# `.worktrees/<dossier>`, lue dans son dossier courant, sa commande ou celui de
+# ses parents), sa part rangée dans l'échange et son dossier courant. Un « node »
+# anonyme de 1 Go se rattache ainsi à sa carte (16/11/2026).
+carte_du_processus() {
+  local p="$1" n=0 cwd args
+  while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null && [ "$n" -lt 6 ]; do
+    cwd=$(readlink "/proc/$p/cwd" 2>/dev/null)
+    args=$(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null)
+    for texte in "$cwd" "$args"; do
+      case "$texte" in
+        *.worktrees/*) printf '%s' "$texte" | sed -n 's#.*\.worktrees/\([^/ ]*\).*#\1#p' | head -1; return ;;
+      esac
+    done
+    p=$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null)
+    n=$((n + 1))
+  done
+  printf '%s' '-'
+}
+
+processus_detailles() {
+  printf 'pid\tmémoire\téchange\tgroupe\tcarte\tdossier courant\tcommande\n'
+  ps -eo pid=,rss=,args= --sort=-rss 2>/dev/null | head -15 | while read -r pid rss args; do
+    groupe=$(sed -n 's/^0:://p' "/proc/$pid/cgroup" 2>/dev/null | head -1)
+    echange=$(awk '/^VmSwap:/ {print int($2 / 1024)}' "/proc/$pid/status" 2>/dev/null)
+    dossier=$(readlink "/proc/$pid/cwd" 2>/dev/null | cut -c1-120)
+    printf '%s\t%s Mo\t%s Mo\t%s\t%s\t%s\t%s\n' "$pid" "$((rss / 1024))" "${echange:-0}" "${groupe:--}" \
+      "$(carte_du_processus "$pid")" "${dossier:--}" "$(printf '%s' "$args" | cut -c1-200)"
+  done | masquer_secrets
+}
+
+# QUI TIENT LA MÉMOIRE, EN UN COUP D'ŒIL (18/11/2026). Les trois décrochages
+# des 17 et 18/11 ont demandé une heure de recoupements pour nommer le coupable
+# (cinq cadrages à la fois, le trieur à 1 Go, une construction de la vitrine,
+# des serveurs d'essai et leurs navigateurs, les autres sites de la machine).
+# Le relevé le dit désormais en tête : les COMPTES de ce qui se multiplie, le
+# poids des deux modèles de recherche, et la mémoire + l'échange de CHAQUE
+# service systemd (Beluga et les autres sites hébergés).
+compter_les_lourds() {
+  local cadrages=0 essais=0 chromes=0 vites=0 constructions=0 pid comm args cwd
+  while read -r pid comm args; do
+    case "$comm" in
+      chrome|chromium|chrome_crashpad*|headless_shell) chromes=$((chromes + 1)); continue ;;
+      beluga-essai-*) essais=$((essais + 1)); continue ;;
+    esac
+    case "$args" in
+      "claude -p "*|*/claude\ -p\ *)
+        cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+        case "$cwd" in *cadrage-scratch*) cadrages=$((cadrages + 1)) ;; esac ;;
+      *node_modules/.bin/vite*|*"npx vite"*|*/vite\ *) vites=$((vites + 1)) ;;
+      *"nuxt build"*|*"next build"*|*"vite build"*|*"npm ci"*|*"npm install"*) constructions=$((constructions + 1)) ;;
+    esac
+  done < <(ps -eo pid=,comm=,args= 2>/dev/null)
+  printf 'cadrages (claude -p dans cadrage-scratch)\t%s\n' "$cadrages"
+  printf "serveurs d'essai (beluga-essai-*)\t%s\n" "$essais"
+  printf 'serveurs vite\t%s\n' "$vites"
+  printf 'processus chrome\t%s\n' "$chromes"
+  printf 'constructions et installations (nuxt/next/vite build, npm ci/install)\t%s\n' "$constructions"
+}
+
+modeles_de_recherche() {
+  local pid comm args quoi rss echange vus=0
+  while read -r pid comm args; do
+    # Seuls les processus node du modèle : le relevé lui-même porte ce nom dans sa commande.
+    [ "$comm" = "node" ] || continue
+    case "$args" in *vectoriseur-processus.js*) ;; *) continue ;; esac
+    # Le trieur reçoit « - » comme modèle de vecteurs (il ne vectorise pas).
+    case "$args" in *vectoriseur-processus.js*" - "*) quoi="trieur" ;; *) quoi="vectoriseur" ;; esac
+    rss=$(awk '/^VmRSS:/ {print int($2 / 1024)}' "/proc/$pid/status" 2>/dev/null)
+    echange=$(awk '/^VmSwap:/ {print int($2 / 1024)}' "/proc/$pid/status" 2>/dev/null)
+    printf '%s\tpid %s\t%s Mo\t%s Mo dans l’échange\n' "$quoi" "$pid" "${rss:-0}" "${echange:-0}"
+    vus=$((vus + 1))
+  done < <(ps -eo pid=,comm=,args= 2>/dev/null)
+  [ "$vus" -gt 0 ] || printf 'aucun modèle de recherche chargé\n'
+}
+
+memoire_par_service() {
+  local f dossier mem echange
+  printf 'mémoire\téchange\tgroupe\n'
+  for f in /sys/fs/cgroup/*.slice/*/memory.current /sys/fs/cgroup/*.slice/memory.current; do
+    [ -r "$f" ] || continue
+    dossier=$(dirname "$f")
+    mem=$(( $(cat "$f" 2>/dev/null || echo 0) / 1048576 ))
+    echange=$(( $(cat "$dossier/memory.swap.current" 2>/dev/null || echo 0) / 1048576 ))
+    [ $((mem + echange)) -ge 20 ] || continue
+    printf '%s Mo\t%s Mo\t%s\n' "$mem" "$echange" "${dossier#/sys/fs/cgroup/}"
+  done | sort -t$'\t' -k1,1 -rn | head -25
+}
+
 # Une section du relevé : un titre, puis la commande, bornée dans le temps.
 section() {
   local titre="$1"; shift
@@ -81,12 +183,18 @@ ecrire_releve() {
     printf 'genre: %s\nsilence: %s sur %s\nquand: %s\nsonde: %s (attente %s s)\n' \
       "$genre" "$echecs" "$SEUIL" "$(date -Is)" "$URL" "$ATTENTE"
     section "service" systemctl show "$SERVICE" -p ActiveState,SubState,NRestarts,ActiveEnterTimestamp,ExecMainStartTimestamp,MainPID,MemoryCurrent,MemoryPeak
+    section "qui se multiplie" bash -c "$(declare -f compter_les_lourds); compter_les_lourds"
+    section "modèles de recherche (trieur, vectoriseur)" bash -c "$(declare -f modeles_de_recherche); modeles_de_recherche"
+    section "mémoire et échange par service" bash -c "$(declare -f memoire_par_service); memoire_par_service"
     section "uptime" uptime
     section "mémoire (Mo)" free -m
     section "pression mémoire" cat /proc/pressure/memory
     section "pression disque" cat /proc/pressure/io
     section "pression processeur" cat /proc/pressure/cpu
     section "processus les plus gros" sh -c 'ps -eo pid,user,rss,pcpu,etime,comm --sort=-rss | head -15'
+    # `timeout` ne lance pas une fonction : on la lui passe écrite en entier.
+    section "processus les plus gros : commande et service" \
+      bash -c "$(declare -f masquer_secrets carte_du_processus processus_detailles); processus_detailles"
     section "connexions vers 7070" sh -c "ss -tn state established '( sport = :7070 )' | tail -n +2 | wc -l"
     section "disque" df -h /
     section "fin du journal du démon (300 lignes)" sh -c "tail -c 200000 '$RACINE/data/logs/service.log' | tail -n 300"

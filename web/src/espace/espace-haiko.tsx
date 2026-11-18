@@ -31,11 +31,12 @@
  * télécharge pas.
  */
 import * as React from 'react';
-import { ChevronDown, CreditCard, Globe, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
+import { ChevronDown, CreditCard, Globe, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from '@/components/ui/icones';
 import { BulleInfo, Button, DialogTitle, Drawer, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { OptionDePage } from '@/components/entete-de-zone';
+import { useProjetDuService } from '@/components/projet-du-service';
 import { SilhouetteEspaceHaiko } from '@/components/silhouettes';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
@@ -107,7 +108,14 @@ export function EspaceHaiko({
     id: 'admin',
     nomAffiche: nomCourtDeLInstallation(),
   });
-  const [clients, setClients] = React.useState<ClientVu[] | null>(null);
+  const [tousLesClients, setClients] = React.useState<ClientVu[] | null>(null);
+  /* OUVERTE DEPUIS UN PROJET, LA MESSAGERIE NE MONTRE QUE SES CLIENTS (décision du 13/11/2026 : « le service est
+     relatif au projet dans lequel on est »). Hors projet (« Tous les projets » du menu de gauche), tous. */
+  const projetDuService = useProjetDuService();
+  const clients = React.useMemo(
+    () => (tousLesClients && projetDuService ? tousLesClients.filter((c) => c.projets.some((p) => p.id === projetDuService.id)) : tousLesClients),
+    [tousLesClients, projetDuService],
+  );
   const [choisi, setChoisi] = React.useState<string | null>(null);
   /** Le tiroir « Ajouter un client », et le mot de passe du compte qu'il vient de créer. */
   const [creation, setCreation] = React.useState(false);
@@ -300,7 +308,22 @@ export function EspaceHaiko({
     remonter.current?.(undefined);
   }, []);
 
+  /* LE NOM DU CLIENT, DANS LE FIL, RAMÈNE À SON ACCUEIL (15/11/2026, captures #87ad / #6d3f9) : la demande ouverte se
+     referme, le client reste choisi. Son chevron, lui, garde la liste des clients. */
+  const revenirAuClient = React.useCallback((clientId: string) => {
+    viseCourant.current = { clientId };
+    remonter.current?.({ clientId });
+    setArrivee((avant) => avant + 1);
+  }, []);
+
   const ouvrirClient = React.useCallback((clientId: string) => {
+    setArrivee((avant) => avant + 1);
+    setChoisi(clientId);
+  }, []);
+  /* UNE DEMANDE DE L'ACCUEIL (14/11/2026) : son client s'ouvre, la demande désignée par l'adresse. */
+  const ouvrirDemande = React.useCallback((clientId: string, demandeId: string) => {
+    viseCourant.current = { clientId, demandeId };
+    remonter.current?.({ clientId, demandeId });
     setArrivee((avant) => avant + 1);
     setChoisi(clientId);
   }, []);
@@ -635,12 +658,13 @@ export function EspaceHaiko({
       <div className="flex h-full min-h-0 flex-col" data-espace-haiko data-vue-accueil>
         {colonneDeMessagerie}
         <AccueilMessagerie
-          fiches={fiches ? garderSelonLePaiement(fiches, filtreActif) : fiches}
+          fiches={fiches ? garderSelonLePaiement(projetDuService ? fiches.filter((f) => f.projets.some((p) => p.id === projetDuService.id)) : fiches, filtreActif) : fiches}
           periode={periode}
           echelle={echelle}
           onEchelle={(jours) => setChoixPeriode({ jours })}
           onPeriodeLibre={(debut, fin) => setChoixPeriode({ debut, fin })}
           onOuvrirClient={ouvrirClient}
+          onOuvrirDemande={ouvrirDemande}
           action={
             <>
             {aDesTicketsOpenSource ? (
@@ -699,6 +723,7 @@ export function EspaceHaiko({
    * tiroir du sélecteur redit client par client — ne prennent plus de rang. Son
    * PIED porte « Ajouter un client », hors du défilement de la liste.
    */
+  const projetsDuClient = client_.projets.map((p) => p.nom).join(', ');
   const selecteurDeClient = (
     <>
       {/* PLUS DE FLÈCHE DE RETOUR ICI : le client est un cran du fil d'Ariane,
@@ -706,7 +731,7 @@ export function EspaceHaiko({
           d'ensemble (`enteteDansLeFil`). */}
     {/* LE NOM PREND LA PLACE QUI RESTE, et se replie dessus : une borne en pour
         cent d'un parent ajusté à son contenu l'écrasait jusqu'à une lettre. */}
-    <span className="relative inline-flex min-w-0 max-w-full sm:max-w-[280px]">
+    <span className="relative inline-flex min-w-0 max-w-full sm:max-w-[360px]">
       <SelecteurTiroir
         valeur={client_.id}
         options={clients.map((c) => ({
@@ -732,19 +757,34 @@ export function EspaceHaiko({
         )}
         actionTitre={() => boutonGestionAcces}
         declencheur={(ouvrir, libelle) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={ouvrir}
-            className="min-w-0 justify-start gap-1.5 px-1.5 text-[14px] font-medium text-text"
-            data-choix-client={client_.id}
-            title={libelle}
-          >
-            {/* Sur téléphone, le bouton des services (la même silhouette) le précède déjà. */}
-            <UserRound className="hidden h-4 w-4 shrink-0 text-faint sm:block" />
-            <span className="min-w-0 truncate">{libelle}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
-          </Button>
+          /* « MARC-OLIVIER RITZI (ETSIGNA) » : le nom du client et, entre parenthèses, son projet, dans le même cran.
+             Le nom ramène à l'accueil du client ; le chevron ouvre la liste des clients. */
+          <span className="flex min-w-0 items-center" data-cran-client={client_.id}>
+            <button
+              type="button"
+              onClick={() => revenirAuClient(client_.id)}
+              className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[14px] font-medium text-text transition-colors hover:bg-raised"
+              data-choix-client={client_.id}
+              data-retour-au-client
+              title={libelle}
+            >
+              {/* Sur téléphone, le bouton des services (la même silhouette) le précède déjà. */}
+              <UserRound className="hidden h-4 w-4 shrink-0 text-faint sm:block" />
+              <span className="min-w-0 truncate">
+                {libelle}
+                {projetsDuClient ? <span className="font-normal text-muted"> ({projetsDuClient})</span> : null}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={ouvrir}
+              className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
+              data-liste-des-clients
+              title={t('Clients')}
+            >
+              <ChevronDown className="h-3 w-3" aria-hidden />
+            </button>
+          </span>
         )}
       />
       <Pastille

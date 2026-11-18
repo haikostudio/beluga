@@ -120,12 +120,23 @@ export function passerLaBaseAuxBackups(database: Database.Database): string[] {
   return faits;
 }
 
+/**
+ * LE DOSSIER DU SERVICE SUR LE DISQUE DE STOCKAGE (08/11/2026) : « backups-beluga »
+ * se lisait comme un doublon de « backups » et « Backups » (les sauvegardes des
+ * deux serveurs, faites par un autre système). Il devient
+ * « sauvegardes-service-beluga », qui dit ce qu'il protège.
+ */
+export const NOMS_DE_DOSSIER_REMPLACES: Readonly<Record<string, string>> = {
+  'backups-beluga': 'sauvegardes-service-beluga',
+};
+
 /** Le nom d'aujourd'hui d'un dossier nommé hier (casse gardée). */
 export function nomDeDossierActuel(nom: string): string {
-  return nom
+  const passe = nom
     .replace(/SNAPSHOT/g, 'BACKUP')
     .replace(/Snapshot/g, 'Backup')
     .replace(/snapshot/g, 'backup');
+  return NOMS_DE_DOSSIER_REMPLACES[passe] ?? passe;
 }
 
 /**
@@ -172,6 +183,14 @@ export function passerLeDossierAuxBackups(
       .prepare('UPDATE backup_points SET data = replace(data, ?, ?) WHERE instr(data, ?) > 0')
       .run(`"${propre}/`, `"${neuf}/`, `"${propre}/`);
     if (reecrits.changes) journal(`dossier des backups : ${reecrits.changes} point(s) relus sous le nouveau chemin`);
+    // Le chemin de l'archive a sa propre colonne : c'est lui que l'écran et le rangement des fichiers lisent.
+    const colonnes = database.prepare('PRAGMA table_info(backup_points)').all() as { name: string }[];
+    if (colonnes.some((c) => c.name === 'chemin_archive')) {
+      const archives = database
+        .prepare('UPDATE backup_points SET chemin_archive = ? || substr(chemin_archive, ?) WHERE substr(chemin_archive, 1, ?) = ?')
+        .run(`${neuf}/`, propre.length + 2, propre.length + 1, `${propre}/`);
+      if (archives.changes) journal(`dossier des backups : ${archives.changes} archive(s) relues sous le nouveau chemin`);
+    }
   }
   return neuf;
 }

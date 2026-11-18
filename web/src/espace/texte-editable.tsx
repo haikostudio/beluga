@@ -21,7 +21,7 @@
  * douze palettes, jamais par un liseré.
  */
 import * as React from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, X } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

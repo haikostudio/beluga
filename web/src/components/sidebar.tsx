@@ -1,10 +1,12 @@
+import { LienInterne } from '@/components/ui/lien-interne';
 import * as React from 'react';
 import {
-  ArrowLeft,
+  Menu,
   ArchiveRestore,
-  ArrowUpDown,
-  Check,
+  FolderOpen,
+  ChevronLeft,
   ChevronRight,
+  Copy,
   Folder,
   FolderPlus,
   Github,
@@ -13,19 +15,20 @@ import {
   Settings,
   SquarePen,
   EllipsisVertical,
+  SquareKanban,
   Loader2,
   Palette,
+  Paperclip,
   Pencil,
   Plus,
   FileCheck2,
   Search,
   Settings2,
   TerminalSquare,
-  TriangleAlert,
   UploadCloud,
   Waypoints,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   COULEURS_DE_GROUPE,
   CLE_OUVERTURES_DE_PROJETS,
@@ -49,6 +52,13 @@ import {
   premiereDecision,
   repereVisible,
   iconeDuLot,
+  carteCacheeDesListes,
+  cartesAvecAgentActif,
+  decisionsOuvertes,
+  fillesDeLaMere,
+  signauxSansLigne,
+  filtrerLaColonne,
+  type Card,
   type IconeDAttention,
   signalDuGroupe,
   estUnRegroupement,
@@ -56,12 +66,21 @@ import {
   compterEnPanne,
   texteDuCompteur,
 } from '@beluga/shared';
-import { idDuGroupeLocal } from '@beluga/shared';
+import { construireFragment, idDuGroupeLocal } from '@beluga/shared';
+import {
+  RAISON_SANS_REPONSE,
+  bilanDuMontageRate,
+  etapesPrevuesDepuisGithub,
+  etapesPrevuesDuMontageNeuf,
+  lignesDuMontage,
+  type EtapeDuMontage,
+  type LigneDuMontage,
+} from '@beluga/shared';
+import { CLASSE_TRAIT_VERT, RondDEtape } from '@/components/barre-etapes';
 import { libelleAttention, RepereAttention } from '@/components/repere-attention';
 import {
   BulleInfo,
   Button,
-  CLASSE_BOUTON_DE_CREATION,
   CLASSE_POINT_DE_BOUTON,
   CLASSE_RANGEE_DE_BOUTONS,
   ConfirmDialog,
@@ -72,13 +91,13 @@ import {
   Dot,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
   Label,
   PromptDialog,
   Switch,
-  Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
   Tooltip,
@@ -86,18 +105,23 @@ import {
   FormulaireEnColonnes,
   LigneFormulaire,
 } from '@/components/ui';
-import { CLASSE_TRAIT_DE_BRANCHE, PastilleProjet, PastillesEmpilees, largeurPile } from '@/components/pastille-projet';
+import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
-import { SilhouetteProjets } from '@/components/silhouettes';
+import { ouvrirLesFichiers } from '@/lib/ouvrir-les-fichiers';
+import { useServicesOuverts } from '@/components/services';
+import { MenuNouvelAgent, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
+import { ServicesDuBasDeLaColonne } from '@/components/services-de-la-colonne';
+import { FlecheDesTaches, TachesDuProjet, TachesTrouvees, useTachesParProjet } from '@/components/taches-du-projet';
+import { TachesEnCours } from '@/components/taches-en-cours';
 import { QuotaBadge } from '@/components/quota-badge';
 import { CLE_COLONNE_REDUITE, useEtatDeLiaison, useMoteurActif } from '@/components/quota-bar';
 import { PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
 import { bulleDuTerminal } from '@/components/pastille-terminal';
 import { ouvrirLeTerminal, useEtatDuTerminal } from '@/lib/ouvrir-terminal';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
-import { client } from '@/lib/client';
+import { client, EVENEMENT_MONTAGE } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
-import { usePref } from '@/lib/prefs';
+import { modifierLaListe, usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
 import { ClocheNotifications } from '@/components/notifications';
 import { useApp } from '@/lib/use-app';
@@ -119,51 +143,61 @@ type Entry =
  */
 const LARGEUR_BANDE = 52;
 
+/** La souris à ce nombre de pixels du bord gauche de la fenêtre ouvre le menu des agents. */
+const BORD_QUI_OUVRE_LE_MENU = 4;
+
 export function Sidebar({
   onOpenAgent,
   width,
   onChoose,
   vue,
   onOuvrirVue,
-  onChercher,
   onOpenSettings,
   onNouvelAgent,
   service,
   onCorpsDeService,
-  onCorpsDePage,
+  carteOuverte,
+  onOuvrirCarte,
+  onEntrerDansLeProjet,
+  onCreerAgent,
+  onOuvrirServiceCentral,
+  serviceCentralActif,
 }: {
+  /** « Nouvel agent › type › projet » (14/11/2026) : l'application crée l'élément et ouvre son onglet. */
+  onCreerAgent?: (type: TypeDAgent, cible: CibleDeCreation) => void;
+  /** « Services › … » (14/11/2026) : la page centrale du service, tous projets. */
+  onOuvrirServiceCentral?: (cle: string) => void;
+  serviceCentralActif?: string | null;
+  /** Le NOM d'un projet cliqué (pas son badge « rendu ») : la page s'ouvre sur son dernier agent. */
+  /** Obligatoire : toute instance de la colonne mène un projet touché à sa page principale. */
+  onEntrerDansLeProjet: (projectId: string) => void;
   onOpenAgent: (agentId: string) => void;
   width?: number;
   /**
-   * LA COLONNE SUIT LE LIEU OÙ L'ON EST (demande du 11/10/2026) : dans un
-   * service qui a son menu, dans un PROJET (ses options) ou dans une TÂCHE (les
-   * siennes), ce menu remplace la liste des projets (`ColonneDeService`). La
-   * tête porte alors le nom du lieu et une flèche qui remonte d'un cran, et le
-   * corps n'est plus qu'un emplacement où le lieu écrit.
-   *  - `plan: 'page'` : c'est une page ouverte par-dessus la zone (une tâche)
-   *    qui tient la colonne ; le menu du lieu d'en dessous reste monté, caché.
-   *  - `bande` : colonne réduite, le menu garde ses icônes au lieu de
-   *    disparaître (les options du projet et de la tâche).
-   *  - `point` : ce qui réclame l'attention AILLEURS — la liste des projets
-   *    n'étant plus sous les yeux, la flèche de retour le signale.
+   * UN SERVICE QUI A SON MENU LE POSE DANS LA COLONNE (`ColonneDeService`) : la tête
+   * porte alors son nom et le bouton menu des agents et projets. Partout ailleurs —
+   * tableau de bord, projet, tâche —, la colonne reste la même (demande du
+   * 30/10/2026). `plan: 'page'` : une tâche est ouverte par-dessus le service ; son
+   * menu reste monté, caché, et la colonne rend les projets.
    */
   service?: {
     titre: string;
-    onRetour: () => void;
     plan?: 'service' | 'page';
-    bande?: boolean;
-    point?: { classe: string; texte: string } | null;
   } | null;
   /** L'emplacement où le service pose son menu, remis à l'application. */
   onCorpsDeService?: (element: HTMLElement | null) => void;
-  /** L'emplacement où la page ouverte par-dessus (une tâche) pose le sien. */
-  onCorpsDePage?: (element: HTMLElement | null) => void;
-  /** Ouvre la recherche de projet (le tiroir « Changer de projet »). */
-  onChercher?: () => void;
+  /** La tâche affichée au centre : sa ligne s'allume sous son projet. */
+  carteOuverte?: string | null;
+  /** Ouvre une tâche de l'arbre, dans son projet. */
+  onOuvrirCarte?: (card: Card) => void;
   /** Ouvre les réglages : LE bouton du pied de colonne. */
   onOpenSettings?: () => void;
-  /** Lance un nouvel agent (choix du projet), première ligne de la colonne. */
-  onNouvelAgent?: () => void;
+  /**
+   * Lance un nouvel agent : sans projet, le choix du projet (première ligne de la colonne) ; avec un projet, le « + »
+   * posé au survol de sa ligne — l'agent naît directement dans ce projet (un projet réuni : une carte mère qui
+   * travaille sur les projets du groupe).
+   */
+  onNouvelAgent?: (projectId?: string) => void;
   /** Prévenu dès qu'un projet est choisi : le panneau latéral se referme. */
   onChoose?: () => void;
   /**
@@ -177,7 +211,7 @@ export function Sidebar({
 }) {
   const state = useApp();
   /* SUR TÉLÉPHONE, LES OUTILS DES LIGNES (poignées, réglages, crayon, croix)
-     SE CACHENT derrière un interrupteur de l'entête « Projets » : sans survol,
+     SE CACHENT derrière un interrupteur de la tête de colonne : sans survol,
      ils restaient toujours visibles et chargeaient la liste. Éteint à chaque
      ouverture du volet ; l'ordinateur ne change pas (le survol les révèle). */
   const telephone = useTelephone();
@@ -201,10 +235,29 @@ export function Sidebar({
   const [showArchived, setShowArchived] = React.useState(false);
   const [archived, setArchived] = React.useState<Project[]>([]);
   // Ce qui est replié est enregistré côté serveur, comme le reste.
-  const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
+  /* CES TROIS LISTES SE MODIFIENT PAR `modifierLaListe` (demande du 01/11/2026 : « mémoriser les projets
+     ouverts ou fermés ») : depuis la dernière valeur connue, jamais avant l'arrivée des réglages du serveur.
+     Sinon un geste ou le dépliage automatique repartait d'une liste vide ou ancienne, et la défaisait. */
+  const [collapsed] = usePref<string[]>('sidebar.collapsed', []);
   /* LES PROJETS RÉUNIS DÉPLIÉS — repliés par défaut : un clic sur leur nom ou
      leur flèche ouvre le sous-groupe de leurs membres. */
-  const [regroupementsOuverts, setRegroupementsOuverts] = usePref<string[]>('sidebar.regroupementsOuverts', []);
+  const [regroupementsOuverts] = usePref<string[]>('sidebar.regroupementsOuverts', []);
+  /* LES PROJETS DÉPLIÉS SUR LEURS TÂCHES : plusieurs à la fois, retenus comme le reste.
+     Le projet où l'on entre se déplie seul ; sa flèche le replie. */
+  const [projetsDeplies] = usePref<string[]>('sidebar.projetsDeplies', []);
+  const deplierLeProjet = (id: string) => {
+    modifierLaListe('sidebar.projetsDeplies', id, true);
+  };
+  const basculerLeProjet = (id: string) => {
+    modifierLaListe('sidebar.projetsDeplies', id);
+  };
+  const projetRegarde = vue === 'projet' ? state.activeProjectId : null;
+  /* Le projet regardé se déplie seul — une fois les réglages du serveur arrivés, pas avant. */
+  const reglagesArrives = state.pret && !state.copieLocale;
+  React.useEffect(() => {
+    if (projetRegarde && reglagesArrives) deplierLeProjet(projetRegarde);
+  }, [projetRegarde, reglagesArrives]);
+  const tachesParProjet = useTachesParProjet();
   /*
    * LE TRI PAR DERNIÈRE OUVERTURE est une BASCULE, éteinte par défaut (demande
    * du 15/10/2026). Allumée, la colonne montre groupes et projets du plus
@@ -264,6 +317,11 @@ export function Sidebar({
         return;
       }
       if (colonne?.matches(':hover')) return;
+      /* On tape dans la recherche : le panneau ne se referme pas sous les doigts. */
+      if (document.activeElement?.matches('[data-champ-recherche-colonne]')) {
+        minuterieSurvol.current = window.setTimeout(tenter, 150);
+        return;
+      }
       setSurvolee(false);
     };
     minuterieSurvol.current = window.setTimeout(tenter, 150);
@@ -291,6 +349,8 @@ export function Sidebar({
   // Le glissement suit le pointeur : l'emplacement visé se marque exactement là
   // où on vise, à la souris comme au doigt.
   const entriesRef = React.useRef<Entry[]>([]);
+  const projetsRef = React.useRef(state.projects);
+  projetsRef.current = state.projects;
 
   /*
    * Hauteur de la ligne saisie, mesurée au moment où on l'attrape : c'est de
@@ -306,7 +366,7 @@ export function Sidebar({
    * pointeur et l'affichage se mettrait à osciller.
    */
   const geoRef = React.useRef<{
-    lignes: { id: string; kind: string; haut: number; bas: number }[];
+    lignes: { id: string; kind: string; haut: number; bas: number; hauteur: number; regroupement: boolean }[];
     groupes: { id: string; haut: number; bas: number }[];
   } | null>(null);
 
@@ -316,11 +376,17 @@ export function Sidebar({
     // visée se perdrait entre deux lignes.
     const zone = (el: Element) => {
       const rect = el.getBoundingClientRect();
-      return { haut: rect.top - base, bas: rect.bottom - base + 2 };
+      /* Les tâches dépliées sous un projet comptent dans sa place : viser elles, c'est
+         viser lui, et non « sortir du groupe ». */
+      const bloc = el.nextElementSibling?.matches('[data-taches-du-projet]') ? el.nextElementSibling : null;
+      return { haut: rect.top - base, bas: (bloc?.getBoundingClientRect().bottom ?? rect.bottom) - base + 2 };
     };
     geoRef.current = {
       lignes: Array.from(root.querySelectorAll<HTMLElement>('[data-drag-id]')).map((el) => ({
         id: el.dataset.dragId!,
+        /* La ligne seule, sans les tâches dépliées dessous : c'est son milieu qui fait entrer un projet. */
+        hauteur: el.getBoundingClientRect().height,
+        regroupement: el.dataset.regroupementCible !== undefined,
         kind: el.dataset.dragKind!,
         ...zone(el),
       })),
@@ -340,6 +406,11 @@ export function Sidebar({
 
     for (const ligne of geo.lignes) {
       if (point < ligne.haut || point > ligne.bas) continue;
+      /* LE MILIEU D'UN REGROUPEMENT : on y fait ENTRER le projet, même replié (demande du 31/10/2026). */
+      const tiers = ligne.hauteur / 3;
+      if (ligne.regroupement && point > ligne.haut + tiers && point < ligne.haut + ligne.hauteur - tiers) {
+        return { id: ligne.id, kind: 'regroupement', position: 'inside' as const };
+      }
       return {
         id: ligne.id,
         kind: ligne.kind,
@@ -393,6 +464,69 @@ export function Sidebar({
     return glissementDeCarte.cibleAcceptee ? 'acceptee' : 'refusee';
   };
 
+  /*
+   * LA LOUPE DE LA COLONNE A ÉTÉ RETIRÉE (demande du 06/11/2026) : on cherche désormais dans la fenêtre au centre
+   * (⌘F, `recherche-centrale.tsx`). L'état ci-dessous reste fermé ; il garde le filtre prêt sans rien afficher.
+   * Avant : LA RECHERCHE DE LA COLONNE (la loupe) : un champ au-dessus de la tête, qui filtre
+   * la liste sur place. Les noms se filtrent aussitôt ; les titres de tâches, archives
+   * comprises, viennent du démon après une courte pause de frappe. Ce filtre n'est
+   * qu'un état d'affichage : il n'écrit ni `sidebar.collapsed` ni `sidebar.projetsDeplies`,
+   * et le glisser-déposer est suspendu tant qu'il agit (`shared/src/filtre-de-la-colonne.ts`).
+   */
+  const [rechercheOuverte, setRechercheOuverte] = React.useState(false);
+  const [recherche, setRecherche] = React.useState('');
+  const [cartesTrouvees, setCartesTrouvees] = React.useState<Card[]>([]);
+  const [rechercheEnCours, setRechercheEnCours] = React.useState(false);
+  const fermerLaRecherche = () => {
+    setRechercheOuverte(false);
+    setRecherche('');
+  };
+  const texteCherche = rechercheOuverte ? recherche.trim() : '';
+  React.useEffect(() => {
+    setCartesTrouvees((avant) => (texteCherche ? avant : []));
+    setRechercheEnCours(!!texteCherche);
+    if (!texteCherche) return;
+    let abandonnee = false;
+    const minuterie = window.setTimeout(() => {
+      void client
+        .rechercherDansLaColonne(texteCherche)
+        .catch(() => [] as Card[])
+        .then((cartes) => {
+          if (abandonnee) return;
+          const actives = cartesAvecAgentActif(Object.values(client.lireEtat().agents));
+          setCartesTrouvees(cartes.filter((card) => !carteCacheeDesListes(card, actives.has(card.id))));
+          setRechercheEnCours(false);
+        });
+    }, 250);
+    return () => {
+      abandonnee = true;
+      window.clearTimeout(minuterie);
+    };
+  }, [texteCherche]);
+  const filtre = React.useMemo(
+    () =>
+      texteCherche && !bandeSeule
+        ? filtrerLaColonne(
+            texteCherche,
+            groups,
+            state.projects
+              .filter((p) => !p.archived)
+              .map((p) => ({
+                id: p.id,
+                name: p.name,
+                groupId: p.isSelf ? (groupeLocalId ?? undefined) : p.groupId,
+                regroupementId: p.regroupementId,
+              })),
+            cartesTrouvees,
+          )
+        : null,
+    [texteCherche, bandeSeule, groups, state.projects, groupeLocalId, cartesTrouvees],
+  );
+  const cartesDuFiltre = (projectId: string) => {
+    const ids = filtre?.cartesParProjet.get(projectId);
+    return ids ? cartesTrouvees.filter((card) => ids.includes(card.id)) : [];
+  };
+
   /** Projets hors groupe et groupes rangés ENSEMBLE, par rang — ou, la bascule allumée, par dernière ouverture. */
   const entries: Entry[] = React.useMemo(() => {
     const list: Entry[] = [];
@@ -433,6 +567,16 @@ export function Sidebar({
     );
   }, [actifs, groups, triParOuverture, ouvertLe, groupeLocalId, espaceDev?.id]);
 
+  /** Ce que la colonne montre : tout, ou ce que la recherche a gardé. */
+  const entreesAffichees: Entry[] = filtre
+    ? entries.flatMap((entry): Entry[] => {
+        if (entry.kind === 'project') return filtre.projets.has(entry.id) ? [entry] : [];
+        if (!filtre.groupes.has(entry.id)) return [];
+        return [{ ...entry, members: entry.members.filter((p) => filtre.projets.has(p.id)) }];
+      })
+    : entries;
+  const espaceDevAffiche = !!espaceDev && (!filtre || filtre.projets.has(espaceDev.id));
+
   React.useEffect(() => {
     if (!showArchived) return;
     client
@@ -444,39 +588,66 @@ export function Sidebar({
   const appliquer = React.useCallback(
     async (item: { id: string; kind: string }, cible: { id: string; kind: string; position: string } | null) => {
       if (!cible) return;
-      const liste = entriesRef.current;
-      const plat: { kind: 'project' | 'group'; id: string; groupId?: string }[] = [];
-      for (const entry of liste) {
-        if (entry.kind === 'project') plat.push({ kind: 'project', id: entry.id });
+      /*
+       * LES PROJETS REGROUPÉS SE RANGENT COMME LES AUTRES (demande du 31/10/2026) : ils figurent dans la liste à plat
+       * avec leur regroupement (`membreDe`), on les réordonne, on les sort et on y en fait entrer. L'appartenance
+       * passe par les portes du démon, qui gardent leurs refus (dernier membre, travail en cours) ; le rang, ensuite.
+       */
+      type Place = { kind: 'project' | 'group'; id: string; groupId?: string; membreDe?: string };
+      const projets = projetsRef.current;
+      const plat: Place[] = [];
+      const poserProjet = (id: string, groupId?: string) => {
+        plat.push({ kind: 'project', id, groupId });
+        for (const membre of membresActifsDuRegroupement(projets, id)) plat.push({ kind: 'project', id: membre.id, groupId: membre.groupId, membreDe: id });
+      };
+      for (const entry of entriesRef.current) {
+        if (entry.kind === 'project') poserProjet(entry.id);
         else {
           plat.push({ kind: 'group', id: entry.id });
-          for (const membre of entry.members) plat.push({ kind: 'project', id: membre.id, groupId: entry.id });
+          for (const membre of entry.members) poserProjet(membre.id, entry.id);
         }
       }
 
       const depuis = plat.findIndex((e) => e.id === item.id);
       if (depuis < 0) return;
       const [element] = plat.splice(depuis, 1);
+      const avant = element.membreDe;
+      /* Un dossier ou un regroupement n'entre jamais dans un regroupement. */
+      const simpleProjet = element.kind === 'project' && !projets.some((p) => p.id === element.id && estUnRegroupement(p));
 
       if (cible.kind === 'root') {
         if (element.kind === 'project') element.groupId = undefined;
+        element.membreDe = undefined;
         plat.push(element);
+      } else if (cible.kind === 'regroupement') {
+        const index = plat.findIndex((e) => e.id === cible.id);
+        if (index < 0) return;
+        if (simpleProjet) element.membreDe = cible.id;
+        else if (element.kind === 'project') element.groupId = plat[index].groupId;
+        plat.splice(index + 1, 0, element);
       } else if (cible.position === 'inside') {
         // Déposé dans un groupe : il en prend la tête.
         if (element.kind === 'project') element.groupId = cible.id;
+        element.membreDe = undefined;
         const index = plat.findIndex((e) => e.kind === 'group' && e.id === cible.id);
         plat.splice(index < 0 ? plat.length : index + 1, 0, element);
       } else {
         const index = plat.findIndex((e) => e.id === cible.id);
         if (index < 0) return;
+        if (plat[index].membreDe && !simpleProjet) return;
         if (element.kind === 'project') element.groupId = plat[index].groupId;
+        element.membreDe = plat[index].membreDe;
         plat.splice(cible.position === 'before' ? index : index + 1, 0, element);
       }
 
       try {
-        await client.call({ type: 'sidebar.reorder', items: plat });
-      } catch {
-        client.pushToast('error', t('Rangement non enregistré'));
+        if (avant !== element.membreDe) {
+          if (avant) await client.call({ type: 'regroupement.retirer', id: avant, projectId: element.id });
+          if (element.membreDe) await client.call({ type: 'regroupement.ajouter', id: element.membreDe, membres: [element.id] });
+        }
+        await client.call({ type: 'sidebar.reorder', items: plat.map(({ kind, id, groupId }) => ({ kind, id, groupId })) });
+      } catch (err: any) {
+        client.pushToast('error', err?.message ?? t('Rangement non enregistré'));
       }
     },
     [],
@@ -548,8 +719,9 @@ export function Sidebar({
 
 
 
-  const toggle = (id: string) =>
-    setCollapsed(collapsed.includes(id) ? collapsed.filter((g) => g !== id) : [...collapsed, id]);
+  const toggle = (id: string) => {
+    modifierLaListe('sidebar.collapsed', id);
+  };
 
   /* LE COMPTE ET L'ICÔNE D'UN PROJET viennent d'une règle partagée
      (`activiteDeProjet`) : les listes déroulantes de projets les montrent aussi
@@ -595,10 +767,48 @@ export function Sidebar({
    * nom du projet embarquait la ligne au moindre mouvement du doigt.
    */
   const basculerRegroupement = (id: string, ouvrir?: boolean) => {
-    const ouvert = regroupementsOuverts.includes(id);
-    if (ouvrir === ouvert) return;
-    setRegroupementsOuverts(ouvert ? regroupementsOuverts.filter((r) => r !== id) : [...regroupementsOuverts, id]);
+    modifierLaListe('sidebar.regroupementsOuverts', id, ouvrir);
   };
+
+  /* UN SEUL REPÈRE À LA FOIS : une tâche ouverte et visible sous son projet le porte, pas lui. */
+  const repereSurLeProjet = (id: string) => !carteOuverte || bandeSeule || !!filtre || !projetsDeplies.includes(id);
+
+  /**
+   * UN DOSSIER DÉPLIÉ NE REDIT PAS SES LIGNES : ni bulle ni signe de travail, sauf pour ce qui n'a aucune ligne
+   * dessous (`signauxSansLigne`). Le calcul partagé `activiteDeProjet` ne change pas : les menus de projets, qui ne
+   * montrent pas ces lignes, gardent leurs repères. Publication et rendus non lus restent affichés.
+   */
+  const allegementDuDossier = (id: string, deplie: boolean): { running?: number; attention?: number; icone?: null } => {
+    const lignes = tachesParProjet?.get(id);
+    if (!deplie || filtre || bandeSeule || !tachesParProjet) return {};
+    const listees = new Set((lignes ?? []).flatMap((l) => [l.carte.id, ...fillesDeLaMere(l.carte)]));
+    const sans = signauxSansLigne(id, Object.values(state.agents), decisionsOuvertes(state.decisions), listees, state.attention[id] ?? 0);
+    return { ...(sans.travail ? {} : { running: 0 }), ...(sans.attente ? {} : { attention: 0, icone: null }) };
+  };
+
+  /** Les tâches sous un projet : son flux, ou ce que la recherche y a trouvé. */
+  const blocDeTaches = (id: string) => {
+    if (bandeSeule) return null;
+    const ouvrir = (card: Card) => {
+      onOuvrirCarte?.(card);
+      onChoose?.();
+    };
+    if (filtre) {
+      const trouvees = cartesDuFiltre(id);
+      return trouvees.length ? <TachesTrouvees projectId={id} cartes={trouvees} carteOuverte={carteOuverte} onOuvrir={ouvrir} /> : null;
+    }
+    return projetsDeplies.includes(id) ? (
+      <TachesDuProjet
+        projectId={id}
+        taches={tachesParProjet ? (tachesParProjet.get(id) ?? []) : null}
+        carteOuverte={carteOuverte}
+        onOuvrir={ouvrir}
+      />
+    ) : null;
+  };
+  /* Pendant une recherche, ce qui est déplié est dicté par les résultats : pas de flèche. */
+  const flecheDeTaches = (id: string) =>
+    filtre ? undefined : { ouvert: projetsDeplies.includes(id), basculer: () => basculerLeProjet(id) };
 
   /**
    * UNE LIGNE DE PROJET — ou, pour un projet réuni, sa ligne SUIVIE DE SON
@@ -619,6 +829,7 @@ export function Sidebar({
         key={p.id}
         project={p}
         active={p.id === state.activeProjectId && vue === 'projet'}
+        repere={repereSurLeProjet(p.id)}
         running={runningOf(p.id)}
         publie={publieOf(p.id)}
         attention={state.attention[p.id]}
@@ -630,70 +841,100 @@ export function Sidebar({
         rowProps={rowProps(p.id, 'project')}
         poigneeProps={poigneeProps(p.id, 'project', p.name)}
         onSettings={() => ouvrirConfigProjet(p.id)}
+        onNouvelAgent={
+          onNouvelAgent
+            ? () => {
+                onNouvelAgent(p.id);
+                onChoose?.();
+              }
+            : undefined
+        }
         bande={bandeSeule}
         outilsCaches={outilsCaches}
+        taches={flecheDeTaches(p.id)}
         onChoose={() => {
+          deplierLeProjet(p.id);
           onOuvrirVue('projet');
           onChoose?.();
         }}
+        onEntrer={onEntrerDansLeProjet ? () => onEntrerDansLeProjet(p.id) : undefined}
         groupColor={place.groupColor}
         emboite={place.emboite}
-        sansPoignee={triParOuverture}
+        sansPoignee={triParOuverture || !!filtre}
         {...extra}
       />
     );
-    if (!estUnRegroupement(project)) return ligne(project, { style: place.style, marqueur: place.marqueur });
+    /* La ligne et ses tâches bougent ensemble quand un rangement ouvre un espace. */
+    const ligneEtTaches = (p: Project, extra: Partial<React.ComponentProps<typeof ProjectRow>> = {}, style?: React.CSSProperties) => (
+      <div key={p.id} style={style} data-projet-et-taches={p.id}>
+        {ligne(p, { ...allegementDuDossier(p.id, projetsDeplies.includes(p.id)), ...extra })}
+        {blocDeTaches(p.id)}
+      </div>
+    );
+    if (!estUnRegroupement(project)) return ligneEtTaches(project, { marqueur: place.marqueur }, place.style);
     const membres = membresDe(project.id);
-    const ouvert = regroupementsOuverts.includes(project.id);
+    const ouvert = filtre ? filtre.regroupementsOuverts.has(project.id) : regroupementsOuverts.includes(project.id);
+    const membresAffiches = filtre ? membres.filter((m) => filtre.projets.has(m.id)) : membres;
     const signal = signalDuGroupe([project.id, ...membres.map((m) => m.id)], state.attention, state.rendus);
     return (
       <div key={project.id} style={place.style} data-regroupement-colonne={project.id} data-ouvert={ouvert || undefined}>
         {ligne(project, {
           marqueur: place.marqueur,
+          rowProps: { ...rowProps(project.id, 'project'), 'data-regroupement-cible': '' },
+          cibleDeCarte: target?.kind === 'regroupement' && target.id === project.id && dragging?.id !== project.id ? 'acceptee' : cibleDeCarteDe(project.id),
           running: runningOf(project.id) + (ouvert ? 0 : membres.reduce((n, m) => n + runningOf(m.id), 0)),
           publie: publieOf(project.id) || (!ouvert && membres.some((m) => publieOf(m.id))),
           attention: ouvert ? state.attention[project.id] : signal.attention,
           rendus: ouvert ? state.rendus[project.id] : signal.rendus,
+          ...allegementDuDossier(project.id, ouvert),
           sousGroupe: {
             ouvert,
             nombre: membres.length,
             membres,
-            basculer: (ouvrir?: boolean) => basculerRegroupement(project.id, ouvrir),
+            basculer: (ouvrir?: boolean) => {
+              if (!filtre) basculerRegroupement(project.id, ouvrir);
+            },
           },
+          /* Sa flèche déplie déjà ses membres, et ses propres tâches avec. */
+          taches: undefined,
         })}
+        {filtre ? blocDeTaches(project.id) : ouvert && !bandeSeule ? (
+          <TachesDuProjet
+            projectId={project.id}
+            taches={tachesParProjet ? (tachesParProjet.get(project.id) ?? []) : null}
+            carteOuverte={carteOuverte}
+            onOuvrir={(card) => {
+              onOuvrirCarte?.(card);
+              onChoose?.();
+            }}
+          />
+        ) : null}
         {ouvert ? (
           <div
             className={cn(
-              /* LE RETRAIT DES MEMBRES est constant (`RETRAIT_DES_MEMBRES`) : la
+              /* LE RETRAIT DES MEMBRES est constant (`pl-4`) : la
                  poignée de rangement a quitté la gauche de la ligne, plus rien
                  ne décale la pile d'icônes du projet réuni. */
               bandeSeule ? 'px-0' : 'pl-4',
             )}
             data-membres-regroupement={project.id}
           >
-            {membres.map((membre, i) =>
+            {membresAffiches.map((membre) =>
               bandeSeule ? (
                 ligne(membre, {
                   emboite: 'reuni',
-                  /* Un membre se range DANS son regroupement : il ne se glisse pas ailleurs. */
+                  /* Colonne réduite : ni poignée ni nom, le rangement se fait colonne dépliée. */
                   rowProps: { 'data-membre-de': project.id },
                   poigneeProps: {},
                   sansPoignee: true,
                 })
               ) : (
-                /* `flow-root` garde la marge basse de la ligne DANS l'enveloppe :
-                   la branche verticale couvre ainsi l'intervalle entre deux lignes. */
+                /* PLUS AUCUN TRAIT D'ARBORESCENCE (demande du 31/10/2026) : le retrait seul dit l'appartenance. */
                 <div key={membre.id} className="relative flow-root">
-                  <BrancheMembre
-                    premier={i === 0}
-                    dernier={i === membres.length - 1}
-                    largeurPile={largeurPile(membres.length)}
-                  />
-                  {ligne(membre, {
+                  {ligneEtTaches(membre, {
                     emboite: 'reuni',
-                    rowProps: { 'data-membre-de': project.id },
-                    poigneeProps: {},
-                    sansPoignee: true,
+                    rowProps: { ...rowProps(membre.id, 'project'), 'data-membre-de': project.id },
+                    marqueur: marqueurDe(membre.id),
                   })}
                 </div>
               ),
@@ -714,16 +955,19 @@ export function Sidebar({
     'data-drag-kind': kind,
   });
 
-  /* La bascule de tri allumée suspend le glisser-déposer : aucune poignée
-     n'attrape rien, et aucun rang n'est écrit. */
+  /* La bascule de tri allumée, ou une recherche, suspend le glisser-déposer : aucune
+     poignée n'attrape rien, et aucun rang n'est écrit. */
   const poigneeProps = (id: string, kind: 'project' | 'group', label: string) =>
-    triParOuverture
+    triParOuverture || filtre
       ? {}
       : {
           onPointerDown: (event: React.PointerEvent) => {
             const ligne = (event.currentTarget as HTMLElement).closest('[data-drag-id]') as HTMLElement | null;
             // Marge comprise : c'est l'espace que la ligne occupe vraiment.
-            if (ligne) setHauteurLigne(Math.round(ligne.getBoundingClientRect().height) + 2);
+            if (ligne) {
+              const bloc = ligne.nextElementSibling?.matches('[data-taches-du-projet]') ? ligne.nextElementSibling : null;
+              setHauteurLigne(Math.round((bloc?.getBoundingClientRect().bottom ?? ligne.getBoundingClientRect().bottom) - ligne.getBoundingClientRect().top) + 2);
+            }
             const root = ligne?.closest('[data-drop-root]') as HTMLElement | null;
             // Rien n'est encore décalé : c'est le bon moment pour relever les places.
             if (root) releverGeometrie(root);
@@ -737,10 +981,88 @@ export function Sidebar({
       'group/l flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] text-text transition-colors',
       bandeSeule ? 'justify-center px-0' : 'px-2.5',
       /* La ligne OUVERTE s'écrit en violet : c'est elle qu'on cherche des yeux. */
-      active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+      'hover:bg-raised',
+      active && 'text-important',
     );
-  /** La page des tableaux de bord est à l'écran (vue `en-route`, ou aucun projet ouvert). */
-  const surTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
+  /** Une tâche ouverte par-dessus un service rend la colonne : le menu du service attend, caché. */
+  const serviceEnTete = !!service && service.plan !== 'page';
+  /**
+   * LES AGENTS RESTENT À UN CLIC, OÙ QU'ON SOIT (demande du 31/10/2026) : le bouton
+   * menu de la tête d'un service montre la colonne principale PAR-DESSUS le menu du
+   * service, qui reste monté (il garde son état) et revient à la fermeture.
+   */
+  const [projetsParDessus, setProjetsParDessus] = React.useState(false);
+  const serviceVisible = serviceEnTete && !projetsParDessus;
+  /* LES SERVICES COMMUNS À TOUS LES PROJETS, dans le menu à trois points : Coffre-fort et Mémoire. */
+  const servicesOuverts = useServicesOuverts();
+  const servicesCommuns = servicesOuverts.filter((s) => s.cle === 'coffre' || s.cle === 'memoire');
+  /* PLUS DE VUES « TOUS LES PROJETS » ICI (décision du 13/11/2026 au soir) : Résumé, Statistiques, Messagerie, Backup,
+     Surveillance et Tâches récurrentes n'ont de sens que dans un projet. Ils s'ouvrent par le menu des outils du
+     projet (`MenuDesOutils` sur ordinateur, « Outils » sur téléphone). */
+  /* Choisir un agent, un projet ou un autre service mène ailleurs : la surcouche a fini son office. */
+  React.useEffect(() => setProjetsParDessus(false), [vue, carteOuverte, state.activeProjectId]);
+  React.useEffect(() => {
+    if (!projetsParDessus) return;
+    /* Un menu ou une fenêtre ouverts DEPUIS la colonne vivent en portail : ils n'en sont pas « dehors ». */
+    const dansUnCalque = (cible: Element) =>
+      !!cible.closest('[data-radix-popper-content-wrapper], [role="dialog"], [data-voile-de-fenetre], [data-voile-tiroir]');
+    const auPointeur = (event: PointerEvent) => {
+      const cible = event.target;
+      if (!(cible instanceof Element) || refColonne.current?.contains(cible) || dansUnCalque(cible)) return;
+      setProjetsParDessus(false);
+    };
+    const auClavier = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('[data-radix-popper-content-wrapper]')) return;
+      setProjetsParDessus(false);
+    };
+    document.addEventListener('pointerdown', auPointeur);
+    document.addEventListener('keydown', auClavier);
+    return () => {
+      document.removeEventListener('pointerdown', auPointeur);
+      document.removeEventListener('keydown', auClavier);
+    };
+  }, [projetsParDessus]);
+  /*
+   * LE MENU DES AGENTS SUIT LA SOURIS (demande du 31/10/2026) : il se referme quand elle quitte la colonne, et
+   * glisse à l'écran dès qu'elle touche le bord gauche de la fenêtre. Ordinateur seulement. La fermeture attend ce
+   * qui vit en portail hors de la colonne (un menu, une fenêtre, une feuille) et un glisser en cours.
+   */
+  const minuterieDuMenu = React.useRef<number | undefined>(undefined);
+  const fermerLeMenuBientot = () => {
+    window.clearTimeout(minuterieDuMenu.current);
+    const tenter = () => {
+      if (refColonne.current?.matches(':hover')) return;
+      const retenu =
+        document.querySelector('[data-radix-popper-content-wrapper], [data-voile-de-fenetre][data-state=open], [data-voile-tiroir][data-state=open]') ||
+        document.body.style.cursor === 'grabbing' ||
+        document.activeElement?.matches('[data-champ-recherche-colonne]');
+      if (retenu) minuterieDuMenu.current = window.setTimeout(tenter, 150);
+      else setProjetsParDessus(false);
+    };
+    minuterieDuMenu.current = window.setTimeout(tenter, 250);
+  };
+  React.useEffect(() => () => window.clearTimeout(minuterieDuMenu.current), []);
+  /* Revenue à la bande, la colonne n'a plus de menu à montrer. */
+  React.useEffect(() => {
+    if (bandeSeule) setProjetsParDessus(false);
+  }, [bandeSeule]);
+  const ouvertureAuBord = !telephone && serviceEnTete;
+  React.useEffect(() => {
+    if (!ouvertureAuBord) return;
+    /* Seul le PASSAGE au bord ouvre : refermé par un clic, le menu ne revient pas tant que la souris y reste. */
+    let auBord = false;
+    const auMouvement = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') return;
+      const toucheLeBord = event.clientX <= BORD_QUI_OUVRE_LE_MENU;
+      if (toucheLeBord && !auBord && document.body.style.cursor !== 'grabbing' && !document.querySelector('[data-voile-de-fenetre][data-state=open], [data-voile-tiroir][data-state=open]')) {
+        window.clearTimeout(minuterieDuMenu.current);
+        setProjetsParDessus(true);
+      }
+      auBord = toucheLeBord;
+    };
+    window.addEventListener('pointermove', auMouvement, { passive: true });
+    return () => window.removeEventListener('pointermove', auMouvement);
+  }, [ouvertureAuBord]);
   /** L'intitulé d'une section (« Services », « Projets ») : petit, gris, repliable. */
   const classeSection = 'flex h-8 w-full items-center gap-1 rounded-lg px-2.5 text-left text-[12.5px] text-faint transition-colors hover:text-muted';
 
@@ -771,9 +1093,11 @@ export function Sidebar({
            au doigt il n'y a pas de survol, et sans cela on ne pourrait déposer
            une carte que colonne dépliée. */
         if (reduitEffectif && (event.pointerType === 'mouse' || glissementDeCarte)) ouvrirAuSurvol();
+        window.clearTimeout(minuterieDuMenu.current);
       }}
       onPointerLeave={(event) => {
         if (reduitEffectif && (event.pointerType === 'mouse' || glissementDeCarte)) fermerAuSurvolBientot();
+        if (projetsParDessus && !telephone && event.pointerType === 'mouse') fermerLeMenuBientot();
       }}
     >
       {/*
@@ -796,7 +1120,7 @@ export function Sidebar({
                `data-voile-de-fenetre`) ou une FEUILLE DU BAS (`data-voile-tiroir`)
                le renvoie en `z-40`, sous elle. */
             (survolee
-              ? 'absolute inset-y-0 left-0 z-[55] w-[var(--largeur-projets)] shadow-2xl [body:has([data-voile-de-fenetre][data-state=open])_&]:z-40 [body:has([data-voile-tiroir][data-state=open])_&]:z-40'
+              ? 'absolute inset-y-0 left-0 z-[55] w-[var(--largeur-projets)] animate-glisse-du-bord shadow-2xl [body:has([data-voile-de-fenetre][data-state=open])_&]:z-40 [body:has([data-voile-tiroir][data-state=open])_&]:z-40'
               : 'w-[var(--largeur-bande)]'),
         )}
       >
@@ -825,36 +1149,32 @@ export function Sidebar({
             </Button>
           ) : (
             <>
-              {service ? (
-                /* UN SERVICE A PRIS LA COLONNE : son nom, et la flèche qui
-                   remonte d'un cran puis rend la liste des projets. */
-                <>
-                  <Tooltip label={service.point ? `${t('Retour')} · ${service.point.texte}` : t('Retour')}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="relative -ml-2 h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted"
-                      aria-label="Retour"
-                      data-retour-de-colonne
-                      onClick={service.onRetour}
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      {service.point ? (
-                        <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, service.point.classe)} />
-                      ) : null}
-                    </Button>
-                  </Tooltip>
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-text" data-titre-de-colonne>
-                    {service.titre}
-                  </span>
-                </>
+              {serviceEnTete ? (
+                /* UN SERVICE A PRIS LA COLONNE : le bouton menu, qui montre les agents et
+                   les projets par-dessus. On remonte d'un cran par le fil d'Ariane. */
+                <Tooltip label={t('Agents et projets')}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn('relative -ml-2 h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', projetsParDessus && 'bg-raised text-text')}
+                    aria-label="Agents et projets"
+                    aria-expanded={projetsParDessus}
+                    data-menu-de-colonne={projetsParDessus ? 'ouvert' : 'ferme'}
+                    onClick={() => setProjetsParDessus((ouvert) => !ouvert)}
+                  >
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
+              ) : null}
+              {serviceVisible ? (
+                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-text" data-titre-de-colonne>
+                  {service.titre}
+                </span>
               ) : (
                 <span className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight text-text" data-nom-application>
                   Beluga
                 </span>
               )}
-              {/* LES SERVICES N'ONT PLUS LEUR BOUTON ICI : il ouvre le fil
-                  d'Ariane, tout à gauche de la barre d'en-tête (`app.tsx`). */}
               {telephone ? (
                 <Button
                   variant="ghost"
@@ -869,15 +1189,80 @@ export function Sidebar({
                   <Settings2 className="h-4 w-4" />
                 </Button>
               ) : null}
-              {onChercher && !service ? (
-                <Tooltip label={t('Chercher un projet')}>
+              {/* LE MENU À TROIS POINTS DE LA COLONNE (refonte du 13/11/2026, façon Claude Desktop) : les icônes de la
+                  tête — Fichiers, le menu dossier — et les deux services COMMUNS à tous les projets, Coffre-fort et
+                  Mémoire, réunis derrière un seul bouton. Tous les autres services vivent dans le projet (bouton aux
+                  quatre carrés, en haut à droite). Les repères des contrôles restent sur les entrées. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted"
-                    aria-label="Chercher un projet"
+                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted data-[state=open]:bg-raised data-[state=open]:text-text"
+                    aria-label="Menu"
+                    title={t('Menu')}
+                    data-menu-dossier
+                    data-trois-points-colonne
+                  >
+                    <EllipsisVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="sm:w-[232px]" data-menu-dossier-panneau>
+                  {/* « RECHERCHER » A QUITTÉ CE MENU (14/11/2026) : c'est la loupe, juste à droite. ⌘F ouvre toujours la
+                      recherche centrale. */}
+                  <DropdownMenuItem
+                    data-ligne-fichiers
+                    onSelect={() => {
+                      ouvrirLesFichiers();
+                      onChoose?.();
+                    }}
+                    className="gap-2.5"
+                  >
+                    <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 flex-1 truncate">{t('Fichiers')}</span>
+                  </DropdownMenuItem>
+                  {/* « PIÈCES JOINTES » rejoint ce menu (14/11/2026) : le menu aux quatre carrés qui la portait n'existe plus. */}
+                  <DropdownMenuItem
+                    data-menu-pieces
+                    onSelect={() => {
+                      window.dispatchEvent(new CustomEvent('beluga:ouvrir-fichiers', { detail: { vue: 'pieces' } }));
+                      onChoose?.();
+                    }}
+                    className="gap-2.5"
+                  >
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 flex-1 truncate">{t('Pièces jointes')}</span>
+                  </DropdownMenuItem>
+                  {!serviceVisible ? (
+                    <>
+                      <DropdownMenuItem data-ouvrir-projets onSelect={() => setAdding(true)} className="gap-2.5">
+                        <Plus className="h-4 w-4 shrink-0 text-muted" />
+                        <span className="min-w-0 flex-1 truncate">{t('Nouveau projet')}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem data-nouveau-groupe onSelect={() => setCreatingGroup(true)} className="gap-2.5">
+                        <Folder className="h-4 w-4 shrink-0 text-muted" />
+                        <span className="min-w-0 flex-1 truncate">{t('Nouveau dossier')}</span>
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                  {/* COFFRE-FORT ET MÉMOIRE ONT QUITTÉ CE MENU (carte « Services homogènes et centrés », 14/11/2026) : ils
+                      sont dans la liste de la ligne « Services », en bas de la colonne. */}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {/* LA LOUPE DE LA COLONNE REVIENT (décision du 14/11/2026), entre les trois points et le repli : elle
+                  ouvre un champ tout en haut de la colonne, curseur dedans, qui filtre aussitôt agents et projets.
+                  Échap, ou le champ vidé puis quitté, la referme et rend la colonne entière. */}
+              {!serviceVisible ? (
+                <Tooltip label={t('Chercher')}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn('h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted', rechercheOuverte && 'bg-raised text-text')}
+                    aria-label="Chercher"
+                    aria-pressed={rechercheOuverte}
                     data-chercher-projet
-                    onClick={onChercher}
+                    data-loupe-colonne
+                    onClick={() => (rechercheOuverte ? fermerLaRecherche() : setRechercheOuverte(true))}
                   >
                     <Search className="h-4 w-4" />
                   </Button>
@@ -920,6 +1305,39 @@ export function Sidebar({
           )}
         </div>
 
+        {/* LE CHAMP DE RECHERCHE, au-dessus de « Tableaux de bord » et hors de la zone qui défile : il reste sous les
+            yeux pendant qu'on parcourt les résultats (14/11/2026). */}
+        {rechercheOuverte && !bandeSeule && !serviceVisible ? (
+          <div className="relative mb-1.5 shrink-0 px-2" data-recherche-colonne>
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <Input
+              autoFocus
+              data-champ-recherche-colonne
+              value={recherche}
+              onChange={(event) => setRecherche(event.target.value)}
+              onBlur={() => {
+                if (!recherche.trim()) fermerLaRecherche();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.stopPropagation();
+                  fermerLaRecherche();
+                }
+              }}
+              placeholder={t('Chercher un agent, un projet…')}
+              aria-label="Chercher un agent, un projet"
+              className="pl-8 pr-8"
+            />
+            {rechercheEnCours ? (
+              <Loader2
+                data-recherche-en-cours
+                aria-hidden
+                className="absolute right-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-faint motion-reduce:animate-none"
+              />
+            ) : null}
+          </div>
+        ) : null}
+
         {/* LE MENU DU SERVICE OUVERT, à la place des projets. L'emplacement
             reste monté quand la colonne est réduite : le menu garde son état,
             et reparaît au survol. */}
@@ -931,139 +1349,158 @@ export function Sidebar({
             className={cn(
               'group/colonne flex min-h-0 flex-1 flex-col',
               bandeSeule ? 'px-1.5' : 'px-2',
-              bandeSeule && !service.bande && 'invisible',
-              service.plan === 'page' && 'hidden',
+              bandeSeule && 'invisible',
+              (service.plan === 'page' || projetsParDessus) && 'hidden',
             )}
-          />
-        ) : null}
-        {/* LE MENU DE LA PAGE OUVERTE PAR-DESSUS (les options d'une tâche) :
-            il prend la colonne tant qu'elle est ouverte. Celui du lieu d'en
-            dessous reste monté, caché, et reparaît tel quel au retour. */}
-        {service?.plan === 'page' ? (
-          <div
-            ref={onCorpsDePage}
-            data-colonne-de-service
-            data-colonne-de-page
-            data-bande={bandeSeule ? '' : undefined}
-            className={cn('group/colonne flex min-h-0 flex-1 flex-col', bandeSeule ? 'px-1.5' : 'px-2')}
           />
         ) : null}
         <ZoneDefilement
           hauteur={16}
-          classeEnveloppe={service ? 'hidden' : undefined}
+          classeEnveloppe={serviceVisible ? 'hidden' : projetsParDessus ? 'animate-glisse-du-bord' : undefined}
           className={cn('touch-pan-y pb-4', bandeSeule ? 'px-1.5' : 'px-2')}
           data-drop-root
         >
           {/* ------------------------------------------------------------------
-              LE GESTE DE TÊTE : lancer un nouvel agent, en NOIR avec une
-              écriture blanche (`CLASSE_BOUTON_DE_CREATION`), pour qu'il se
-              distingue des lignes grises du dessous. La page « Tableaux de
-              bord » n'a plus de ligne ici sur ordinateur (demande du
-              12/10/2026) : on y va par le premier cran du fil d'Ariane, le
-              menu du titre ou la grille des services. Le téléphone n'a plus
-              non plus de ligne ici (demande du 12/10/2026, soir).
+              LA TÊTE, LA MÊME PARTOUT : « Nouvel agent », en VIOLET (carte « Lecteur de charte : commentaires et
+              barre », décision de l'utilisateur). Le bouton « Tableaux de bord » a quitté la colonne : on y va par
+              le menu à trois points de sa tête (le menu en grille n'existe plus depuis le 13/11/2026).
+              Colonne réduite : son icône.
               ------------------------------------------------------------------ */}
           {onNouvelAgent ? (
+            /* LA TÊTE (13/11/2026, maquette #76ac validée) : « Tableaux de bord » en VIOLET en tête — un vrai lien vers la
+               vue de tous les projets —, puis « Nouvel artefact », sans fond (15/11/2026). Le menu ⋮ ne porte plus « Tableaux de
+               bord ». Colonne réduite : leurs icônes. */
+            <div className="mb-1.5 flex flex-col gap-1.5" data-tete-de-colonne>
+              {state.monRole === 'admin' ? (
+                <LienInterne
+                  adresse={construireFragment({ vue: 'en-route' })}
+                  data-bouton-tableaux-de-bord
+                  data-ouvrir-en-route
+                  data-destination="en-route"
+                  data-bouton-violet
+                  title={bandeSeule ? t('Tableaux de bord') : undefined}
+                  aria-current={vue === 'en-route' ? 'page' : undefined}
+                  onClick={() => {
+                    onOuvrirVue?.('en-route');
+                    onChoose?.();
+                  }}
+                  className={cn(
+                    'flex h-[43px] sm:h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium transition-opacity',
+                    bandeSeule ? 'justify-center px-0' : 'px-2.5',
+                  )}
+                >
+                  <SquareKanban className="h-4 w-4 shrink-0" />
+                  <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Tableaux de bord')}</span>
+                </LienInterne>
+              ) : null}
+              {/* « SERVICES » JUSTE SOUS « TABLEAUX DE BORD », AU-DESSUS DE « NOUVEL ARTEFACT » (décision de l'utilisateur
+                  du 15/11/2026) : sa liste s'ouvre VERS LE BAS, et les services épinglés se rangent juste sous lui.
+                  PENDANT UNE RECHERCHE, LA COLONNE NE MONTRE QUE LES RÉSULTATS (14/11/2026, capture #85295) : la ligne
+                  et ses épingles s'effacent, et reviennent quand le champ est vidé ou refermé. */}
+              {onOuvrirServiceCentral && state.monRole === 'admin' && !serviceVisible && !filtre ? (
+                <ServicesDuBasDeLaColonne
+                  bandeSeule={bandeSeule}
+                  enTete
+                  actif={serviceCentralActif ?? (vue === 'coffre' || vue === 'memoire' ? vue : null)}
+                  onOuvrir={(cle) => {
+                    onOuvrirServiceCentral(cle);
+                    onChoose?.();
+                  }}
+                  communs={servicesCommuns}
+                  onOuvrirCommun={(cle) => {
+                    onOuvrirVue?.(cle as VueCentrale);
+                    onChoose?.();
+                  }}
+                />
+              ) : null}
+              {/* « NOUVEL AGENT » DEMANDE LE TYPE, PUIS LE PROJET (14/11/2026). */}
+              {onCreerAgent ? (
+                <MenuNouvelAgent bandeSeule={bandeSeule} onOuvert={onChoose} onCreer={onCreerAgent} />
+              ) : (
+                <button
+                  type="button"
+                  data-ligne-nouvel-agent
+                  title={bandeSeule ? t('Nouvel artefact') : undefined}
+                  onClick={() => {
+                    onNouvelAgent();
+                    onChoose?.();
+                  }}
+                  className={cn(
+                    'flex h-[43px] sm:h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised',
+                    bandeSeule ? 'justify-center px-0' : 'px-2.5',
+                  )}
+                >
+                  <SquarePen className="h-4 w-4 shrink-0" />
+                  <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Nouvel artefact')}</span>
+                </button>
+              )}
+              {/* « SERVICES » A QUITTÉ LA TÊTE (14/11/2026) : les services vivent en bas de la colonne, au-dessus du pied. */}
+            </div>
+          ) : null}
+
+          {/* « FICHIERS » (carte « Fichiers rangés et captures pleine page », 05/11/2026) : en haut de la colonne, la
+              fenêtre de TOUS les fichiers rangés par projet et par service, avec la recherche intelligente. */}
+          {/* Colonne réduite à sa bande : la tête n'a plus la place de l'icône, « Fichiers » reste ici. */}
+          {bandeSeule ? (
             <button
               type="button"
-              data-ligne-nouvel-agent
-              title={bandeSeule ? t('Nouvel agent') : undefined}
+              data-ligne-fichiers
+              title={t('Parcourir les fichiers')}
               onClick={() => {
-                onNouvelAgent();
+                ouvrirLesFichiers();
                 onChoose?.();
               }}
-              className={cn(
-                'flex h-[43px] sm:h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium transition-opacity',
-                bandeSeule ? 'justify-center px-0' : 'px-2.5',
-                CLASSE_BOUTON_DE_CREATION,
-              )}
+              className="mt-1 flex h-[43px] w-full min-w-0 items-center justify-center rounded-lg px-0 text-[14px] text-muted transition-colors hover:bg-raised hover:text-text sm:h-9"
             >
-              <SquarePen className="h-4 w-4 shrink-0" />
-              <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Nouvel agent')}</span>
+              <FolderOpen className="h-4 w-4 shrink-0" />
+              <span className="sr-only">{t('Parcourir les fichiers')}</span>
             </button>
           ) : null}
 
+          {/* LA ZONE « EN COURS » (demande du 01/11/2026) : tout ce qui tourne, tous projets confondus,
+              entre « Nouvel agent » et le groupe « Local ». Ni en colonne réduite, ni pendant une recherche. */}
+          {!bandeSeule && !filtre && state.pret ? (
+            <div className="mt-1.5">
+              <TachesEnCours
+                carteOuverte={carteOuverte ?? null}
+                onOuvrir={(card) => {
+                  onOuvrirCarte?.(card);
+                  onChoose?.();
+                }}
+              />
+            </div>
+          ) : null}
+
           {/* ------------------------------------------------------------------
-              LES PROJETS. L'intitulé, ses deux gestes d'ajout au survol, puis
-              la liste, rangée en DOSSIERS repliables (les groupes). TOUS les
-              projets y figurent : le filtre « Tout, Actifs, En attente,
-              Terminés » a été retiré (demande du 11/10/2026).
+              LES PROJETS, directement sous « Nouvel agent » : la liste, rangée en
+              DOSSIERS repliables (les groupes). Ses gestes d'ajout sont dans le menu
+              dossier de la tête ; le tri par dernière ouverture, dans Réglages › Projets.
               ------------------------------------------------------------------ */}
           {bandeSeule ? (
             <div className="my-2 flex justify-center" aria-hidden>
               <span className="h-px w-5 bg-border" />
             </div>
           ) : (
-            <>
-              <div className={cn('group/section mt-5 h-8 pl-2.5 pr-1', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons>
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{t('Projets')}</span>
-                {/* LA BASCULE DE TRI : « dernière ouverture » ou ordre manuel. Elle
-                    ne touche à aucun rang ; allumée, le glisser-déposer est
-                    suspendu (le bouton reste visible : c'est lui qui le rend). */}
-                <Tooltip
-                  label={
-                    triParOuverture
-                      ? t('Rangé par dernière ouverture — revenir à votre ordre')
-                      : t('Ranger par dernière ouverture')
-                  }
-                >
-                  <button
-                    type="button"
-                    aria-label="Ranger par dernière ouverture"
-                    aria-pressed={triParOuverture}
-                    data-tri-par-ouverture={triParOuverture ? 'ouverture' : 'manuel'}
-                    onClick={() => setTriParOuverture(!triParOuverture)}
-                    className={cn(
-                      'flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text',
-                      triParOuverture
-                        ? 'bg-raised text-teinte'
-                        : 'text-faint opacity-100 transition-opacity survol:opacity-0 group-hover/section:survol:opacity-100',
-                    )}
-                  >
-                    <ArrowUpDown className="h-3.5 w-3.5" />
-                  </button>
-                </Tooltip>
-                <Tooltip label={t('Nouveau groupe')}>
-                  <button
-                    type="button"
-                    aria-label="Nouveau groupe"
-                    data-nouveau-groupe
-                    onClick={() => setCreatingGroup(true)}
-                    className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint opacity-100 transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/section:survol:opacity-100"
-                  >
-                    <FolderPlus className="h-3.5 w-3.5" />
-                  </button>
-                </Tooltip>
-                <Tooltip label={t('Ajouter ou créer un projet')}>
-                  <button
-                    type="button"
-                    aria-label="Ajouter ou créer un projet"
-                    data-ouvrir-projets
-                    onClick={() => setAdding(true)}
-                    className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              </div>
-
-            </>
+            <div className="h-2" aria-hidden />
           )}
 
-          {/* TANT QUE LE PREMIER ÉTAT DU SERVEUR N'EST PAS ARRIVÉ, on montre des
-              SILHOUETTES de lignes de projet. Aucune phrase de liste vide ne
-              s'écrit avant. */}
+          {/* TANT QUE LE PREMIER ÉTAT DU SERVEUR N'EST PAS ARRIVÉ, un indicateur discret :
+              la colonne n'a plus de silhouette. Aucune phrase de liste vide ne s'écrit avant. */}
           {!state.pret && !state.copieLocale ? (
-            <SilhouetteProjets />
+            <div className={cn('flex h-9 items-center', bandeSeule ? 'justify-center' : 'px-2.5')} data-chargement-projets>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-faint motion-reduce:animate-none" aria-hidden />
+            </div>
           ) : (
             <>
               {/* EN TÊTE de la liste, et ancré là : l'espace où l'application
                   elle-même est développée, quand le groupe « Local » manque
                   (démon plus ancien). Pas de poignée, pas de rang. */}
-              {espaceDev && !groupeLocalId ? (
+              {espaceDev && espaceDevAffiche && !groupeLocalId ? (
                 <LigneEspaceDev
+                  taches={flecheDeTaches(espaceDev.id)}
                   project={espaceDev}
                   active={espaceDev.id === state.activeProjectId && vue === 'projet'}
+                  repere={repereSurLeProjet(espaceDev.id)}
                   running={runningOf(espaceDev.id)}
                   publie={publieOf(espaceDev.id)}
                   attention={state.attention[espaceDev.id]}
@@ -1072,14 +1509,20 @@ export function Sidebar({
                   avancement={avancementOf(espaceDev.id)}
                   cibleDeCarte={cibleDeCarteDe(espaceDev.id)}
                   onSettings={() => ouvrirConfigProjet(espaceDev.id)}
+                  onNouvelAgent={onNouvelAgent ? () => { onNouvelAgent(espaceDev.id); onChoose?.(); } : undefined}
                   bande={bandeSeule}
                   outilsCaches={outilsCaches}
                   onChoose={onChoose}
-                  onQuitterTableauDeBord={() => onOuvrirVue('projet')}
+                  onEntrer={onEntrerDansLeProjet ? () => onEntrerDansLeProjet(espaceDev.id) : undefined}
+                  onQuitterTableauDeBord={() => {
+                    deplierLeProjet(espaceDev.id);
+                    onOuvrirVue('projet');
+                  }}
                 />
               ) : null}
+              {espaceDev && espaceDevAffiche && !groupeLocalId ? blocDeTaches(espaceDev.id) : null}
 
-              {entries.map((entry) => {
+              {entreesAffichees.map((entry) => {
                 if (entry.kind === 'project') {
                   return rendreLigne(entry.project, {
                     style: glisse(decales.racine.has(entry.id)),
@@ -1090,9 +1533,9 @@ export function Sidebar({
                 // Le groupe « Local » porte l'espace de développement en tête : il
                 // compte parmi ses membres pour les signaux et le repli.
                 const localDuGroupe = entry.id === groupeLocalId && espaceDev ? espaceDev : null;
-                const local = localDuGroupe;
+                const local = localDuGroupe && espaceDevAffiche ? localDuGroupe : null;
                 const membres = entry.members;
-                const membresVus = local ? [local, ...membres] : membres;
+                const membresVus = localDuGroupe ? [localDuGroupe, ...membres] : membres;
                 // Replié, un dossier cacherait ce que ses projets attendent ET ce
                 // qu'ils ont rendu : les deux signaux remontent jusqu'à son en-tête.
                 const signal = signalDuGroupe(
@@ -1100,9 +1543,9 @@ export function Sidebar({
                   state.attention,
                   state.rendus,
                 );
-                const replie = collapsed.includes(entry.id);
+                const replie = !filtre && collapsed.includes(entry.id);
                 const outilDeGroupe = cn(
-                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/g:survol:opacity-100',
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-text',
                   outilsCaches && 'hidden',
                 );
                 return (
@@ -1127,6 +1570,19 @@ export function Sidebar({
                       bande={bandeSeule}
                       titre={entry.group.name}
                     >
+                      {/* LA POIGNÉE DU DOSSIER, à gauche de sa flèche, au survol. */}
+                      <span
+                        {...poigneeProps(entry.id, 'group', entry.group.name)}
+                        title={t('Glisser pour ranger')}
+                        className={cn(
+                          CLASSE_POIGNEE_A_GAUCHE,
+                          'survol:group-focus-within/g:opacity-100 survol:group-hover/g:opacity-100',
+                          (triParOuverture || filtre || outilsCaches) && 'hidden',
+                        )}
+                        data-poignee-groupe={entry.id}
+                      >
+                        <GripVertical className="h-3.5 w-3.5 shrink-0" />
+                      </span>
                       {/* LE DOSSIER : sa flèche, son nom. Un clic le replie. */}
                       <button
                         onClick={() => toggle(entry.id)}
@@ -1177,19 +1633,11 @@ export function Sidebar({
                           }}
                         />
                       ) : null}
-                      {/* LES OUTILS DU DOSSIER, au survol seulement : le ranger
-                          (poignée), le renommer, le supprimer. */}
-                      <span
-                        {...poigneeProps(entry.id, 'group', entry.group.name)}
-                        title={t('Glisser pour ranger')}
-                        className={cn(
-                          outilDeGroupe,
-                          'cursor-grab touch-none active:cursor-grabbing',
-                          triParOuverture && 'hidden',
-                        )}
-                      >
-                        <GripVertical className="h-3.5 w-3.5" />
-                      </span>
+                      {/* LES OUTILS DU DOSSIER, au survol seulement : le renommer, le
+                          supprimer. Ils s'ouvrent en glissant, comme ceux d'une
+                          ligne de projet ; la poignée est à gauche. */}
+                      <span className={CLASSE_ENVELOPPE_D_OUTILS_DE_DOSSIER} data-outils-de-ligne>
+                      <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                       <button
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={() => setRenaming(entry.group)}
@@ -1213,6 +1661,8 @@ export function Sidebar({
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
+                      </span>
+                      </span>
                     </EnteteGroupe>
 
                     {!replie ? (
@@ -1221,23 +1671,32 @@ export function Sidebar({
                             souris, les projets glissés ici se rangent sous lui. */}
                         {local ? (
                           <LigneEspaceDev
+                            taches={flecheDeTaches(local.id)}
                             project={local}
                             active={local.id === state.activeProjectId && vue === 'projet'}
+                            repere={repereSurLeProjet(local.id)}
                             running={runningOf(local.id)}
                             publie={publieOf(local.id)}
                             attention={state.attention[local.id]}
                             rendus={state.rendus[local.id]}
                             icone={iconeAttenteOf(local.id)}
                             avancement={avancementOf(local.id)}
+                            {...allegementDuDossier(local.id, projetsDeplies.includes(local.id))}
                             cibleDeCarte={cibleDeCarteDe(local.id)}
                             onSettings={() => ouvrirConfigProjet(local.id)}
+                            onNouvelAgent={onNouvelAgent ? () => { onNouvelAgent(local.id); onChoose?.(); } : undefined}
                             bande={bandeSeule}
                             outilsCaches={outilsCaches}
                             onChoose={onChoose}
-                            onQuitterTableauDeBord={() => onOuvrirVue('projet')}
+                            onEntrer={onEntrerDansLeProjet ? () => onEntrerDansLeProjet(local.id) : undefined}
+                            onQuitterTableauDeBord={() => {
+                              deplierLeProjet(local.id);
+                              onOuvrirVue('projet');
+                            }}
                           />
                         ) : null}
-                        {membresVus.length ? (
+                        {local ? blocDeTaches(local.id) : null}
+                        {membresVus.length || filtre ? (
                           membres.map((project) =>
                             rendreLigne(project, {
                               style: glisse(decales.membres.has(project.id)),
@@ -1267,6 +1726,11 @@ export function Sidebar({
 
               {/* « Aucun projet inscrit » ne s'écrit que si la colonne n'en a
                   vraiment aucun. */}
+              {filtre && !entreesAffichees.length && !espaceDevAffiche && !rechercheEnCours ? (
+                <p className="truncate px-2.5 py-2 text-[13px] text-faint" data-recherche-vide>
+                  {t('Aucun résultat.')}
+                </p>
+              ) : null}
               {bandeSeule ? null : !entries.length && !espaceDev ? (
                 <button
                   type="button"
@@ -1283,7 +1747,7 @@ export function Sidebar({
 
           {/* « MIS DE CÔTÉ » : un dernier dossier, replié, tout en bas de la
               liste. Caché tant que la colonne reste réduite. */}
-          {!bandeSeule ? (
+          {!bandeSeule && !filtre ? (
             <>
               <button onClick={() => setShowArchived((value) => !value)} className={cn(classeSection, 'mt-3')}>
                 <span className="min-w-0 truncate">{t('Mis de côté')}</span>
@@ -1316,13 +1780,17 @@ export function Sidebar({
           ) : null}
         </ZoneDefilement>
 
+        {/* LES SERVICES ONT QUITTÉ LE BAS DE LA COLONNE (15/11/2026) : ils vivent dans la tête, juste sous « Tableaux de
+            bord » (voir plus haut). Le pied ne garde que l'état des moteurs, la cloche et les réglages. */}
+
         {/* LE PIED : l'état du moteur à gauche — « LLM en ligne », le compte en
             service, et les quotas au clic — et UN bouton à droite, les
             réglages. Rien d'autre. */}
         <div
           data-pied-colonne
           data-rangee-de-boutons
-          className={cn('shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'flex-col px-0 pb-3 pt-2' : 'px-2 pb-2.5 pt-1.5')}
+          data-pied-cache-par-la-recherche={filtre ? '' : undefined}
+          className={cn('shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'flex-col px-0 pb-3 pt-2' : 'px-2 pb-2.5 pt-1.5', filtre && '!hidden')}
         >
           {/* LE POINT DU MOTEUR NE DIT QUE LA LIAISON : plein quand elle tient,
               battant quand elle est rompue. */}
@@ -1340,7 +1808,7 @@ export function Sidebar({
               flottante. Il tourne, en violet, quand le terminal réduit
               travaille. Sur ordinateur, son rond flotte à gauche de
               l'assistant (`pastille-terminal.tsx`). */}
-          {telephone && state.monRole === 'admin' ? (
+          {telephone && state.monRole === 'admin' && !state.offreHebergee ? (
             <Button
               variant="ghost"
               size="icon"
@@ -1391,9 +1859,9 @@ export function Sidebar({
       />
       <PromptDialog
         open={creatingGroup}
-        title={t('Nouveau groupe')}
+        title={t('Nouveau dossier')}
         description={t('Un rangement pour vous y retrouver : « Clients », « Mes projets », « Capitaux »…')}
-        placeholder={t('Nom du groupe')}
+        placeholder={t('Nom du dossier')}
         confirmLabel={t('Créer')}
         onConfirm={(nom) => client.call({ type: 'group.create', name: nom })}
         onClose={() => setCreatingGroup(false)}
@@ -1565,7 +2033,7 @@ function EnteteGroupe({
         // était plus basse que son propre bouton de nom en mode ouvert (une
         // lettre tient dans moins de hauteur qu'un libellé) — chaque groupe
         // décalait d'autant tout ce qui suivait entre les deux modes.
-        'group/g flex h-[43px] sm:h-9 items-center gap-1 rounded-lg transition-colors hover:bg-raised sm:gap-1.5',
+        'group/g relative flex h-[43px] sm:h-9 items-center gap-1 rounded-lg transition-colors hover:bg-raised sm:gap-1.5',
         bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
@@ -1683,7 +2151,7 @@ function RepereRobot({
         <span
           className={cn(
             'flex shrink-0 items-center gap-0.5',
-            mini && cn(pastilleMini, 'absolute -right-[7px] -top-[6px] bg-en-cours'),
+            mini && cn(pastilleMini, 'absolute -right-[7px] -top-[6px] bg-teinte-plein'),
           )}
           data-repere-robot
           aria-label={libelle}
@@ -1691,10 +2159,10 @@ function RepereRobot({
           <Loader2
             className={cn(
               'shrink-0 animate-spin motion-reduce:animate-none',
-              mini ? 'h-2 w-2 text-sur-etat' : 'h-[15px] w-[15px] text-en-cours',
+              mini ? 'h-2 w-2 text-sur-couleur' : 'h-[15px] w-[15px] text-teinte',
             )}
           />
-          {!mini && running >= 1 ? <span className="text-[10.5px] leading-none text-en-cours">{running}</span> : null}
+          {!mini && running >= 1 ? <span className="text-[10.5px] leading-none text-teinte">{running}</span> : null}
         </span>
       </Tooltip>
     );
@@ -1881,93 +2349,6 @@ function RepereLigne({
   return null;
 }
 
-/**
- * L'emplacement où l'élément se posera : un trait d'un pixel, orange, comme
- * toutes les bordures de l'application. Il est posé PAR-DESSUS la liste (jamais
- * inséré dedans) — c'est ce qui empêche les lignes du dessous de sauter.
- */
-/**
- * Le demi-rond plaqué contre le bord gauche de l'écran, sur la ligne du
- * projet ACTUELLEMENT OUVERT seul — un seul repère visible à la fois, qui ne
- * dit qu'une chose : « c'est ici qu'on se trouve ». Couleur du groupe du
- * projet, ou blanche si le groupe n'en a pas (ou si le projet n'est dans
- * aucun groupe).
- *
- * Positionné en absolu à « -left-[7px] » (les 6 px de retrait « px-1.5 » de
- * la liste, plus le 1 px de bordure de la ligne) pour toucher le bord gauche
- * sans y laisser d'espace ; un projet rangé dans un groupe est en plus
- * décalé de « pl-3 » (12 px), d'où le « -left-[19px] » qui le ramène au même
- * bord que la ligne colorée du groupe. Un membre de projet réuni (« reuni »)
- * est décalé du retrait des branches (24 px au repos, 36 px sur téléphone,
- * 20 px outils cachés).
- */
-function RepereDemiRond({
-  active,
-  couleur,
-  emboite,
-  bande,
-  outilsCaches,
-}: {
-  active?: boolean;
-  /** La couleur du groupe du projet, si réglée. */
-  couleur?: string;
-  /** Le projet est rangé dans un groupe (« pl-3 »), ou dans un projet réuni. */
-  emboite?: boolean | 'reuni';
-  bande?: boolean;
-  outilsCaches?: boolean;
-}) {
-  /* PLUS DE BARRE NI DE DEMI-ROND : la ligne ouverte se dit par son fond gris,
-     comme dans ChatGPT. Le repère reste dans le document, invisible, pour les
-     contrôles qui s'en servent pour trouver la ligne ouverte. */
-  void couleur;
-  void emboite;
-  void bande;
-  void outilsCaches;
-  if (!active) return null;
-  return <span aria-hidden data-repere-demi-rond className="hidden" />;
-}
-
-/**
- * LA BRANCHE D'ARBORESCENCE D'UN MEMBRE DE PROJET RÉUNI : un trait vertical qui
- * descend du milieu bas de la pile d'icônes du projet réuni, et un trait
- * horizontal qui touche l'icône du membre. Chez le dernier membre, le vertical
- * s'arrête à hauteur de son icône et tourne en coude arrondi.
- *
- * Géométrie, en px, relative à l'enveloppe du membre (voir le retrait posé par
- * `data-membres-regroupement`) : l'icône du membre commence à 7 (bord 1 +
- * `px-1.5`), son milieu est à 17 (bord 1 + `py-1.5` 6 + moitié de `h-5`) ; le
- * milieu de la pile du parent est à `largeurPile / 2 - 13`, quel que soit le
- * retrait ; le bas de la pile tombe 11,5 px au-dessus du premier membre.
- * Absolue, sans pointeur ni hauteur : la ligne garde sa hauteur fixe.
- */
-function BrancheMembre({ premier, dernier, largeurPile }: { premier: boolean; dernier: boolean; largeurPile: number }) {
-  /* L'axe vertical tombe sous le MILIEU de la pile d'icônes du projet réuni
-     (elle commence à 10 px : `px-2.5`), vu depuis l'enveloppe des membres,
-     décalée de `RETRAIT_DES_MEMBRES`. Le trait horizontal s'arrête 2 px avant
-     l'icône du membre (elle aussi à 10 px), au milieu de sa ligne de 36 px. */
-  const axe = 10 + largeurPile / 2 - RETRAIT_DES_MEMBRES;
-  const haut = premier ? -9 : 0;
-  const trait = CLASSE_TRAIT_DE_BRANCHE;
-  return (
-    <span aria-hidden data-branche-membre={dernier ? 'dernier' : 'milieu'}>
-      {dernier ? (
-        <span
-          className={cn(trait, 'rounded-bl-[5px] border-b border-l')}
-          style={{ left: axe, top: haut, height: 18 - haut, width: 8 - axe }}
-        />
-      ) : (
-        <>
-          <span className={cn(trait, 'bottom-0 border-l')} style={{ left: axe, top: haut }} />
-          <span className={cn(trait, 'border-t')} style={{ left: axe, top: 17, width: 8 - axe }} />
-        </>
-      )}
-    </span>
-  );
-}
-
-/** Le retrait, en pixels, des membres d'un projet réuni sous sa ligne (`pl-4`). */
-const RETRAIT_DES_MEMBRES = 16;
-
 function Trait({ ou }: { ou?: 'before' | 'after' }) {
   if (!ou) return null;
   return (
@@ -1990,7 +2371,7 @@ function Trait({ ou }: { ou?: 'before' | 'after' }) {
  * RANGEMENT — plus de poignée, pas de `data-drag-id` : on ne peut ni le
  * déplacer ni le sortir de son groupe (`data-espace-dev-verrouille`) — pour
  * occuper la PREMIÈRE place du groupe « Local » (`shared/src/groupe-local.ts`),
- * ou, sans ce groupe, celle de la liste sous le libellé « Projets ». Il REÇOIT en revanche une carte glissée du
+ * ou, sans ce groupe, celle du haut de la liste. Il REÇOIT en revanche une carte glissée du
  * tableau, exactement comme une ligne de projet (`data-projet-cible`) : c'est
  * le seul geste de souris qui lui reste, et il s'éclaire pendant le survol. Il porte l'icône de l'application
  * (`/icon.svg`, le beluga du favicon), qui le distingue d'un coup d'œil de
@@ -2010,11 +2391,21 @@ function LigneEspaceDev({
   avancement,
   cibleDeCarte,
   onSettings,
+  onNouvelAgent,
   onChoose,
   onQuitterTableauDeBord,
+  onEntrer,
   bande = false,
   outilsCaches = false,
+  taches,
+  repere = true,
 }: {
+  /** Le nom cliqué (pas le badge « rendu ») : une entrée explicite dans le projet, qui relance la reprise. */
+  onEntrer?: () => void;
+  /** Faux : la tâche ouverte, visible dessous, est marquée à sa place. (Le point d'avant a disparu, 16/11/2026.) */
+  repere?: boolean;
+  /** La flèche qui déplie les tâches de l'espace de développement. */
+  taches?: { ouvert: boolean; basculer: () => void };
   /** Sur téléphone, interrupteur éteint : le réglage de la ligne se cache. */
   outilsCaches?: boolean;
   /** La colonne est rétrécie : plus que l'icône, le nom passant en bulle. */
@@ -2032,17 +2423,23 @@ function LigneEspaceDev({
   /** Une carte survole cette ligne : permise (elle s'éclaire) ou refusée (inerte). */
   cibleDeCarte?: 'acceptee' | 'refusee' | null;
   onSettings: () => void;
+  /** Le « + » du survol : un nouvel agent dans l'espace de développement. */
+  onNouvelAgent?: () => void;
   onChoose?: () => void;
   /** Le tableau de bord occupe la place : un clic ici doit le refermer. */
   onQuitterTableauDeBord?: () => void;
 }) {
   const secoue = useSecousse({ attention, rendus }, active);
   void avancement;
+  /* LE NOM CLIQUÉ EST UNE ENTRÉE DANS LE PROJET, comme sur toute autre ligne (`ProjectRow.onEntrer`,
+     01/11/2026) : sans elle, la tâche d'un autre projet restait affichée sous Beluga. */
   const ouvrir = (event: React.MouseEvent) => {
-    if (rendus && clicSurLeBadgeRendu(event)) void client.ouvrirCarteNonLue(project.id);
+    const badge = !!rendus && clicSurLeBadgeRendu(event);
+    if (badge) void client.ouvrirCarteNonLue(project.id);
     else client.setActiveProject(project.id);
     onQuitterTableauDeBord?.();
     onChoose?.();
+    if (!badge) onEntrer?.();
   };
   return (
     <div
@@ -2062,13 +2459,13 @@ function LigneEspaceDev({
       className={cn(
         CLASSE_LIGNE_DE_PROJET,
         bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
-        active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+        'hover:bg-raised',
+        active && 'text-important',
         secoue && 'animate-secousse',
         cibleDeCarte === 'acceptee' && 'bg-raised ring-1 ring-inset ring-faint',
         cibleDeCarte === 'refusee' && 'opacity-50',
       )}
     >
-      <RepereDemiRond active={active} />
       <button
         data-ouvrir-espace-dev
         onClick={ouvrir}
@@ -2096,37 +2493,79 @@ function LigneEspaceDev({
             aria-hidden
           />
         ) : null
-      ) : repereVisible({ attention }) ? (
-        <RepereLigne
-          signal={{ attention }}
-          icone={icone}
-          onDecision={() => {
-            onQuitterTableauDeBord?.();
-            allerALaDecision(project.id, onChoose);
-          }}
-        />
-      ) : null}
-      <button
-        onClick={onSettings}
-        data-reglages-projet={project.id}
-        className={cn(CLASSE_OUTIL_DE_LIGNE, (outilsCaches || bande) && 'hidden')}
-        title={t('Réglages de l’espace de développement')}
-      >
-        <EllipsisVertical className="h-4 w-4" />
-      </button>
+      ) : (
+        <div className="flex shrink-0 items-center">
+          {repereVisible({ attention }) ? (
+            <RepereLigne
+              signal={{ attention }}
+              icone={icone}
+              onDecision={() => {
+                onQuitterTableauDeBord?.();
+                allerALaDecision(project.id, onChoose);
+              }}
+            />
+          ) : null}
+          <span className={CLASSE_ENVELOPPE_D_OUTILS} data-outils-de-ligne>
+            <span className="flex min-w-0 items-center overflow-hidden">
+              {onNouvelAgent ? (
+                <button
+                  type="button"
+                  onClick={onNouvelAgent}
+                  data-nouvel-agent-projet={project.id}
+                  className={cn(CLASSE_OUTIL_DE_LIGNE, outilsCaches && 'hidden')}
+                  title={t('Nouvel artefact dans ce projet')}
+                  aria-label="Nouvel artefact dans ce projet"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              ) : null}
+              <button
+                onClick={onSettings}
+                data-reglages-projet={project.id}
+                className={cn(CLASSE_OUTIL_DE_LIGNE, outilsCaches && 'hidden')}
+                title={t('Réglages de l’espace de développement')}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </button>
+            </span>
+          </span>
+          {taches ? <FlecheDesTaches projectId={project.id} ouvert={taches.ouvert} basculer={taches.basculer} /> : null}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
  * LA TENUE D'UNE LIGNE DE PROJET : une icône, un nom, 36 px de haut, un fond
- * gris au survol et sur la ligne ouverte. Aucun cadre, aucun compteur. Les
- * outils (réglages, poignée) ne paraissent qu'au survol, à droite.
+ * gris au survol. Aucun cadre, aucun compteur. La ligne ouverte s'écrit en couleur, SANS
+ * aucun point devant elle (16/11/2026).
+ *
+ * LES OUTILS NE RÉSERVENT AUCUNE PLACE AU REPOS : ce qui attend sur la ligne touche
+ * le chevron. Au survol ou au focus clavier, leur enveloppe s'ouvre en glissant
+ * (`grid-template-columns` de 0fr à 1fr, la seule façon d'animer vers une largeur que
+ * personne n'a écrite) et pousse le repère vers la gauche. Ils restent MONTÉS : la
+ * poignée doit pouvoir tenir un glissement qui sort de la ligne. Sans survol
+ * (téléphone), l'enveloppe reste ouverte et `outilsCaches` décide de les montrer.
  */
 const CLASSE_LIGNE_DE_PROJET =
   'group relative flex h-9 w-full items-center gap-1 rounded-lg text-[14px] text-text transition-[transform,background-color] duration-150 motion-reduce:transition-none sm:gap-1.5';
 const CLASSE_OUTIL_DE_LIGNE =
-  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-fond-survol hover:text-text survol:opacity-0 group-hover:survol:opacity-100';
+  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-fond-survol hover:text-text';
+/**
+ * LA POIGNÉE QUI RANGE UN PROJET OU UN DOSSIER, À GAUCHE DE SON ICÔNE (31/10/2026,
+ * capture #6515). À la souris, elle se pose dans la marge gauche de la ligne
+ * (`pl-2.5`), en absolu, et ne paraît qu'au survol : ni l'icône ni le nom ne
+ * bougent. Sans survol (téléphone, outils montrés), elle reprend sa place de
+ * doigt dans le flux, avant l'icône. Elle n'est jamais dans le bouton du nom :
+ * elle a son propre geste.
+ */
+const CLASSE_POIGNEE_A_GAUCHE =
+  'flex h-7 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-faint hover:text-text active:cursor-grabbing survol:absolute survol:left-0 survol:top-1/2 survol:z-10 survol:h-6 survol:w-2.5 survol:-translate-y-1/2 survol:opacity-0 survol:transition-opacity';
+const CLASSE_ENVELOPPE_D_OUTILS =
+  'grid shrink-0 grid-cols-[1fr] transition-[grid-template-columns] duration-150 ease-out motion-reduce:transition-none survol:grid-cols-[0fr] survol:focus-within:grid-cols-[1fr] survol:group-hover:grid-cols-[1fr]';
+const CLASSE_ENVELOPPE_D_OUTILS_DE_DOSSIER =
+  'grid shrink-0 grid-cols-[1fr] transition-[grid-template-columns] duration-150 ease-out motion-reduce:transition-none survol:grid-cols-[0fr] survol:focus-within:grid-cols-[1fr] survol:group-hover/g:grid-cols-[1fr]';
 
 function ProjectRow({
   project,
@@ -2151,7 +2590,19 @@ function ProjectRow({
   outilsCaches = false,
   sousGroupe,
   sansPoignee = false,
+  taches,
+  repere = true,
+  onNouvelAgent,
+  onEntrer,
 }: {
+  /** Le nom cliqué (pas le badge « rendu ») : une entrée explicite dans le projet, qui relance la reprise. */
+  onEntrer?: () => void;
+  /** LE « + » DU SURVOL, à gauche du « ⋮ » : un nouvel agent dans ce projet (ou ce projet réuni). */
+  onNouvelAgent?: () => void;
+  /** Faux : la tâche ouverte, visible dessous, est marquée à sa place. (Le point d'avant a disparu, 16/11/2026.) */
+  repere?: boolean;
+  /** La flèche qui déplie les tâches du projet (un projet réuni a déjà celle de son sous-groupe). */
+  taches?: { ouvert: boolean; basculer: () => void };
   /** Sur téléphone, interrupteur éteint : poignée et réglages se cachent. */
   outilsCaches?: boolean;
   /**
@@ -2227,7 +2678,8 @@ function ProjectRow({
         bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
         // La ligne reste NUE : ni cadre ni couleur. L'état ne vit que sur
         // l'icône (`RepereRobot`) et sur le repère de droite (`RepereLigne`).
-        active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+        'hover:bg-raised',
+        active && 'text-important',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
         cibleDeCarte === 'acceptee' && 'bg-raised ring-1 ring-inset ring-faint',
@@ -2235,17 +2687,36 @@ function ProjectRow({
       )}
     >
       <Trait ou={marqueur} />
-      <RepereDemiRond active={active} />
-      <button
+      {bande ? null : (
+        <span
+          {...poigneeProps}
+          title={t('Glisser pour ranger')}
+          className={cn(
+            CLASSE_POIGNEE_A_GAUCHE,
+            'survol:group-focus-within:opacity-100 survol:group-hover:opacity-100',
+            (outilsCaches || sansPoignee) && 'hidden',
+          )}
+          data-poignee-projet={project.id}
+        >
+          <GripVertical className="h-3.5 w-3.5 shrink-0" />
+        </span>
+      )}
+      <LienInterne
+        adresse={construireFragment({ vue: 'projet', projectId: project.id })}
+        draggable={false}
         onClick={(event) => {
           if (rendus && clicSurLeBadgeRendu(event)) {
             // Un projet réuni REPLIÉ compte aussi les rendus de ses membres.
             const membres = sousGroupe && !sousGroupe.ouvert ? sousGroupe.membres.map((m) => m.id) : [];
             void client.ouvrirCarteNonLue(project.id, membres);
-          } else client.setActiveProject(project.id);
+            onChoose?.();
+            return;
+          }
+          client.setActiveProject(project.id);
           // Choisir, c'est aussi refermer : même quand c'est déjà le projet
           // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
           onChoose?.();
+          onEntrer?.();
         }}
         title={bande ? project.name : undefined}
         className={cn('flex h-[43px] sm:h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
@@ -2267,7 +2738,7 @@ function ProjectRow({
         {/* LE NOM RESTE LISIBLE AUX OUTILS D'ASSISTANCE même rétréci : il passe
             en `sr-only`, il ne disparaît pas du document. */}
         <span className={cn('min-w-0 flex-1 truncate', bande && 'sr-only')}>{project.name}</span>
-      </button>
+      </LienInterne>
       {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
           geste, et un bouton n'en contient pas un autre. */}
       {bande ? (
@@ -2279,45 +2750,55 @@ function ProjectRow({
             aria-hidden
           />
         ) : null
-      ) : repereVisible({ attention }) ? (
-        <RepereLigne icone={icone} signal={{ attention }} onDecision={() => allerALaDecision(project.id, onChoose)} />
-      ) : null}
-      {/* LES OUTILS DE LA LIGNE, au survol seulement : la poignée qui la range,
-          puis les réglages du projet. */}
-      <span
-        {...poigneeProps}
-        title={t('Glisser pour ranger')}
-        className={cn(
-          CLASSE_OUTIL_DE_LIGNE,
-          'cursor-grab touch-none active:cursor-grabbing',
-          (outilsCaches || bande || sansPoignee) && 'hidden',
-        )}
-        data-poignee-projet={project.id}
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </span>
-      <button
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={onSettings}
-        data-reglages-projet={project.id}
-        className={cn(CLASSE_OUTIL_DE_LIGNE, (outilsCaches || bande) && 'hidden')}
-        title={t('Réglages du projet')}
-      >
-        <EllipsisVertical className="h-4 w-4" />
-      </button>
-      {/* La flèche du sous-groupe, à DROITE, comme celle d'un dossier. */}
-      {sousGroupe && !bande ? (
-        <button
-          type="button"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => sousGroupe.basculer()}
-          data-deplier-regroupement={project.id}
-          className="flex h-[34px] sm:h-7 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-text"
-          title={sousGroupe.ouvert ? t('Replier les projets réunis') : t('Déplier les projets réunis')}
-        >
-          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', sousGroupe.ouvert && 'rotate-90')} />
-        </button>
-      ) : null}
+      ) : (
+        <div className="flex shrink-0 items-center">
+          {repereVisible({ attention }) ? (
+            <RepereLigne icone={icone} signal={{ attention }} onDecision={() => allerALaDecision(project.id, onChoose)} />
+          ) : null}
+          {/* LES OUTILS DE LA LIGNE, au survol seulement : un nouvel agent, puis
+              les réglages du projet. La poignée, elle, est à gauche de l'icône. */}
+          <span className={CLASSE_ENVELOPPE_D_OUTILS} data-outils-de-ligne>
+            <span className="flex min-w-0 items-center overflow-hidden">
+              {onNouvelAgent ? (
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={onNouvelAgent}
+                  data-nouvel-agent-projet={project.id}
+                  className={cn(CLASSE_OUTIL_DE_LIGNE, outilsCaches && 'hidden')}
+                  title={sousGroupe ? t('Nouvel artefact sur les projets réunis') : t('Nouvel artefact dans ce projet')}
+                  aria-label={sousGroupe ? 'Nouvel artefact sur les projets réunis' : 'Nouvel artefact dans ce projet'}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              ) : null}
+              <button
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={onSettings}
+                data-reglages-projet={project.id}
+                className={cn(CLASSE_OUTIL_DE_LIGNE, outilsCaches && 'hidden')}
+                title={t('Réglages du projet')}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </button>
+            </span>
+          </span>
+          {taches && !sousGroupe ? <FlecheDesTaches projectId={project.id} ouvert={taches.ouvert} basculer={taches.basculer} /> : null}
+          {/* La flèche du sous-groupe, à DROITE, comme celle d'un dossier. */}
+          {sousGroupe ? (
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => sousGroupe.basculer()}
+              data-deplier-regroupement={project.id}
+              className="flex h-[34px] sm:h-7 w-[29px] sm:w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-text"
+              title={sousGroupe.ouvert ? t('Replier les projets réunis') : t('Déplier les projets réunis')}
+            >
+              <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', sousGroupe.ouvert && 'rotate-90')} />
+            </button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -2333,33 +2814,197 @@ interface Found {
 }
 
 /** Une étape du montage d'un projet, telle qu'elle revient du serveur. */
-interface Etape {
-  titre: string;
-  fait: boolean;
-  detail?: string;
+type Etape = EtapeDuMontage;
+
+/**
+ * UN MONTAGE SUIVI EN DIRECT : la liste prévue posée dès le clic, puis l'état
+ * que le démon pousse à chaque étape (`project.montage`, filtré par `suivi`).
+ * La réponse finale l'écrase toujours : un événement perdu ne laisse rien de faux.
+ */
+interface MontageSuivi {
+  suivi: string;
+  prevues: string[];
+  etapes: Etape[];
+  enCours?: string;
+  fini: boolean;
+}
+
+function nouveauSuivi(): string {
+  return `montage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Les lignes à montrer : fini, la liste notée par le démon fait foi, telle quelle. */
+function lignesDuMontageSuivi(montage: MontageSuivi): LigneDuMontage[] {
+  return lignesDuMontage(montage.fini ? [] : montage.prevues, montage.etapes, montage.enCours);
 }
 
 /**
  * Le déroulé du montage, le même pour un projet neuf et pour un dépôt GitHub :
- * une étape par ligne, ce qui a raté écrit avec sa cause.
+ * une étape par ligne, posée dès le clic et cochée au fil du montage — le même
+ * rond que les barres d'étapes (`RondDEtape`), relié au suivant par un trait.
+ * Ce qui a raté s'écrit avec sa cause.
+ *
+ * IL PREND LA PLACE DU FORMULAIRE (demande du 15/11/2026) : pendant le montage,
+ * la fenêtre ne montre QUE lui, aéré (texte 14 px, une marge autour, de l'air
+ * entre deux étapes). Chaque étape réussie y passe au VERT, coche blanche, et
+ * le trait qui la relie à la suivante aussi — exception au monochrome voulue
+ * par l'utilisateur, limitée à ce déroulé (`CLASSE_ROND_VERT`).
  */
-function DerouleDesEtapes({ etapes }: { etapes: Etape[] }) {
+function DerouleDesEtapes({ lignes }: { lignes: LigneDuMontage[] }) {
   return (
-    <ul className="mt-1 space-y-1">
-      {etapes.map((etape, index) => (
-        <li key={index} className="flex items-start gap-1.5 text-[13px]">
-          {etape.fait ? (
-            <Check className="mt-[3px] h-3 w-3 shrink-0 text-success" />
-          ) : (
-            <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-danger" />
-          )}
-          <span className="min-w-0 flex-1">
-            <span className={etape.fait ? 'text-muted' : 'text-danger'}>{etape.titre}</span>
-            {etape.detail ? <span className={cn('block break-words text-[11.5px]', etape.fait ? 'text-faint' : 'text-danger/80')}>{etape.detail}</span> : null}
+    <ol className="px-1 py-4 sm:px-3" data-deroule-montage aria-live="polite">
+      {lignes.map((ligne, index) => {
+        const dernier = index === lignes.length - 1;
+        return (
+          <li key={ligne.cle} className="flex items-stretch gap-3 text-[14px]" data-etape-montage={ligne.cle} data-etat={ligne.etat}>
+            <span className="flex flex-col items-center pt-px">
+              <RondDEtape
+                vert
+                forme={ligne.etat === 'fait' ? 'faite' : ligne.etat === 'en-cours' ? 'travail' : ligne.etat === 'rate' ? 'erreur' : 'avenir'}
+              />
+              {/* Un trait qui porte une information suit `--faint`, jamais `--border` ; vert entre deux étapes faites. */}
+              {dernier ? null : (
+                <span aria-hidden className={cn('my-1 min-h-3 w-px flex-1', ligne.etat === 'fait' ? CLASSE_TRAIT_VERT : 'bg-faint/60')} />
+              )}
+            </span>
+            <span className={cn('min-w-0 flex-1', !dernier && 'pb-4')}>
+              <span
+                className={cn(
+                  'block leading-[19px]',
+                  ligne.etat === 'rate' ? 'text-danger' : ligne.etat === 'a-venir' ? 'text-faint' : 'text-text',
+                  ligne.etat === 'en-cours' && 'font-medium',
+                )}
+              >
+                {ligne.titre}
+              </span>
+              {ligne.detail ? (
+                <span className={cn('mt-0.5 block break-words text-[12.5px]', ligne.etat === 'rate' ? 'text-danger/80' : 'text-faint')}>{ligne.detail}</span>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
+ * CE QUI S'EST PASSÉ, QUAND LE MONTAGE N'A PAS TOUT RÉUSSI. Toute erreur ramène
+ * le formulaire (décision de l'utilisateur, 15/11/2026), et ce message s'écrit
+ * EN TÊTE, au-dessus des champs restés remplis : il remplace l'ancien message
+ * éphémère, et reste jusqu'au prochain envoi.
+ */
+interface ErreurDeMontage {
+  titre: string;
+  /** Les étapes ratées, avec leur cause ; vide pour un refus avant montage. */
+  etapes: { titre: string; detail?: string }[];
+  /** La cause d'un refus, ou ce qu'il faut savoir pour la suite. */
+  explication: string;
+}
+
+/** Le message d'un montage refusé ou resté sans réponse : rien n'est monté, ou on ne le sait pas. */
+function erreurDuMontageRefuse(err: any, depuisGithub: boolean): ErreurDeMontage {
+  const message = typeof err?.message === 'string' ? err.message : '';
+  if (message === RAISON_SANS_REPONSE) {
+    return {
+      titre: t('Le serveur n\'a pas répondu à temps'),
+      etapes: [],
+      explication: t('Le montage continue peut-être sur le serveur. Regardez si le projet apparaît dans la colonne de gauche avant de réessayer.'),
+    };
+  }
+  return {
+    titre: depuisGithub ? t('Le dépôt n\'a pas été ajouté') : t('Le projet n\'a pas été créé'),
+    etapes: [],
+    explication: message
+      ? t('Raison : {v0}. Rien n\'a été créé sur le serveur : corrigez puis réessayez.', { v0: message })
+      : t('Rien n\'a été créé sur le serveur : corrigez puis réessayez.'),
+  };
+}
+
+/** Le message d'un montage allé au bout avec une ou plusieurs étapes ratées (`bilanDuMontageRate`). */
+function erreurDuMontagePartiel(etapes: readonly Etape[], depuisGithub: boolean): ErreurDeMontage | null {
+  const bilan = bilanDuMontageRate(etapes);
+  if (!bilan) return null;
+  return {
+    titre:
+      bilan.ratees.length > 1
+        ? t('{v0} étapes du montage ont échoué', { v0: bilan.ratees.length })
+        : t('Une étape du montage a échoué'),
+    etapes: bilan.ratees.map((etape) => ({ titre: etape.titre, detail: etape.detail })),
+    explication: !bilan.projetInscrit
+      ? t('Le dossier existe déjà sur le serveur, mais le projet n\'est pas inscrit dans la colonne de gauche. Un nouvel envoi sous le même nom de dossier sera refusé.')
+      : depuisGithub
+        ? t('Le projet a quand même été ajouté : il apparaît déjà dans la colonne de gauche. Ajouter à nouveau le même dépôt sera refusé : ouvrez le projet pour terminer.')
+        : t('Le projet a quand même été créé : il apparaît déjà dans la colonne de gauche. Un nouvel envoi sous le même nom de dossier sera refusé : ouvrez le projet pour terminer, ou choisissez un autre nom de dossier.'),
+  };
+}
+
+function MessageDErreurDeMontage({ erreur }: { erreur: ErreurDeMontage }) {
+  return (
+    <div role="alert" className="rounded-lg bg-danger/10 px-3 py-2.5 text-[13.5px] text-danger" data-erreur-montage>
+      <p className="font-medium">{erreur.titre}</p>
+      {erreur.etapes.length ? (
+        <ul className="mt-1.5 space-y-1">
+          {erreur.etapes.map((etape, index) => (
+            <li key={index} className="break-words">
+              {etape.titre}
+              {etape.detail ? <span className="text-danger/80"> — {etape.detail}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-1.5 break-words text-danger/90">{erreur.explication}</p>
+    </div>
+  );
+}
+
+/** Les quatre chemins d'arrivée d'un projet, proposés en cartes à l'ouverture. */
+type CheminDuServeur = 'new' | 'source' | 'github' | 'existing';
+
+function titreDuChemin(chemin: CheminDuServeur): string {
+  if (chemin === 'new') return t('Nouveau projet');
+  if (chemin === 'source') return t('À partir d\'un produit existant');
+  if (chemin === 'github') return t('Depuis GitHub');
+  return t('Déjà sur le serveur');
+}
+
+/*
+ * L'ÉCRAN DE CHOIX (15/11/2026, à la place du menu des chemins) : quatre
+ * cartes de même tenue, titre et description entiers — jamais repliés dans un
+ * bouton —, deux colonnes sur ordinateur, une sur téléphone. Grises comme le
+ * reste : le choix fait changer d'écran, il n'a pas à être teinté.
+ */
+function ChoixDuChemin({ onChoisir }: { onChoisir: (chemin: CheminDuServeur) => void }) {
+  const chemins: { cle: CheminDuServeur; Icone: typeof FolderPlus; description: string }[] = [
+    { cle: 'new', Icone: FolderPlus, description: t('Un dossier vide, prêt à recevoir votre projet, avec son dépôt et son adresse.') },
+    {
+      cle: 'source',
+      Icone: Copy,
+      description: t('Clonez un site, un SaaS, une application ou un jeu, ou inspirez-vous-en : Beluga l\'analyse et rédige le cahier des charges.'),
+    },
+    { cle: 'github', Icone: Github, description: t('Reprenez un dépôt qui existe déjà sur votre compte GitHub ou par son lien.') },
+    { cle: 'existing', Icone: Folder, description: t('Suivez un dossier déjà présent sur cette machine.') },
+  ];
+  return (
+    <div className="mt-2 grid gap-3 sm:grid-cols-2" data-choix-du-chemin>
+      {chemins.map(({ cle, Icone, description }) => (
+        <button
+          key={cle}
+          type="button"
+          onClick={() => onChoisir(cle)}
+          data-chemin={cle}
+          className="flex h-full min-w-0 items-start gap-3 rounded-xl bg-raised px-3.5 py-3 text-left transition-colors hover:bg-fond-survol focus-visible:bg-fond-survol focus-visible:outline-none"
+        >
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface text-muted">
+            <Icone className="h-4 w-4" />
           </span>
-        </li>
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="text-[14.5px] font-medium text-text">{titreDuChemin(cle)}</span>
+            <span className="text-[13px] leading-snug text-muted">{description}</span>
+          </span>
+        </button>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -2401,7 +3046,10 @@ function ProjectsDialog({
   const [loading, setLoading] = React.useState(false);
   const [filter, setFilter] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
-  const [onglet, setOnglet] = React.useState('existing');
+  /* LE CHEMIN CHOISI SUR L'ÉCRAN DE DÉPART (15/11/2026 : plus de menu en tête
+     de fenêtre). `null` = l'écran des quatre cartes, où la fenêtre s'ouvre
+     toujours ; les saisies, elles, survivent à un aller-retour. */
+  const [chemin, setChemin] = React.useState<CheminDuServeur | null>(null);
 
   /* Le troisième chemin : un dépôt qui existe DÉJÀ sur GitHub. Deux entrées —
      les dépôts du compte connecté, ou un lien collé à la main. */
@@ -2415,7 +3063,8 @@ function ProjectsDialog({
   const [ghPort, setGhPort] = React.useState('');
   /* Les deux mêmes descriptions de mise en ligne : les deux chemins d'arrivée
      dans l'application offrent la même chose. */
-  const [etapesGithub, setEtapesGithub] = React.useState<Etape[] | null>(null);
+  const [montageGithub, setMontageGithub] = React.useState<MontageSuivi | null>(null);
+  const [erreurGithub, setErreurGithub] = React.useState<ErreurDeMontage | null>(null);
 
   const [newName, setNewName] = React.useState('');
   const [newFolder, setNewFolder] = React.useState('');
@@ -2431,7 +3080,10 @@ function ProjectsDialog({
   /* LE PRODUIT À CLONER (facultatif) : un lien ou un nom. Rempli, il coche le
      cahier des charges, qui part alors de cette source (`shared/src/clonage.ts`). */
   const [newSource, setNewSource] = React.useState('');
-  const avecSource = !!newSource.trim();
+  /* LE CLONAGE EST UN CHEMIN À PART : seul le chemin « source » envoie le lien,
+     et il force le cahier des charges. Une saisie faite là ne fuit jamais dans
+     un « Nouveau projet ». */
+  const avecSource = chemin === 'source';
   /* L'adresse publique se demande ICI, au montage : un projet monté sans elle
      est un projet dont le déploiement n'a rien à contrôler à la fin. */
   const [newSousDomaine, setNewSousDomaine] = React.useState('');
@@ -2442,7 +3094,32 @@ function ProjectsDialog({
      et se relisent ensuite dans les réglages du projet. */
   /* Le déroulé du montage : on le garde à l'écran après coup, sinon une étape
      ratée passerait dans un message qui s'efface tout seul. */
-  const [etapes, setEtapes] = React.useState<Etape[] | null>(null);
+  const [montage, setMontage] = React.useState<MontageSuivi | null>(null);
+  const [erreurMontage, setErreurMontage] = React.useState<ErreurDeMontage | null>(null);
+  /* L'AVANCÉE POUSSÉE PAR LE DÉMON : seul le montage lancé ICI, et pas encore
+     fini, prend l'état reçu — une autre création (autre onglet) n'y touche pas. */
+  React.useEffect(() => {
+    const recevoir = (evenement: Event) => {
+      const recu = (evenement as CustomEvent<{ suivi: string; etapes: Etape[]; enCours?: string }>).detail;
+      if (!recu?.suivi) return;
+      const avancer = (courant: MontageSuivi | null) =>
+        courant && !courant.fini && courant.suivi === recu.suivi ? { ...courant, etapes: recu.etapes, enCours: recu.enCours } : courant;
+      setMontage(avancer);
+      setMontageGithub(avancer);
+    };
+    window.addEventListener(EVENEMENT_MONTAGE, recevoir);
+    return () => window.removeEventListener(EVENEMENT_MONTAGE, recevoir);
+  }, []);
+  /* PENDANT UN MONTAGE, LE DÉROULÉ PREND LA PLACE DU FORMULAIRE — et la flèche
+     de retour au choix disparaît : on ne change pas de chemin en plein montage. Fermer la
+     fenêtre n'arrête rien côté démon. */
+  const enMontage = !!montage || !!montageGithub;
+  /* CHAQUE OUVERTURE REPART DE L'ÉCRAN DE CHOIX — sauf pendant un montage, dont
+     le déroulé doit rester sous les yeux. */
+  React.useEffect(() => {
+    if (open && !enMontage) setChemin(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   React.useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -2473,13 +3150,26 @@ function ProjectsDialog({
   };
 
   const createNew = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || (avecSource && !newSource.trim())) return;
     setBusy('new');
-    setEtapes(null);
+    /* La liste PRÉVUE paraît dès le clic, sa première étape en train de tourner :
+       on voit tout de suite ce qui va se faire, et ce qui se fait. */
+    const suivi = nouveauSuivi();
+    const prevues = etapesPrevuesDuMontageNeuf({
+      git: withGit,
+      gitRemote: newRemote,
+      github: withGithub,
+      sousDomaine: newSousDomaine,
+      port: newPort || undefined,
+      cahier: withCahier || avecSource,
+    });
+    setErreurMontage(null);
+    setMontage({ suivi, prevues, etapes: [], enCours: prevues[0], fini: false });
     try {
       const data = await client.call<{ project: { id: string }; etapes?: Etape[]; cahierCardId?: string }>(
         {
           type: 'project.new',
+          suivi,
           name: newName.trim(),
           folder: newFolder.trim() || undefined,
           description: newResume.trim() || undefined,
@@ -2489,13 +3179,27 @@ function ProjectsDialog({
           sousDomaine: newSousDomaine.trim() || undefined,
           port: newPort ? Number(newPort) : undefined,
           cahierDesCharges: withCahier || avecSource,
-          source: newSource.trim() || undefined,
+          source: avecSource ? newSource.trim() : undefined,
         },
         /* La création de l'adresse attend que le nom soit visible sur Internet :
            le montage peut donc durer plus longtemps qu'avant. */
         300000,
       );
-      setEtapes(data.etapes ?? []);
+      /* UNE ÉTAPE RATÉE RAMÈNE LE FORMULAIRE, champs gardés, avec le message
+         qui dit laquelle, pourquoi, et que le projet existe déjà. Sinon la
+         fenêtre se referme et l'on arrive dans le projet, sur sa carte du cahier. */
+      const echec = erreurDuMontagePartiel(data.etapes ?? [], false);
+      if (echec) {
+        setMontage((courant) => (courant?.suivi === suivi ? null : courant));
+        setErreurMontage(echec);
+        client.setActiveProject(data.project.id);
+        return;
+      }
+      setMontage((courant) => (courant?.suivi === suivi ? { ...courant, etapes: data.etapes ?? [], enCours: undefined, fini: true } : courant));
+      // Un instant pour voir la dernière coche, puis on entre dans le projet.
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      onClose();
+      entrerDansLeProjet(data.project.id, data.cahierCardId, withCahier || avecSource);
       setNewName('');
       setNewFolder('');
       setNewRemote('');
@@ -2503,28 +3207,23 @@ function ProjectsDialog({
       setNewSousDomaine('');
       setNewPort('');
       setNewSource('');
-      /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
-         endroit où l'on peut lire laquelle et pourquoi. Sinon elle se referme
-         et l'on arrive dans le projet, sur sa carte du cahier. */
-      const toutFait = (data.etapes ?? []).every((etape) => etape.fait);
-      if (toutFait) {
-        onClose();
-        entrerDansLeProjet(data.project.id, data.cahierCardId, withCahier || avecSource);
-      } else client.setActiveProject(data.project.id);
+      setMontage((courant) => (courant?.suivi === suivi ? null : courant));
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('création impossible'));
+      // Refusé avant tout montage (dossier déjà là, port pris), ou resté sans réponse : le formulaire revient avec la raison.
+      setMontage((courant) => (courant?.suivi === suivi ? null : courant));
+      setErreurMontage(erreurDuMontageRefuse(err, false));
     } finally {
       setBusy(null);
     }
   };
 
   /*
-   * Les dépôts du compte ne se demandent qu'à l'OUVERTURE de l'onglet : les
+   * Les dépôts du compte ne se demandent qu'au CHOIX du chemin GitHub : les
    * lister appelle GitHub, et personne ne veut payer cet appel pour ouvrir la
    * fenêtre sur un autre chemin.
    */
   React.useEffect(() => {
-    if (!open || onglet !== 'github' || depotsCharges) return;
+    if (!open || chemin !== 'github' || depotsCharges) return;
     setDepotsCharges(true);
     setLoading(true);
     client
@@ -2536,7 +3235,7 @@ function ProjectsDialog({
       })
       .catch((err: any) => setDepotsErreur(err?.message ?? t('les dépôts GitHub sont illisibles')))
       .finally(() => setLoading(false));
-  }, [open, onglet, depotsCharges]);
+  }, [open, chemin, depotsCharges]);
 
   /** Le seul chemin d'ajout : le lien lu, l'adresse demandée, puis le montage. */
   const ajouterDepuisGithub = async (lien: string, cle: string) => {
@@ -2546,11 +3245,15 @@ function ProjectsDialog({
       return;
     }
     setBusy(cle);
-    setEtapesGithub(null);
+    const suivi = nouveauSuivi();
+    const prevues = etapesPrevuesDepuisGithub({ sousDomaine: ghSousDomaine, port: ghPort || undefined, cahier: ghCahier });
+    setErreurGithub(null);
+    setMontageGithub({ suivi, prevues, etapes: [], enCours: prevues[0], fini: false });
     try {
       const data = await client.call<{ project: { id: string }; etapes?: Etape[]; cahierCardId?: string }>(
         {
           type: 'project.fromGithub',
+          suivi,
           lien: lu.depot.slug,
           sousDomaine: ghSousDomaine.trim() || undefined,
           port: ghPort ? Number(ghPort) : undefined,
@@ -2560,19 +3263,29 @@ function ProjectsDialog({
            temps du clone, sinon un gros dépôt passerait pour une panne. */
         600000,
       );
-      setEtapesGithub(data.etapes ?? []);
+      // Le dépôt est inscrit, même si une étape a raté : il ne se propose plus.
+      setDepots((current) => current.filter((depot) => depot.slug !== lu.depot!.slug));
+      /* Une étape ratée ramène le formulaire, avec le message qui l'explique. */
+      const echec = erreurDuMontagePartiel(data.etapes ?? [], true);
+      if (echec) {
+        setMontageGithub((courant) => (courant?.suivi === suivi ? null : courant));
+        setErreurGithub(echec);
+        client.setActiveProject(data.project.id);
+        return;
+      }
+      setMontageGithub((courant) =>
+        courant?.suivi === suivi ? { ...courant, etapes: data.etapes ?? [], enCours: undefined, fini: true } : courant,
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      onClose();
+      entrerDansLeProjet(data.project.id, data.cahierCardId, ghCahier);
       setLienGithub('');
       setGhSousDomaine('');
       setGhPort('');
-      setDepots((current) => current.filter((depot) => depot.slug !== lu.depot!.slug));
-      /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
-         endroit où l'on peut lire laquelle et pourquoi. */
-      if ((data.etapes ?? []).every((etape) => etape.fait)) {
-        onClose();
-        entrerDansLeProjet(data.project.id, data.cahierCardId, ghCahier);
-      } else client.setActiveProject(data.project.id);
+      setMontageGithub((courant) => (courant?.suivi === suivi ? null : courant));
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'ajout impossible');
+      setMontageGithub((courant) => (courant?.suivi === suivi ? null : courant));
+      setErreurGithub(erreurDuMontageRefuse(err, true));
     } finally {
       setBusy(null);
     }
@@ -2583,26 +3296,32 @@ function ProjectsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      {/* LES TROIS CHOIX, FIXÉS SOUS LE TITRE : le composant d'onglets de
-          l'application, en pleine largeur et en trois parts égales ; seul le
-          contenu dessous défile. La racine des onglets enveloppe le volet pour
-          que la liste (dans l'entête) et les contenus (dans le corps) partagent
-          le même choix (le volet part en portail, le contexte le suit). */}
-      <Tabs value={onglet} onValueChange={setOnglet}>
-        <DialogContent className="sm:w-[min(640px,100%)]" adresse={adresse} data-projets-du-serveur>
+      <DialogContent className="sm:w-[min(640px,100%)]" adresse={adresse} data-projets-du-serveur data-chemin-choisi={chemin ?? ''}>
         <DialogHeader
-          sous={
-            <TabsList className="mt-2 w-full" data-onglets-projets-du-serveur>
-              <TabsTrigger value="existing" className="flex-1">{t('Déjà sur le serveur')}</TabsTrigger>
-              <TabsTrigger value="github" className="flex-1">{t('Depuis GitHub')}</TabsTrigger>
-              <TabsTrigger value="new" className="flex-1">{t('Nouveau projet')}</TabsTrigger>
-            </TabsList>
+          /* LA FLÈCHE RAMÈNE À L'ÉCRAN DE CHOIX — absente pendant un montage :
+             on ne quitte pas un chemin dont le déroulé tourne. */
+          gauche={
+            chemin && !enMontage ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Revenir au choix"
+                title={t('Revenir au choix')}
+                onClick={() => setChemin(null)}
+                data-retour-au-choix
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            ) : null
           }
         >
-          <DialogTitle>{t('Projets du serveur')}</DialogTitle>
+          <DialogTitle className="min-w-0 truncate">{chemin ? titreDuChemin(chemin) : t('Projets du serveur')}</DialogTitle>
         </DialogHeader>
 
-          <TabsContent value="existing" className="mt-3">
+        {chemin === null ? <ChoixDuChemin onChoisir={setChemin} /> : null}
+
+        {chemin === 'existing' ? (
+          <div className="mt-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
               <Input
@@ -2652,224 +3371,247 @@ function ProjectsDialog({
             ) : (
               <p className="mt-3 text-[13.5px] text-faint">{t('Tous les projets du serveur sont déjà dans votre liste.')}</p>
             )}
-          </TabsContent>
+          </div>
+        ) : null}
 
-          <TabsContent value="github" className="mt-3 space-y-2.5">
-            {/* L'adresse publique se demande AVANT le montage, ici comme pour un projet neuf. */}
-            <div data-adresse-depuis-github>
-              <div className="flex items-center gap-1">
-                <Label>{t('Adresse publique du projet (facultatif)')}</Label>
-                <BulleInfo cote="start">
-                  {t('Le nom et le port sur lequel le projet écoutera. Ils sont demandés avant le montage : c\'est cette adresse qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est ajouté sans adresse.')}
-                </BulleInfo>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  value={ghSousDomaine}
-                  onChange={(event) => setGhSousDomaine(event.target.value)}
-                  placeholder="nom-du-site"
-                  className="flex-1"
-                  data-sous-domaine-github
-                />
-                <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
-                <Input
-                  value={ghPort}
-                  onChange={(event) => setGhPort(event.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="port"
-                  className="w-[74px]"
-                  data-port-github
-                />
-              </div>
-            </div>
-
-
-            <div className="border-t border-border pt-2.5">
-              <Label>{t('Vos dépôts GitHub{v0}', { v0: compteGithub ? ` (compte ${compteGithub})` : '' })}</Label>
-              <div className="relative mt-1">
-                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
-                <Input
-                  value={chercheDepot}
-                  onChange={(event) => setChercheDepot(event.target.value)}
-                  placeholder={t('Chercher un dépôt…')}
-                  className="pl-7"
-                  data-recherche-depot
-                />
-              </div>
-
-              {loading && !depots.length ? (
-                <p className="mt-2 flex items-center gap-1.5 text-[13.5px] text-faint">
-                  <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des dépôts du compte GitHub…')}
-</p>
-              ) : depotsErreur ? (
-                <p className="mt-2 text-[13px] text-danger">{depotsErreur}</p>
-              ) : depotsVisibles.length ? (
-                <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[220px] flex-none" className="space-y-0.5">
-                  {depotsVisibles.map((depot) => (
-                    <div
-                      key={depot.slug}
-                      className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5"
-                      data-depot-github={depot.slug}
-                    >
-                      <Github className="h-3 w-3 shrink-0 text-faint" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[14px] text-text">{depot.slug}</p>
-                        <p className="truncate text-[11.5px] text-faint">
-                          {depot.prive ? t('privé') : 'public'}
-                          {depot.vide ? t(' · vide') : ''}
-                          {depot.description ? ` · ${depot.description}` : ''}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy === depot.slug || depot.vide}
-                        onClick={() => ajouterDepuisGithub(depot.slug, depot.slug)}
-                      >
-                        {busy === depot.slug ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Plus className="h-3 w-3" />
-                        )}
-                        
-{t('Ajouter')}
-</Button>
-                    </div>
-                  ))}
-                </ZoneDefilement>
-              ) : (
-                <p className="mt-2 text-[13.5px] text-faint">
-                  {depots.length ? t('Aucun dépôt ne correspond à cette recherche.') : t('Aucun dépôt trouvé sur ce compte.')}
-                </p>
-              )}
-            </div>
-
-            <div className="border-t border-border pt-2.5">
-              <div className="flex items-center gap-1">
-                <Label>{t('Ou collez le lien d\'un dépôt')}</Label>
-                <BulleInfo cote="start">
-                  {t('Pour un dépôt qui n\'appartient pas à ce compte. Le dépôt est récupéré sur le serveur et le projet apparaît dans la liste de gauche. Rien n\'est publié ni mis en ligne au passage.')}
-                </BulleInfo>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  value={lienGithub}
-                  onChange={(event) => setLienGithub(event.target.value)}
-                  placeholder="https://github.com/compte/depot"
-                  className="flex-1"
-                  data-lien-github
-                />
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={!lienGithub.trim() || busy === 'lien'}
-                  onClick={() => ajouterDepuisGithub(lienGithub, 'lien')}
-                >
-                  {busy === 'lien' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                  
-{t('Ajouter')}
-</Button>
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="github">
-              <Switch checked={ghCahier} onCheckedChange={setGhCahier} />
-              <span>{t('Démarrer par un cahier des charges')}</span>
-            </label>
-
-            {etapesGithub ? <DerouleDesEtapes etapes={etapesGithub} /> : null}
-          </TabsContent>
-
-          <TabsContent value="new" className="mt-3 space-y-2.5">
-            <FormulaireEnColonnes>
-              <LigneFormulaire libelle={t('Nom du projet')}>
-                <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('Mon nouveau site')} autoFocus />
-              </LigneFormulaire>
-              <LigneFormulaire libelle={t('Nom du dossier (facultatif)')}>
-                <Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder={t('déduit du nom')} />
-              </LigneFormulaire>
-              <LigneFormulaire
-                libelle={t('En une phrase, à quoi sert ce projet ? (facultatif)')}
-                aide={t('Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.')}
-              >
-                <Input value={newResume} onChange={(event) => setNewResume(event.target.value)} placeholder={t('Le site vitrine de l\'atelier')} />
-              </LigneFormulaire>
-              <LigneFormulaire
-                libelle={t('Produit à cloner ou dont s\'inspirer (facultatif)')}
-                aide={t('Le lien ou le nom d\'un site, d\'un SaaS, d\'une application ou d\'un jeu existant. Beluga vous demandera si vous voulez un vrai clone ou vous en inspirer, l\'analysera puis rédigera le cahier des charges à partir de ce qu\'il a trouvé. Un fichier (APK, captures) se joint à la première question.')}
-              >
-                <Input
-                  value={newSource}
-                  onChange={(event) => setNewSource(event.target.value)}
-                  placeholder="https://…"
-                  data-source-a-cloner
-                />
-              </LigneFormulaire>
-              {/* L'adresse publique : demandée ici, créée pendant le montage. */}
-              <LigneFormulaire
-                libelle={t('Adresse publique du projet (facultatif)')}
-                aide={t('Le nom et le port sur lequel le projet écoutera. Beluga Build crée l\'adresse pendant le montage : c\'est elle qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.')}
-                data-adresse-nouveau-projet
-              >
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    value={newSousDomaine}
-                    onChange={(event) => setNewSousDomaine(event.target.value)}
-                    placeholder="nom-du-site"
-                    className="flex-1"
-                    data-sous-domaine
-                  />
-                  <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
-                  <Input
-                    value={newPort}
-                    onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="port"
-                    className="w-[74px]"
-                    data-port-projet
-                  />
+        {chemin === 'github' ? (
+          <div className="mt-3 space-y-2.5">
+            {montageGithub ? (
+              <DerouleDesEtapes lignes={lignesDuMontageSuivi(montageGithub)} />
+            ) : (
+              <>
+                {erreurGithub ? <MessageDErreurDeMontage erreur={erreurGithub} /> : null}
+                {/* L'adresse publique se demande AVANT le montage, ici comme pour un projet neuf. */}
+                <div data-adresse-depuis-github>
+                  <div className="flex items-center gap-1">
+                    <Label>{t('Adresse publique du projet (facultatif)')}</Label>
+                    <BulleInfo cote="start">
+                      {t('Le nom et le port sur lequel le projet écoutera. Ils sont demandés avant le montage : c\'est cette adresse qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est ajouté sans adresse.')}
+                    </BulleInfo>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <Input
+                      value={ghSousDomaine}
+                      onChange={(event) => setGhSousDomaine(event.target.value)}
+                      placeholder="nom-du-site"
+                      className="flex-1"
+                      data-sous-domaine-github
+                    />
+                    <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
+                    <Input
+                      value={ghPort}
+                      onChange={(event) => setGhPort(event.target.value.replace(/[^0-9]/g, ''))}
+                      placeholder="port"
+                      className="w-[74px]"
+                      data-port-github
+                    />
+                  </div>
                 </div>
-              </LigneFormulaire>
-              {/* Les deux descriptions de mise en ligne, juste après l'adresse :
-                  c'est le moment où l'on pense à où le projet va vivre. */}
-              <LigneFormulaire libelle={t('Dépôt distant existant (facultatif)')}>
-                <Input value={newRemote} onChange={(event) => setNewRemote(event.target.value)} placeholder={t('laisser vide pour en créer un sur GitHub')} />
-              </LigneFormulaire>
-            </FormulaireEnColonnes>
-            <label className="flex items-center gap-2 text-[14px] text-muted">
-              <Switch checked={withGit} onCheckedChange={setWithGit} />
-              
-{t('Démarrer un dépôt git dans le dossier')}
-</label>
-            <label className="flex items-center gap-2 text-[14px] text-muted">
-              <Switch
-                checked={withGithub && withGit && !newRemote.trim()}
-                disabled={!withGit || !!newRemote.trim()}
-                onCheckedChange={setWithGithub}
-              />
-              
-{t('Créer aussi le dépôt privé sur GitHub')}
-</label>
-            <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="vide">
-              <Switch checked={withCahier || avecSource} disabled={avecSource} onCheckedChange={setWithCahier} />
-              <span>{t('Démarrer par un cahier des charges')}</span>
-              <BulleInfo cote="start">
-                {t('Une carte « Cahier des charges » apparaît dans le projet : son agent vous pose les questions une à une, rédige le cahier des charges sous vos yeux, puis le plan de construction. On peut le mettre en pause et le reprendre plus tard.')}
-              </BulleInfo>
-            </label>
 
-            <div className="flex items-center gap-1.5">
-              <Button variant="default" size="sm" disabled={!newName.trim() || busy === 'new'} onClick={createNew}>
-                {busy === 'new' ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderPlus className="h-3 w-3" />}
-                {t('Créer le projet')}
-              </Button>
-              <BulleInfo cote="start">
-                {t('Le dossier est créé pour de vrai sur le serveur, sur la branche « main », avec les fichiers d\'instructions des moteurs, la mémoire, l\'historique et une documentation de départ. Le projet apparaît ensuite dans la liste de gauche.')}
-              </BulleInfo>
-            </div>
 
-            {etapes ? <DerouleDesEtapes etapes={etapes} /> : null}
-          </TabsContent>
-        </DialogContent>
-      </Tabs>
+                <div className="border-t border-border pt-2.5">
+                  <Label>{t('Vos dépôts GitHub{v0}', { v0: compteGithub ? ` (compte ${compteGithub})` : '' })}</Label>
+                  <div className="relative mt-1">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
+                    <Input
+                      value={chercheDepot}
+                      onChange={(event) => setChercheDepot(event.target.value)}
+                      placeholder={t('Chercher un dépôt…')}
+                      className="pl-7"
+                      data-recherche-depot
+                    />
+                  </div>
+
+                  {loading && !depots.length ? (
+                    <p className="mt-2 flex items-center gap-1.5 text-[13.5px] text-faint">
+                      <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des dépôts du compte GitHub…')}
+    </p>
+                  ) : depotsErreur ? (
+                    <p className="mt-2 text-[13px] text-danger">{depotsErreur}</p>
+                  ) : depotsVisibles.length ? (
+                    <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[220px] flex-none" className="space-y-0.5">
+                      {depotsVisibles.map((depot) => (
+                        <div
+                          key={depot.slug}
+                          className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5"
+                          data-depot-github={depot.slug}
+                        >
+                          <Github className="h-3 w-3 shrink-0 text-faint" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14px] text-text">{depot.slug}</p>
+                            <p className="truncate text-[11.5px] text-faint">
+                              {depot.prive ? t('privé') : 'public'}
+                              {depot.vide ? t(' · vide') : ''}
+                              {depot.description ? ` · ${depot.description}` : ''}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy === depot.slug || depot.vide}
+                            sansAttente
+                            onClick={() => ajouterDepuisGithub(depot.slug, depot.slug)}
+                          >
+                            {busy === depot.slug ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Plus className="h-3 w-3" />
+                            )}
+                        
+    {t('Ajouter')}
+    </Button>
+                        </div>
+                      ))}
+                    </ZoneDefilement>
+                  ) : (
+                    <p className="mt-2 text-[13.5px] text-faint">
+                      {depots.length ? t('Aucun dépôt ne correspond à cette recherche.') : t('Aucun dépôt trouvé sur ce compte.')}
+                    </p>
+                  )}
+                </div>
+
+                <div className="border-t border-border pt-2.5">
+                  <div className="flex items-center gap-1">
+                    <Label>{t('Ou collez le lien d\'un dépôt')}</Label>
+                    <BulleInfo cote="start">
+                      {t('Pour un dépôt qui n\'appartient pas à ce compte. Le dépôt est récupéré sur le serveur et le projet apparaît dans la liste de gauche. Rien n\'est publié ni mis en ligne au passage.')}
+                    </BulleInfo>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <Input
+                      value={lienGithub}
+                      onChange={(event) => setLienGithub(event.target.value)}
+                      placeholder="https://github.com/compte/depot"
+                      className="flex-1"
+                      data-lien-github
+                    />
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={!lienGithub.trim() || busy === 'lien'}
+                      sansAttente
+                      onClick={() => ajouterDepuisGithub(lienGithub, 'lien')}
+                    >
+                      {busy === 'lien' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                  
+    {t('Ajouter')}
+    </Button>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="github">
+                  <Switch checked={ghCahier} onCheckedChange={setGhCahier} />
+                  <span>{t('Démarrer par un cahier des charges')}</span>
+                </label>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {chemin === 'new' || chemin === 'source' ? (
+          <div className="mt-3 space-y-2.5">
+            {montage ? (
+              <DerouleDesEtapes lignes={lignesDuMontageSuivi(montage)} />
+            ) : (
+              <>
+                {erreurMontage ? <MessageDErreurDeMontage erreur={erreurMontage} /> : null}
+                <FormulaireEnColonnes>
+                  {/* LE PRODUIT EXISTANT VIENT EN PREMIER, et il est obligatoire :
+                      c'est lui qui fait de ce chemin un clonage. */}
+                  {avecSource ? (
+                    <LigneFormulaire
+                      libelle={t('Lien ou nom du produit')}
+                      aide={t('Le lien ou le nom d\'un site, d\'un SaaS, d\'une application ou d\'un jeu existant. Beluga vous demandera si vous voulez un vrai clone ou vous en inspirer, l\'analysera puis rédigera le cahier des charges à partir de ce qu\'il a trouvé. Un fichier (APK, captures) se joint à la première question.')}
+                    >
+                      <Input
+                        value={newSource}
+                        onChange={(event) => setNewSource(event.target.value)}
+                        placeholder="https://…"
+                        autoFocus
+                        data-source-a-cloner
+                      />
+                    </LigneFormulaire>
+                  ) : null}
+                  <LigneFormulaire libelle={t('Nom du projet')}>
+                    <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('Mon nouveau site')} autoFocus={!avecSource} />
+                  </LigneFormulaire>
+                  <LigneFormulaire libelle={t('Nom du dossier (facultatif)')}>
+                    <Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder={t('déduit du nom')} />
+                  </LigneFormulaire>
+                  <LigneFormulaire
+                    libelle={t('En une phrase, à quoi sert ce projet ? (facultatif)')}
+                    aide={t('Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.')}
+                  >
+                    <Input value={newResume} onChange={(event) => setNewResume(event.target.value)} placeholder={t('Le site vitrine de l\'atelier')} />
+                  </LigneFormulaire>
+                  {/* L'adresse publique : demandée ici, créée pendant le montage. */}
+                  <LigneFormulaire
+                    libelle={t('Adresse publique du projet (facultatif)')}
+                    aide={t('Le nom et le port sur lequel le projet écoutera. Beluga Build crée l\'adresse pendant le montage : c\'est elle qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.')}
+                    data-adresse-nouveau-projet
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        value={newSousDomaine}
+                        onChange={(event) => setNewSousDomaine(event.target.value)}
+                        placeholder="nom-du-site"
+                        className="flex-1"
+                        data-sous-domaine
+                      />
+                      <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
+                      <Input
+                        value={newPort}
+                        onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="port"
+                        className="w-[74px]"
+                        data-port-projet
+                      />
+                    </div>
+                  </LigneFormulaire>
+                  {/* Les deux descriptions de mise en ligne, juste après l'adresse :
+                      c'est le moment où l'on pense à où le projet va vivre. */}
+                  <LigneFormulaire libelle={t('Dépôt distant existant (facultatif)')}>
+                    <Input value={newRemote} onChange={(event) => setNewRemote(event.target.value)} placeholder={t('laisser vide pour en créer un sur GitHub')} />
+                  </LigneFormulaire>
+                </FormulaireEnColonnes>
+                <label className="flex items-center gap-2 text-[14px] text-muted">
+                  <Switch checked={withGit} onCheckedChange={setWithGit} />
+              
+    {t('Démarrer un dépôt git dans le dossier')}
+    </label>
+                <label className="flex items-center gap-2 text-[14px] text-muted">
+                  <Switch
+                    checked={withGithub && withGit && !newRemote.trim()}
+                    disabled={!withGit || !!newRemote.trim()}
+                    onCheckedChange={setWithGithub}
+                  />
+              
+    {t('Créer aussi le dépôt privé sur GitHub')}
+    </label>
+                <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="vide">
+                  <Switch checked={withCahier || avecSource} disabled={avecSource} onCheckedChange={setWithCahier} />
+                  <span>{t('Démarrer par un cahier des charges')}</span>
+                  <BulleInfo cote="start">
+                    {t('Une carte « Cahier des charges » apparaît dans le projet : son agent vous pose les questions une à une, rédige le cahier des charges sous vos yeux, puis le plan de construction. On peut le mettre en pause et le reprendre plus tard.')}
+                  </BulleInfo>
+                </label>
+
+                <div className="flex items-center gap-1.5">
+                  {/* Le bouton porte SA propre attente, sans l'avertissement commun
+                      « … prend plus de temps que prévu » : la liste dit ce qui se fait. */}
+                  <Button variant="default" size="sm" disabled={!newName.trim() || (avecSource && !newSource.trim()) || busy === 'new'} sansAttente onClick={createNew}>
+                    {busy === 'new' ? <Loader2 className="h-3 w-3 animate-spin" /> : <FolderPlus className="h-3 w-3" />}
+                    {t('Créer le projet')}
+                  </Button>
+                  <BulleInfo cote="start">
+                    {t('Le dossier est créé pour de vrai sur le serveur, sur la branche « main », avec les fichiers d\'instructions des moteurs, la mémoire, l\'historique et une documentation de départ. Le projet apparaît ensuite dans la liste de gauche.')}
+                  </BulleInfo>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
+      </DialogContent>
     </Dialog>
   );
 }

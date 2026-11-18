@@ -168,6 +168,22 @@ function resteApresLeNom(phrase: string[], projet: ProjetJoignable): string[] {
 }
 
 /**
+ * TOUS LES PROJETS DONT UNE PHRASE PARLE (conversation vocale en direct, 15/11/2026) : à la différence du
+ * routage, on ne cherche pas UN destinataire — une discussion qui passe de « HaikoBill » à « ProjetA » porte
+ * les deux marques. Les noms cités tels quels comptent tous ; à défaut, un seul nom APPROCHANT nettement
+ * devant les autres (la dictée écorche les noms propres). Le doute ne marque rien.
+ */
+export function projetsCites(texte: string, projets: ProjetJoignable[]): string[] {
+  const ouverts = projets.filter((projet) => !projet.archived);
+  const phrase = mots(texte);
+  if (!ouverts.length || !phrase.length) return [];
+  const cites = ouverts.filter((projet) => nomCite(phrase, projet)).map((projet) => projet.id);
+  if (cites.length) return cites;
+  const nomme = projetNomme(texte, ouverts);
+  return nomme.motif === 'nom-approchant' && nomme.projectId ? [nomme.projectId] : [];
+}
+
+/**
  * Le DESTINATAIRE d'une phrase, sans regarder ce qu'elle demande.
  * Sert aussi à lire la réponse à une question de routage — où l'utilisateur ne
  * dit souvent qu'un nom de projet, sans aucune action.

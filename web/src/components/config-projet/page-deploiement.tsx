@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw } from '@/components/ui/icones';
 import { PLAGE_PORTS_PROJETS, mentionBrancheParDefaut, mentionEcartAuSchema, zoneDesProjets } from '@beluga/shared';
 import { FormulaireEnColonnes, Input, LigneFormulaire } from '@/components/ui';
 import { t } from '@/lib/langue';
-import { CLASSE_TITRE_DE_TEMPS, OuJEnSuis, ProcessusEnPlace } from './processus-en-place';
+import { CLASSE_TITRE_DE_TEMPS, OuJEnSuis } from './processus-en-place';
 import { ChoixDeBranche, EcartAuSchema, Repli, TeteDeRubrique, type ContexteConfig } from './communs';
 
 /**
@@ -43,8 +43,6 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
       />
 
       <OuJEnSuis projet={ctx.project} cible="dev" />
-
-      <ProcessusEnPlace projet={ctx.project} cible="dev" branche={ctx.project.branchesDePublication?.dev} />
 
       <section className="space-y-3" data-reglages-de-l-etape="dev">
         <h3 className={CLASSE_TITRE_DE_TEMPS}>{t('Réglages')}</h3>

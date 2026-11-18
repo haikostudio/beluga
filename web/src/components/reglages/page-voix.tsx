@@ -1,256 +1,137 @@
 import * as React from 'react';
 import {
-  Loader2,
-  Play,
-  Volume2,
-} from 'lucide-react';
-import {
-  CRANS_DE_VITESSE,
-  formeDepuisEvenement,
+  AUCUN_RACCOURCI,
+  RACCOURCI_PAR_DEFAUT,
+  creerReconnaisseur,
   libelleDeRaccourci,
+  nomDeLAssistant,
+  phraseDAppel,
+  raccourciEffectif,
   raisonRaccourciRefuse,
 } from '@beluga/shared';
-import {
-  BulleInfo,
-  Button,
-  Input,
-  Switch,
-} from '@/components/ui';
-import { CLE_VOIX_MUETTE, CLE_VOIX_VISIBLE } from '@/components/voix-assistant';
-import { LigneDEtat } from '@/components/installation/sections';
-import { BoutonInstaller } from '@/components/installation/travail';
+import { plateformeDuClavier } from '@/lib/raccourci-de-jarvis';
+import { BulleInfo, Button, Switch } from '@/components/ui';
+import { CLE_VOIX_VISIBLE } from '@/components/voix-assistant';
+import { useVoixDisponible } from '@/lib/voix-disponible';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { usePref } from '@/lib/prefs';
-import { setConversationAllumeeGlobale, setEcouteAllumeeGlobale, useEtatVocalGlobal } from '@/lib/etat-vocal';
+import { CLE_JARVIS_DOS, plateformeNative } from '@/lib/natif';
+import { setMicroOuvertGlobal, useEtatVocalGlobal } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
+import { VoixDuDirect } from '@/components/reglages/voix-du-direct';
+import { SectionVotreAssistant } from '@/components/installation/votre-assistant';
 import { t } from '@/lib/langue';
 
-
 /**
- * Le choix de la voix qui lit le point du jour. Une voix ne se juge pas sur son
- * nom : chaque ligne porte donc son propre bouton d'écoute, et l'extrait est
- * fabriqué par le serveur avec CETTE voix-là, avant tout enregistrement.
+ * RÉGLAGES › VOIX (17/11/2026) : une seule voix, la conversation en direct avec Codex. Les anciennes voix du serveur
+ * (point du jour lu, annonces, lecture d'un message, choix et vitesse des voix Piper/Kokoro/Gemini) ont été RETIRÉES
+ * à la demande de l'utilisateur, jugées trop mécaniques. Restent : « Votre assistant » (prénom, nom, phrase d'appel),
+ * la voix de Codex et son essai, les interrupteurs Voix / Micro, le raccourci clavier.
  */
-export function VoiceSection({ open }: { open: boolean }) {
+export function VoiceSection({ open: _open }: { open: boolean }) {
   const state = useApp();
-  const [voices, setVoices] = React.useState<{ id: string; label: string; description: string }[]>([]);
-  const [playing, setPlaying] = React.useState<string | null>(null);
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
-  // La capture du raccourci d'écoute : tant qu'elle est active, le prochain appui
-  // devient le raccourci (s'il convient), sinon on dit pourquoi on le refuse.
+  /* LA CAPTURE DU RACCOURCI DE JARVIS (17/11/2026) : tant qu'elle est active, les appuis ET les relâchements passent
+     par le même reconnaisseur que l'écoute globale (`shared/src/raccourci-clavier.ts`) — une combinaison se prend à
+     l'appui de sa touche, des modificateurs seuls à leur relâchement, un double appui au second relâchement. */
   const [captureRaccourci, setCaptureRaccourci] = React.useState(false);
   const [refusRaccourci, setRefusRaccourci] = React.useState<string | null>(null);
-  const raccourci = state.settings?.voixRaccourci ?? '';
+  const reconnaisseur = React.useRef(creerReconnaisseur());
+  const rangee = state.settings?.voixRaccourci ?? '';
+  const raccourci = raccourciEffectif(rangee);
+  const plateforme = plateformeDuClavier();
+  const enregistrerRaccourci = (valeur: string) =>
+    void client.geste({ type: 'settings.update', patch: { voixRaccourci: valeur } }, t('Enregistrement du réglage'));
 
-  const surToucheRaccourci = (event: React.KeyboardEvent) => {
+  const surToucheRaccourci = (event: React.KeyboardEvent, type: 'down' | 'up') => {
     if (!captureRaccourci) return;
     event.preventDefault();
     event.stopPropagation();
-    if (event.key === 'Escape') {
+    if (type === 'down' && event.key === 'Escape') {
       setCaptureRaccourci(false);
       setRefusRaccourci(null);
       return;
     }
-    const forme = formeDepuisEvenement({
+    const forme = reconnaisseur.current.recevoir({
+      type,
       code: event.code,
       ctrl: event.ctrlKey,
       alt: event.altKey,
       shift: event.shiftKey,
       meta: event.metaKey,
+      t: event.timeStamp,
+      repeat: event.repeat,
     });
-    // Un modificateur seul : on attend encore la vraie touche.
+    // Rien d'accompli encore (un modificateur tenu, un premier appui) : on attend la suite.
     if (!forme) return;
     const raison = raisonRaccourciRefuse(forme);
     if (raison) {
       setRefusRaccourci(raison);
       return;
     }
-    void client.geste({ type: 'settings.update', patch: { voixRaccourci: forme } }, t('Enregistrement du réglage'));
+    // Le défaut se range VIDE : un réglage resté au défaut suit le défaut s'il change un jour.
+    enregistrerRaccourci(forme === RACCOURCI_PAR_DEFAUT ? '' : forme);
     setRefusRaccourci(null);
     setCaptureRaccourci(false);
   };
 
-  /* La voix parle-t-elle sur ce serveur ? Sinon, la pièce qui manque. */
-  const [etatDeLaVoix, setEtatDeLaVoix] = React.useState<{ parle: boolean; raison: string } | null>(null);
-  const [raisonDuSilence, setRaisonDuSilence] = React.useState<string | null>(null);
-  const relireLaVoix = React.useCallback(async () => {
-    setRaisonDuSilence(null);
-    await Promise.all([
-      client
-        .call<{ voices: typeof voices }>({ type: 'voice.list' })
-        .then((data) => setVoices(data.voices ?? []))
-        .catch(() => setVoices([])),
-      client
-        .call<{ parle: boolean; raison: string }>({ type: 'voice.etat' })
-        .then(setEtatDeLaVoix)
-        .catch(() => undefined),
-    ]);
-  }, []);
-  React.useEffect(() => {
-    if (open) void relireLaVoix();
-  }, [open, relireLaVoix]);
-
-  // On ne laisse jamais un extrait continuer après la fermeture des réglages.
-  React.useEffect(() => {
-    if (open) return;
-    audioRef.current?.pause();
-    audioRef.current = null;
-    setPlaying(null);
-  }, [open]);
-
-  // Un seul lecteur pour tous les extraits : `cle` distingue ce qui joue (une
-  // voix « voix:… », une vitesse « vitesse:… »). L'extrait de vitesse est dit
-  // avec la voix RETENUE, pour n'entendre que le débit changer.
-  /*
-   * L'EXTRAIT EST D'ABORD DEMANDÉ, PUIS JOUÉ. Lu directement par le lecteur, un
-   * refus du serveur ne disait que « extrait impossible à jouer » : la raison
-   * (moteur absent, modèle manquant) se perdait. Elle s'affiche maintenant, et
-   * le bloc « La voix sur ce serveur » propose de relancer la configuration.
-   */
-  const jouer = (cle: string, params: Record<string, string>) => {
-    audioRef.current?.pause();
-    const query = new URLSearchParams(params).toString();
-    setPlaying(cle);
-    const fini = () => setPlaying((courant) => (courant === cle ? null : courant));
-    void (async () => {
-      try {
-        const reponse = await fetch(`/api/voice-sample?${query}`, { credentials: 'same-origin' });
-        if (!reponse.ok) {
-          const corps = (await reponse.json().catch(() => ({}))) as { error?: string };
-          fini();
-          setRaisonDuSilence(corps.error ?? t('Extrait impossible à jouer.'));
-          client.pushToast('error', t('Extrait impossible à jouer.'));
-          return;
-        }
-        const adresse = URL.createObjectURL(await reponse.blob());
-        const audio = new Audio(adresse);
-        audioRef.current = audio;
-        const liberer = () => {
-          fini();
-          URL.revokeObjectURL(adresse);
-        };
-        audio.addEventListener('ended', liberer);
-        audio.addEventListener('error', () => {
-          liberer();
-          client.pushToast('error', t('Extrait impossible à jouer.'));
-        });
-        await audio.play().catch(liberer);
-      } catch {
-        fini();
-        client.pushToast('error', t('Extrait impossible à jouer.'));
-      }
-    })();
-  };
-
-  const ecouter = (id: string) => jouer(`voix:${id}`, { voice: id });
-
-  const choisie = state.settings?.ttsVoice;
-  const vitesse = state.settings?.voixVitesse ?? 'normale';
-
-  // Écoute permanente et conversation vocale : ÉTEINTES à chaque ouverture de
-  // l'app, jamais retenues — voir `lib/etat-vocal.ts`. Le rond du menu du bas
-  // qui les pilotait a cédé sa place au bouton Robo ; elles se règlent ici.
+  // Micro du module (attente du mot) et conversation vocale : ÉTEINTS à chaque ouverture de l'app, jamais retenus —
+  // voir `lib/etat-vocal.ts`. Le seul module à l'écran est Jarvis au bord (`jarvis-natif.tsx`).
   const etatVocal = useEtatVocalGlobal();
-  const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   const [voixVisible, setVoixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
+  const { disponible: voixActive } = useVoixDisponible();
+  const motReveil = phraseDAppel(nomDeLAssistant(state.settings));
+  const appNative = plateformeNative() === 'ios';
+  const [jarvisDos, setJarvisDos] = usePref<boolean>(CLE_JARVIS_DOS, true);
 
   return (
     <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Volume2 className="h-3.5 w-3.5 text-faint" />  {t('La voix du point du jour')}
-        <BulleInfo cote="start">
-          {t('L\'écoute et la conversation s\'éteignent à chaque fermeture de l\'application — jamais de micro ouvert tout seul.')}
-          {'\n\n'}
-          {t('L\'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l\'adopter : c\'est cette voix qui lira le point du jour et le bouton haut-parleur.')}
-        </BulleInfo>
-      </h3>
-
-      <div className="mb-4 space-y-2 rounded-lg bg-raised px-3 py-2.5" data-voix-du-serveur={etatDeLaVoix ? (etatDeLaVoix.parle && !raisonDuSilence ? 'parle' : 'muette') : 'lecture'}>
-        <p className="text-[13.5px] font-medium text-text">{t('La voix sur ce serveur')}</p>
-        {etatDeLaVoix ? (
-          etatDeLaVoix.parle && !raisonDuSilence ? (
-            <LigneDEtat fait>{t('La voix est en place et parle.')}</LigneDEtat>
-          ) : (
-            <LigneDEtat fait={false}>
-              {t('La voix ne parle pas sur ce serveur.')}
-              <span className="block text-muted">{raisonDuSilence ?? etatDeLaVoix.raison}</span>
-            </LigneDEtat>
-          )
-        ) : null}
-        <p className="text-[12.5px] leading-relaxed text-muted">
-          {t('Installée à la main dans un terminal, sous un autre compte ou dans un autre dossier, la voix peut rester muette. La configuration la refait pour le compte du service, puis l’essaie.')}
-        </p>
-        <BoutonInstaller genre="voix-reparer" libelle={t('Relancer la configuration')} apres={relireLaVoix} />
+      <div className="mb-6" data-reglages-votre-assistant>
+        <SectionVotreAssistant />
       </div>
+      <VoixDuDirect />
 
       <div className="mb-3 space-y-2">
+        {/* LE BOUTON DU BORD EST L'ENTRÉE DE L'ASSISTANT (16/11/2026) : toujours là pour qui a l'assistant ; ce choix ne
+            reste qu'aux comptes sans assistant, pour qui il n'ouvre que la voix. */}
+        {state.monRole !== 'admin' ? (
+          <label className="flex items-center gap-2 text-[14px] text-muted">
+            <Switch checked={voixVisible} onCheckedChange={setVoixVisible} />
+            {t('Afficher Jarvis au bord de l’écran')}
+          </label>
+        ) : null}
+        {/* L'INTERRUPTEUR « VOIX » EST DÉSORMAIS CELUI DU BLOC « ASSISTANT VOCAL », juste au-dessus (17/11/2026) : la
+            même préférence (`CLE_VOIX_ACTIVE`), avec le compte ChatGPT qu'elle exige. Désactivée, TOUT se coupe. */}
         <label className="flex items-center gap-2 text-[14px] text-muted">
-          <Switch checked={voixVisible} onCheckedChange={setVoixVisible} />
-          {t('Afficher le module vocal flottant')}
+          <Switch checked={voixActive && etatVocal.microOuvert} disabled={!voixActive} onCheckedChange={setMicroOuvertGlobal} data-interrupteur-micro aria-pressed={voixActive && etatVocal.microOuvert} />
+          {t('Micro ouvert : attendre « {v0} » sur cet appareil', { v0: motReveil })}
         </label>
-        <label className="flex items-center gap-2 text-[14px] text-muted">
-          <Switch checked={etatVocal.ecouteAllumee} onCheckedChange={setEcouteAllumeeGlobale} />
-          {t('Écoute permanente (mot de réveil)')}
-        </label>
-        <label className="flex items-center gap-2 text-[14px] text-muted">
-          <Switch checked={etatVocal.conversationAllumee} onCheckedChange={setConversationAllumeeGlobale} />
-          {t('Mode conversation vocale')}
-        </label>
-        <label className="flex items-center gap-2 text-[14px] text-muted">
-          <Switch checked={!muet} onCheckedChange={(checked) => setMuet(!checked)} />
-          {t('Lire les réponses et notifications à voix haute')}
-        </label>
+        {/* L'ancien interrupteur « Conversation en direct avec Codex » est retiré (17/11/2026) : il ne faisait que refléter
+            la conversation en cours et en lancer une, comme le bouton du bord — ce n'était pas un réglage. */}
+        {/* DANS L'APPLICATION IPHONE SEULEMENT (16/11/2026) : le double toucher au dos lance Jarvis — à choisir une fois
+            dans Réglages › Accessibilité › Toucher › Toucher le dos de l'iPhone (raccourci « Parler à Jarvis »). */}
+        {appNative ? (
+          <label className="flex items-center gap-2 text-[14px] text-muted" data-reglage-jarvis-dos>
+            <Switch checked={jarvisDos} onCheckedChange={setJarvisDos} />
+            {t('Toucher deux fois le dos de l’iPhone lance Jarvis')}
+          </label>
+        ) : null}
       </div>
 
       <div className="mb-3">
         <div className="mb-1 flex items-center gap-1">
-          <label className="text-[12.5px] text-muted">{t('Le prénom que la voix emploie')}</label>
-          <BulleInfo cote="start">{t('La voix s\'adresse à vous par ce prénom (« Ça y est, {v0}, c\'est fait. »).', { v0: state.settings?.voixNom || 'Chris' })}</BulleInfo>
-        </div>
-        <Input
-          defaultValue={state.settings?.voixNom ?? 'Chris'}
-          placeholder="Chris"
-          maxLength={40}
-          // Un prénom vide retomberait sur « Chris » côté voix ; on n'envoie que
-          // ce qui a du texte, une fois débarrassé de ses espaces.
-          onBlur={(event) => {
-            const nom = event.target.value.trim();
-            if (nom) void client.geste({ type: 'settings.update', patch: { voixNom: nom } }, t('Enregistrement du réglage'));
-          }}
-        />
-      </div>
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-center gap-1">
-          <label className="text-[12.5px] text-muted">{t('Le mot qui réveille l\'écoute')}</label>
-          <BulleInfo cote="start">{t('Quand l\'écoute permanente est allumée, dites ce mot pour commencer à dicter (« {v0} range les cartes »).', { v0: state.settings?.voixReveil || 'Dis Haiko' })}</BulleInfo>
-        </div>
-        <Input
-          defaultValue={state.settings?.voixReveil ?? 'Dis Haiko'}
-          placeholder={t('Dis Haiko')}
-          maxLength={40}
-          // Un mot vide retomberait sur « Dis Haiko » côté écoute ; on n'envoie
-          // que ce qui a du texte, une fois débarrassé de ses espaces.
-          onBlur={(event) => {
-            const mot = event.target.value.trim();
-            if (mot) void client.geste({ type: 'settings.update', patch: { voixReveil: mot } }, t('Enregistrement du réglage'));
-          }}
-        />
-      </div>
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-center gap-1">
-          <label className="text-[12.5px] text-muted">{t('Le raccourci clavier qui allume l\'écoute')}</label>
+          <label className="text-[12.5px] text-muted">{t('Le raccourci clavier qui ouvre {v0}', { v0: nomDeLAssistant(state.settings) })}</label>
           <BulleInfo cote="start">
-            {t('Cette combinaison allume et éteint l\'écoute permanente, où que vous soyez — jamais pendant que vous tapez dans un champ. Utilisez Alt ou Ctrl + Maj avec une lettre.')}
+            {t('Il ouvre la bulle vocale et lance la conversation, où que vous soyez, même dans un champ ; un second appui l’arrête. Trois formes au choix : des touches de contrôle seules (Ctrl + Maj), avec une lettre (Cmd + Maj + K), ou un double appui (Maj Maj, le réglage de départ). La touche Fn n’est jamais transmise aux pages web : elle ne peut pas servir.')}
           </BulleInfo>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             data-raccourci-ecoute
+            data-raccourci={raccourci ?? AUCUN_RACCOURCI}
             onClick={() => {
+              reconnaisseur.current.oublier();
               setCaptureRaccourci(true);
               setRefusRaccourci(null);
             }}
@@ -258,130 +139,36 @@ export function VoiceSection({ open }: { open: boolean }) {
               setCaptureRaccourci(false);
               setRefusRaccourci(null);
             }}
-            onKeyDown={surToucheRaccourci}
+            onKeyDown={(event) => surToucheRaccourci(event, 'down')}
+            onKeyUp={(event) => surToucheRaccourci(event, 'up')}
             className={cn(
               'flex-1 rounded-md px-2.5 sm:px-2 py-2 sm:py-1.5 text-left text-[13.5px] transition-colors',
               captureRaccourci ? 'bg-border text-text' : 'bg-raised text-text hover:bg-fond-survol',
             )}
           >
             {captureRaccourci
-              ? t('Appuyez sur la combinaison…')
+              ? t('Appuyez sur les touches… (Échap pour annuler)')
               : raccourci
-                ? libelleDeRaccourci(raccourci)
+                ? libelleDeRaccourci(raccourci, plateforme)
                 : t('Aucun — cliquer pour régler')}
           </button>
+          {rangee && !captureRaccourci ? (
+            <Button variant="outline" size="sm" data-raccourci-defaut onClick={() => enregistrerRaccourci('')}>
+              {t('Réinitialiser')}
+            </Button>
+          ) : null}
           {raccourci && !captureRaccourci ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void client.geste({ type: 'settings.update', patch: { voixRaccourci: '' } }, t('Enregistrement du réglage'))}
-            >
-              {t('Retirer')}</Button>
+            <Button variant="outline" size="sm" data-raccourci-retirer onClick={() => enregistrerRaccourci(AUCUN_RACCOURCI)}>
+              {t('Retirer')}
+            </Button>
           ) : null}
         </div>
         {refusRaccourci ? <p className="mt-1 text-[11.5px] text-danger">{refusRaccourci}</p> : null}
-      </div>
-
-      {!voices.length ? (
-        <p className="text-[13px] text-faint">{t('Aucune voix installée sur le serveur.')}</p>
-      ) : (
-        <div className="space-y-1">
-          {voices.map((voice) => {
-            const active = choisie === voice.id;
-            return (
-              <div
-                key={voice.id}
-                className={cn(
-                  'flex items-center gap-2 rounded-md border px-2 py-1.5',
-                  active ? 'border-text/40 bg-raised' : 'border-border bg-surface',
-                )}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => void client.geste({ type: 'settings.update', patch: { ttsVoice: voice.id } }, t('Enregistrement du réglage'))}
-                >
-                  <p className="truncate text-[13.5px] text-text">
-                    {voice.label}
-                    {active ? <span className="ml-1.5 text-[12px] text-faint">{t('· choisie')}</span> : null}
-                  </p>
-                  <p className="truncate text-[11.5px] text-faint">{voice.description}</p>
-                </button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={`Écouter ${voice.label}`}
-                  disabled={playing === `voix:${voice.id}`}
-                  onClick={() => ecouter(voice.id)}
-                >
-                  {playing === `voix:${voice.id}` ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Play className="h-3 w-3" />
-                  )}
-                  
-{t('Écouter')}
-</Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-
-      <div className="mt-4">
-        <div className="mb-1.5 flex items-center gap-1">
-          <label className="text-[12.5px] text-muted">{t('La vitesse de la voix')}</label>
-          <BulleInfo cote="start">{t('La vitesse s\'applique à toutes les paroles — point du jour, annonces, réécoutes.')}</BulleInfo>
-        </div>
-        <div className="space-y-1">
-          {CRANS_DE_VITESSE.map((cran) => {
-            const active = vitesse === cran.id;
-            return (
-              <div
-                key={cran.id}
-                className={cn(
-                  'flex items-center gap-2 rounded-md border px-2 py-1.5',
-                  active ? 'border-text/40 bg-raised' : 'border-border bg-surface',
-                )}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => void client.geste({ type: 'settings.update', patch: { voixVitesse: cran.id } }, t('Enregistrement du réglage'))}
-                >
-                  <p className="truncate text-[13.5px] text-text">
-                    {cran.label}
-                    {active ? <span className="ml-1.5 text-[12px] text-faint">{t('· choisie')}</span> : null}
-                  </p>
-                  <p className="truncate text-[11.5px] text-faint">{cran.description}</p>
-                </button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={`Écouter la vitesse ${cran.label}`}
-                  disabled={playing === `vitesse:${cran.id}`}
-                  // L'essai est dit avec la voix retenue et CETTE vitesse : on
-                  // l'entend avant de l'adopter en touchant le nom.
-                  onClick={() =>
-                    jouer(`vitesse:${cran.id}`, {
-                      ...(choisie ? { voice: choisie } : {}),
-                      vitesse: cran.id,
-                    })
-                  }
-                >
-                  {playing === `vitesse:${cran.id}` ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Play className="h-3 w-3" />
-                  )}
-                  
-{t('Écouter')}
-</Button>
-              </div>
-            );
-          })}
-        </div>
+        {!refusRaccourci ? (
+          <p className="mt-1 text-[11.5px] text-muted">
+            {t('Ctrl + Maj, Cmd + Maj + K ou Maj Maj : touches seules, avec une lettre, ou double appui. Fn ne peut pas servir.')}
+          </p>
+        ) : null}
       </div>
     </section>
   );

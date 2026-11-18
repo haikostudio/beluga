@@ -15,6 +15,7 @@ import {
 import { SectionContacterLEquipe, SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { SectionVotreAssistant } from '@/components/installation/votre-assistant';
 import { Button } from '@/components/ui';
 import { relancerLaVisite } from '@/components/visite-guidee';
 
@@ -53,6 +54,9 @@ export function PageInstallation() {
       </Groupe>
       <Groupe titre={t('GitHub')}>
         <SectionGitHub etat={etat} relire={relire} />
+      </Groupe>
+      <Groupe titre={t('Votre assistant')}>
+        <SectionVotreAssistant />
       </Groupe>
       {/* Les mises à jour ont leur page à elles (« Mise à jour », `page-mise-a-jour.tsx`). */}
       {state.offreHebergee ? null : (

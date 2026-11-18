@@ -11,7 +11,7 @@
  * Le même volet sert la face Haiko : c'est le même écran, vu par l'admin.
  */
 import * as React from 'react';
-import { Download, Loader2, X } from 'lucide-react';
+import { Download, Loader2, X } from '@/components/ui/icones';
 import { formaterOctets, type BackupsDuSiteVisibles } from '@beluga/shared';
 import { BulleInfo, Button, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';

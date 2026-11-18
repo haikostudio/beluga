@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { listeAvecOuSans, listeBasculee, peutEcrireLaColonne } from '@beluga/shared';
 import { client } from './client';
 import { useApp } from './use-app';
 
@@ -33,4 +34,20 @@ export function readPref<T>(key: string, fallback: T): T {
 export function writePref(key: string, value: unknown): void {
   client.setPrefLocally(key, value);
   client.send({ type: 'prefs.set', key, value });
+}
+
+/**
+ * UNE LISTE DE LA COLONNE DE GAUCHE (groupes repliés, projets dépliés…) se modifie
+ * depuis la DERNIÈRE valeur connue, jamais depuis celle capturée au rendu, et jamais
+ * avant que les réglages du serveur soient arrivés (`shared/src/liste-de-la-colonne.ts`).
+ * `present` absent : bascule. Rend vrai si quelque chose a été écrit.
+ */
+export function modifierLaListe(key: string, id: string, present?: boolean): boolean {
+  const etat = client.lireEtat();
+  if (!peutEcrireLaColonne(etat)) return false;
+  const actuelle = etat.prefs[key];
+  const suivante = present === undefined ? listeBasculee(actuelle, id) : listeAvecOuSans(actuelle, id, present);
+  if (!suivante) return false;
+  writePref(key, suivante);
+  return true;
 }

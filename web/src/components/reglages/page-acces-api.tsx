@@ -6,7 +6,7 @@ import {
   Plus,
   ShieldOff,
   Trash2,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   CleApiPublique,
   NOM_CLE_MAX,

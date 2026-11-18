@@ -13,7 +13,7 @@
  * réservées à Haiko par le serveur (`shared/src/droits-commandes.ts`).
  */
 import * as React from 'react';
-import { Copy, KeyRound, Loader2, Mail, MessageSquareText, Plus, ShieldOff, UserPlus, X } from 'lucide-react';
+import { Copy, KeyRound, Loader2, Mail, MessageSquareText, Plus, ShieldOff, UserPlus, X } from '@/components/ui/icones';
 import {
   etatDuCompteEnClair,
   jugerIdentifiant,
@@ -604,8 +604,9 @@ export function GestionComptesClients({
         </>
       )}
 
+      {/* EN FEUILLE DU BAS, PAR-DESSUS LA FENÊTRE DES RÉGLAGES (03/11/2026) : un tiroir de page passait derrière elle. */}
       {avecCreation ? (
-        <Drawer open={creation} onClose={() => setCreation(false)} empile>
+        <Drawer feuille open={creation} onClose={() => setCreation(false)} empile>
           <div className="flex min-h-0 flex-1 flex-col" data-tiroir-nouvel-acces>
             <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
               <DialogTitle className="min-w-0 flex-1 truncate">{t('Ouvrir un accès')}</DialogTitle>

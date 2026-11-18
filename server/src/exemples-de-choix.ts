@@ -22,15 +22,30 @@
  *                `ENVELOPPE_DES_EXEMPLES`, refusé au-delà ;
  *  - « voix »  : la voix d'essai Piper du serveur, sans frais.
  *
- * Un refus d'un service (quota, 429) se dit tel quel : aucune bascule
- * silencieuse vers un autre service payant (MEM-3737). Chaque fabrication pose
+ * Un refus d'un service (quota, 429) se dit en une RAISON COURTE (« Codex :
+ * quota épuisé jusqu'au 9 nov. ») — le détail au journal du démon ; aucune
+ * bascule silencieuse vers un autre service payant (MEM-3737). Codex essaie
+ * chacun de ses comptes en service avant de rendre la main (05/11/2026). Chaque fabrication pose
  * le bloc d'attente des médias au bas du fil (MEM-5372).
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { ENVELOPPE_DES_EXEMPLES, MAX_PISTES_D_EXEMPLE, NATURES_D_EXEMPLE, lettreDuRang, nomDeLExemple } from '@beluga/shared';
+import {
+  ENVELOPPE_DES_EXEMPLES,
+  MAX_PISTES_D_EXEMPLE,
+  NATURES_D_EXEMPLE,
+  avecLeStyleDuProduit,
+  enteteDeMaquette,
+  jetonsDuTheme,
+  lettreDuRang,
+  nomDeLExemple,
+  tailleDeLaMaquette,
+  type PieceDUnLotDExemples,
+  type ThemeDeMaquette,
+} from '@beluga/shared';
+import { ROOT } from './config.js';
 
 type NatureDExemple = (typeof NATURES_D_EXEMPLE)[number];
 import * as store from './store.js';
@@ -47,6 +62,9 @@ export interface ContexteDExemple {
 export interface PisteDExemple {
   titre: string;
   html?: string;
+  /** Nature « page » : la taille réelle de la zone montrée (bornée, 960×640 par défaut). */
+  largeur?: number;
+  hauteur?: number;
   consigne?: string;
   texte?: string;
   voix?: string;
@@ -55,6 +73,30 @@ export interface PisteDExemple {
 export interface ResultatDExemples {
   ok: boolean;
   text: string;
+}
+
+/**
+ * LE DERNIER LOT D'EXEMPLES DE CHAQUE AGENT, en mémoire (décision du
+ * 04/11/2026, `shared/src/exemples-oublies.ts`) : « ask_user » refuse la
+ * question qui en reprend une partie et oublie le reste. Un nouveau lot
+ * remplace le précédent ; la question qui le reprend en entier le consomme. Un
+ * redémarrage du démon l'oublie — sans dommage : la règle reste dite à l'agent.
+ */
+export interface LotDExemples {
+  champ: 'image' | 'media';
+  pieces: PieceDUnLotDExemples[];
+}
+const lotsEnAttente = new Map<string, LotDExemples>();
+
+export function lotDExemplesEnAttente(agentId: string): LotDExemples | undefined {
+  return lotsEnAttente.get(agentId);
+}
+export function retenirLeLot(agentId: string, lot: LotDExemples): void {
+  if (lot.pieces.length) lotsEnAttente.set(agentId, lot);
+  else lotsEnAttente.delete(agentId);
+}
+export function oublierLeLot(agentId: string): void {
+  lotsEnAttente.delete(agentId);
 }
 
 /** Ce qu'un appel à Codex peut prendre au plus, par image. */
@@ -83,6 +125,7 @@ export function pistesLues(brut: unknown): PisteDExemple[] {
     .map((p: any) => ({
       titre: String(p?.titre ?? p?.label ?? '').trim().slice(0, 120),
       html: typeof p?.html === 'string' ? p.html : undefined,
+      ...(p?.largeur !== undefined || p?.hauteur !== undefined ? tailleDeLaMaquette(p?.largeur, p?.hauteur) : {}),
       consigne: typeof p?.consigne === 'string' ? p.consigne.trim().slice(0, 2000) : undefined,
       texte: typeof p?.texte === 'string' ? p.texte.trim().slice(0, 600) : undefined,
       voix: typeof p?.voix === 'string' ? p.voix.trim() : undefined,
@@ -104,8 +147,33 @@ export function formuleDeCodex(dossierCodex = path.join(os.homedir(), '.codex'))
   }
 }
 
-/** Une page HTML photographiée par le Chrome du système. */
-async function photographierLesPages(pistes: PisteDExemple[], dossier: string): Promise<(string | { refus: string })[]> {
+/**
+ * LE STYLE DU PRODUIT POSÉ D'OFFICE EN TÊTE DE CHAQUE PAGE (17/11/2026, `shared/src/maquette-realiste.ts`) : la vraie
+ * police de l'interface et les jetons du thème, lus dans les fichiers de l'interface du dépôt. Introuvables (dépôt sans
+ * l'interface), la page part telle quelle : rien n'échoue pour ça.
+ */
+const stylesDuProduit = new Map<ThemeDeMaquette, string>();
+export function styleDuProduit(theme: ThemeDeMaquette, racine = ROOT): string {
+  const connu = stylesDuProduit.get(theme);
+  if (connu !== undefined) return connu;
+  let entete = '';
+  try {
+    const css = fs.readFileSync(path.join(racine, 'web', 'src', 'styles.css'), 'utf8');
+    const polices = ['inter-latin-wght-normal.woff2', 'inter-latin-ext-wght-normal.woff2']
+      .map((nom) => path.join(racine, 'web', 'src', 'polices', nom))
+      .filter((fichier) => fs.existsSync(fichier))
+      .map((fichier) => `data:font/woff2;base64,${fs.readFileSync(fichier).toString('base64')}`);
+    entete = enteteDeMaquette({ jetons: jetonsDuTheme(css, theme), polices });
+  } catch (err: any) {
+    log.warn('exemples', `style du produit illisible : ${String(err?.message ?? err).slice(0, 160)}`);
+  }
+  stylesDuProduit.set(theme, entete);
+  return entete;
+}
+
+/** Une page HTML photographiée par le Chrome du système, à la taille réelle demandée par sa piste. */
+async function photographierLesPages(pistes: PisteDExemple[], dossier: string, theme: ThemeDeMaquette = 'sombre'): Promise<(string | { refus: string })[]> {
+  const entete = styleDuProduit(theme);
   const { chromium } = await import('playwright');
   const navigateur = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   try {
@@ -115,11 +183,12 @@ async function photographierLesPages(pistes: PisteDExemple[], dossier: string): 
         sorties.push({ refus: 'il manque « html » : la page entière qui montre cette piste' });
         continue;
       }
-      const page = await navigateur.newPage({ viewport: { width: LARGEUR_PAGE, height: HAUTEUR_PAGE }, deviceScaleFactor: 2 });
+      const page = await navigateur.newPage({ viewport: { width: piste.largeur ?? LARGEUR_PAGE, height: piste.hauteur ?? HAUTEUR_PAGE }, deviceScaleFactor: 2 });
       try {
         // Aucune requête au-dehors : une page d'exemple se suffit à elle-même.
         await page.route('**/*', (route) => (route.request().url().startsWith('data:') ? route.continue() : route.abort()));
-        await page.setContent(piste.html, { waitUntil: 'load', timeout: 15_000 });
+        await page.setContent(entete ? avecLeStyleDuProduit(piste.html, entete) : piste.html, { waitUntil: 'load', timeout: 15_000 });
+        await page.evaluate('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => undefined);
         const fichier = path.join(dossier, `exemple-${i + 1}.png`);
         await page.screenshot({ path: fichier, fullPage: false });
         sorties.push(fichier);
@@ -159,32 +228,116 @@ function derniereImageDeCodex(depuis: number, dossierCodex = path.join(os.homedi
   return (meilleure as { fichier: string } | null)?.fichier ?? null;
 }
 
-/** Une illustration par Codex du serveur : rend le fichier, ou la raison du refus (dite telle quelle). */
-async function illustrerParCodex(consigne: string, dossier: string): Promise<string | { refus: string }> {
-  const formule = formuleDeCodex();
-  if (formule !== 'plus' && formule !== 'pro' && formule !== 'team' && formule !== 'business' && formule !== 'enterprise') {
-    return { refus: `Codex du serveur n'a pas la génération d'images (formule « ${formule ?? 'inconnue'} »)` };
+/** Un compte Codex, tel que l'illustration le choisit. */
+export interface CompteCodex {
+  id: string;
+  engine: string;
+  priority: number;
+  configDir: string;
+  disabled?: boolean;
+}
+
+/** Son dernier relevé de quota (`cachedQuotas`) : une fenêtre pleine dont la remise à zéro n'est pas passée le met à sec. */
+export interface QuotaDeCompte {
+  id: string;
+  session?: { usedPct?: number; resetsAt?: number };
+  weekly?: { usedPct?: number; resetsAt?: number };
+}
+
+/**
+ * LES COMPTES CODEX À ESSAYER POUR UNE IMAGE (carte « Médias : aperçu en modale, fiche en tiroir », 05/11/2026 : le
+ * compte principal à sec, les exemples tombaient en panne alors qu'un second compte existait). Les comptes Codex en
+ * service, du premier rang au dernier ; un compte dont le relevé dit une fenêtre pleine — ou qui vient de répondre « limite
+ * atteinte » (`aSecConnus`) — est mis de côté avec sa date de reprise, sans être appelé. Règle pure.
+ */
+export function comptesCodexPourLesImages(
+  comptes: readonly CompteCodex[],
+  quotas: readonly QuotaDeCompte[],
+  aSecConnus: ReadonlyMap<string, number | null> = new Map(),
+  maintenant = Date.now(),
+): { utilisables: CompteCodex[]; aSec: { id: string; reprise: number | null }[] } {
+  const codex = comptes.filter((c) => c.engine === 'codex' && !c.disabled).sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
+  const utilisables: CompteCodex[] = [];
+  const aSec: { id: string; reprise: number | null }[] = [];
+  for (const compte of codex) {
+    if (aSecConnus.has(compte.id)) {
+      const reprise = aSecConnus.get(compte.id) ?? null;
+      if (reprise === null || reprise > maintenant) {
+        aSec.push({ id: compte.id, reprise });
+        continue;
+      }
+    }
+    const q = quotas.find((x) => x.id === compte.id);
+    const pleines = [q?.session, q?.weekly].filter((w): w is { usedPct?: number; resetsAt?: number } => !!w && (w.usedPct ?? 0) >= 100 && (!w.resetsAt || w.resetsAt > maintenant));
+    if (pleines.length) aSec.push({ id: compte.id, reprise: Math.max(...pleines.map((w) => w.resetsAt ?? 0)) || null });
+    else utilisables.push(compte);
   }
-  const { codexAdapter } = await import('./engines/codex.js');
-  return unCodexALaFois(
-    () =>
-      new Promise<string | { refus: string }>((resolve) => {
-        const depuis = Date.now() - 1000;
+  return { utilisables, aSec };
+}
+
+/**
+ * CODEX A-T-IL DIT « LIMITE ATTEINTE » ? Il le dit parfois en sortant SANS erreur (mesuré le 05/11/2026 : « You've hit
+ * your usage limit … try again at Nov 9th, 2026 6:01 PM », code 0) ; on lit donc le texte, et la date de reprise quand
+ * elle y est. `null` : ce n'est pas une limite.
+ */
+export function limiteDeCodex(sortie: string, maintenant = new Date()): { reprise: number | null } | null {
+  if (!/usage_limit_reached|usage limit|rate.?limit|\b429\b|quota exceeded/i.test(sortie)) return null;
+  const m = /try again (?:at|after|on)\s+([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s*(\d{4})?,?\s*(?:at\s+)?(\d{1,2}:\d{2}\s*[AP]M)?/i.exec(sortie);
+  if (!m) return { reprise: null };
+  const quand = Date.parse(`${m[1]} ${m[2]}, ${m[3] ?? maintenant.getFullYear()}${m[4] ? ` ${m[4].replace(/\s+/g, ' ')}` : ''}`);
+  return { reprise: Number.isFinite(quand) ? quand : null };
+}
+
+/** Une date de reprise en mots courts (« 9 nov. »). */
+const jourCourt = (quand: number): string => new Date(quand).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+
+/** LA RAISON COURTE d'un Codex à sec, lue dans la tuile ratée : jamais la ligne de commande. */
+export function raisonCodexASec(aSec: readonly { reprise: number | null }[]): string {
+  const dates = aSec.map((x) => x.reprise).filter((x): x is number => !!x).sort((a, b) => a - b);
+  const pluriel = aSec.length > 1;
+  return dates[0] ? `Codex : ${pluriel ? 'quotas épuisés, reprise le' : 'quota épuisé jusqu’au'} ${jourCourt(dates[0])}` : `Codex : ${pluriel ? 'quotas épuisés' : 'quota épuisé'}`;
+}
+
+/**
+ * LA RAISON COURTE d'un refus du service externe (le texte complet part au journal du démon). Les messages bruts de
+ * kie.ai ou de la porte de dépense n'ont rien à faire dans une tuile de choix.
+ */
+export function raisonCourteDuServiceExterne(texte: string): string {
+  if (/sans carte/i.test(texte)) return 'service externe : réservé aux cartes';
+  if (/pas branché|non branché/i.test(texte)) return 'service externe non branché';
+  if (/cr[ée]dit|balance|insufficient/i.test(texte)) return 'service externe : crédit épuisé';
+  if (/text length|maximum limit|trop longue/i.test(texte)) return 'service externe : consigne trop longue';
+  if (/enveloppe|refusé/i.test(texte)) return 'service externe : enveloppe des exemples dépensée';
+  if (/tarde/i.test(texte)) return 'service externe : image pas encore prête';
+  return 'service externe : échec';
+}
+
+/** Les comptes Codex vus « à sec » par un appel récent, avec leur date de reprise : on ne les rappelle pas avant. */
+const codexASec = new Map<string, number | null>();
+/** Faute de date dite, un compte à sec est laissé de côté une heure. */
+const OUBLI_SANS_DATE_MS = 60 * 60_000;
+
+/** Un appel à Codex sur UN compte : le fichier rendu, ou ce qui l'en a empêché. */
+function appelerCodex(compte: CompteCodex, consigne: string, dossier: string, delai: number): Promise<string | { quota: { reprise: number | null } | null; raison: string }> {
+  return new Promise((resolve) => {
+    const depuis = Date.now() - 1000;
+    void import('./accounts.js').then(({ applyAccountEnv }) =>
+      import('./engines/codex.js').then(({ codexAdapter }) => {
+        /* Le compte choisi par son dossier : `CODEX_HOME`, comme un tour de ce compte (`applyAccountEnv`). */
+        const env = { ...process.env, ...applyAccountEnv(compte as never) };
         const enfant = execFile(
           codexAdapter.binary,
           ['exec', '--skip-git-repo-check', '-s', 'read-only', '-C', dossier, '-'],
-          { timeout: DUREE_MAX_CODEX_MS, maxBuffer: 8 * 1024 * 1024 },
+          { timeout: delai, maxBuffer: 8 * 1024 * 1024, env },
           (err, stdout, stderr) => {
-            const image = derniereImageDeCodex(depuis);
+            const image = derniereImageDeCodex(depuis, compte.configDir);
             if (image) return resolve(image);
             const sortie = `${stdout ?? ''}\n${stderr ?? ''}`;
-            const quota = /usage_limit_reached|rate.?limit|429/i.test(sortie);
+            log.warn(`exemples de choix : Codex (${compte.id}) sans image`, `${err?.message ?? ''}\n${sortie}`.trim().slice(-2000));
+            const quota = limiteDeCodex(sortie);
             resolve({
-              refus: quota
-                ? 'Codex a atteint la limite de son abonnement'
-                : err?.killed
-                  ? 'Codex n’a pas rendu son image à temps'
-                  : `Codex n’a rendu aucune image (${(err?.message ?? sortie).trim().slice(0, 160)})`,
+              quota,
+              raison: quota ? raisonCodexASec([quota]) : err?.killed ? 'Codex : pas d’image à temps' : 'Codex : aucune image rendue',
             });
           },
         );
@@ -192,12 +345,68 @@ async function illustrerParCodex(consigne: string, dossier: string): Promise<str
           `Produce exactly ONE image with your built-in image generation tool. Do not write code, do not run shell commands. No text in the image unless asked.\n\n${consigne}`,
         );
       }),
-  );
+    ).catch((err: any) => resolve({ quota: null, raison: `Codex : lancement impossible (${String(err?.message ?? err).slice(0, 60)})` }));
+  });
+}
+
+/**
+ * UNE ILLUSTRATION PAR CODEX DU SERVEUR : chaque compte Codex en service, du premier rang au dernier, jusqu'à une image
+ * (les comptes à sec sont sautés sans appel). Le tout tient dans `DUREE_MAX_CODEX_MS`, comptes essayés compris. Rend le
+ * fichier, ou une RAISON COURTE ; le détail va au journal du démon.
+ */
+async function illustrerParCodex(consigne: string, dossier: string): Promise<string | { refus: string }> {
+  const { listAllAccountRecords, cachedQuotas } = await import('./accounts.js');
+  return unCodexALaFois(async () => {
+    const { utilisables, aSec } = comptesCodexPourLesImages(listAllAccountRecords(), cachedQuotas(), codexASec);
+    if (!utilisables.length) return { refus: aSec.length ? raisonCodexASec(aSec) : 'Codex : aucun compte en service' };
+    const fin = Date.now() + DUREE_MAX_CODEX_MS;
+    let refus = 'Codex : aucune image rendue';
+    const aSecIci = [...aSec];
+    for (const compte of utilisables) {
+      const formule = formuleDeCodex(compte.configDir);
+      if (formule !== 'plus' && formule !== 'pro' && formule !== 'team' && formule !== 'business' && formule !== 'enterprise') {
+        refus = 'Codex : pas d’images avec cette formule';
+        continue;
+      }
+      const delai = fin - Date.now();
+      if (delai < 15_000) break;
+      const r = await appelerCodex(compte, consigne, dossier, delai);
+      if (typeof r === 'string') return r;
+      if (r.quota) {
+        codexASec.set(compte.id, r.quota.reprise ?? Date.now() + OUBLI_SANS_DATE_MS);
+        aSecIci.push({ id: compte.id, reprise: r.quota.reprise });
+        refus = raisonCodexASec(aSecIci);
+      } else refus = r.raison;
+    }
+    return { refus };
+  });
+}
+
+/** Une image PNG violette de 64 × 64, pour les contrôles qui ne doivent appeler aucun Codex. */
+const PNG_FACTICE = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeUlEQVR4nO3PwQkAIBDAsBvUjdzXt0P4CEKhA6Sz1/m64YIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALHrums9G0hBjZPwAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * UNE IMAGE GRATUITE, ET RIEN D'AUTRE (esquisse d'une campagne, 10/11/2026) : Codex du serveur, dans la même file que
+ * les exemples (un seul Codex à la fois), jamais le service externe payant — l'agent de campagne n'a pas de carte, et
+ * sans carte rien ne se dépense (DEC-447). Rend le fichier, écrit dans `dossier`, ou une RAISON COURTE.
+ * `BELUGA_IMAGE_GRATUITE_FACTICE=1` (contrôles sur démon jetable) écrit une image unie sans rien appeler.
+ */
+export async function fabriquerUneImageGratuite(consigne: string, dossier: string): Promise<string | { refus: string }> {
+  if (process.env.BELUGA_IMAGE_GRATUITE_FACTICE === '1') {
+    const fichier = path.join(dossier, `factice-${Date.now()}.png`);
+    /* Une empreinte différente à chaque fois : chaque esquisse factice reste une pièce à elle. */
+    fs.writeFileSync(fichier, Buffer.concat([PNG_FACTICE, Buffer.from(`${Date.now()}${Math.random()}`)]));
+    return fichier;
+  }
+  return illustrerParCodex(consigne, dossier);
 }
 
 /** Le dernier recours payant : l'aperçu de kie.ai, sous l'enveloppe des exemples de la carte. */
 async function illustrerParLeServiceExterne(ctx: ContexteDExemple, piste: PisteDExemple): Promise<{ piece: string } | { refus: string }> {
-  if (!ctx.cardId) return { refus: 'sans carte, pas de dépense possible : seuls les moyens sans frais du serveur servent' };
+  if (!ctx.cardId) return { refus: raisonCourteDuServiceExterne('sans carte') };
   const { fabriquerUnApercu } = await import('./realisation.js');
   const r = await fabriquerUnApercu(
     { agentId: ctx.agentId, projectId: ctx.projectId, cardId: ctx.cardId } as never,
@@ -206,7 +415,9 @@ async function illustrerParLeServiceExterne(ctx: ContexteDExemple, piste: PisteD
     { exemple: true },
   );
   const piece = r.ok ? /pièce « ([^»]+) »/.exec(r.text)?.[1]?.trim() : undefined;
-  return piece ? { piece } : { refus: r.text };
+  if (piece) return { piece };
+  log.warn('exemples de choix : service externe sans image', r.text.slice(0, 1000));
+  return { refus: raisonCourteDuServiceExterne(r.text) };
 }
 
 /**
@@ -254,9 +465,11 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
   const dossier = dossierDeTravail();
   const lignes: string[] = [];
   let reussies = 0;
+  const lot: PieceDUnLotDExemples[] = [];
   /** Une piste réussie : sa ligne dit lettre, pièce et référence courte. */
   const reussie = (i: number, piece: string, alias: string | undefined, origine: string) => {
     reussies += 1;
+    lot.push({ id: piece, lettre: lettreDuRang(i), titre: pistes[i].titre, alias: alias ?? null });
     fermer(i, { piece });
     lignes.push(`- ${lettreDuRang(i)} « ${pistes[i].titre} » : pièce « ${piece} »${alias ? ` · #${alias}` : ''} (${origine})`);
   };
@@ -270,7 +483,7 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
       return j.ok ? { id: j.attachment.id, alias: j.attachment.alias } : null;
     };
     if (nature === 'page') {
-      const rendus = await photographierLesPages(pistes, dossier);
+      const rendus = await photographierLesPages(pistes, dossier, args.theme === 'clair' ? 'clair' : 'sombre');
       for (const [i, rendu] of rendus.entries()) {
         const piece = typeof rendu === 'string' ? await joindre(rendu, nomDeLExemple(i, 'png')) : null;
         if (piece) reussie(i, piece.id, piece.alias, 'sans frais');
@@ -292,8 +505,12 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
         }
         const raisonLocale = typeof local === 'string' ? 'pièce non jointe' : local.refus;
         const externe = await illustrerParLeServiceExterne(ctx, piste);
-        if ('piece' in externe) reussie(i, externe.piece, store.getAttachment(externe.piece)?.alias, `service externe : ${raisonLocale}`);
-        else ratee(i, `${raisonLocale} ; service externe : ${externe.refus}`);
+        /* La pièce du service externe garde son nom (« apercu-exemple-3-v1.png ») :
+           sa lettre voyage par le lot, que « ask_user » écrit sur l'option. */
+        if ('piece' in externe) {
+          reussie(i, externe.piece, store.getAttachment(externe.piece)?.alias, `service externe : ${raisonLocale}`);
+        }
+        else ratee(i, `${raisonLocale} · ${externe.refus}`);
       }
     } else {
       const { fabriquerVoixDEssai } = await import('./voix-de-realisation.js');
@@ -318,13 +535,14 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
     pistes.forEach((_, i) => fermer(i, { echec: 'fabrication interrompue' }));
   }
   const champ = nature === 'voix' ? 'media' : 'image';
+  retenirLeLot(ctx.agentId, { champ, pieces: lot });
   return {
     ok: reussies > 0,
     text: [
       `${reussies}/${pistes.length} exemple(s) fabriqué(s) :`,
       ...lignes,
       reussies
-        ? `Repose maintenant ta question par ask_user, chaque option avec son identifiant dans « ${champ} ». Chaque exemple garde sa LETTRE et sa référence : cite-les dans le texte de ta question (« A (#xxxx) — titre »). Une piste sans exemple reste décrite en mots.`
+        ? `Repose maintenant ta question par ask_user, chaque option avec son identifiant dans « ${champ} ». Chaque exemple garde sa LETTRE et sa référence : cite-les dans le texte de ta question (« A (#xxxx) — titre »). CHAQUE exemple ci-dessus devient un choix, même raté : dis-le dans sa description, ne le retire jamais — ask_user refuse une question qui en oublie un. Une piste sans exemple reste décrite en mots.`
         : `Aucun exemple : pose ta question avec des choix décrits en mots, et dis à l’utilisateur pourquoi (raison ci-dessus).`,
       ctx.cardId ? `Enveloppe des exemples payants de cette carte : ${ENVELOPPE_DES_EXEMPLES} $.` : '',
     ]

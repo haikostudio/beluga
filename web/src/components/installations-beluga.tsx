@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { CreditCard, Globe, UsersRound } from 'lucide-react';
+import { CreditCard, Globe, UsersRound } from '@/components/ui/icones';
 import {
   usageDUneInstallation,
   type FiltreDePaiement,
@@ -10,6 +10,7 @@ import {
 } from '@beluga/shared';
 import { CourbeParJour, Repartition, drapeau, nomDuPays } from '@/components/graphiques-statistiques';
 import { usePref } from '@/lib/prefs';
+import { Tableau } from '@/components/ui/tableau';
 import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -140,40 +141,52 @@ export function InstallationsDeBeluga() {
           </div>
 
           {releve.lignes.length ? (
-            <div className="overflow-x-auto rounded-md bg-bloc" data-installations-liste>
-              <table className="w-full min-w-[640px] text-left text-[12.5px]">
-                <thead className="text-faint">
-                  <tr>
-                    <th className="px-3 py-2 font-normal">{t('Installation')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Pays')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Version')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Usage')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Dernier signe')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Adresse')}</th>
-                    <th className="px-3 py-2 font-normal">{t('Tickets')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {releve.lignes.map((l) => (
-                    <tr key={l.id} className="text-text" data-installation={l.id} data-installation-payante={l.payant ? 'oui' : 'non'}>
-                      <td className="px-3 py-1.5 font-mono text-[12px]">
+            /* LE TABLEAU COMMUN (03/11/2026) : en-tête contrasté, tri et filtre par colonne, pagination. */
+            <div className="min-w-0" data-installations-liste>
+              <Tableau
+                repere="installations"
+                lignes={releve.lignes}
+                cle={(l) => l.id}
+                disposition="auto"
+                recherche={t('Filtrer les installations…')}
+                attributsLigne={(l) => ({ 'data-installation': l.id, 'data-installation-payante': l.payant ? 'oui' : 'non' })}
+                colonnes={[
+                  {
+                    cle: 'installation',
+                    libelle: t('Installation'),
+                    valeur: (l) => l.id,
+                    rendu: (l) => (
+                      <span className="font-mono text-[12px]">
                         {l.id.slice(0, 8)}
                         {l.payant ? <span className="ml-1.5 font-sans text-[11.5px] text-faint">{t('payante')}</span> : null}
-                      </td>
-                      <td className="px-3 py-1.5">{l.pays ? `${drapeau(l.pays)} ${nomDuPays(l.pays)}` : '—'}</td>
-                      <td className="px-3 py-1.5 text-muted">{l.version || '—'}</td>
-                      <td className="px-3 py-1.5 text-muted">
+                      </span>
+                    ),
+                  },
+                  { cle: 'pays', libelle: t('Pays'), valeur: (l) => (l.pays ? nomDuPays(l.pays) : null), filtre: 'choix', rendu: (l) => (l.pays ? `${drapeau(l.pays)} ${nomDuPays(l.pays)}` : '—') },
+                  { cle: 'version', libelle: t('Version'), valeur: (l) => l.version || null, filtre: 'choix', rendu: (l) => <span className="text-muted">{l.version || '—'}</span> },
+                  {
+                    cle: 'usage',
+                    libelle: t('Usage'),
+                    valeur: (l) => l.joursActifs30,
+                    filtre: 'choix',
+                    lireFiltre: (l) => nomDeLUsage[usageDUneInstallation(l, maintenant)],
+                    rendu: (l) => (
+                      <span className="text-muted">
                         {nomDeLUsage[usageDUneInstallation(l, maintenant)]} · {t('{n} j / 30', { n: String(l.joursActifs30) })}
-                      </td>
-                      <td className="px-3 py-1.5 text-muted">{new Date(l.derniereVue).toLocaleDateString(formatRegional())}</td>
-                      <td className="px-3 py-1.5" data-installation-courriel>
-                        {l.courriel ?? <span className="text-faint">{t('non partagée')}</span>}
-                      </td>
-                      <td className="px-3 py-1.5 text-muted">{l.tickets}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </span>
+                    ),
+                  },
+                  { cle: 'derniere', libelle: t('Dernier signe'), valeur: (l) => l.derniereVue, sensNaturel: 'desc', rendu: (l) => <span className="text-muted">{new Date(l.derniereVue).toLocaleDateString(formatRegional())}</span> },
+                  {
+                    cle: 'adresse',
+                    libelle: t('Adresse'),
+                    valeur: (l) => l.courriel ?? null,
+                    filtre: 'texte',
+                    rendu: (l) => <span data-installation-courriel>{l.courriel ?? <span className="text-faint">{t('non partagée')}</span>}</span>,
+                  },
+                  { cle: 'tickets', libelle: t('Tickets'), valeur: (l) => l.tickets, droite: true },
+                ]}
+              />
             </div>
           ) : (
             <p className="text-[13.5px] text-faint" data-installations-vide>

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { HardDrive, Loader2, Trash2 } from 'lucide-react';
+import { HardDrive, Loader2, Trash2 } from '@/components/ui/icones';
 import { tailleDesCopies, type CopieMorte } from '@beluga/shared';
 import { BulleInfo, Button, ZoneDefilement, CaseACocher } from '@/components/ui';
 import { client } from '@/lib/client';

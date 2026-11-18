@@ -200,6 +200,38 @@ export function ilYA(at: number, maintenant = Date.now()): string {
 }
 
 /**
+ * LA DATE TRÈS COURTE D'UNE LIGNE DE LA COLONNE (31/10/2026 : « 3 h », « 2 j »,
+ * « 14/10 ») : la même lecture que `ilYA`, sans « il y a » — la place est
+ * celle d'un mot. Moins d'une minute se dit « 1 min » ; au-delà de sept jours,
+ * le jour et le mois, l'année avec eux si elle diffère.
+ */
+export function depuisCourt(at: number, maintenant = Date.now()): string {
+  const forme = formeDepuis(at, maintenant);
+  if (forme.genre === 'instant') return t('{n} min', { n: 1 });
+  if (forme.genre === 'minutes') return t('{n} min', { n: forme.n });
+  if (forme.genre === 'heures') return t('{n} h', { n: forme.n });
+  if (forme.genre === 'jours') return t('{n} j', { n: forme.n });
+  const jour = new Date(at);
+  return jour.toLocaleDateString(formatRegional(), {
+    day: '2-digit',
+    month: '2-digit',
+    ...(jour.getFullYear() === new Date(maintenant).getFullYear() ? {} : { year: '2-digit' }),
+  });
+}
+
+/** Le jour et l'heure en toutes lettres, dans la langue choisie : « samedi 31 octobre 2026, 15:27 ». */
+export function dateHeureComplete(at: number): string {
+  return new Date(at).toLocaleString(formatRegional(), {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
  * L'HEURE DU FIL D'UNE CARTE (27/10/2026, captures #ae52 et #3c8a) : le temps
  * écoulé, puis la durée du travail quand elle a été mesurée —
  * « il y a 26 min · 51 s » —, la date et l'heure au-delà de sept jours

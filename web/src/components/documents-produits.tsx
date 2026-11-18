@@ -12,7 +12,7 @@
  * pour l'ouvrir.
  */
 import * as React from 'react';
-import { FileText } from 'lucide-react';
+import { FileText } from '@/components/ui/icones';
 import { nomDuChemin } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { ContexteDesFichiersCites } from '@/lib/chemin-cliquable';

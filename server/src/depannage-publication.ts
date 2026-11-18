@@ -25,6 +25,7 @@ import {
   moteurDuTriAutomatique,
   publicationADepanner,
   reglagesDuNiveau,
+  repriseApresLeTour,
   titreDuDepanneur,
 } from '@beluga/shared';
 import * as store from './store.js';
@@ -32,11 +33,13 @@ import { bus } from './bus.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { createAgent, sendPrompt } from './runtime.js';
-import { STEP_LABELS, brancheDeLEtape, dernieresLignes, retryDeploy } from './deploy.js';
+import { STEP_LABELS, brancheDeLEtape, dernieresLignes, reprendreLaPublication } from './deploy.js';
 
-/** Combien de temps la relance attend la fin du tour de l'agent. */
-const ATTENTE_MAX_RELANCE_MS = 30 * 60 * 1000;
+/** Combien de temps la veille d'un dépanneur attend la fin de son travail (question comprise). */
+const ATTENTE_MAX_RELANCE_MS = 2 * 60 * 60 * 1000;
 const PAS_DE_RELANCE_MS = 3000;
+/** Le temps laissé à un tour pour démarrer avant de juger qu'il n'est jamais parti. */
+const DEPART_DU_TOUR_MS = 90_000;
 
 function enregistrer(run: DeployRun): DeployRun {
   const saved = store.saveDeploy(run);
@@ -93,8 +96,11 @@ export async function depannerLaPublication(
         : 'Seule la dernière publication tombée du projet se dépanne.',
     );
   }
-  const retenu = run.depannage ? store.getAgent(run.depannage.agentId) : null;
-  if (retenu && depanneurVivant(retenu)) return { agentId: retenu.id, deja: true };
+  const retenu = run.depannage?.agentId ? store.getAgent(run.depannage.agentId) : null;
+  if (retenu && depanneurVivant(retenu)) {
+    veillerSurLeDepanneur(retenu.id, run.id);
+    return { agentId: retenu.id, deja: true };
+  }
 
   let agentId: string;
   if (retenu) {
@@ -117,7 +123,12 @@ export async function depannerLaPublication(
     bus.emit({ type: 'agent.upsert', agent: marque });
     agentId = marque.id;
   }
-  enregistrer({ ...run, depannage: { agentId, at: Date.now(), ...(options.automatique ? { automatique: true } : {}) } });
+  /* Un clic remet le compte des dépannages automatiques à zéro (17/11/2026) : deux nouveaux cycles redeviennent possibles. */
+  enregistrer({
+    ...run,
+    ...(options.automatique ? {} : { depannagesAuto: 0 }),
+    depannage: { agentId, at: Date.now(), ...(options.automatique ? { automatique: true } : {}) },
+  });
 
   const tombee = run.steps.find((step) => step.state === 'failed');
   const demande = demandeDeDepannage({
@@ -135,7 +146,62 @@ export async function depannerLaPublication(
     direDansLeFil(agentId, `Le dépannage n’a pas pu démarrer : ${err?.message ?? err}`);
   });
   log.info(`publication ${run.id} : agent de dépannage ${agentId}${retenu ? ' relancé' : ' ouvert'}`);
+  veillerSurLeDepanneur(agentId, run.id);
   return { agentId, deja: false };
+}
+
+/** Les dépanneurs déjà veillés : une seule veille par agent. */
+const veilles = new Set<string>();
+
+/**
+ * LA VEILLE D'UN DÉPANNEUR (17/11/2026 : « une fois le débogage terminé, il doit relancer l'étape ») : à la fin de son
+ * tour, la MÊME publication reprend (`reprendreLaPublication`), sans attendre qu'il le demande. Rien ne repart tant
+ * qu'il attend une réponse de l'utilisateur ; un tour resté en file faute de quota n'a rien réparé : la file est vidée
+ * (sinon il repartirait plus tard sur une publication finie) et la ligne le dit.
+ */
+export function veillerSurLeDepanneur(agentId: string, runId: string, outils: { pas?: number; depart?: number } = {}): Promise<void> {
+  if (veilles.has(agentId)) return Promise.resolve();
+  veilles.add(agentId);
+  const pas = outils.pas ?? PAS_DE_RELANCE_MS;
+  const depart = outils.depart ?? DEPART_DU_TOUR_MS;
+  const debut = Date.now();
+  let vuAuTravail = false;
+  const suivre = async (): Promise<void> => {
+    while (Date.now() - debut < ATTENTE_MAX_RELANCE_MS) {
+      // Une veille ne retient jamais le démon (ni un test) en vie : son minuteur est détaché.
+      await new Promise((resolve) => setTimeout(resolve, pas).unref());
+      const run = store.getDeploy(runId);
+      const agent = store.getAgent(agentId);
+      const aDepanner = !!run && run.depannage?.agentId === agentId && publicationADepanner(run, store.latestDeploy(run.projectId));
+      const enFile = store.listQueue(agentId).length > 0;
+      const verdict = repriseApresLeTour({ agent, aDesDemandesEnFile: enFile, aDepanner });
+      if (verdict === 'attendre') {
+        if (agent && (agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined)) vuAuTravail = true;
+        continue;
+      }
+      if (verdict === 'abandonner') {
+        if (aDepanner && enFile && run) {
+          store.clearQueue(agentId);
+          enregistrer({ ...run, depannage: { ...run.depannage!, refusAuto: { at: Date.now(), raison: 'aucun compte n’avait de quota pour dépanner' } } });
+        }
+        return;
+      }
+      // « reprendre » : seulement une fois le tour réellement passé (ou jamais parti après un délai raisonnable).
+      if (!vuAuTravail && Date.now() - debut < depart) continue;
+      const issue = await reprendreLaPublication(runId).catch((err) => ({ ok: false, error: err?.message ?? String(err) }));
+      if (issue.ok) {
+        direDansLeFil(agentId, 'La publication reprend à l’étape qui était tombée. Son avancement se suit dans la colonne de gauche et dans le menu « Publier ».');
+      } else {
+        const raison = issue.error ?? 'raison inconnue';
+        direDansLeFil(agentId, `La reprise de la publication a été refusée : ${raison}`);
+        bus.toast('error', `Reprise après dépannage refusée : ${raison}`);
+      }
+      return;
+    }
+  };
+  return suivre()
+    .catch((err) => log.warn(`veille du dépanneur ${agentId} : ${err?.message ?? err}`))
+    .finally(() => veilles.delete(agentId));
 }
 
 /**
@@ -159,34 +225,11 @@ export function demanderLaRelance(agentId: string): { ok: boolean; texte: string
     return { ok: true, texte: 'La relance est déjà demandée : elle partira à la fin de ton tour.' };
   }
   enregistrer({ ...run, depannage: { ...run.depannage, relanceDemandee: Date.now() } });
-  void relancerApresLeTour(agentId, run.id);
+  // La veille du dépanneur reprend la publication à la fin de ce tour (elle tourne déjà ; sinon elle repart).
+  void veillerSurLeDepanneur(agentId, run.id);
   return {
     ok: true,
     texte: 'Relance notée : la même publication repartira, à la même étape, dès la fin de ton tour. Termine maintenant ta réponse.',
   };
 }
 
-/** Attend que l'agent ait rendu la main, puis relance — et dit ce qu'il en est. */
-async function relancerApresLeTour(agentId: string, runId: string): Promise<void> {
-  const limite = Date.now() + ATTENTE_MAX_RELANCE_MS;
-  while (Date.now() < limite) {
-    await new Promise((resolve) => setTimeout(resolve, PAS_DE_RELANCE_MS));
-    const agent = store.getAgent(agentId);
-    if (!agent) return;
-    if (agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined) continue;
-    break;
-  }
-  const run = store.getDeploy(runId);
-  if (!run?.depannage?.relanceDemandee) return;
-  const issue = await retryDeploy(runId).catch((err) => ({ ok: false, error: err?.message ?? String(err) }));
-  if (issue.ok) {
-    direDansLeFil(agentId, 'La publication est relancée. Son avancement se suit dans le volet de publication.');
-    return;
-  }
-  // Relance refusée : le bouton se rallume (plus de relance en attente), et la raison se dit.
-  const actuel = store.getDeploy(runId);
-  if (actuel?.depannage) enregistrer({ ...actuel, depannage: { ...actuel.depannage, relanceDemandee: undefined } });
-  const raison = issue.error ?? 'raison inconnue';
-  direDansLeFil(agentId, `La relance de la publication a été refusée : ${raison}`);
-  bus.toast('error', `Relance après dépannage refusée : ${raison}`);
-}

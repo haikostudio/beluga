@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '@/components/ui/icones';
 import { cn } from '@/lib/utils';
 
 /**
@@ -65,7 +65,8 @@ export function FlecheDePage({
       aria-label={libelle}
       title={libelle}
       className={cn(
-        'rounded-md p-1.5 sm:p-1 text-muted transition-colors',
+        /* Sur téléphone, une flèche a la taille d'une commande : 38 px, au doigt. */
+        'flex h-[38px] w-[38px] items-center justify-center rounded-md text-muted transition-colors sm:h-auto sm:w-auto sm:p-1',
         actif ? 'hover:bg-fond-survol hover:text-text' : 'cursor-default opacity-40',
       )}
     >

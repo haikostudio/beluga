@@ -141,8 +141,8 @@ export function appliquerLeTheme(theme: ThemeId, cause?: MotifDeBascule): ThemeI
   racine.style.colorScheme = sombre ? 'dark' : 'light';
   const bandeau = document.querySelector('meta[name="theme-color"]');
   if (bandeau) bandeau.setAttribute('content', couleurDeBandeau(theme));
-  /* `color-scheme` aussi en balise : en barre « black-translucent », iOS en tire
-     la couleur de l'heure (posée d'abord par le script de `web/index.html`). */
+  /* `color-scheme` aussi en balise : iOS en tire la couleur de l'heure (posée
+     d'abord par le script de `web/index.html`). */
   let schema = document.querySelector('meta[name="color-scheme"]');
   if (!schema) {
     schema = document.createElement('meta');

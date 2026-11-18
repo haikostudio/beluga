@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronLeft, ChevronRight, Clock, X } from '@/components/ui/icones';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 
@@ -722,5 +722,323 @@ export function Curseur({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * UN CURSEUR À DEUX POIGNÉES — une plage (de… à…). Remplace les deux
+ * `<input type="range">` superposés : un appui sur la piste prend la poignée la
+ * plus proche, chaque poignée se règle aussi au clavier (flèches, Début, Fin),
+ * et les deux ne se croisent jamais. Valeurs entre `min` et `max`.
+ *
+ * `reperesBas` / `reperesHaut` : les marqueurs `data-*` posés sur chaque poignée.
+ */
+export function CurseurDouble({
+  bas,
+  haut,
+  min,
+  max,
+  pas = 1,
+  onChange,
+  libelleBas = 'Minimum',
+  libelleHaut = 'Maximum',
+  texteBas,
+  texteHaut,
+  reperesBas,
+  reperesHaut,
+  className,
+  ...reste
+}: {
+  bas: number;
+  haut: number;
+  min: number;
+  max: number;
+  pas?: number;
+  onChange: (bas: number, haut: number) => void;
+  libelleBas?: string;
+  libelleHaut?: string;
+  /** Ce que lit un lecteur d'écran pour chaque poignée (« 4,5 ★ »). */
+  texteBas?: string;
+  texteHaut?: string;
+  reperesBas?: Reperes;
+  reperesHaut?: Reperes;
+  className?: string;
+} & Reperes) {
+  const piste = React.useRef<HTMLDivElement>(null);
+  const tenue = React.useRef<'bas' | 'haut' | null>(null);
+  const arrondir = (v: number) => Math.min(max, Math.max(min, Number((Math.round((v - min) / pas) * pas + min).toFixed(6))));
+  const depuisPointeur = (clientX: number) => {
+    const boite = piste.current?.getBoundingClientRect();
+    if (!boite || boite.width <= 0) return min;
+    return arrondir(min + ((clientX - boite.left) / boite.width) * (max - min));
+  };
+  const poser = (quelle: 'bas' | 'haut', v: number) => {
+    if (quelle === 'bas') onChange(Math.min(arrondir(v), haut), haut);
+    else onChange(bas, Math.max(arrondir(v), bas));
+  };
+  const part = (v: number) => (max > min ? ((v - min) / (max - min)) * 100 : 0);
+  const clavier = (quelle: 'bas' | 'haut') => (e: React.KeyboardEvent) => {
+    const valeur = quelle === 'bas' ? bas : haut;
+    const grand = (max - min) / 10;
+    const suivant =
+      e.key === 'ArrowRight' || e.key === 'ArrowUp'
+        ? valeur + pas
+        : e.key === 'ArrowLeft' || e.key === 'ArrowDown'
+          ? valeur - pas
+          : e.key === 'PageUp'
+            ? valeur + grand
+            : e.key === 'PageDown'
+              ? valeur - grand
+              : e.key === 'Home'
+                ? min
+                : e.key === 'End'
+                  ? max
+                  : null;
+    e.stopPropagation();
+    if (suivant === null) return;
+    e.preventDefault();
+    poser(quelle, suivant);
+  };
+  const poignee = (quelle: 'bas' | 'haut') => {
+    const valeur = quelle === 'bas' ? bas : haut;
+    return (
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label={quelle === 'bas' ? libelleBas : libelleHaut}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={valeur}
+        aria-valuetext={quelle === 'bas' ? texteBas : texteHaut}
+        {...(quelle === 'bas' ? reperesBas : reperesHaut)}
+        onKeyDown={clavier(quelle)}
+        className="absolute top-1/2 h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full bg-surface shadow ring-1 ring-text/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-text/60"
+        style={{ left: `${part(valeur)}%`, zIndex: quelle === 'bas' && part(bas) > 90 ? 2 : 1 }}
+      />
+    );
+  };
+  return (
+    <div
+      {...reste}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const v = depuisPointeur(e.clientX);
+        tenue.current = Math.abs(v - bas) <= Math.abs(v - haut) && !(v > haut) ? 'bas' : 'haut';
+        if (bas === haut) tenue.current = v < bas ? 'bas' : 'haut';
+        poser(tenue.current, v);
+      }}
+      onPointerMove={(e) => {
+        if (tenue.current) poser(tenue.current, depuisPointeur(e.clientX));
+      }}
+      onPointerUp={() => {
+        tenue.current = null;
+      }}
+      onPointerCancel={() => {
+        tenue.current = null;
+      }}
+      className={cn('relative flex h-7 min-w-0 cursor-pointer touch-none select-none items-center px-[11px]', className)}
+    >
+      <div ref={piste} className="relative h-1 w-full rounded-full bg-faint/30">
+        <div className="absolute inset-y-0 rounded-full bg-text/70" style={{ left: `${part(bas)}%`, width: `${part(haut) - part(bas)}%` }} />
+        {poignee('bas')}
+        {poignee('haut')}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Couleur                                                              */
+/* ------------------------------------------------------------------ */
+
+function hexaEnRvb(hexa: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hexa.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rvbEnHexa(r: number, v: number, b: number): string {
+  return `#${[r, v, b].map((x) => Math.round(Math.min(255, Math.max(0, x))).toString(16).padStart(2, '0')).join('')}`;
+}
+function rvbEnTsv(r: number, v: number, b: number): [number, number, number] {
+  const [rr, vv, bb] = [r / 255, v / 255, b / 255];
+  const max = Math.max(rr, vv, bb);
+  const min = Math.min(rr, vv, bb);
+  const d = max - min;
+  let teinte = 0;
+  if (d) {
+    if (max === rr) teinte = ((vv - bb) / d) % 6;
+    else if (max === vv) teinte = (bb - rr) / d + 2;
+    else teinte = (rr - vv) / d + 4;
+    teinte *= 60;
+    if (teinte < 0) teinte += 360;
+  }
+  return [teinte, max ? d / max : 0, max];
+}
+function tsvEnHexa(teinte: number, saturation: number, valeur: number): string {
+  const c = valeur * saturation;
+  const x = c * (1 - Math.abs(((teinte / 60) % 2) - 1));
+  const m = valeur - c;
+  const [r, v, b] =
+    teinte < 60 ? [c, x, 0] : teinte < 120 ? [x, c, 0] : teinte < 180 ? [0, c, x] : teinte < 240 ? [0, x, c] : teinte < 300 ? [x, 0, c] : [c, 0, x];
+  return rvbEnHexa((r + m) * 255, (v + m) * 255, (b + m) * 255);
+}
+
+const NUANCIER = ['#000000', '#404040', '#808080', '#bfbfbf', '#ffffff', '#e5484d', '#f76b15', '#ffc53d', '#30a46c', '#0090ff', '#6e56cf', '#d6409f'];
+
+/**
+ * UN CHOIX DE COULEUR maison : un carré teinte × clarté, une piste des teintes,
+ * le code hexadécimal et un nuancier. `onApercu` montre la couleur EN DIRECT
+ * (au plus une fois par image) ; `onValider` ne part qu'UNE fois, quand le
+ * panneau se referme — une seule opération, donc une seule annulation
+ * (compétence « selecteur-de-couleur-en-direct-une-seule-version »).
+ *
+ * `declencheur` : le dessin du bouton qui ouvre le panneau (une pastille).
+ */
+export function ChoixDeCouleur({
+  valeur,
+  onApercu,
+  onValider,
+  onFermeture,
+  declencheur,
+  className,
+  'aria-label': ariaLabel,
+  title,
+  ...reste
+}: {
+  valeur: string;
+  onApercu?: (hexa: string) => void;
+  onValider: (hexa: string) => void;
+  /** Le panneau se referme, couleur changée ou non. */
+  onFermeture?: () => void;
+  declencheur?: React.ReactNode;
+  className?: string;
+  'aria-label'?: string;
+  title?: string;
+} & Reperes) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const [tsv, setTsv] = React.useState<[number, number, number]>(() => rvbEnTsv(...(hexaEnRvb(valeur) ?? [255, 255, 255])));
+  const [texte, setTexte] = React.useState(valeur);
+  const courante = tsvEnHexa(...tsv);
+  const image = React.useRef(0);
+  React.useEffect(() => () => cancelAnimationFrame(image.current), []);
+  /* À l'ouverture, on repart de la valeur reçue ; pendant le choix, on ne la reprend pas (elle peut être l'écho de l'aperçu). */
+  React.useEffect(() => {
+    if (ouvert) return;
+    const rvb = hexaEnRvb(valeur);
+    if (rvb) setTsv(rvbEnTsv(...rvb));
+    setTexte(valeur);
+  }, [valeur, ouvert]);
+  const montrer = (suivant: [number, number, number]) => {
+    setTsv(suivant);
+    const hexa = tsvEnHexa(...suivant);
+    setTexte(hexa);
+    if (!onApercu) return;
+    cancelAnimationFrame(image.current);
+    image.current = requestAnimationFrame(() => onApercu(hexa));
+  };
+  /* La valeur À L'OUVERTURE : l'appelant peut suivre l'aperçu dans sa propre valeur, la comparaison se fait donc avec elle. */
+  const depart = React.useRef(valeur);
+  const fermer = (o: boolean) => {
+    if (o) {
+      depart.current = valeur;
+      setOuvert(true);
+      return;
+    }
+    setOuvert(false);
+    const hexa = tsvEnHexa(...tsv);
+    if (hexa.toLowerCase() !== depart.current.toLowerCase()) onValider(hexa);
+    onFermeture?.();
+  };
+  const carre = React.useRef<HTMLDivElement>(null);
+  const pisteTeinte = React.useRef<HTMLDivElement>(null);
+  const tenu = React.useRef<'carre' | 'teinte' | null>(null);
+  const suivre = (clientX: number, clientY: number) => {
+    if (tenu.current === 'carre' && carre.current) {
+      const b = carre.current.getBoundingClientRect();
+      const s = Math.min(1, Math.max(0, (clientX - b.left) / b.width));
+      const v = 1 - Math.min(1, Math.max(0, (clientY - b.top) / b.height));
+      montrer([tsv[0], s, v]);
+    } else if (tenu.current === 'teinte' && pisteTeinte.current) {
+      const b = pisteTeinte.current.getBoundingClientRect();
+      montrer([Math.min(359.9, Math.max(0, ((clientX - b.left) / b.width) * 360)), tsv[1], tsv[2]]);
+    }
+  };
+  const gestes = (zone: 'carre' | 'teinte') => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      tenu.current = zone;
+      suivre(e.clientX, e.clientY);
+    },
+    onPointerMove: (e: React.PointerEvent) => tenu.current === zone && suivre(e.clientX, e.clientY),
+    onPointerUp: () => {
+      tenu.current = null;
+    },
+  });
+  return (
+    <PopoverPrimitive.Root open={ouvert} onOpenChange={fermer}>
+      <PopoverPrimitive.Trigger asChild>
+        <button type="button" aria-label={ariaLabel} title={title} data-choix-de-couleur={valeur} {...reste} className={cn('shrink-0', className)}>
+          {declencheur ?? <span className="block h-7 w-8 rounded" style={{ backgroundColor: ouvert ? courante : valeur }} />}
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content side="bottom" align="start" sideOffset={4} collisionPadding={8} className={cn(CLASSE_PANNEAU, 'w-[232px] space-y-2')} data-panneau-couleur="">
+          <div
+            ref={carre}
+            {...gestes('carre')}
+            data-couleur-carre=""
+            className="relative h-36 w-full cursor-crosshair touch-none rounded-md"
+            style={{ backgroundColor: tsvEnHexa(tsv[0], 1, 1), backgroundImage: 'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)' }}
+          >
+            <span
+              className="pointer-events-none absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface shadow"
+              style={{ left: `${tsv[1] * 100}%`, top: `${(1 - tsv[2]) * 100}%`, backgroundColor: courante }}
+            />
+          </div>
+          <div
+            ref={pisteTeinte}
+            {...gestes('teinte')}
+            data-couleur-teinte=""
+            className="relative h-3 w-full cursor-pointer touch-none rounded-full"
+            style={{ backgroundImage: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
+          >
+            <span className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface shadow" style={{ left: `${(tsv[0] / 360) * 100}%` }} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-7 w-7 shrink-0 rounded" style={{ backgroundColor: courante }} />
+            <input
+              value={texte}
+              onChange={(e) => {
+                setTexte(e.target.value);
+                const rvb = hexaEnRvb(e.target.value);
+                if (rvb) montrer(rvbEnTsv(...rvb));
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') fermer(false);
+              }}
+              spellCheck={false}
+              aria-label="Code de la couleur"
+              data-couleur-code=""
+              className="h-8 min-w-0 flex-1 rounded-md bg-raised px-2 font-mono text-[12.5px] uppercase text-text outline-none focus-visible:ring-1 focus-visible:ring-faint"
+            />
+          </div>
+          <div className="grid grid-cols-6 gap-1.5">
+            {NUANCIER.map((hexa) => (
+              <button
+                key={hexa}
+                type="button"
+                aria-label={hexa}
+                data-couleur-nuance={hexa}
+                onClick={() => montrer(rvbEnTsv(...(hexaEnRvb(hexa) as [number, number, number])))}
+                className={cn('h-7 rounded ring-1 ring-text/10', courante.toLowerCase() === hexa && 'ring-2 ring-text/60')}
+                style={{ backgroundColor: hexa }}
+              />
+            ))}
+          </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
 }

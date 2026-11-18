@@ -24,7 +24,7 @@
  * le formulaire le garde jusqu'au dépôt.
  */
 import * as React from 'react';
-import { Calendar, Clock, Tag, X } from 'lucide-react';
+import { Calendar, Clock, Tag, X } from '@/components/ui/icones';
 import { Accordeon, Button, Input, type SectionAccordeon, ChoixDeDate } from '@/components/ui';
 import { t } from '@/lib/langue';
 import {

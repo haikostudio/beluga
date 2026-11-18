@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { RotateCw, TriangleAlert } from 'lucide-react';
+import { RotateCw, TriangleAlert } from '@/components/ui/icones';
 import { ZoneDefilement } from '@/components/ui';
 import { detailErreur, signalerErreur } from '@/lib/erreurs';
 import { t } from '@/lib/langue';

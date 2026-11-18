@@ -26,17 +26,22 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   AgentQuestion,
+  lettreDuRang,
   Message,
   IDS_SERVICES_CREATION,
   CATEGORIES_FAL_LUES,
   lireReponseDeLumiere,
   ceQueRecoitLeModele,
+  corpsDeCommandeKie,
+  prixEnEurosEtDollars,
+  prixParQuantite,
   corpsEnDirect,
   catalogueVisible,
   entreesDeLaPageKie,
   entreesDuSchemaJson,
   estServiceCache,
   KIE_ENVOI,
+  MODELE_CLONAGE_OPENROUTER,
   DOLLARS_PAR_CREDIT,
   lireEnvoiKie,
   lireSoldeKie,
@@ -92,6 +97,7 @@ import {
   genreDePieceDuFil,
   planDePieceDuFil,
   MODELE_DES_APERCUS,
+  couperLaConsigne,
   PHASES_DE_REALISATION,
   PREFIXE_DES_APERCUS,
   PREFIXE_DES_EXEMPLES,
@@ -129,6 +135,13 @@ import {
   decisionDuLot,
   issueDePanne,
   lotValideParLaReponse,
+  OPTION_ARRET_DU_CHOIX,
+  lireFondARetirer,
+  fondGardeParLAnnonce,
+  lirePlaceAnnoncee,
+  phraseDeLaPlace,
+  type AnnonceDuMontage,
+  choixArrete,
   porteDeGeneration,
   questionDuLotDeDevis,
   reservationPossible,
@@ -179,10 +192,29 @@ import {
   VOIX_FINALES,
   VOIX_FINALE_PAR_DEFAUT,
   idDeComposition,
+  CONSIGNE_AGENT_STUDIO,
+  consigneDuChoixDesModeles,
+  ligneDuModeDuStudio,
+  consigneDuMontageDeCarte,
+  lignesDesNotes,
+  capaciteAuMenuDesModeles,
+  derniersModelesUtilises,
+  incompatibiliteAvecLaDemande,
+  ligneDesDerniersModeles,
+  noteDuModeleConseille,
+  refusDuPrixVu,
+  totalDuMenu,
+  trierLeMenuDesModeles,
+  type ModeleDuMenu,
 } from '@beluga/shared';
+import type { IssueDePoseDuValide } from './studio-montage-de-carte.js';
 import * as store from './store.js';
+import { compositionCourante, creationDeLaCarte, estMontageDeCarte, listerNotes } from './studio.js';
+import { ligneDesModelesDeLaCarte, refusDuDevisDeLaCarte } from './studio-modeles-choisis.js';
+import { modeDeLaCarte } from './studio-modes.js';
+import { stylesJointsDeLaCreation } from './studio-styles.js';
 import { bus } from './bus.js';
-import { getDb } from './db.js';
+import { getDb, getMeta } from './db.js';
 import { PATHS } from './config.js';
 import { log } from './logger.js';
 import { cleDuService, fabriquerClipChezLeService, plafondDuClip, servicesDeGenerationBranches, tarifsKie } from './studio-services.js';
@@ -229,6 +261,30 @@ import {
 /* ------------------------------------------------------------------ */
 /* L'état de la carte                                                  */
 /* ------------------------------------------------------------------ */
+
+/**
+ * LE STUDIO N'A PLUS D'ÉTAPES (demande du 01/11/2026, capture #e4f3) : une carte
+ * de média dont la création vit au Studio (et n'est pas le simple montage d'une
+ * carte du tableau) se mène en UNE conversation — questions, première version
+ * gratuite, puis devis au clic. Aucun outil n'y est donc bridé par l'étape de la
+ * carte (brief, images des plans, séquences, montage). Les cartes de média du
+ * TABLEAU gardent leurs quatre étapes (DEC-418).
+ */
+export function studioSansEtapes(card: Pick<Card, 'id'>): boolean {
+  const creation = creationDeLaCarte(card.id);
+  return !!creation && !estMontageDeCarte(creation);
+}
+
+/** Les passages d'étape tels que les outils les lisent : tous ouverts dans le Studio. */
+function passagesEffectifs(card: Card): ReturnType<typeof passagesDuMedia> {
+  const p = passagesDuMedia(card);
+  return studioSansEtapes(card) ? { ...p, esquisses: true, sequences: true, montage: true } : p;
+}
+
+/** La règle « toutes les images avant l'animation », sauf dans le Studio. */
+function animationPermiseIci(card: Card): ReturnType<typeof animationPermise> {
+  return studioSansEtapes(card) ? { ok: true } : animationPermise({ types: typesDeMediaDeLaRealisation(card.realisation), carte: card });
+}
 
 /** Le mode est-il allumé sur la carte de cet agent ? */
 export function realisationAllumeePourLAgent(agentId: string): boolean {
@@ -311,6 +367,38 @@ function resumeDesServices(): string {
 }
 
 /**
+ * CE QUE LE STUDIO AJOUTE À LA CONSIGNE DU DIRECTEUR : une création née au Studio
+ * lit sa méthode entière ; une carte qui a un montage, seulement ce montage. Rien
+ * pour une carte caméra sans création.
+ */
+function consigneDuStudioDeLaCarte(card: Card): string {
+  const creation = creationDeLaCarte(card.id);
+  if (!creation) return '';
+  const composition = compositionCourante(creation.id);
+  const notes = lignesDesNotes(listerNotes(creation.id));
+  const montage = estMontageDeCarte(creation);
+  return [
+    montage ? (composition ? consigneDuMontageDeCarte(composition) : '') : CONSIGNE_AGENT_STUDIO,
+    `CRÉATION DU STUDIO : « ${creation.titre} ». ${ligneDesModelesDeLaCarte(card.id)}`,
+    ...(montage
+      ? []
+      : [
+          ligneDuModeDuStudio(modeDeLaCarte(card.id)),
+          consigneDuChoixDesModeles({
+            kie: !!cleDuService('kie'),
+            openrouter: voixParOpenRouterPossible(),
+            higgsfield: !!cleDuService('higgsfield'),
+            fal: !!cleDuService('fal'),
+          }),
+          stylesJointsDeLaCreation(creation.id, getMeta),
+        ]),
+    ...(notes.length ? ['NOTES DE L’UTILISATEUR ENCORE OUVERTES SUR L’IMAGE :', ...notes] : []),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
  * LA CONSIGNE DU MODE, prête à partir avec la demande du tour : le
  * questionnaire au cadrage, la méthode du réalisateur à l'exécution.
  */
@@ -333,8 +421,14 @@ export function consigneDeRealisationDeLaCarte(card: Card, role: string): string
       son: sonDuBrief(elementsCourants(elements).find((e) => e.genre === 'brief')?.contenu),
       ...(card.realisation?.style ? { style: card.realisation.style } : {}),
       methodes: lignesDesMethodesEnService(),
+      sansEtapes: studioSansEtapes(card),
     });
-    return production ? `${consigne}\nL’ÉTAT DE LA PRODUCTION, LU EN BASE :\n${production}` : consigne;
+    const avecProduction = production ? `${consigne}\nL’ÉTAT DE LA PRODUCTION, LU EN BASE :\n${production}` : consigne;
+    /* LE DERNIER MODÈLE UTILISÉ PAR TYPE (01/11/2026) : repris par défaut, un autre se conseille avec sa raison. */
+    const derniers = ligneDesDerniersModeles(derniersModelesUtilises(mediasDeLaCarte(card.id)));
+    const complete = derniers ? `${avecProduction}\n${derniers}` : avecProduction;
+    const studio = consigneDuStudioDeLaCarte(card);
+    return studio ? `${complete}\n\n${studio}` : complete;
   }
   const elements = elementsDeLaCarte(card.id);
   return consigneDeFabrication({
@@ -426,6 +520,8 @@ export interface MediaDeRealisation {
      */
     entrees?: EntreeDeModele[];
     parametres?: Record<string, unknown>;
+    /** La place dans le montage, le fond à retirer et le rôle, annoncés dès la proposition. */
+    montage?: AnnonceDuMontage;
   };
   raison: string;
   prix: number | null;
@@ -669,7 +765,7 @@ async function appeler(requete: { methode: string; adresse: string; entetes: Rec
 
 /** Les modèles d'image d'OpenRouter, relus au plus toutes les heures (liste publique). */
 let openrouterLu: { le: number; modeles: ModeleDeGeneration[] } | null = null;
-async function modelesOpenRouter(): Promise<ModeleDeGeneration[]> {
+export async function modelesOpenRouter(): Promise<ModeleDeGeneration[]> {
   if (openrouterLu && Date.now() - openrouterLu.le < 3_600_000) return openrouterLu.modeles;
   try {
     const { statut, corps } = await appeler({ methode: 'GET', adresse: 'https://openrouter.ai/api/v1/models?output_modalities=image', entetes: {} }, 15_000);
@@ -799,6 +895,7 @@ async function soldeKie(cle: string): Promise<number | null> {
 /** Le prix PUBLIÉ d'une génération : fal.ai seulement (vidéo, image, voix, synchronisation), jamais deviné ailleurs. */
 async function prixPublie(modele: ModeleDeGeneration, duree: number, quantite: { secondes?: number; caracteres?: number; texte?: string } = {}): Promise<number | null> {
   if (modele.service === 'openrouter' && modele.id === MODELE_VOIX_OPENROUTER) return quantite.texte ? prixEstimeDeLaVoix(quantite.texte) : null;
+  if (modele.service === 'openrouter' && modele.id === MODELE_CLONAGE_OPENROUTER) return quantite.texte ? prixDuClonage(quantite.texte).catch(() => null) : null;
   if (modele.prix === 'credits-kie') {
     /* kie.ai : la liste publique des prix, par la ligne du modèle choisi (ou, lu en direct, par son lien). */
     const k = modeleKie(modele.id, modele.capacite);
@@ -879,6 +976,13 @@ async function fabriquer(m: MediaDeRealisation, attente: (ms: number) => Promise
       fs.rmSync(sortie, { force: true });
     }
   }
+  /* LA VOIX CLONÉE PAR OPENROUTER : l'enregistrement de référence et le texte, le coût réel relevé (31/10/2026). */
+  if (service === 'openrouter' && m.capacite === 'clonage-voix') {
+    const ref = m.demande.audio ? fichierDUnSon(m.demande.audio) : null;
+    if (!ref) throw new Error('l’enregistrement de la voix à cloner est introuvable sur le disque');
+    const r = await voixCloneeParOpenRouter(ref, m.demande.consigneOriginale ?? m.demande.consigne);
+    return { data: r.data, type: 'audio/mpeg', coutReel: r.cout };
+  }
   const cle = cleDuService(service);
   if (!cle) throw new Error(`${serviceDeGeneration(service)?.nom ?? service} n’est plus branché : sa clé a été retirée`);
 
@@ -918,7 +1022,9 @@ async function fabriquer(m: MediaDeRealisation, attente: (ms: number) => Promise
       ? await envoyerChezFal(cle, m)
       : m.capacite === 'synchro' && service === 'kie'
         ? await envoyerChezKie(cle, m)
-        : {};
+        : m.capacite === 'avatar' && service === 'kie'
+          ? await envoyerLaVoixChezKie(cle, m)
+          : {};
   /* L'ANIMATION ET LES RETOUCHES partent d'images : déposées chez le service (gratuit) juste avant l'appel payant, déjà accordé. */
   const imageUrls = m.demande.sources?.length ? await deposerLesSources(service, cle, m.demande.sources) : undefined;
   /* L'IMAGE DE FIN et LA VIDÉO DE MOUVEMENT sont déposées de la même façon, juste avant l'appel. */
@@ -937,12 +1043,12 @@ async function fabriquer(m: MediaDeRealisation, attente: (ms: number) => Promise
     /* UN MODÈLE LU EN DIRECT : la requête suit son schéma, gardé avec la demande. */
     const corps = corpsEnDirect(m.demande.entrees, demande);
     if (!corps.ok) throw new Error(`commande refusée avant l’envoi : ${corps.raison}`);
-    forme = { requete: requeteEnDirect(service, m.modele, cle, corps.corps), forme: 'travail' };
+    forme = { requete: requeteEnDirect(service, m.modele, cle, service === 'kie' ? corpsDeCommandeKie(m.modele, corps.corps) : corps.corps), forme: 'travail' };
   } else if (k) {
     /* Un modèle kie.ai choisi : son schéma recopié et ses réglages d'office (`shared/src/kie.ts`). */
     const corps = corpsEnDirect(k.entrees, demande, k.defauts);
     if (!corps.ok) throw new Error(`commande refusée avant l’envoi : ${corps.raison}`);
-    forme = { requete: requeteEnDirect('kie', k.id, cle, corps.corps), forme: 'travail' };
+    forme = { requete: requeteEnDirect('kie', k.id, cle, corpsDeCommandeKie(k.id, corps.corps)), forme: 'travail' };
   } else {
     forme = requeteDeGeneration({ service, id: m.modele, capacite: m.capacite }, cle, demande);
   }
@@ -1052,6 +1158,66 @@ async function envoyerChezKie(cle: string, m: MediaDeRealisation): Promise<{ vid
   return { videoUrl: await deposer(m.demande.video, 'la vidéo'), audioUrl: await deposer(m.demande.audio, 'la voix') };
 }
 
+/** LE PRÉSENTATEUR PARLANT chez kie.ai : la voix qu'il dit, déposée (gratuit) juste avant l'appel payant. */
+async function envoyerLaVoixChezKie(cle: string, m: MediaDeRealisation): Promise<{ audioUrl: string }> {
+  const son = m.demande.audio ? fichierDUnSon(m.demande.audio) : null;
+  if (!son) throw new Error('la voix du présentateur est introuvable sur le disque');
+  return { audioUrl: await deposerChezKie(cle, son.fichier, son.type) };
+}
+
+/** Le prix d'une voix clonée au tarif publié d'OpenRouter (au caractère), lu en direct. */
+async function prixDuClonage(texte: string): Promise<number> {
+  const r = await fetch('https://openrouter.ai/api/v1/models?output_modalities=speech', { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`liste des prix illisible (${r.status})`);
+  const corps = (await r.json()) as { data?: { id: string; pricing?: { prompt?: string } }[] };
+  const prix = Number(corps.data?.find((x) => x.id === MODELE_CLONAGE_OPENROUTER)?.pricing?.prompt);
+  if (!Number.isFinite(prix) || prix < 0) throw new Error('prix non publié');
+  return Math.round(texte.length * prix * 1.1 * 1e6) / 1e6;
+}
+
+/**
+ * UNE VOIX CLONÉE PAR OPENROUTER : `input_references` porte l'enregistrement en base64 ; OpenRouter ne le route
+ * qu'aux fournisseurs qui clonent (essai du 31/10/2026 : Fish Audio S2.1 Pro, en français). Rend le MP3 et ce qui
+ * a été débité (la fiche de génération, sinon le tarif publié).
+ */
+async function voixCloneeParOpenRouter(ref: { fichier: string; type: string }, texte: string): Promise<{ data: Buffer; cout: number }> {
+  const cle = cleOpenRouter();
+  if (!cle) throw new Error('aucune clé OpenRouter : le clonage de voix passe par OpenRouter');
+  const brut = fs.readFileSync(ref.fichier);
+  if (brut.length > 15 * 1024 * 1024) throw new Error('l’enregistrement de référence dépasse 15 Mo : 10 à 30 secondes suffisent');
+  const format = /wav/.test(ref.type) ? 'wav' : /mp4|m4a|aac/.test(ref.type) ? 'm4a' : /ogg/.test(ref.type) ? 'ogg' : /webm/.test(ref.type) ? 'webm' : 'mp3';
+  const reponse = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+    method: 'POST',
+    signal: AbortSignal.timeout(240_000),
+    headers: { Authorization: `Bearer ${cle}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODELE_CLONAGE_OPENROUTER,
+      input: texte,
+      response_format: 'mp3',
+      input_references: [{ type: 'input_audio', input_audio: { data: brut.toString('base64'), format } }],
+    }),
+  });
+  if (!reponse.ok) {
+    const t = await reponse.text().catch(() => '');
+    throw new Error(`OpenRouter a refusé le clonage (${reponse.status}) : ${t.slice(0, 160)}`);
+  }
+  const data = Buffer.from(await reponse.arrayBuffer());
+  const generation = reponse.headers.get('x-generation-id');
+  for (let essai = 0; generation && essai < 4; essai++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const g = await fetch(`https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(generation)}`, { headers: { Authorization: `Bearer ${cle}` } });
+      if (g.ok) {
+        const c = (await g.json()) as { data?: { total_cost?: number } };
+        if (typeof c.data?.total_cost === 'number') return { data, cout: c.data.total_cost };
+      }
+    } catch {
+      /* réessayer */
+    }
+  }
+  return { data, cout: await prixDuClonage(texte).catch(() => 0) };
+}
+
 /** Le fichier d'une source : un média de la carte (son fichier rangé) ou une pièce jointe du projet. */
 export function fichierDUneSource(id: string): { fichier: string; type: string } | null {
   const media = mediaParId(id);
@@ -1136,6 +1302,24 @@ async function ranger(m: MediaDeRealisation, data: Buffer, type: string, coutRee
   return fini;
 }
 
+/**
+ * UNE IMAGE DU STUDIO À FOND UNI PERD SON FOND DÈS QU'ELLE EST FINIE (décision du 02/11/2026) : le fil et la question
+ * de version montrent le résultat, le fichier d'origine reste (« Remettre le fond »). Rien pour un décor annoncé
+ * (`fond: aucun`), ni pour le plan « montage », ni hors du Studio. Une panne laisse le média entier.
+ */
+async function sansFondSiStudio(m: MediaDeRealisation): Promise<MediaDeRealisation> {
+  if (m.genre !== 'image' || !m.attachmentId || m.demande.montage?.garderLeFond || m.plan === 'montage' || estUnApercu(m.plan)) return m;
+  if (!studioSansEtapes({ id: m.cardId })) return m;
+  const { retirerLeFondDOffice } = await import('./studio-fond.js');
+  const sansFond = await retirerLeFondDOffice({ projectId: m.projectId, attachmentId: m.attachmentId, cardId: m.cardId, ...(m.agentId ? { agentId: m.agentId } : {}), deLAgent: true });
+  return sansFond ? maj(m, { attachmentId: sansFond }) : m;
+}
+
+/** Le média de la production suit le fichier qu'on lui remplace (retrait ou remise du fond, image seulement). */
+export function changerLaPieceDesMedias(cardId: string, de: string, vers: string): void {
+  getDb().prepare(`UPDATE medias_realisation SET attachment_id = ? WHERE card_id = ? AND attachment_id = ? AND genre = 'image'`).run(vers, cardId, de);
+}
+
 const execFileAsync = promisify(execFile);
 
 /**
@@ -1181,7 +1365,7 @@ function lancer(m: MediaDeRealisation, attente: (ms: number) => Promise<void>): 
   const travail = (async () => {
     try {
       const { data, type, coutReel } = await fabriquer(m, attente);
-      const fini = await ranger(m, data, type, coutReel);
+      const fini = await sansFondSiStudio(await ranger(m, data, type, coutReel));
       /* LE DÉBIT : le montant réel quand le service le rend, l'annoncé sinon. */
       const op = operationDuMedia(m.id);
       if (op?.etat === 'reservee') marquerLOperation(op.id, 'debitee', coutReel ?? m.prix);
@@ -1194,14 +1378,391 @@ function lancer(m: MediaDeRealisation, attente: (ms: number) => Promise<void>): 
       log.warn(`réalisation : « ${m.plan} » en échec : ${raison}`);
     } finally {
       enVol.delete(m.id);
+      quandUnMediaSArrete(m.id);
     }
   })();
   enVol.set(m.id, travail);
 }
 
 /* ------------------------------------------------------------------ */
+/* La fin d'un lot : l'agent est réveillé pour faire choisir (31/10/2026) */
+/* ------------------------------------------------------------------ */
+
+/** L'agent qui fait choisir : celui qui a fabriqué, sinon celui de la création du Studio, du cadrage, puis de la carte. */
+function agentDuChoix(card: Card, m: Pick<MediaDeRealisation, 'agentId'>): string | null {
+  const candidats = [m.agentId, creationDeLaCarte(card.id)?.agentId, store.getCadrageAgentByCard(card.id)?.id, card.agentId];
+  for (const id of candidats) if (id && store.getAgent(id)) return id;
+  return null;
+}
+
+/** Une carte où le choix se pose : une création de média, ou une carte qui a sa création au Studio. */
+function carteQuiFaitChoisir(card: Card): boolean {
+  return carteDeMedia(card) || !!creationDeLaCarte(card.id);
+}
+
+/**
+ * LA FIN D'UN LOT RÉVEILLE L'AGENT, UNE SEULE FOIS (demande du 31/10/2026, «
+ * comme le directeur artistique ») : quand la DERNIÈRE génération d'un lot
+ * s'arrête — rendue ou en échec —, l'agent reçoit une demande qui lui fait
+ * poser « Quelle version gardez-vous ? » (« choisir »). La garde est en base
+ * (événement `lot.termine`), écrite dans la même transaction que la vérification :
+ * deux générations qui finissent ensemble ne réveillent pas deux fois. Le réveil
+ * passe par `sendPrompt`, qui met en file s'il y a déjà un tour (DEC-037).
+ * Un lot dont tout a échoué réveille aussi, pour dire l'échec — sans question.
+ */
+export function quandUnMediaSArrete(mediaId: string): { reveil: boolean } {
+  const m = mediaParId(mediaId);
+  if (!m) return { reveil: false };
+  const card = store.getCard(m.cardId);
+  if (!card || estUnApercu(m.plan)) return { reveil: false };
+  if (!m.lotId) return quandUnMediaSansLotSArrete(m, card);
+  if (!carteQuiFaitChoisir(card)) return { reveil: false };
+  const lotId = m.lotId;
+  const issue = getDb().transaction(() => {
+    const etats = getDb().prepare(`SELECT etat FROM medias_realisation WHERE lot_id = ?`).all(lotId) as { etat: string }[];
+    if (!etats.length || etats.some((e) => e.etat === 'en-cours' || e.etat === 'devis')) return null;
+    const deja = getDb().prepare(`SELECT 1 FROM production_evenements WHERE card_id = ? AND genre = 'lot.termine' AND details LIKE ?`).get(card.id, `%"lot":"${lotId}"%`);
+    if (deja) return null;
+    const finis = etats.filter((e) => e.etat === 'fini').length;
+    noterUnEvenement(card.id, 'lot.termine', { lot: lotId, finis, total: etats.length });
+    return { finis };
+  })();
+  if (!issue) return { reveil: false };
+  const agentId = agentDuChoix(card, m);
+  if (!agentId) return { reveil: false };
+  const medias = (getDb().prepare(`SELECT * FROM medias_realisation WHERE lot_id = ? ORDER BY cree_le`).all(lotId) as any[]).map(lireLigne);
+  const plans = [...new Set(medias.map((x) => x.plan))];
+  const titre = plans.length === 1 ? `« ${plans[0]} »` : `${plans.length} plans`;
+  const consigne = issue.finis
+    ? [
+        `LES VERSIONS DE ${titre} SONT PRÊTES (lot « ${lotId} ») : ${medias.map((x) => `« ${x.id} » ${x.plan} ${x.etat === 'fini' ? `v${x.version}` : `en échec (${String(x.echec ?? '').slice(0, 80)})`}`).join(' ; ')}.`,
+        `Fais choisir l’utilisateur MAINTENANT : appelle l’outil « realiser » action « choisir » avec « lot » « ${lotId} ». L’outil pose lui-même la question « Quelle version gardez-vous ? », chaque version repérée par sa lettre (A, B…) et jouable sur place — ne la pose pas toi-même avec ask_user, ne valide rien à sa place.`,
+        'Sa réponse valide la version et la pose aussitôt sur sa piste (musique au début sous tout le film, voix sur la Voix, image ou vidéo à la place de son plan). Écris une phrase courte avant l’appel, rien de plus.',
+      ].join('\n')
+    : `TOUTES LES GÉNÉRATIONS DE ${titre} ONT ÉCHOUÉ (lot « ${lotId} ») : ${medias.map((x) => `« ${x.plan} » : ${String(x.echec ?? 'raison inconnue').slice(0, 120)}`).join(' ; ')}. Dis-le en une ou deux phrases et propose de relancer (un nouveau devis). Ne pose AUCUNE question de choix.`;
+  void (async () => {
+    const { sendPrompt } = await import('./runtime.js');
+    await sendPrompt(agentId, issue.finis ? `Les versions de ${titre} sont prêtes` : `Les générations de ${titre} ont échoué`, { context: consigne });
+  })().catch((err) => log.warn(`agent non réveillé à la fin du lot : ${String((err as Error)?.message ?? err)}`));
+  if (issue.finis && studioSansEtapes(card)) filetDuChoix(card.id, agentId, { lot: lotId });
+  return { reveil: true };
+}
+
+/**
+ * TOUTE GÉNÉRATION DU STUDIO SE CHOISIT (décision du 02/11/2026), même sans lot :
+ * un rendu sur le serveur, un média rangé par l'agent. Une seule fois par plan, une
+ * fois ses générations terminées (garde `plan.termine`, comme `lot.termine`). Un
+ * montage final livré et ce que l'utilisateur a lui-même inscrit n'appellent aucun choix.
+ */
+function quandUnMediaSansLotSArrete(m: MediaDeRealisation, card: Card): { reveil: boolean } {
+  if (m.etat !== 'fini' || !studioSansEtapes(card) || m.etape === 'montage' || m.plan === 'montage') return { reveil: false };
+  const agentId = agentDuChoix(card, m);
+  if (!agentId) return { reveil: false };
+  const prete = getDb().transaction(() => {
+    const autres = getDb().prepare(`SELECT 1 FROM medias_realisation WHERE card_id = ? AND plan = ? AND lot_id IS NULL AND etat = 'en-cours' LIMIT 1`).get(card.id, m.plan);
+    if (autres) return false;
+    const deja = getDb().prepare(`SELECT 1 FROM production_evenements WHERE card_id = ? AND genre = 'plan.termine' AND details LIKE ?`).get(card.id, `%"media":"${m.id}"%`);
+    if (deja) return false;
+    noterUnEvenement(card.id, 'plan.termine', { media: m.id, plan: m.plan });
+    return true;
+  })();
+  if (!prete) return { reveil: false };
+  const question = questionDeChoixDeVersion(card.id, { plan: m.plan });
+  if (question && !questionDeChoixEnAttente(agentId, m.plan)) poserLaQuestionDuChoix(agentId, m.plan, question);
+  return { reveil: false };
+}
+
+/** Une question de choix de ce plan attend-elle encore sa réponse ? Elle ne se pose jamais deux fois. */
+function questionDeChoixEnAttente(agentId: string, plan: string): boolean {
+  return store.listMessages(agentId).some((message) => (message.questions ?? []).some((q) => q.choixDeVersion?.plan === plan && q.answer === undefined));
+}
+
+/** LE DÉMON POSE LUI-MÊME LA QUESTION DANS LE FIL : la réponse valide et pose, comme celle posée par l'outil. */
+function poserLaQuestionDuChoix(agentId: string, plan: string, question: AgentQuestion): void {
+  const message = store.saveMessage(Message.parse({ id: store.newId(), agentId, role: 'assistant', content: `Les versions de « ${plan} » sont prêtes.`, questions: [question], createdAt: Date.now() }));
+  bus.emit({ type: 'message.upsert', message });
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+}
+
+/** LE FILET : un agent réveillé qui n'a pas posé le choix après trois minutes ; le démon le pose à sa place. */
+function filetDuChoix(cardId: string, agentId: string, filtre: { lot: string }): void {
+  const minuteur = setTimeout(() => {
+    try {
+      const question = questionDeChoixDeVersion(cardId, filtre);
+      const plan = question?.choixDeVersion?.plan;
+      if (question && plan && !questionDeChoixEnAttente(agentId, plan) && !store.listMessages(agentId).some((x) => (x.questions ?? []).some((q) => q.choixDeVersion?.lotId === filtre.lot && q.choixDeVersion?.plan === plan))) poserLaQuestionDuChoix(agentId, plan, question);
+    } catch (err) {
+      log.warn(`choix de version non posé par le filet : ${String((err as Error)?.message ?? err)}`);
+    }
+  }, 3 * 60_000);
+  minuteur.unref?.();
+}
+
+/**
+ * « QUELLE VERSION GARDEZ-VOUS ? » (outil « realiser », « choisir ») : une
+ * question par plan du lot qui n'a encore aucune version validée, chaque
+ * version finie en choix LETTRÉ (A, B…) avec son média jouable — l'image dans
+ * l'option, le son ou la vidéo derrière son bouton lecture, comme les exemples
+ * du directeur artistique. Rend `null` quand il n'y a plus rien à choisir.
+ */
+export function questionDeChoixDeVersion(cardId: string, filtre: { lot?: string; plan?: string }): AgentQuestion | null {
+  const medias = mediasDeLaCarte(cardId);
+  const duLot = medias.filter((m) => (filtre.lot ? m.lotId === filtre.lot : true) && (filtre.plan ? m.plan === filtre.plan : true));
+  const plans = [...new Set(duLot.map((m) => m.plan))];
+  for (const plan of plans) {
+    const versions = duLot.filter((m) => m.plan === plan && m.etat === 'fini' && m.attachmentId).sort((a, b) => a.version - b.version);
+    if (!versions.length) continue;
+    /* UN PLAN DEMANDÉ PAR SON NOM SE REPOSE MÊME DÉJÀ TRANCHÉ : sans bouton sur le média, c'est le chemin du changement d'avis (01/11/2026). */
+    if (!filtre.plan && medias.some((m) => m.plan === plan && m.retenuLe)) continue;
+    /* UNE IMAGE DE PRÉPARATION (l'image de départ d'une animation) : l'utiliser pour la suite, ou la poser sur le film. */
+    const preparation = versions.some((v) => v.demande.montage?.role === 'preparation');
+    const visuel = (v: MediaDeRealisation) => (v.genre === 'image' ? { image: v.attachmentId! } : { media: v.attachmentId! });
+    const correspondances: { optionId: string; mediaId: string; geste?: 'utiliser' }[] = [];
+    const options = [
+      ...versions.flatMap((v, i) => {
+        const lettre = lettreDuRang(i);
+        if (preparation) {
+          const prefixe = versions.length > 1 ? `${lettre} — ` : '';
+          correspondances.push({ optionId: `u${i}`, mediaId: v.id, geste: 'utiliser' }, { optionId: `o${i}`, mediaId: v.id });
+          return [
+            { id: `u${i}`, label: `${prefixe}Utiliser`, description: 'Elle sert à la suite, sans aller sur le film.', ...visuel(v) },
+            { id: `o${i}`, label: `${prefixe}Poser`, description: 'Elle est validée et se pose sur sa piste du montage.', ...visuel(v) },
+          ];
+        }
+        correspondances.push({ optionId: `o${i}`, mediaId: v.id });
+        const place = phraseDeLaPlace(v.demande.montage?.place, v.demande.montage?.fond);
+        return [
+          {
+            id: `o${i}`,
+            label: `${lettre} — version ${v.version}`,
+            description: [v.retenuLe ? `${v.modeleNom} · déjà gardée` : v.modeleNom, place].filter(Boolean).join(' · '),
+            ...visuel(v),
+          },
+        ];
+      }),
+      /* L'ISSUE D'ARRÊT (01/11/2026) : dans le Studio, on avance ou on s'arrête par la réponse. */
+      { id: 'arret', label: OPTION_ARRET_DU_CHOIX, description: 'Rien n’est validé, et l’agent ne propose rien d’autre.' },
+    ];
+    return AgentQuestion.parse({
+      id: store.newId(),
+      question: preparation ? `« ${plan} » : que faire de cette image ?` : versions.length > 1 ? `« ${plan} » : quelle version gardez-vous ?` : `« ${plan} » : gardez-vous cette version ?`,
+      description: preparation ? 'Utiliser la garde pour la suite ; Poser la met aussi sur le film.' : 'La version choisie est validée et se pose aussitôt sur sa piste du montage.',
+      kind: 'single',
+      options,
+      allowFreeText: true,
+      choixDeVersion: { cardId, ...(filtre.lot ? { lotId: filtre.lot } : {}), plan, versions: correspondances },
+    });
+  }
+  return null;
+}
+
+/** La version que la réponse désigne : le libellé exact, sinon la lettre en tête (« B », « b — … »). */
+export function versionChoisie(question: Pick<AgentQuestion, 'options' | 'choixDeVersion'>, reponse: string): string | null {
+  const choix = question.choixDeVersion;
+  if (!choix) return null;
+  const texte = String(reponse ?? '').trim();
+  const option =
+    question.options.find((o) => o.label === texte) ??
+    question.options.find((o) => {
+      const lettre = o.label.split(' — ')[0]!.trim().toLowerCase();
+      return texte.toLowerCase() === lettre || texte.toLowerCase().startsWith(`${lettre} `) || texte.toLowerCase().startsWith(`${lettre} —`);
+    });
+  if (!option) {
+    /* « oui », « je la garde » sur une seule version : c'est elle. */
+    if (choix.versions.length === 1 && /^(oui|ok|d.accord|je (la )?garde|garde|valider?)\b/i.test(texte)) return choix.versions[0]!.mediaId;
+    return null;
+  }
+  return choix.versions.find((v) => v.optionId === option.id)?.mediaId ?? null;
+}
+
+/**
+ * LA RÉPONSE À « QUELLE VERSION GARDEZ-VOUS ? », tranchée côté démon : la
+ * version est validée (et part se poser sur sa piste). Rend la consigne que
+ * l'agent lit avec la réponse.
+ */
+export async function trancherLeChoixDeVersion(question: Pick<AgentQuestion, 'options' | 'choixDeVersion'>, reponse: string): Promise<string | null> {
+  const choix = question.choixDeVersion;
+  if (!choix) return null;
+  const mediaId = versionChoisie(question, reponse);
+  /* « UTILISER » : l'image sert à la suite. Ni validation ni pose : le rattrapage ne la posera jamais. */
+  const option = question.options.find((o) => o.label === String(reponse ?? '').trim());
+  if (mediaId && option && choix.versions.find((v) => v.optionId === option.id)?.geste === 'utiliser') {
+    noterUnEvenement(choix.cardId, 'media.utilise', { media: mediaId, plan: choix.plan });
+    return `L’UTILISATEUR UTILISE cette image de « ${choix.plan} » (« ${mediaId} ») comme base : elle ne va PAS sur le film. Continue la suite prévue, avec « source » = « ${mediaId} ».`;
+  }
+  if (choixArrete(reponse)) return `L’UTILISATEUR ARRÊTE LÀ pour « ${choix.plan} » : rien n’est validé. Ne propose RIEN de nouveau et ne repose pas la question ; termine en une phrase courte.`;
+  if (!mediaId) return `L’UTILISATEUR N’A CHOISI AUCUNE VERSION de « ${choix.plan} » (réponse : « ${reponse} ») : rien n’est validé. Tiens compte de ce qu’il dit (refaire, attendre…).`;
+  let tropTard = false;
+  let rendre: (issue: IssueDePoseDuValide | null) => void = () => undefined;
+  const issue = new Promise<IssueDePoseDuValide | null>((resoudre) => (rendre = resoudre));
+  const r = retenirUnMedia(choix.cardId, mediaId, true, {
+    surIssue: (fait) => {
+      rendre(fait);
+      if (tropTard) annoncerLaPose(choix.cardId, mediaParId(mediaId)!, fait);
+    },
+  });
+  if (!r.ok) return `La version choisie de « ${choix.plan} » n’a pas pu être validée : ${r.raison}.`;
+  /* Sans suite (déjà validée, ou pas de création) comme après une panne de la pose : rien à attendre. */
+  void (r.suite ?? Promise.resolve('')).finally(() => rendre(null));
+  let minuteur: ReturnType<typeof setTimeout> | undefined;
+  const fait = await Promise.race([issue, new Promise<'attente'>((resoudre) => (minuteur = setTimeout(() => resoudre('attente'), ATTENTE_DE_LA_POSE_MS)))]);
+  clearTimeout(minuteur);
+  const suivante = choix.lotId ? questionDeChoixDeVersion(choix.cardId, { lot: choix.lotId }) : null;
+  const fin = suivante ? `D’autres plans du lot attendent leur choix : rappelle « realiser » action « choisir » avec « lot » « ${choix.lotId} ».` : 'Termine en une phrase courte.';
+  if (fait === 'attente') {
+    tropTard = true;
+    return [`L’UTILISATEUR A CHOISI la version ${r.media.version} de « ${choix.plan} » : elle est VALIDÉE et encore en préparation. Beluga écrira lui-même dans le fil où elle se trouve. N’annonce donc ni sa place ni son succès.`, fin].join(' ');
+  }
+  const phrase = fait ? phraseDeLaPose(r.media, fait) : null;
+  return [
+    `L’UTILISATEUR A CHOISI la version ${r.media.version} de « ${choix.plan} » : elle est VALIDÉE.`,
+    fait?.etat === 'occupe'
+      ? 'La place est déjà prise : une question « remplacer ou ajouter » est dans le fil, tranchée au clic. N’y touche pas et dis seulement qu’elle attend cette réponse.'
+      : phrase
+        ? `RÉSULTAT VÉRIFIÉ PAR BELUGA : ${phrase} Dis ce résultat tel quel à l’utilisateur, en une phrase ; n’écris jamais « sans contrôle de ma part ».`
+        : 'Rien à poser de plus : ne dis pas qu’elle se pose ; relis le montage avec « studio » « lire » si la suite en dépend.',
+    fin,
+  ].join(' ');
+}
+
+/** « Remplacer ou ajouter ? » : posée par le démon dans le fil de l'agent, sans tour, tranchée au clic (`trancherLaPlaceDuMedia`). */
+function poserLaQuestionDeLaPlace(card: Card, m: MediaDeRealisation, ancien: string): void {
+  const agentId = agentDuChoix(card, m);
+  if (!agentId) return;
+  const question = AgentQuestion.parse({
+    id: store.newId(),
+    question: `La place de « ${m.plan} » v${m.version} est déjà prise par « ${ancien} ». Que faire ?`,
+    kind: 'single',
+    options: [
+      { id: 'o0', label: `Remplacer « ${ancien} »`.slice(0, 120), description: 'L’ancien quitte la piste et reste dans les médias.' },
+      { id: 'o1', label: 'Ajouter sur une piste en plus', description: 'Les deux restent sur la ligne de temps.' },
+    ],
+    allowFreeText: false,
+    placeDuMedia: { cardId: card.id, mediaId: m.id },
+  });
+  const message = store.saveMessage(
+    Message.parse({ id: store.newId(), agentId, role: 'assistant', content: `« ${m.plan} » v${m.version} est validé.`, questions: [question], createdAt: Date.now() }),
+  );
+  bus.emit({ type: 'message.upsert', message });
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+}
+
+/** Le clic sur « Remplacer » ou « Ajouter » : la pose se fait, sans réveiller l'agent. */
+export async function trancherLaPlaceDuMedia(question: Pick<AgentQuestion, 'options' | 'placeDuMedia'>, reponse: string): Promise<void> {
+  const place = question.placeDuMedia;
+  if (!place) return;
+  const option = question.options.find((o) => o.label === String(reponse ?? '').trim());
+  const mode = option?.id === 'o0' || /^remplacer/i.test(String(reponse)) ? 'remplacer' : option?.id === 'o1' || /^ajouter/i.test(String(reponse)) ? 'ajouter' : null;
+  if (!mode) return;
+  const { poserUnMediaValideDeLaCarte } = await import('./studio-montage-de-carte.js');
+  const r = await poserUnMediaValideDeLaCarte(place.cardId, place.mediaId, mode);
+  if (r.etat === 'impossible') log.warn(`montage : pose « ${mode} » impossible (${r.raison})`);
+  prevenirLesEcrans(place.cardId);
+}
+
+/**
+ * CE QUI SUIT UNE VALIDATION (31/10/2026) : valider pose sur la piste — ou
+ * demande « remplacer ou ajouter » quand la place est prise —, retirer la
+ * validation ôte de la piste. Seulement sur une carte qui a sa création du Studio.
+ */
+/** Qui attend l'issue de la pose : le choix dans la conversation la rend à l'agent. */
+interface SuiteDuChoix {
+  surIssue?: (issue: IssueDePoseDuValide) => void;
+}
+
+async function suiteDeLaValidation(cardId: string, m: MediaDeRealisation, retenu: boolean, options: SuiteDuChoix = {}): Promise<string> {
+  const montage = await import('./studio-montage-de-carte.js');
+  if (!retenu) {
+    const n = m.attachmentId ? await montage.retirerUnMediaDuMontage(cardId, m.attachmentId) : 0;
+    return n ? 'retire' : 'rien';
+  }
+  const r = await montage.poserUnMediaValideDeLaCarte(cardId, m.id);
+  if (r.etat === 'occupe') {
+    const card = store.getCard(cardId);
+    if (card) poserLaQuestionDeLaPlace(card, m, r.nom);
+  } else if (r.etat === 'impossible') log.warn(`montage : « ${m.plan} » validé mais pas posé (${r.raison})`);
+  if (r.etat === 'pose') prevenirLesEcrans(cardId);
+  options.surIssue?.(r);
+  return r.etat;
+}
+
+/**
+ * CE QUE LE CHOIX A VRAIMENT DONNÉ (cause du 02/11/2026 : l'agent a répondu « elle se
+ * pose d'elle-même » sans rien vérifier, alors que la vidéo tombait après la fin du
+ * film). La phrase dit le fait mesuré : où le média se trouve, ou pourquoi il n'y est pas.
+ */
+function phraseDeLaPose(m: Pick<MediaDeRealisation, 'plan' | 'version'>, r: IssueDePoseDuValide): string | null {
+  const titre = `« ${m.plan} » v${m.version}`;
+  if (r.etat === 'pose') {
+    return [
+      `${titre} est posée${r.pisteNom ? ` sur la piste ${r.pisteNom}` : ''}${r.debut !== undefined ? `, à ${r.debut.toFixed(1)} s` : ''}.`,
+      r.detourage?.fait ? 'Le fond a été retiré.' : r.detourage ? `Le fond n’a pas pu être retiré : ${r.detourage.raison}.` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (r.etat === 'impossible') return `${titre} n’a pas pu être posée : ${r.raison}.`;
+  if (r.etat === 'sans-montage') return `${titre} est validée, mais cette carte n’a pas de montage où la poser.`;
+  if (r.etat === 'deja') return `${titre} est déjà sur la ligne de temps.`;
+  return null;
+}
+
+/** Une pose plus longue que ce que l'agent peut attendre (un détourage dans une file chargée) : le démon l'écrit lui-même dans le fil. */
+function annoncerLaPose(cardId: string, m: MediaDeRealisation, r: IssueDePoseDuValide): void {
+  const card = store.getCard(cardId);
+  const agentId = card ? agentDuChoix(card, m) : null;
+  const phrase = phraseDeLaPose(m, r);
+  if (!agentId || !phrase) return;
+  const message = store.saveMessage(Message.parse({ id: store.newId(), agentId, role: 'assistant', content: phrase, createdAt: Date.now() }));
+  bus.emit({ type: 'message.upsert', message });
+}
+
+/** Ce que l'agent attend de la pose avant de répondre ; au-delà, elle s'annonce seule. */
+const ATTENTE_DE_LA_POSE_MS = 30_000;
+
+/**
+ * UNE POSE À LA MAIN VAUT VALIDATION, SANS NOUVELLE POSE : la marque « Validé » est
+ * écrite, jamais `suiteDeLaValidation`, qui préparerait un autre fichier et poserait
+ * un second segment. « Retirer la validation » ôtera tous les segments de la pièce.
+ */
+export async function marquerUnePoseValidee(cardId: string, attachmentId: string, inscrire: boolean): Promise<void> {
+  let m = mediasDeLaCarte(cardId).find((x) => x.attachmentId === attachmentId) ?? null;
+  if (!m && inscrire) {
+    const r = await inscrireUnMediaDuFil(cardId, attachmentId);
+    if (r.ok) m = r.media;
+  }
+  if (!m || m.retenuLe || m.etat !== 'fini') return;
+  maj(m, { retenuLe: Date.now() });
+  noterUnEvenement(cardId, 'media.retenu', { media: m.id, plan: m.plan, version: m.version, parLaPose: true });
+  prevenirLesEcrans(cardId);
+}
+
+/**
+ * « REMPLACER » ÔTE L'ANCIEN DE LA PISTE : il perd sa validation (valider et
+ * retirer restent miroirs), sans repasser par le retrait — il n'y est déjà plus.
+ */
+export function oublierLaValidationPosee(cardId: string, attachmentIds: readonly string[], sauf: string): void {
+  const pieces = new Set(attachmentIds);
+  for (const m of mediasDeLaCarte(cardId)) {
+    if (m.id === sauf || !m.retenuLe || !m.attachmentId || !pieces.has(m.attachmentId)) continue;
+    maj(m, { retenuLe: null, planPlace: null });
+    noterUnEvenement(cardId, 'media.retire', { media: m.id, plan: m.plan, version: m.version, remplace: sauf });
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* L'outil « realiser »                                                */
 /* ------------------------------------------------------------------ */
+
+/** CE QUE L'AGENT ANNONCE DANS SA PROPOSITION : la place dans le montage, le fond à retirer, et s'il ne s'agit que d'une préparation. */
+function annonceDuMontage(args: Record<string, unknown>): { montage?: AnnonceDuMontage } {
+  const place = lirePlaceAnnoncee(args.place);
+  const fond = lireFondARetirer(args.fond);
+  const garderLeFond = fondGardeParLAnnonce(args.fond);
+  const role = args.role === 'preparation' ? ('preparation' as const) : null;
+  if (!place && !fond && !role && !garderLeFond) return {};
+  return { montage: { ...(place ? { place } : {}), ...(fond ? { fond } : {}), ...(garderLeFond ? { garderLeFond } : {}), ...(role ? { role } : {}) } };
+}
 
 export interface ContexteRealisation {
   agentId: string;
@@ -1256,6 +1817,8 @@ export function capacitesCouvertes(): CapaciteDeGeneration[] {
 export function capacitesDuDirecteur(): string[] {
   const capacites: string[] = capacitesCouvertes();
   if (!capacites.includes('voix') && voixParOpenRouterPossible()) capacites.push('voix');
+  /* Le clonage de voix passe par OpenRouter : la clé branchée ou celle du relais suffit (31/10/2026). */
+  if (!capacites.includes('clonage-voix') && voixParOpenRouterPossible()) capacites.push('clonage-voix');
   if (compositionDisponible()) capacites.push(CAPACITE_COMPOSITION);
   return capacites;
 }
@@ -1279,6 +1842,8 @@ const LIBELLES_CAPACITES: Record<CapaciteDeGeneration, string> = {
   angles: 'd’autres angles d’une image',
   lumiere: 'une autre lumière sur une image',
   visage: 'un visage remplacé',
+  'visage-video': 'un visage remplacé dans une vidéo',
+  'clonage-voix': 'une voix clonée d’après un enregistrement',
 };
 function libelleDeCapacite(c: CapaciteDeGeneration): string {
   return LIBELLES_CAPACITES[c] ?? c;
@@ -1334,12 +1899,20 @@ function proposerUnLot(
   /* UNE CRÉATION DE MÉDIA : ni budget ni décision d'office — le bouton « Générer · prix » est la seule porte. */
   if (carteDeMedia(card)) {
     const lot = creerUnLot({ cardId: card.id, projectId: card.projectId, titre: e.titre, etape: e.etape, lignes });
-    const forme = questionDUneGeneration({
+    /* UN AUTRE MODÈLE QUE CELUI UTILISÉ JUSTE AVANT se signale dans l'encart, avec la raison donnée par l'agent. */
+    const premier = medias[0];
+    const precedent = premier ? derniersModelesUtilises(mediasDeLaCarte(card.id)).get(premier.capacite) : undefined;
+    const conseil = premier ? noteDuModeleConseille({ precedent, propose: premier.modele, raison: premier.raison }) : null;
+    const formeBrute = questionDUneGeneration({
       lotId: lot.id,
       titre: lot.titre,
       lignes: medias.map((m) => ({ plan: m.plan, modele: m.modeleNom, service: serviceDeGeneration(m.service)?.nom ?? m.service, prix: m.prix })),
       depense,
+      conseil,
     });
+    /* LA PLACE ANNONCÉE SE LIT AVANT LA DÉPENSE. */
+    const placeDite = premier ? phraseDeLaPlace(premier.demande.montage?.place, premier.demande.montage?.fond) : '';
+    const forme = placeDite ? { ...formeBrute, description: [formeBrute.description, `Une fois choisie : ${placeDite}.`].filter(Boolean).join(' ') } : formeBrute;
     const question = AgentQuestion.parse({
       id: store.newId(),
       question: forme.question,
@@ -1354,7 +1927,7 @@ function proposerUnLot(
     /* NON BLOQUANTE (27/10/2026) : la validation reste dans le fil, l'agent continue — une par plan, dans le même tour. */
     return {
       ok: true,
-      text: `Validation « ${lot.titre} » posée dans le fil (bouton « Valider · prix »). Elle NE T’ARRÊTE PAS : pose dans ce même tour la validation de chaque autre plan ou élément prévu pour ce temps, puis termine ton tour en UNE phrase. Le clic de l’utilisateur lance la génération sans toi et le démon la suit : n’appelle ni « generer » ni « suivre » pour ce lot.`,
+      text: `Validation « ${lot.titre} » posée dans le fil (bouton « Générer · prix »). Elle NE T’ARRÊTE PAS : pose dans ce même tour la validation de chaque autre plan ou élément prévu pour ce temps, puis termine ton tour en UNE phrase. Le clic de l’utilisateur lance la génération sans toi et le démon la suit : n’appelle ni « generer » ni « suivre » pour ce lot.`,
       question,
     };
   }
@@ -1509,7 +2082,160 @@ export async function trancherLeLotDuClic(question: Pick<AgentQuestion, 'devis'>
     lances.push(`« ${m.id} » (${r.ok ? 'lancé' : r.text})`);
   }
   noterUnEvenement(card.id, 'lot.clic', { lot: lot.id, total: totalDuLot(lot.operations).connu });
-  return `L’UTILISATEUR A CLIQUÉ « Générer » : le lot « ${lot.titre} » est ACCEPTÉ ET DÉJÀ LANCÉ — ne rappelle pas « generer ». Suis chaque génération avec « suivre » : ${lances.join(', ')}. Les brouillons paraissent dans le fil ; l’utilisateur valide lui-même ceux qu’il garde.`;
+  return `L’UTILISATEUR A CLIQUÉ « Générer » : le lot « ${lot.titre} » est ACCEPTÉ ET DÉJÀ LANCÉ — ne rappelle pas « generer ». Suis chaque génération avec « suivre » : ${lances.join(', ')}. Les brouillons paraissent dans le fil. Quand la dernière génération du lot est rendue, tu es réveillé pour faire choisir la version (« choisir ») : ne pose pas cette question avant.`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Le choix du modèle dans l'encart « Générer » (01/11/2026)            */
+/* ------------------------------------------------------------------ */
+
+/** Un lot dont l'encart peut changer le modèle : proposé, sur une carte de média, ses devis d'une même capacité au menu. */
+function lotAuMenu(lotId: string): { card: Card; lot: LotDeDevis; medias: MediaDeRealisation[]; capacite: CapaciteDeGeneration } | { refus: string } {
+  const lot = lotParId(lotId);
+  if (!lot) return { refus: 'génération introuvable' };
+  if (lot.etat !== 'propose') return { refus: 'cette génération est déjà tranchée' };
+  const card = store.getCard(lot.cardId);
+  if (!card || !carteDeMedia(card)) return { refus: 'le choix du modèle ne vaut que pour une création de média' };
+  const medias = lot.operations.map((o) => mediaParId(o.mediaId)).filter((m): m is MediaDeRealisation => !!m);
+  if (!medias.length || medias.some((m) => m.etat !== 'devis')) return { refus: 'cette génération est déjà partie' };
+  const capacite = medias[0]!.capacite;
+  if (medias.some((m) => m.capacite !== capacite) || !capaciteAuMenuDesModeles(capacite)) return { refus: 'aucun autre modèle pour cette génération' };
+  return { card, lot, medias, capacite };
+}
+
+/** La demande d'un devis, sans ce qui ne vaut que pour son modèle (schéma lu en direct, réglages propres). */
+function demandeSansLeModele(d: MediaDeRealisation['demande']): MediaDeRealisation['demande'] {
+  const { entrees: _entrees, parametres: _parametres, ...reste } = d as MediaDeRealisation['demande'] & { entrees?: unknown; parametres?: unknown };
+  return reste as MediaDeRealisation['demande'];
+}
+
+/**
+ * CE QUE COÛTERAIT CE LOT AVEC CE MODÈLE, sans rien dépenser : `null` s'il ne sait pas faire la demande (durée,
+ * image de fin, schéma vérifié avec des adresses factices — comme au devis), sinon le prix de chaque devis.
+ */
+async function chiffrerLeLotAvec(modele: ModeleDeGeneration, medias: readonly MediaDeRealisation[]): Promise<{ prix: (number | null)[] } | null> {
+  const prix: (number | null)[] = [];
+  for (const m of medias) {
+    const d = m.demande as MediaDeRealisation['demande'] & { duree?: number; fin?: string | null; sources?: string[]; mouvement?: string; orientation?: 'image' | 'video' };
+    if (incompatibiliteAvecLaDemande({ durees: modele.durees, fin: !!modele.fin }, { duree: d.duree, fin: d.fin ?? null })) return null;
+    const kie = modele.service === 'kie' ? modeleKie(modele.id, modele.capacite) : undefined;
+    if (kie?.entrees) {
+      const essai = corpsEnDirect(
+        kie.entrees,
+        {
+          consigne: d.consigne,
+          format: d.format,
+          ...(d.duree ? { duree: d.duree } : {}),
+          ...(d.sources?.length ? { imageUrls: d.sources.map(() => 'https://exemple.invalid/image') } : {}),
+          ...(d.fin ? { imageDeFinUrl: 'https://exemple.invalid/fin' } : {}),
+          ...(d.mouvement ? { videoDeMouvementUrl: 'https://exemple.invalid/video' } : {}),
+          ...(d.orientation ? { orientation: d.orientation } : {}),
+        },
+        kie.defauts,
+      );
+      if (!essai.ok) return null;
+    }
+    const duree = d.duree && d.duree > 0 ? (modele.durees ? dureeAjustee({ durees: modele.durees } as never, d.duree) : d.duree) : (modele.durees?.[0] ?? 5);
+    prix.push(
+      await prixPublie(modele, duree, { ...(d.duree ? { secondes: d.duree } : {}), caracteres: d.consigne.length, texte: d.consigne }).catch(() => null),
+    );
+  }
+  return { prix };
+}
+
+/**
+ * LES MODÈLES QUI SAVENT FAIRE CETTE GÉNÉRATION, AVEC LE PRIX TOTAL DE CHACUN — une lecture sans frais, faite à
+ * l'ouverture de l'encart. Le modèle actuel est toujours en tête ; une seule ligne : l'encart n'a pas de menu.
+ */
+export async function modelesDuLot(lotId: string): Promise<{ lotId: string; modeles: ModeleDuMenu[]; raison?: string }> {
+  const lu = lotAuMenu(lotId);
+  if ('refus' in lu) return { lotId, modeles: [], raison: lu.refus };
+  const { medias, capacite } = lu;
+  const actuel = medias[0]!;
+  const lignes: ModeleDuMenu[] = [
+    {
+      service: actuel.service,
+      modele: actuel.modele,
+      nom: actuel.modeleNom,
+      usage: modeleDeGeneration(actuel.service, actuel.modele, [], capacite)?.usage ?? '',
+      qualite: modeleDeGeneration(actuel.service, actuel.modele, [], capacite)?.qualite ?? 0,
+      prix: totalDuMenu(medias.map((m) => m.prix)),
+      actuel: true,
+    },
+  ];
+  const candidats = modelesProposes(servicesDeGenerationBranches(), capacite).filter((x) => !(x.service === actuel.service && x.id === actuel.modele));
+  const chiffres = await Promise.all(candidats.map(async (x) => ({ x, r: await chiffrerLeLotAvec(x, medias) })));
+  for (const { x, r } of chiffres) {
+    if (!r) continue;
+    lignes.push({ service: x.service, modele: x.id, nom: x.nom, usage: x.usage, qualite: x.qualite, prix: totalDuMenu(r.prix) });
+  }
+  return { lotId, modeles: trierLeMenuDesModeles(lignes) };
+}
+
+/**
+ * CHANGER LE MODÈLE D'UNE GÉNÉRATION, SANS RIEN LANCER : le prix est relu et refusé s'il a monté depuis l'affichage
+ * (`refusDuPrixVu`) ; sinon, d'un bloc, chaque devis, chaque opération du lot et la question du fil passent au
+ * nouveau modèle. Le clic « Générer » lance ensuite exactement ce qui est affiché. Le choix ne vaut que pour CETTE
+ * génération : il ne s'écrit pas dans les modèles retenus de la création.
+ */
+export async function changerLeModeleDuLot(e: {
+  messageId: string;
+  questionId: string;
+  service: string;
+  modele: string;
+  prixVu: number | null;
+}): Promise<{ ok: true; prix: number | null; nom: string } | { ok: false; raison: string; prix?: number | null }> {
+  const message = store.getMessage(e.messageId);
+  const question = message?.questions.find((q) => q.id === e.questionId);
+  const lotId = question?.devis?.lotId;
+  if (!message || !question || !lotId || !question.devis?.bouton) return { ok: false, raison: 'génération introuvable' };
+  if (question.answer || question.cancelled) return { ok: false, raison: 'cette génération est déjà tranchée' };
+  const premier = lotAuMenu(lotId);
+  if ('refus' in premier) return { ok: false, raison: premier.refus };
+  const modele = modelesProposes(servicesDeGenerationBranches(), premier.capacite).find((x) => x.service === e.service && x.id === e.modele);
+  if (!modele) return { ok: false, raison: 'ce modèle n’est pas proposé pour cette génération' };
+  return avecLeVerrouDeLaCarte(premier.card.id, async () => {
+    const lu = lotAuMenu(lotId);
+    if ('refus' in lu) return { ok: false as const, raison: lu.refus };
+    const chiffre = await chiffrerLeLotAvec(modele, lu.medias);
+    if (!chiffre) return { ok: false as const, raison: `${modele.nom} ne sait pas faire cette génération` };
+    const total = totalDuMenu(chiffre.prix);
+    const refus = refusDuPrixVu(total, e.prixVu);
+    if (refus) return { ok: false as const, raison: refus, prix: total };
+    const fait = getDb().transaction((): boolean => {
+      const frais = lotParId(lotId);
+      if (!frais || frais.etat !== 'propose') return false;
+      const medias = frais.operations.map((o) => mediaParId(o.mediaId));
+      if (medias.some((m) => !m || m.etat !== 'devis')) return false;
+      const majOp = getDb().prepare('UPDATE production_operations SET service = ?, modele_nom = ?, prix = ?, maj_le = ? WHERE id = ?');
+      frais.operations.forEach((op, i) => {
+        const m = medias[i]!;
+        const prix = chiffre.prix[lu.medias.findIndex((x) => x.id === m.id)] ?? null;
+        maj(m, { service: modele.service, modele: modele.id, modeleNom: modele.nom, prix, sourcePrix: modele.prix, demande: demandeSansLeModele(m.demande) });
+        majOp.run(modele.service, modele.nom, prix, Date.now(), op.id);
+      });
+      return true;
+    })();
+    if (!fait) return { ok: false as const, raison: 'cette génération est déjà partie' };
+    noterUnEvenement(lu.card.id, 'lot.modele', { lot: lotId, service: modele.service, modele: modele.id, total });
+    /* La question du fil suit : la ligne « modèle · n brouillons » et le prix du bouton. */
+    const relu = lotParId(lotId)!;
+    const forme = questionDUneGeneration({
+      lotId,
+      titre: relu.titre,
+      lignes: relu.operations.map((o) => ({ plan: o.plan, modele: o.modeleNom, service: serviceDeGeneration(o.service)?.nom ?? o.service, prix: o.prix })),
+      depense: question.devis!.depense,
+    });
+    const frais = store.getMessage(e.messageId);
+    if (frais) {
+      const ecrit = store.saveMessage({
+        ...frais,
+        questions: frais.questions.map((q) => (q.id === e.questionId ? { ...q, description: forme.description, devis: forme.devis } : q)),
+      });
+      bus.emit({ type: 'message.upsert', message: ecrit });
+    }
+    return { ok: true as const, prix: total, nom: modele.nom };
+  });
 }
 
 /**
@@ -1528,6 +2254,42 @@ export function etatDeProductionDeLaCarte(cardId: string): EtatDeProduction {
     budget: card ? budgetDeLaCarte(card).budget : null,
     depense: depenseDeLaCarte(cardId),
   };
+}
+
+/** La production d'une carte TELLE QUE L'ÉCRAN LA LIT : avec son film du Studio, quand elle en a un (`filmDeLaCarte`). */
+export async function etatDeProductionAvecLeFilm(cardId: string): Promise<EtatDeProduction> {
+  const etat = etatDeProductionDeLaCarte(cardId);
+  const film = await filmDeLaCarte(cardId).catch(() => undefined);
+  return film ? { ...etat, film } : etat;
+}
+
+/**
+ * LE FILM DE LA CARTE AU STUDIO (15/11/2026) : ce que le suivi montre sous « Esquisses » (les médias posés sur la ligne
+ * de temps) et sous « Montage » (les exports finis). Rien pour une carte sans création au Studio.
+ */
+async function filmDeLaCarte(cardId: string): Promise<EtatDeProduction['film']> {
+  const studio = await import('./studio.js');
+  const creation = studio.creationDeLaCarte(cardId);
+  if (!creation) return undefined;
+  const composition = studio.compositionCourante(creation.id);
+  const vus = new Set<string>();
+  const posees: NonNullable<EtatDeProduction['film']>['posees'] = [];
+  for (const piste of composition?.pistes ?? []) {
+    if (piste.masquee) continue;
+    for (const segment of piste.segments) {
+      if (segment.masque || !('mediaId' in segment) || !segment.mediaId) continue;
+      const media = studio.lireMedia(segment.mediaId);
+      if (!media?.attachmentId || vus.has(media.attachmentId)) continue;
+      vus.add(media.attachmentId);
+      const genre = media.genre === 'image' ? 'image' : media.genre === 'video' ? 'video' : 'son';
+      posees.push({ attachmentId: media.attachmentId, genre, nom: media.nom });
+    }
+  }
+  const exports = studio
+    .listerExports(creation.id)
+    .filter((e) => e.etat === 'pret' && e.attachmentId)
+    .map((e) => ({ attachmentId: e.attachmentId!, genre: e.genre, nom: `${creation.titre} — v${e.version}`, version: e.version, ...(e.duree ? { duree: e.duree } : {}) }));
+  return { version: creation.version, posees, exports };
 }
 
 /** Les réglages d'une retouche ou d'une animation, en clair, pour le panneau « Réglages » du média. */
@@ -1562,7 +2324,7 @@ function reglagesEnClair(m: MediaDeRealisation): { cle: string; valeur: string }
  * Seul un média FINI de la carte s'ajoute ; retirer ne touche jamais au
  * fichier, qui reste dans le fil. Idempotent : un double clic ne change rien.
  */
-export function retenirUnMedia(cardId: string, mediaId: string, retenu: boolean): { ok: true; media: MediaDeRealisation; change: boolean } | { ok: false; raison: string } {
+export function retenirUnMedia(cardId: string, mediaId: string, retenu: boolean, options: SuiteDuChoix = {}): { ok: true; media: MediaDeRealisation; change: boolean; suite?: Promise<string> } | { ok: false; raison: string } {
   const m = mediaParId(mediaId);
   if (!m || m.cardId !== cardId) return { ok: false, raison: 'média introuvable sur cette carte' };
   if (retenu && m.etat !== 'fini') return { ok: false, raison: 'seul un média fini s’ajoute au suivi' };
@@ -1570,7 +2332,14 @@ export function retenirUnMedia(cardId: string, mediaId: string, retenu: boolean)
   /* Retirer la validation vide aussi la case où il avait été placé. */
   const apres = maj(m, retenu ? { retenuLe: Date.now() } : { retenuLe: null, planPlace: null });
   noterUnEvenement(cardId, retenu ? 'media.retenu' : 'media.retire', { media: mediaId, plan: m.plan, version: m.version });
-  return { ok: true, media: apres, change: true };
+  /* VALIDER POSE SUR LA PISTE, RETIRER EN ÔTE (31/10/2026) — en arrière-plan : une vidéo se sépare d'abord. */
+  const suite = creationDeLaCarte(cardId)
+    ? suiteDeLaValidation(cardId, apres, retenu, options).catch((err) => {
+        log.warn(`montage : suite de la validation de « ${m.plan} » impossible (${String((err as Error)?.message ?? err)})`);
+        return 'impossible';
+      })
+    : undefined;
+  return { ok: true, media: apres, change: true, ...(suite ? { suite } : {}) };
 }
 
 /**
@@ -1594,7 +2363,10 @@ export function placerUnMedia(cardId: string, mediaId: string, planCle: string):
     }
   })();
   noterUnEvenement(cardId, 'media.place', { media: mediaId, plan: planCle, ...(r.echange ? { echange: r.echange } : {}) });
-  return { ok: true, media: place ?? parId.get(mediaId)!, echange: r.echange };
+  const final = place ?? parId.get(mediaId)!;
+  /* Placé, donc validé : il rejoint aussi sa piste du montage. */
+  if (final.retenuLe && creationDeLaCarte(cardId)) void suiteDeLaValidation(cardId, final, true).catch(() => 'impossible');
+  return { ok: true, media: final, echange: r.echange };
 }
 
 /**
@@ -1785,6 +2557,8 @@ function lancerUneComposition(m: MediaDeRealisation, dossier: string, sortie: 'v
       log.warn(`réalisation : composition « ${m.plan} » en échec : ${raison}`);
     } finally {
       enVol.delete(m.id);
+      /* UN RENDU FINI DU STUDIO SE CHOISIT AUSSI ; un film monté n'en appelle pas (son étape le dit). */
+      quandUnMediaSArrete(m.id);
     }
   })();
   enVol.set(m.id, travail);
@@ -2012,6 +2786,44 @@ function videoDuProjet(card: Card, id: string): { ok: true; nom: string } | { ok
   return { ok: true, nom: piece.name };
 }
 
+/** Un son du projet désigné par l'utilisateur : un média son fini (une voix), ou un enregistrement joint. */
+function sonDuProjet(card: Card, id: string): { ok: true; nom: string } | { ok: false; raison: string } {
+  const media = id ? mediaParId(id) : null;
+  if (media) {
+    if (media.projectId !== card.projectId || media.etat !== 'fini' || media.genre !== 'son') return { ok: false, raison: `« ${id} » n’est pas un son fini de ce projet.` };
+    return { ok: true, nom: `${media.plan} v${media.version}` };
+  }
+  const piece = id ? store.getAttachment(id) : null;
+  if (!piece || piece.projectId !== card.projectId || !piece.mime.startsWith('audio/') || !fichierDUneSource(id)) {
+    return { ok: false, raison: 'l’identifiant d’un SON : une voix finie du projet (« lister ») ou un enregistrement joint par l’utilisateur (trombone ou micro du champ), demandé avec « ask_user ».' };
+  }
+  return { ok: true, nom: piece.name };
+}
+
+/** Le fichier et le type d'un son désigné (média ou pièce jointe) : `fichierDUneSource` ne type que les images et vidéos. */
+function fichierDUnSon(id: string): { fichier: string; type: string } | null {
+  const media = mediaParId(id);
+  const fichier = media?.fichier && fs.existsSync(media.fichier) ? media.fichier : null;
+  if (fichier) {
+    const ext = path.extname(fichier).slice(1).toLowerCase();
+    return { fichier, type: ext === 'wav' ? 'audio/wav' : ext === 'm4a' ? 'audio/mp4' : ext === 'ogg' ? 'audio/ogg' : ext === 'webm' ? 'audio/webm' : 'audio/mpeg' };
+  }
+  return fichierDUneSource(id);
+}
+
+/** La durée d'un fichier son ou vidéo, en secondes (ffprobe), ou `undefined` : le devis au temps réel la lit. */
+async function dureeDUneSource(id: string | undefined): Promise<number | undefined> {
+  const f = id ? (fichierDUnSon(id) ?? fichierDUneSource(id)) : null;
+  if (!f) return undefined;
+  try {
+    const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f.fichier], { timeout: 30_000 });
+    const d = Number(stdout.trim());
+    return Number.isFinite(d) && d > 0 ? Math.ceil(d) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function lireLaRetouche(
   card: Card,
   modele: ModeleDeGeneration,
@@ -2021,6 +2833,33 @@ export async function lireLaRetouche(
   | { ok: false; raison: string }
 > {
   const neutre = { ok: true as const, demande: {}, phrase: '', sourceId: null, etape: null, note: '' };
+  /* LE PRÉSENTATEUR PARLANT PAR kie.ai (31/10/2026) : un PORTRAIT (image finie ou jointe) dit une VOIX (son fini ou enregistrement). */
+  if (modele.capacite === 'avatar' && modele.service === 'kie') {
+    const idPortrait = idDeSource(card, args.source);
+    const portrait = imageDuProjet(card, idPortrait);
+    if (!portrait.ok) return { ok: false, raison: `Il faut « source » (le portrait du présentateur, face caméra) : ${portrait.raison}` };
+    const idVoix = idDeSource(card, args.audio);
+    const voix = sonDuProjet(card, idVoix);
+    if (!voix.ok) return { ok: false, raison: `Il faut « audio » (ce que dit le présentateur) : ${voix.raison}` };
+    return { ok: true, demande: { sources: [idPortrait], audio: idVoix }, phrase: '', sourceId: mediaParId(idPortrait) ? idPortrait : null, etape: 'plans', note: `Présentateur : « ${portrait.nom} » dit « ${voix.nom} » ; la durée suit la voix.` };
+  }
+  /* LE VISAGE REMPLACÉ DANS UNE VIDÉO (31/10/2026) : la personne de la PHOTO prend la place de celle de la VIDÉO. */
+  if (modele.capacite === 'visage-video') {
+    const idPhoto = idDeSource(card, args.source ?? args.photos);
+    const photo = imageDuProjet(card, idPhoto);
+    if (!photo.ok) return { ok: false, raison: `Il faut « source » (la photo du visage à poser, nette et de face) : ${photo.raison}` };
+    const idVideo = idDeSource(card, args.video ?? args.mouvement);
+    const video = videoDuProjet(card, idVideo);
+    if (!video.ok) return { ok: false, raison: `Il faut « video » (la vidéo dont la personne est remplacée, 10 Mo au plus) : ${video.raison}` };
+    return { ok: true, demande: { sources: [idPhoto], mouvement: idVideo }, phrase: '', sourceId: mediaParId(idPhoto) ? idPhoto : null, etape: 'plans', note: `La personne de « ${photo.nom} » remplace celle de « ${video.nom} » ; la durée suit la vidéo.` };
+  }
+  /* LE CLONAGE DE VOIX (31/10/2026) : l'ENREGISTREMENT de référence (10 à 30 s) dit le texte de la consigne. */
+  if (modele.capacite === 'clonage-voix') {
+    const idRef = idDeSource(card, args.audio ?? args.source);
+    const ref = sonDuProjet(card, idRef);
+    if (!ref.ok) return { ok: false, raison: `Il faut « audio » (l’enregistrement de la voix à cloner, 10 à 30 s, avec l’accord de la personne) : ${ref.raison}` };
+    return { ok: true, demande: { audio: idRef }, phrase: '', sourceId: null, etape: null, note: `Voix clonée d’après « ${ref.nom} ».` };
+  }
   if (modele.capacite !== 'animation' && modele.capacite !== 'mouvement' && !estUneRetoucheDImage(modele.capacite)) return neutre;
   const enDirect = 'entrees' in modele;
   const source = mediaParId(String(args.source ?? ''));
@@ -2030,12 +2869,13 @@ export async function lireLaRetouche(
   const sources = [source.id];
   const etape = source.etape;
   if (modele.capacite === 'animation') {
-    if (!source.retenuLe) {
+    /* DANS LE STUDIO, UNE IMAGE FINIE SUFFIT (01/11/2026, DEC-466) : le clic « Générer · prix » vaut accord ; plus aucun geste à demander avant le devis. */
+    if (!source.retenuLe && !studioSansEtapes(card)) {
       return { ok: false, raison: `Refusé : un plan s’anime à partir de son image AJOUTÉE AU SUIVI. « ${source.plan} » v${source.version} n’y est pas — demande à l’utilisateur de l’ajouter (menu « … » de l’image, « Ajouter au suivi ») ou d’en garder une autre.` };
     }
     /* L'IMAGE DE FIN (24/10/2026) : le plan va de l'image de départ à celle-ci, choisie par l'utilisateur. */
     const idFin = idDeSource(card, args.fin);
-    if (!idFin) return { ok: true, demande: { sources }, phrase: '', sourceId: source.id, etape: etape ?? 'plans', note: `Animation de « ${source.plan} » v${source.version}, l’image retenue, sans image de fin.` };
+    if (!idFin) return { ok: true, demande: { sources }, phrase: '', sourceId: source.id, etape: etape ?? 'plans', note: `Animation de « ${source.plan} » v${source.version}, ${source.retenuLe ? 'l’image retenue' : 'l’image de départ'}, sans image de fin.` };
     if (!enDirect && !modele.fin) return { ok: false, raison: `${modele.nom} ne reçoit pas d’image de fin : choisis un modèle marqué « IMAGE DE FIN possible » (« modeles » capacite « animation »), ou fais le plan sans image de fin.` };
     const fin = imageDuProjet(card, idFin);
     if (!fin.ok) return { ok: false, raison: `Il faut « fin » : ${fin.raison}` };
@@ -2133,7 +2973,7 @@ export async function lireLaRetouche(
 
 /** Ce que l'agent lit quand il veut fabriquer, ou choisir un modèle, pendant le brief. */
 export const REFUS_AU_BRIEF =
-  'Refusé : la carte est encore au BRIEF — tout y est écrit, rien ne s’y fabrique ni ne s’y chiffre. Ne pose AUCUNE question de modèle, de prix ou de nombre de variantes. Réponds à l’utilisateur en UNE phrase : on est au brief, et pour fabriquer il faut cliquer « Passer aux esquisses » sous le champ d’écriture (dis ce qui manque encore au brief s’il manque quelque chose).';
+  'Refusé : la carte est encore au BRIEF — tout y est écrit, rien ne s’y fabrique ni ne s’y chiffre. Ne pose AUCUNE question de modèle ou de nombre de variantes. Réponds à l’utilisateur en UNE phrase : on est au brief, et pour fabriquer il faut cliquer « Passer aux esquisses » sous le champ d’écriture (dis ce qui manque encore au brief s’il manque quelque chose).';
 
 export async function realiser(ctx: ContexteRealisation, args: Record<string, unknown>, attente: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ResultatRealisation> {
   const card = ctx.cardId ? store.getCard(ctx.cardId) : null;
@@ -2148,11 +2988,34 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
   /* RIEN NE SE FABRIQUE AU BRIEF (26/10/2026) : l'utilisateur passe aux esquisses par le bouton du bas.
      Le choix d'un MODÈLE non plus (27/10/2026) : il menait à une question de modèle et de prix au brief,
      sans rien pouvoir fabriquer derrière. */
-  if (media && !passagesDuMedia(card).esquisses && ['modeles', 'devis', 'lot', 'generer', 'lumiere'].includes(action)) {
+  if (media && !passagesEffectifs(card).esquisses && ['modeles', 'devis', 'lot', 'generer', 'lumiere'].includes(action)) {
     return { ok: false, text: REFUS_AU_BRIEF };
   }
 
   switch (action) {
+    /*
+     * LE PRIX DE CHAQUE CHOIX, AVANT DE LE PROPOSER (demande du 31/10/2026) : lecture sans frais, permise à toute
+     * étape, brief compris — une question de quantité ou de modèle sans prix est refusée (`refusDeQuestionSansPrix`).
+     */
+    case 'chiffrer': {
+      const capacite = CAPACITES_DE_GENERATION.find((c) => c === args.capacite);
+      if (!capacite) return { ok: false, text: `Il faut « capacite » : ${CAPACITES_DE_GENERATION.join(', ')}.` };
+      const quantites = (Array.isArray(args.quantites) ? args.quantites : [1, 2, 4]).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 8);
+      const duree = Number(args.duree) > 0 ? Number(args.duree) : undefined;
+      const texte = typeof args.texte === 'string' ? args.texte : undefined;
+      const branches = servicesDeGenerationBranches();
+      const tous = modelesProposes(branches, capacite).filter((m) => !args.modele || m.id === args.modele).slice(0, 6);
+      if (!tous.length) return { ok: true, text: `Aucun modèle branché ne sait faire « ${capacite} » : écris « prix non publié », ou appelle « brancher ».` };
+      const lignes = await Promise.all(
+        tous.map(async (m) => {
+          const secondes = duree ?? m.durees?.[0] ?? 5;
+          const prix = await prixPublie(m, secondes, { secondes, ...(texte ? { texte, caracteres: texte.length } : {}) });
+          return `- ${m.nom} (service « ${m.service} », modèle « ${m.id} ») : ${prix === null ? 'prix non publié' : prixParQuantite(prix, quantites).join(' · ')}`;
+        }),
+      );
+      return { ok: true, text: [`Prix total de chaque choix « ${capacite} »${duree ? `, ${duree} s` : ''}, à recopier tel quel dans la « description » de chaque option :`, ...lignes].join('\n') };
+    }
+
     case 'modeles': {
       const capacite = CAPACITES_DE_GENERATION.find((c) => c === args.capacite);
       const branches = servicesDeGenerationBranches();
@@ -2208,7 +3071,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         const lignes = await Promise.all(
           tous.map(async (m) => {
             const prix = branches.includes(m.service) ? await prixPublie(m, m.durees?.[0] ?? 5, { secondes: m.durees?.[0] ?? 5 }) : null;
-            const libellePrix = prix !== null ? `${arrondi(prix)} $ par ${capacite === 'animation' ? `plan de ${m.durees?.[0] ?? 5} s` : capacite === 'mouvement' ? 'seconde de vidéo' : 'image'} (tarif publié)` : m.prix === 'cout-reel-openrouter' ? 'aux jetons, coût réel relevé après' : m.prix === 'credits-kie' ? 'lu au devis dans la liste de kie.ai, crédits réels relevés après' : m.prix === 'api-fal' ? 'publié, lu au devis une fois fal.ai branché' : 'non publié par le service (accord demandé)';
+            const libellePrix = prix !== null ? `${prixEnEurosEtDollars(prix)} par ${capacite === 'animation' ? `plan de ${m.durees?.[0] ?? 5} s` : capacite === 'mouvement' ? 'seconde de vidéo' : 'image'} (tarif publié)` : m.prix === 'cout-reel-openrouter' ? 'aux jetons, coût réel relevé après' : m.prix === 'credits-kie' ? 'lu au devis dans la liste de kie.ai, crédits réels relevés après' : m.prix === 'api-fal' ? 'publié, lu au devis une fois fal.ai branché' : 'non publié par le service (accord demandé)';
             const extra = m.retouche?.lumiere ? ` · lumière ${m.retouche.lumiere === 'libre' ? 'LIBRE (sphère sans contrainte)' : `${m.retouche.lumiere.length} directions fixes (sphère aimantée)`}` : '';
             const photos = m.retouche?.sources ? ` · ${m.retouche.sources} ${m.capacite === 'visage' ? 'photo(s) du visage' : 'image(s) de référence'} au plus` : '';
             const fin = m.fin ? ' · IMAGE DE FIN possible (« fin »)' : capacite === 'animation' ? ' · image de départ seulement' : '';
@@ -2284,9 +3147,9 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const raison = String(args.raison ?? '').trim();
       if (!consigne || !plan || !raison) return { ok: false, text: 'Il faut « plan » (le nom du plan ou du média), « consigne » (la demande complète au modèle) et « raison » (pourquoi ce modèle).' };
       if (estServiceCache(service)) return { ok: false, text: `Refusé : ${serviceDeGeneration(service)?.nom ?? service} n’est plus proposé (remplacé par kie.ai, décision de l’utilisateur). Refais le devis avec un modèle de kie.ai (« modeles »).` };
-      const voixOpenRouter = service === 'openrouter' && id === MODELE_VOIX_OPENROUTER && voixParOpenRouterPossible();
+      const voixOpenRouter = service === 'openrouter' && (id === MODELE_VOIX_OPENROUTER || id === MODELE_CLONAGE_OPENROUTER) && voixParOpenRouterPossible();
       if (!servicesDeGenerationBranches().includes(service) && !voixOpenRouter) return { ok: false, text: `Le service « ${service} » n’est pas branché. Consulte « modeles », ou appelle « brancher » pour que l’utilisateur le branche depuis la conversation.` };
-      if (voixOpenRouter && !VOIX_FINALES.some((v) => v.id === String(args.voix ?? '').trim())) {
+      if (voixOpenRouter && id === MODELE_VOIX_OPENROUTER && !VOIX_FINALES.some((v) => v.id === String(args.voix ?? '').trim())) {
         return { ok: false, text: `Il faut « voix » : une des vingt voix Gemini — ${VOIX_FINALES.map((v) => `${v.id} (${v.genre}, ${v.timbre})`).join(', ')}. « consigne » = le texte EXACT validé à l’arrêt 2.` };
       }
       const openrouter = service === 'openrouter' ? await modelesOpenRouter() : [];
@@ -2295,6 +3158,9 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const enDirect = choisi ? null : await modeleLuEnDirect(service, id, args.capacite ?? args.operation);
       const modele: ModeleDeGeneration | undefined = choisi ?? enDirect ?? undefined;
       if (!modele) return { ok: false, text: `Le modèle « ${id} » n’est ni au catalogue choisi ni dans le catalogue lu en direct de ${service}. Consulte « modeles » (avec « en_direct » pour tout le catalogue).` };
+      /* LE MODÈLE RETENU PAR L'UTILISATEUR DANS LE STUDIO s'impose au devis : l'agent ne le contourne pas. */
+      const refusDuChoix = refusDuDevisDeLaCarte(card.id, modele.capacite, modele.id);
+      if (refusDuChoix) return { ok: false, text: refusDuChoix };
       const parametres = args.parametres && typeof args.parametres === 'object' && !Array.isArray(args.parametres) ? (args.parametres as Record<string, unknown>) : undefined;
       /* kie.ai : TOUT modèle suit un schéma (recopié ou lu), ses réglages propres passent donc par « parametres ». */
       const kieChoisi = !enDirect && service === 'kie' ? modeleKie(modele.id, modele.capacite) : undefined;
@@ -2308,11 +3174,12 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         modelesProposes(servicesDeGenerationBranches(), 'animation').length &&
         args.sans_image !== true
       ) {
+        if (studioSansEtapes(card)) return { ok: false, text: 'Refusé : un plan vidéo s’anime à partir d’une IMAGE finie de la création — fais le devis avec un modèle « animation » (« modeles » capacite « animation ») et « source » = l’identifiant de cette image (« lister » les donne) ; s’il n’y en a pas, propose-la d’abord. Un plan sans image (texte vers vidéo) ne part qu’avec l’accord écrit de l’utilisateur, et « sans_image » = vrai.' };
         return { ok: false, text: 'Refusé : dans cette production, un plan vidéo s’anime à partir de son image AJOUTÉE AU SUIVI — fais le devis avec un modèle « animation » (consulte « modeles » avec capacite « animation ») et « source » = l’identifiant de l’image retenue. Un plan sans image (texte vers vidéo) ne part qu’avec l’accord écrit de l’utilisateur, et « sans_image » = vrai.' };
       }
       /* TOUTES LES IMAGES D'ABORD, PUIS L'ANIMATION (26/10/2026) : aucune séquence avant « Passer aux séquences vidéo ». */
       if (media && (modele.capacite === 'animation' || modele.capacite === 'video' || modele.capacite === 'mouvement')) {
-        const permise = animationPermise({ types: typesDeMediaDeLaRealisation(card.realisation), carte: card });
+        const permise = animationPermiseIci(card);
         if (!permise.ok) return { ok: false, text: `Refusé : ${permise.raison}` };
       }
       const retouche = await lireLaRetouche(card, modele, args);
@@ -2338,7 +3205,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         if (!essai.ok) return { ok: false, text: `Devis refusé pour ${modele.nom} : ${essai.raison}.${enDirect ? ' Lis ses entrées : « modeles » avec « en_direct », « service » et « modele ».' : ''}` };
       }
       if ((modele.capacite === 'voix' || modele.capacite === 'avatar') && service !== 'fal' && service !== 'kie' && !String(args.voix ?? '').trim()) return { ok: false, text: 'Il faut une « voix » (identifiant lu avec l’action « voix »).' };
-      if (modele.capacite === 'avatar' && !String(args.avatar ?? '').trim()) return { ok: false, text: 'Il faut un « avatar » (identifiant lu avec l’action « voix », service heygen).' };
+      if (modele.capacite === 'avatar' && service !== 'kie' && !String(args.avatar ?? '').trim()) return { ok: false, text: 'Il faut un « avatar » (identifiant lu avec l’action « voix », service heygen).' };
       const langue = args.langue === undefined ? undefined : langueDeDeclinaison(args.langue);
       if (args.langue !== undefined && !langue) return { ok: false, text: `Langue inconnue : « ${String(args.langue)} ». Langues : fr, en, de, es, it, pt, nl.` };
       let sourceDeSynchro: { video: MediaDeRealisation; audio: MediaDeRealisation } | null = null;
@@ -2376,8 +3243,12 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         ...(sourceDeSynchro ? { video: sourceDeSynchro.video.id, audio: sourceDeSynchro.audio.id } : {}),
         ...(enDirect ? { entrees: enDirect.entrees } : {}),
         ...(parametres ? { parametres } : {}),
+        ...annonceDuMontage(args),
       };
-      const secondes = Number.isFinite(duree) && duree > 0 ? duree : sourceDeSynchro?.audio.demande.duree;
+      /* Présentateur et visage dans une vidéo se paient à la seconde de LEUR SOURCE (la voix dite, la vidéo reprise). */
+      const dureeDeLaSource =
+        modele.capacite === 'avatar' && service === 'kie' ? await dureeDUneSource(retouche.demande.audio) : modele.capacite === 'visage-video' ? await dureeDUneSource(retouche.demande.mouvement) : undefined;
+      const secondes = dureeDeLaSource ?? (Number.isFinite(duree) && duree > 0 ? duree : sourceDeSynchro?.audio.demande.duree);
       const prix = await prixPublie(modele, Number.isFinite(duree) && duree > 0 ? (modele.durees ? dureeAjustee({ durees: modele.durees } as any, duree) : duree) : (modele.durees?.[0] ?? 5), {
         ...(secondes ? { secondes } : {}),
         caracteres: envoyee.consigne.length,
@@ -2442,7 +3313,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const suite = insuffisant
         ? 'Lancement impossible en l’état : le solde kie.ai ne couvre pas ce devis.'
         : media
-          ? `Propose-les maintenant avec « lot » (« devis_du_lot » = ces ${ids.length} identifiants, rien d’autre) : le bouton « Valider · prix » part dans le fil, et le clic de l’utilisateur lance la génération. Puis passe au plan suivant : une validation par plan, toutes dans ce tour.`
+          ? `Propose-les maintenant avec « lot » (« devis_du_lot » = ces ${ids.length} identifiants, rien d’autre) : le bouton « Générer · prix » part dans le fil, et le clic de l’utilisateur lance la génération. Puis passe au plan suivant : une validation par plan, toutes dans ce tour.`
           : decision.verdict === 'refus'
             ? `Lancement impossible en l’état : ${decision.raison}`
             : 'Regroupe ce devis avec les autres de la même étape (action « lot ») : rien ne part avant le clic de l’utilisateur sur le bloc « Devis ».';
@@ -2570,6 +3441,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         const travail = enVol.get(m.id);
         if (!travail) {
           m = liberer(m, 'interrompue par un redémarrage du serveur : elle a peut-être été facturée — vérifie le compte chez le service avant de relancer');
+          quandUnMediaSArrete(m.id);
         } else {
           await Promise.race([travail, attente(RYTHME_REALISATION.attenteSuiviMs)]);
           m = mediaParId(id)!;
@@ -2581,7 +3453,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const attachment = m.attachmentId ? store.getAttachment(m.attachmentId) : null;
       return {
         ok: true,
-        text: `« ${m.plan} » v${m.version} prêt : ${m.fichier}${m.coutReel !== null ? ` (coût réel ${arrondi(m.coutReel)} $)` : ''}. Il paraît dans le fil. Regarde-le (lis le fichier) avant de passer au plan suivant.\n${`Dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null && !media ? ` sur ${budget.budget} $` : ''}.`}${media ? ' L’utilisateur valide lui-même, d’un clic sur le média, ce qu’il garde.' : ''}`,
+        text: `« ${m.plan} » v${m.version} prêt : ${m.fichier}${m.coutReel !== null ? ` (coût réel ${arrondi(m.coutReel)} $)` : ''}. Il paraît dans le fil. Regarde-le (lis le fichier) avant de passer au plan suivant.\n${`Dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null && !media ? ` sur ${budget.budget} $` : ''}.`}${media ? ' Quand toutes les versions du lot sont rendues, tu es réveillé pour lui faire choisir celle qu’il garde (« choisir ») ; il peut aussi valider d’un clic sur le média.' : ''}`,
         ...(attachment ? { attachment } : {}),
       };
     }
@@ -2669,16 +3541,29 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
 
     case 'retenir': {
       /* SEUL L'UTILISATEUR VALIDE (26/10/2026) : le bouton « Valider » sur le média. */
-      if (media) return { ok: false, text: 'Refusé : sur une création de média, seul l’utilisateur valide un média (le bouton « Valider » posé sur chaque média du fil). Dis-lui lequel tu recommandes, en une phrase.' };
+      if (media && studioSansEtapes(card)) return { ok: false, text: 'Refusé : seul l’utilisateur valide un média, et dans le Studio il le fait en répondant dans la conversation : appelle « choisir » (« Quelle version gardez-vous ? ») avec « lot » ou « plan », en disant laquelle tu recommandes. Ce refus ne bloque aucun devis : une image finie sert de « source » sans être validée.' };
+      if (media) return { ok: false, text: 'Refusé : sur une création de média, seul l’utilisateur valide un média — le bouton « Valider » posé sur chaque média du fil, ou sa réponse à « choisir » (« Quelle version gardez-vous ? »). Dis-lui lequel tu recommandes, en une phrase.' };
       /* L'AGENT AJOUTE LUI-MÊME AU SUIVI une image qu'il juge réussie (fabrication sans arrêt, 25/10/2026). */
       const r = retenirUnMedia(card.id, String(args.id ?? args.media ?? ''), args.retenu !== false && args.retenu !== 'false');
       if (!r.ok) return { ok: false, text: `Impossible : ${r.raison}.` };
       return { ok: true, text: `« ${r.media.plan} » v${r.media.version} ${r.media.retenuLe ? 'est au suivi' : 'retiré du suivi'}${r.change ? '' : ' (déjà)'}.` };
     }
 
+    case 'choisir': {
+      /* « QUELLE VERSION GARDEZ-VOUS ? » : posée par l'outil, lettres et médias jouables ; la réponse valide et pose, côté démon. */
+      const lot = typeof args.lot === 'string' && args.lot ? args.lot : undefined;
+      const plan = typeof args.plan === 'string' && args.plan ? args.plan : undefined;
+      if (!lot && !plan) return { ok: false, text: 'Il faut « lot » (le lot dont les versions sont prêtes) ou « plan ».' };
+      const question = questionDeChoixDeVersion(card.id, { ...(lot ? { lot } : {}), ...(plan ? { plan } : {}) });
+      if (!question) return { ok: true, text: 'Rien à choisir : aucune version finie sans choix (déjà validée, ou toutes en échec). Termine en une phrase.' };
+      const planPose = question.choixDeVersion?.plan;
+      if (ctx.agentId && planPose && questionDeChoixEnAttente(ctx.agentId, planPose)) return { ok: true, text: 'Cette question de choix est déjà posée dans le fil et attend sa réponse : ne la repose pas. Termine en une phrase.' };
+      return { ok: true, text: texteSansAttente(), question };
+    }
+
     case 'monter': {
       /* LE MONTAGE EST UNE ÉTAPE DE L'UTILISATEUR (26/10/2026) : il y passe par le bouton du bas ; l'agent n'y fait jamais sauter la carte. */
-      if (media && !passagesDuMedia(card).montage) return { ok: false, text: 'Refusé : le montage s’ouvre quand l’utilisateur clique « Passer au montage ». Reste aux esquisses ; ne change jamais d’étape à sa place.' };
+      if (media && !passagesEffectifs(card).montage) return { ok: false, text: 'Refusé : le montage s’ouvre quand l’utilisateur clique « Passer au montage ». Reste aux esquisses ; ne change jamais d’étape à sa place.' };
       const ecrite = media ? null : poserLeMontage(card);
       const finis = mediasDeLaCarte(card.id).filter((m) => m.etat === 'fini' && m.service !== 'montage');
       const verses = '';
@@ -2724,7 +3609,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         service: 'montage',
         modele: 'montage',
         modeleNom: 'Montage de l’agent',
-        demande: { consigne: String(args.consigne ?? 'montage final').slice(0, 2000), format: '16:9' },
+        demande: { consigne: String(args.consigne ?? 'montage final').slice(0, 2000), format: '16:9', ...annonceDuMontage(args) },
         raison: 'assemblé sur le serveur, sans service payant',
         prix: 0,
         sourcePrix: 'aucun',
@@ -2744,8 +3629,11 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       /* Le repli : un agent qui range son montage sans l'avoir annoncé allume quand même l'étape — jamais sur une création de média, où l'utilisateur seul change d'étape. */
       if (!media) poserLeMontage(card);
       try {
-        const fini = await ranger(m, fs.readFileSync(chemin), ext === 'mp4' ? 'video/mp4' : ext);
+        const fini = await sansFondSiStudio(await ranger(m, fs.readFileSync(chemin), ext === 'mp4' ? 'video/mp4' : ext));
         const attachment = fini.attachmentId ? store.getAttachment(fini.attachmentId) : null;
+        /* DANS LE STUDIO, CE QUE L'AGENT RANGE SE CHOISIT AUSSI : la question part avec le résultat de l'outil. Un film monté n'en appelle pas. */
+        const aChoisir = studioSansEtapes(card) && plan !== 'montage' && args.role !== 'livraison' && !estUnApercu(plan) ? questionDeChoixDeVersion(card.id, { plan }) : null;
+        if (aChoisir && ctx.agentId && !questionDeChoixEnAttente(ctx.agentId, plan)) return { ok: true, text: `« ${plan} » v${fini.version} rangé. ${texteSansAttente()}`, ...(attachment ? { attachment } : {}), question: aChoisir };
         return { ok: true, text: `« ${plan} » v${fini.version} rangé : ${fini.fichier}. Il paraît dans le fil.`, ...(attachment ? { attachment } : {}) };
       } catch (err) {
         maj(m, { etat: 'echec', echec: String((err as Error)?.message ?? err).slice(0, 300) });
@@ -2941,6 +3829,8 @@ export async function fabriquerUnApercu(
   }
   const envoyee = await consigneAEnvoyer('image', consigne);
   if (!envoyee.ok) return { ok: false, text: `Aperçu refusé : la consigne n’a pas pu être traduite en anglais (${envoyee.raison}). Rien n’est dépensé ; réessaie dans un instant.` };
+  /* Le modèle des aperçus refuse plus de 1000 signes : la consigne TRADUITE est coupée avant l'envoi. */
+  if (modele.id === MODELE_DES_APERCUS.id) envoyee.consigne = couperLaConsigne(envoyee.consigne);
   const rang = mediasDeLaCarte(carte.id).filter((m) => estUnApercu(m.plan) && m.plan.startsWith(prefixe)).length + 1;
   const format = FORMATS.find((f) => f === args.format) ?? '1:1';
   const maintenant = Date.now();
@@ -3039,7 +3929,7 @@ export async function chiffrerUnPanneau(
   if (!card || !m || m.cardId !== cardId) throw new Error('média introuvable sur cette carte');
   const capacite = capaciteDuPanneau(e.operation, m.genre);
   if (capacite === 'animation' || capacite === 'mouvement') {
-    const permise = animationPermise({ types: typesDeMediaDeLaRealisation(card.realisation), carte: card });
+    const permise = animationPermiseIci(card);
     if (!permise.ok) return { capacite, modeles: [], recommande: null, raison: permise.raison };
   }
   const branches = servicesDeGenerationBranches();
@@ -3114,7 +4004,7 @@ export async function lancerUnPanneau(
   const source = mediaParId(e.mediaId);
   if (!card || !source || source.cardId !== cardId) return { ok: false, raison: 'média introuvable sur cette carte' };
   if (!carteDeMedia(card)) return { ok: false, raison: 'cette carte n’est pas une création de média' };
-  if (!passagesDuMedia(card).esquisses) return { ok: false, raison: 'la carte est encore au brief : passez d’abord aux esquisses' };
+  if (!passagesEffectifs(card).esquisses) return { ok: false, raison: 'la carte est encore au brief : passez d’abord aux esquisses' };
   const { cadrageDeLaCarte } = await import('./cadrage.js');
   const agentId = cadrageDeLaCarte(cardId)?.id ?? card.agentId ?? source.agentId ?? '';
   const capacite = capaciteDuPanneau(e.operation, source.genre);

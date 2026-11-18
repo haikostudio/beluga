@@ -1,6 +1,7 @@
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, Loader2, Plus, RefreshCw, Send, Trash2, Wrench } from 'lucide-react';
+import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
+import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, Loader2, Plus, RefreshCw, Send, Trash2, Wrench } from '@/components/ui/icones';
 import {
   type Agent,
   type CaseDeFrise,
@@ -28,24 +29,29 @@ import {
   ConfirmDialog,
   DialogTitle,
   TitreDePage,
-  CLASSE_GROUPE_DE_LIGNES,
-  CLASSE_LIGNE_DE_GROUPE,
   Drawer,
-  SelecteurTiroir,
+  HAUTEUR_DE_CONTROLE,
   Textarea,
   Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
 import { SilhouetteSurveillance } from '@/components/silhouettes';
-import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
+import { BoutonPrincipal, CranDuFil, GestePrincipal, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
 import { PasAPas } from '@/components/pas-a-pas';
+import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
+import { colonneProjet } from '@/components/ui/colonne-projet';
+import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
+import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
+import { TitreEtSous } from '@/components/ui/apercu-de-ligne';
+import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
 import { bytes, cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 
@@ -93,7 +99,11 @@ export function Surveillance({
   onVise?: (siteId: string | null) => void;
 }) {
   const state = useApp();
-  const sites = state.surveillance;
+  /* DANS L'ONGLET D'UN PROJET (refonte du 13/11/2026) : les sites rattachés à ce projet seulement. */
+  const projetDuService = useProjetDuService();
+  const sites = projetDuService
+    ? state.surveillance.filter((site) => site.projetRattache === projetDuService.id)
+    : state.surveillance;
   const [verifEnCours, setVerifEnCours] = React.useState(false);
   const [aSupprimer, setASupprimer] = React.useState<SiteSurveille | null>(null);
   /** Le tiroir ouvert : une surveillance, ou « nouvelle ». */
@@ -131,6 +141,9 @@ export function Surveillance({
     },
   });
 
+  const [recherche, setRecherche] = React.useState('');
+  const [vueDeLaListe, setVueDeLaListe] = useVueDeLaListe('surveillance.vueDeLaListe');
+  const nomDuProjet = (id: string | null | undefined) => (id ? (state.projects.find((p) => p.id === id)?.name ?? null) : null);
   const enPanne = sites.filter((site) => site.etat === 'panne');
   const apaise = apaisement(sites, Date.now());
   /* LA COLONNE DE GAUCHE EST CELLE DE LA SURVEILLANCE (demande du 12/10/2026) :
@@ -162,10 +175,35 @@ export function Surveillance({
     }
   };
 
+  /* UN PROJET SANS SURVEILLANCE, OUVERT EN ONGLET : il le dit, et propose de commencer (maquette #4e4f). */
+  if (projetDuService && !sites.length && tiroir === null) {
+    return (
+      <Drawer open={open} onClose={onClose} enPage={enPage}>
+        <EtatVideDuProjet
+          icone={<Activity />}
+          titre={t('Aucune surveillance pour {v0}', { v0: projetDuService.name })}
+          texte={t('Un agent contrôle régulièrement que le site répond, et vous prévient au premier signe de panne.')}
+          action={t('Créer une surveillance')}
+          onAction={() => setTiroir({ nouvelle: true })}
+          note={t('Le premier contrôle part dès la création.')}
+          data-surveillance-vide
+        />
+      </Drawer>
+    );
+  }
+
   return (
     <>
       <Drawer open={open} onClose={onClose} enPage={enPage}>
         <TitreDePage>{t('Surveillance')}</TitreDePage>
+        {sites.length ? (
+          <>
+            <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher un site…')} data-surveillance-recherche />
+            <BasculeDePage>
+              <BasculeTableauCartes repere="vue-de-la-surveillance" valeur={vueDeLaListe} onChange={setVueDeLaListe} />
+            </BasculeDePage>
+          </>
+        ) : null}
         {dansLaColonne ? null : (
           <>
           {/* SUR TÉLÉPHONE : « Vérifier maintenant » est une ligne du menu à trois
@@ -276,16 +314,46 @@ export function Surveillance({
           ) : !sitesAffiches.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucune surveillance dans cette rubrique.')}</p>
           ) : (
-            <div className={CLASSE_GROUPE_DE_LIGNES}>
-              {sitesAffiches.map((site) => (
-                <LigneSite
-                  key={site.id}
-                  site={site}
-                  onOuvrir={() => setTiroir({ siteId: site.id })}
-                  onSupprimer={() => setASupprimer(site)}
-                />
-              ))}
-            </div>
+            /* LES SURVEILLANCES EN TABLEAU (carte « Onglets, services et listes repensés », 14/11/2026) : site, état,
+               dernier contrôle, temps de réponse, rythme, et « Retirer » au bout ; l'aperçu au survol dit le reste. */
+            <ApercuAuSurvol lire={(id) => sitesAffiches.find((s) => s.id === id)} rendu={(s) => <ApercuDeSurveillance site={s} />}>
+              <Tableau
+                repere="surveillance"
+                lignes={sitesAffiches}
+                cle={(s) => s.id}
+                onLigne={(s) => setTiroir({ siteId: s.id })}
+                aere
+                attributsLigne={(s) => ({ 'data-surveillance-site': s.id, 'data-etat': s.etat, 'data-attention': aSurveiller(s) ? '' : undefined })}
+                colonnes={colonnesDeSurveillance((s) => setASupprimer(s), nomDuProjet)}
+                rechercheExterne={recherche}
+                {...(vueDeLaListe === 'cartes'
+                  ? {
+                      grille: (s: SiteSurveille) => (
+                        <CarteDeTableau
+                          projet={{ id: s.projetRattache ?? null, nom: nomDuProjet(s.projetRattache) }}
+                          etat={<BadgeEtat site={s} />}
+                          titre={s.nom}
+                          texte={s.url}
+                          chiffres={[
+                            { libelle: t('Réponse'), valeur: tempsDeReponse(s) },
+                            { libelle: t('Rythme'), valeur: rythme(s) },
+                            { libelle: t('Contrôlé à'), valeur: quand(s.verifieLe) },
+                          ]}
+                          data-surveillance-carte={s.id}
+                        />
+                      ),
+                    }
+                  : {})}
+                pile={(s) => (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <TitreEtSous titre={s.nom} sous={`${s.url} · ${t('vu à {heure}', { heure: quand(s.verifieLe) })}`} />
+                    </span>
+                    <BadgeEtat site={s} />
+                  </>
+                )}
+              />
+            </ApercuAuSurvol>
           )}
         </ZoneDefilement>
       </Drawer>
@@ -293,6 +361,8 @@ export function Surveillance({
       <TiroirSurveillance
         cible={tiroir}
         site={tiroir && 'siteId' in tiroir ? (sites.find((s) => s.id === tiroir.siteId) ?? null) : null}
+        sites={sites}
+        onChoisirSite={(siteId) => setTiroir({ siteId })}
         onClose={() => setTiroir(null)}
         onSupprimer={(site) => setASupprimer(site)}
       />
@@ -346,58 +416,62 @@ function BadgeEtat({ site }: { site: SiteSurveille }) {
   );
 }
 
-/** Une surveillance : son nom, son état, son rythme. Un clic ouvre son tiroir. */
-function LigneSite({
-  site,
-  onOuvrir,
-  onSupprimer,
-}: {
-  site: SiteSurveille;
-  onOuvrir: () => void;
-  onSupprimer: () => void;
-}) {
+function tempsDeReponse(site: SiteSurveille): string {
+  return site.dureeMs ? t('{n} ms', { n: Math.round(site.dureeMs).toLocaleString(formatRegional()) }) : '—';
+}
+
+/** Les colonnes du tableau des surveillances (14/11/2026). */
+function colonnesDeSurveillance(onSupprimer: (site: SiteSurveille) => void, nomDuProjet: (id: string | null | undefined) => string | null): ColonneDuTableauCommun<SiteSurveille>[] {
+  return [
+    { cle: 'site', libelle: t('Site'), valeur: (s) => s.nom, filtre: 'texte', lireFiltre: (s) => `${s.nom} ${s.url}`, rendu: (s) => <TitreEtSous titre={s.nom} sous={s.url} /> },
+    colonneProjet<SiteSurveille>((s) => ({ id: s.projetRattache ?? null, nom: nomDuProjet(s.projetRattache) }), { largeur: 170, secondaire: true }),
+    { cle: 'etat', libelle: t('État'), largeur: 150, valeur: (s) => (s.etat === 'panne' ? 0 : aSurveiller(s) ? 1 : s.etat === 'ok' ? 2 : 3), sensNaturel: 'asc', rendu: (s) => <BadgeEtat site={s} /> },
+    { cle: 'controle', libelle: t('Dernier contrôle'), largeur: 130, droite: true, valeur: (s) => s.verifieLe, rendu: (s) => <span className="text-muted">{quand(s.verifieLe)}</span> },
+    { cle: 'reponse', libelle: t('Temps de réponse'), largeur: 170, droite: true, secondaire: true, valeur: (s) => s.dureeMs ?? null, rendu: (s) => <span className="tabular-nums text-muted">{tempsDeReponse(s)}</span> },
+    { cle: 'rythme', libelle: t('Rythme'), largeur: 140, secondaire: true, valeur: (s) => s.periodeMs ?? PERIODE_SURVEILLANCE_MS, rendu: (s) => <span className="truncate text-faint">{rythme(s)}</span> },
+    {
+      cle: 'gestes',
+      libelle: '',
+      largeur: 52,
+      libre: true,
+      rendu: (s) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Retirer"
+          title={t('Retirer')}
+          data-surveillance-supprimer={s.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSupprimer(s);
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+  ];
+}
+
+/** L'aperçu d'une surveillance au survol : son état, depuis quand, sa dernière panne, sa réponse, son rythme. */
+function ApercuDeSurveillance({ site: s }: { site: SiteSurveille }) {
   return (
-    <div
-      data-surveillance-site={site.id}
-      data-etat={site.etat}
-      data-attention={aSurveiller(site) ? '' : undefined}
-      role="button"
-      tabIndex={0}
-      onClick={onOuvrir}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOuvrir();
-        }
-      }}
-      className={cn('flex w-full cursor-pointer items-center gap-2', CLASSE_LIGNE_DE_GROUPE)}
+    <CorpsDApercu
+      sous={s.url}
+      titre={s.nom}
+      chiffres={[
+        { libelle: t('État'), valeur: <BadgeEtat site={s} /> },
+        { libelle: t('Temps de réponse'), valeur: tempsDeReponse(s) },
+        { libelle: t('Dernier contrôle'), valeur: quand(s.verifieLe) },
+        { libelle: t('Dernière panne'), valeur: s.dernierePanne ? jourEtHeure(s.dernierePanne) : t('jamais') },
+      ]}
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-[14.5px] text-text">{site.nom}</span>
-          <BadgeEtat site={site} />
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-faint">
-          <span className="truncate">{site.url}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0">{t('vu à {heure}', { heure: quand(site.verifieLe) })}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0">{rythme(site)}</span>
-        </span>
-      </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Retirer"
-        data-surveillance-supprimer={site.id}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSupprimer();
-        }}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
-    </div>
+      <p className="pt-1 text-[12px] text-faint">
+        {s.depuis ? t('Dans cet état depuis le {date}', { date: jourEtHeure(s.depuis) }) : null}
+        {s.depuis ? ' · ' : null}
+        {rythme(s)}
+      </p>
+    </CorpsDApercu>
   );
 }
 
@@ -409,15 +483,24 @@ function LigneSite({
 function TiroirSurveillance({
   cible,
   site,
+  sites,
+  onChoisirSite,
   onClose,
   onSupprimer,
 }: {
   cible: { siteId: string } | { nouvelle: true } | null;
   site: SiteSurveille | null;
+  /** Les autres sites surveillés, sous le chevron du cran du fil. */
+  sites: readonly SiteSurveille[];
+  onChoisirSite: (siteId: string) => void;
   onClose: () => void;
   onSupprimer: (site: SiteSurveille) => void;
 }) {
   const state = useApp();
+  const telephone = useTelephone();
+  /* LE CRAN DU FIL NE PORTE QUE LE NOM DU PROJET (15/11/2026, capture #f46c1 : « InVia », jamais « InVia —
+     association-invia.ch ») ; un site sans projet rattaché garde son nom. */
+  const nomDuCran = (s: SiteSurveille) => (s.projetRattache ? state.projects.find((p) => p.id === s.projetRattache)?.name : null) ?? s.nom;
   /** L'agent lancé depuis ce tiroir, avant qu'il n'ait enregistré quoi que ce soit. */
   const [depart, setDepart] = React.useState<{ agentId: string; projectId: string } | null>(null);
 
@@ -459,14 +542,23 @@ function TiroirSurveillance({
    */
   const teteFixe = (
     <div className={cn('flex shrink-0 flex-col', site && 'border-b border-faint/30')} data-surveillance-tete-fixe="">
-      {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
-          Surveillance › InVia » : il monte dans la barre d'en-tête de la page,
-          et son état comme ses gestes s'y posent à droite (`EnTeteDuSite`).
-          Plus de second en-tête sous la barre. */}
-      <DialogTitle className="min-w-0 truncate px-3 pb-2">{site ? site.nom : t('Nouvelle surveillance')}</DialogTitle>
+      {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Tableaux de bord ›
+          Surveillance › InVia » : il monte dans la barre d'en-tête de la page, son
+          état juste à sa droite (demande du 31/10/2026), ses gestes tout à droite
+          (`EnTeteDuSite`). Plus de second en-tête sous la barre. */}
+      <DialogTitle className="min-w-0 truncate px-3 pb-2">
+        {site ? (
+          <span className="flex min-w-0 items-center gap-2" data-surveillance-titre-et-etat>
+            <span className="min-w-0 truncate">{site.nom}</span>
+            <BadgeEtat site={site} />
+          </span>
+        ) : (
+          t('Nouvelle surveillance')
+        )}
+      </DialogTitle>
       {site ? (
         <div className="flex flex-col gap-2 px-3 pb-3" data-surveillance-infos="">
-          <EnTeteDuSite site={site} etat={<BadgeEtat site={site} />} onSupprimer={() => onSupprimer(site)} />
+          <EnTeteDuSite site={site} onSupprimer={() => onSupprimer(site)} />
           <FriseDuSite historique={historique} />
         </div>
       ) : null}
@@ -474,19 +566,43 @@ function TiroirSurveillance({
   );
   const aDefiler = Boolean(site && (choisie || site.wordpress));
   const defile = site ? (
-    <div ref={defileRef} className={cn('flex flex-col gap-2', aDefiler && 'px-3 pt-3')} data-surveillance-defilement-tete="">
-      {choisie ? <DetailDeCase tranche={choisie} /> : null}
+    <div ref={defileRef} className="contents" data-surveillance-defilement-tete="">
+      {choisie ? (
+        <div className="px-3 pt-3">
+          <DetailDeCase tranche={choisie} />
+        </div>
+      ) : null}
       {site.wordpress ? <EtatWordpress key={site.id} site={site} /> : null}
     </div>
   ) : null;
 
   return (
-    <Drawer open={ouvert} onClose={onClose} empile className="h-[92dvh]">
+    /* UN VRAI TIROIR PAR-DESSUS LA PAGE (15/11/2026) : la feuille commune — elle monte du bas, sur ordinateur comme sur
+       téléphone (DEC-474) —, la liste des sites reste dessous. Son site est le dernier cran du fil de la page. */
+    <Drawer open={ouvert} onClose={onClose} feuille={!telephone} empile className="h-[92dvh]">
+      {site ? (
+        <SuiteDuFil onRacine={onClose} retour={{ action: onClose, reperes: { 'data-surveillance-retour': '' } }}>
+          <CranDuFil
+            voisinsSurLeDernier
+            voisins={{
+              nom: nomDuCran(site),
+              valeur: site.id,
+              titre: t('Surveillance'),
+              repere: 'surveillance-site',
+              options: sites.map((s) => ({ valeur: s.id, libelle: s.nom })),
+              onChoisir: (id) => (id === site.id ? undefined : onChoisirSite(id)),
+            }}
+            data-surveillance-cran-du-site={site.id}
+          >
+            {nomDuCran(site)}
+          </CranDuFil>
+        </SuiteDuFil>
+      ) : null}
       <div className="flex min-h-0 flex-1 flex-col" data-surveillance-tiroir={site?.id ?? 'nouvelle'}>
         {teteFixe}
         {agent && projectId ? (
           <div className="flex min-h-0 flex-1 flex-col" data-surveillance-conversation={agent.id}>
-            <Chat agent={agent} projectId={projectId} enTeteDuFil={aDefiler ? defile : undefined} />
+            <Chat agent={agent} projectId={projectId} enTeteDuFil={aDefiler ? defile : undefined} enTeteDuFilLibre />
           </div>
         ) : (
           <>
@@ -564,7 +680,7 @@ function useHistoriqueDuSite(site: SiteSurveille | null): HistoriqueDuSite {
  * recette, étape en échec, « Vérifier maintenant » (toute la largeur), la
  * corbeille seule tout à droite, puis le projet du site.
  */
-function EnTeteDuSite({ site, etat, onSupprimer }: { site: SiteSurveille; etat?: React.ReactNode; onSupprimer: () => void }) {
+function EnTeteDuSite({ site, onSupprimer }: { site: SiteSurveille; onSupprimer: () => void }) {
   const [verifEnCours, setVerifEnCours] = React.useState(false);
   const recette = site.recette;
 
@@ -599,26 +715,29 @@ function EnTeteDuSite({ site, etat, onSupprimer }: { site: SiteSurveille; etat?:
           {t('Étape en échec : {etape}', { etape: site.etapeEchouee })}
         </p>
       ) : null}
-      {/* L'ÉTAT ET LES GESTES DU SITE, en haut à droite de la barre d'en-tête.
-          Sur téléphone, l'état y reste et les deux gestes sont les lignes du
-          menu à trois points — plus de rangée en tête de la fiche. */}
-      {etat ? <GestesDePage className="pb-0">{etat}</GestesDePage> : null}
-      <OptionsDePage enCours={verifEnCours}>
-        <OptionDePage
-          className="min-w-0"
+      {/* LES GESTES DU SITE, DANS LA TÊTE FIXE DU TIROIR (15/11/2026 : le tiroir couvre la page, ses gestes vivent en
+          lui) : « Vérifier maintenant » sur toute la largeur, la corbeille seule collée à droite. */}
+      <div className="flex min-w-0 items-center gap-1.5" data-surveillance-gestes="">
+        <Button
+          variant="subtle"
+          size="sm"
+          className={cn(HAUTEUR_DE_CONTROLE, 'min-w-0 flex-1')}
           disabled={verifEnCours}
+          aria-busy={verifEnCours || undefined}
           onClick={() => void verifier()}
           data-surveillance-verifier-site
-          icone={verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
         >
+          {verifEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           {t('Vérifier maintenant')}
-        </OptionDePage>
-        <OptionDePage compact icone={<Trash2 className="h-3.5 w-3.5" />} title={t('Retirer')} aria-label="Retirer" onClick={onSupprimer} data-surveillance-retirer-site>
-          {t('Retirer')}
-        </OptionDePage>
-      </OptionsDePage>
+        </Button>
+        <Button variant="ghost" size="icon" className={cn(HAUTEUR_DE_CONTROLE, 'w-9 shrink-0 text-muted')} title={t('Retirer')} aria-label="Retirer" onClick={onSupprimer} data-surveillance-retirer-site>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
 
-      <ProjetDuSite site={site} />
+      {/* « PROJET DE CE SITE » A QUITTÉ LE TIROIR (15/11/2026, capture #e385) : le lien du site à son projet reste en
+          base — posé à la création, modifiable par l'agent du site. Seul le chemin vers la carte d'une panne reste. */}
+      <CarteDeLaPanne site={site} />
     </>
   );
 }
@@ -840,7 +959,13 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
   };
 
   return (
-    <section className="flex flex-col" data-surveillance-wordpress={soucis.length} data-surveillance-wordpress-ouvert={deplie ? 'oui' : 'non'}>
+    <section className="contents" data-surveillance-wordpress={soucis.length} data-surveillance-wordpress-ouvert={deplie ? 'oui' : 'non'}>
+      {/* LE BLOC ENTIER RESTE EN HAUT QUAND ON DESCEND DANS LA CONVERSATION (demandes du 31/10/2026, captures #8f337
+          et #760d) : la barre ET son contenu déplié collent ensemble, sur le fond de la zone, sans quoi il fallait
+          remonter tout le fil pour relire les soucis. Le contenu est plafonné (~40 % de l'écran) et défile sur
+          lui-même : une longue liste ne mange pas la conversation. Rien ne l'enferme : `section` et l'en-tête du fil
+          sont en `contents`, sans quoi il ne collerait que le temps de leur propre hauteur. */}
+      <div className="sticky top-0 z-10 bg-bg px-3 pb-2 pt-3" data-surveillance-wordpress-colle>
       <EnTeteDePanneau className={cn('p-0 text-[12px]', !deplie && 'rounded-md')}>
         <button
           type="button"
@@ -867,6 +992,7 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
         </button>
       </EnTeteDePanneau>
       {deplie ? (
+        <ZoneDefilement classeEnveloppe="max-h-[40vh] flex-none" data-surveillance-wordpress-contenu>
         <Panneau className="flex flex-col gap-2 text-[12px]">
           {soucis.length ? (
             <ul className="flex flex-col gap-1">
@@ -953,7 +1079,9 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
             </div>
           ) : null}
         </Panneau>
+        </ZoneDefilement>
       ) : null}
+      </div>
     </section>
   );
 }
@@ -984,63 +1112,19 @@ function LigneNettoyage({ nettoyage }: { nettoyage: DernierNettoyage }) {
  *
  * Quand une panne est ouverte, un bouton mène droit à sa carte.
  */
-function ProjetDuSite({ site }: { site: SiteSurveille }) {
-  const state = useApp();
-  const [enCours, setEnCours] = React.useState(false);
-  /** « À deviner d'après l'adresse » : la valeur vide du menu. */
-  const options = React.useMemo(
-    () => [
-      { valeur: '', libelle: t('À deviner d’après l’adresse') },
-      ...state.projects
-        .filter((p) => !p.archived)
-        .map((p) => ({ valeur: p.id, libelle: p.name })),
-    ],
-    [state.projects],
-  );
-  const choisir = async (valeur: string) => {
-    setEnCours(true);
-    try {
-      await client.call({ type: 'surveillance.rattacher', id: site.id, projectId: valeur || null });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Projet non rattaché'));
-    } finally {
-      setEnCours(false);
-    }
-  };
-
+function CarteDeLaPanne({ site }: { site: SiteSurveille }) {
+  if (!site.incidentCardId) return null;
   return (
-    <div className="flex flex-col gap-1" data-surveillance-projet={site.projetRattache ?? ''}>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span className="text-[12px] text-text">{t('Projet de ce site')}</span>
-        {enCours ? <Loader2 className="h-3 w-3 animate-spin text-faint" /> : null}
-        <SelecteurTiroir
-          valeur={site.projetRattache ?? ''}
-          options={options}
-          onChoisir={(valeur) => void choisir(valeur)}
-          titre={t('Projet de ce site')}
-          placeholder={t('À deviner d’après l’adresse')}
-          repere="surveillance-projet"
-          empile
-        />
-      </div>
-      {site.projetDevine && site.projetRattache ? (
-        <p className="text-[12px] text-faint" data-surveillance-projet-devine>
-          {t('Projet deviné d’après l’adresse du site. Corrigez-le si ce n’est pas le bon.')}
-        </p>
-      ) : null}
-      {site.incidentCardId ? (
-        <div className="flex">
-          <Button
-            variant="subtle"
-            size="sm"
-            data-surveillance-carte-panne={site.incidentCardId}
-            onClick={() => client.allerVersDecision({ cardId: site.incidentCardId })}
-          >
-            <ExternalLink className="h-3 w-3" />
-            {t('Ouvrir la carte de la panne')}
-          </Button>
-        </div>
-      ) : null}
+    <div className="flex" data-surveillance-projet={site.projetRattache ?? ''}>
+      <Button
+        variant="subtle"
+        size="sm"
+        data-surveillance-carte-panne={site.incidentCardId}
+        onClick={() => client.allerVersDecision({ cardId: site.incidentCardId })}
+      >
+        <ExternalLink className="h-3 w-3" />
+        {t('Ouvrir la carte de la panne')}
+      </Button>
     </div>
   );
 }

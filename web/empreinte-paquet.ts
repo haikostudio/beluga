@@ -20,6 +20,7 @@
  * fichiers réellement servis, et refuse un `sw.js` qui ne porterait pas celle
  * de ses propres voisins.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -78,9 +79,17 @@ export function empreinteDuServiceWorker(): Plugin {
         );
       }
       writeFileSync(sw, source.split(JETON_EMPREINTE).join(empreinte));
+      /* LE COMMIT DU PAQUET (16/11/2026) : Réglages › Serveur › Version le montre à côté de l'empreinte et de la
+         date, pour savoir d'un coup d'œil si l'écran en ligne porte le dernier travail. Hors dépôt : absent. */
+      let commit: string | undefined;
+      try {
+        commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
+      } catch {
+        commit = undefined;
+      }
       writeFileSync(
         path.join(dist, 'version.json'),
-        `${JSON.stringify({ empreinte, construitA: Date.now() }, null, 2)}\n`,
+        `${JSON.stringify({ empreinte, construitA: Date.now(), ...(commit ? { commit } : {}) }, null, 2)}\n`,
       );
     },
   };

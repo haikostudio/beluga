@@ -48,6 +48,14 @@ function stockagePresent(): boolean {
   return present;
 }
 
+/**
+ * LE DISQUE DE STOCKAGE, ou `null` s'il n'est pas là. Pour ce qui ne doit JAMAIS
+ * retomber sur le disque du serveur (les copies de fichiers cités).
+ */
+export function disqueDeStockage(): string | null {
+  return stockagePresent() ? PATHS.attachmentsStockage : null;
+}
+
 /** Le dossier où S'ÉCRIT une nouvelle pièce jointe (créé s'il manque). */
 export function dossierDEcriture(): string {
   if (stockagePresent()) return PATHS.attachmentsStockage;
@@ -94,5 +102,7 @@ export function cheminDePieceJointe(piece: PieceJointeIdentifiee): string {
  */
 export function dossiersDeDonneesOuverts(): string[] {
   fs.mkdirSync(PATHS.attachments, { recursive: true });
-  return stockagePresent() ? [PATHS.attachments, PATHS.attachmentsStockage] : [PATHS.attachments];
+  fs.mkdirSync(PATHS.fichiers, { recursive: true });
+  /* L'ARBORESCENCE RANGÉE (`PATHS.fichiers`) est ouverte aussi : un agent y parcourt les fichiers de son projet. */
+  return stockagePresent() ? [PATHS.attachments, PATHS.attachmentsStockage, PATHS.fichiers] : [PATHS.attachments, PATHS.fichiers];
 }

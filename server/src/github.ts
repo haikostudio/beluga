@@ -79,7 +79,7 @@ export async function jetonGithub(): Promise<string | undefined> {
     return jetonEnCache.valeur;
   }
   try {
-    const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 10000 });
+    const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 10000, killSignal: 'SIGKILL' });
     const valeur = stdout.trim() || undefined;
     jetonEnCache = { valeur, at: Date.now() };
     if (!valeur) log.warn("gh est présent mais ne rend aucun jeton : les agents n'auront pas GitHub");

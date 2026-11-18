@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   BranchesDePublication,
+  CleEtapeMontage,
   DISTANT_PUBLIC,
   EngineId,
   ProcedureDeDeploiement,
@@ -21,10 +22,12 @@ import {
   refusPortDejaAttribue,
   sansRegroupements,
   slugEntier,
+  titreDEtape,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
+import { suivreLeProjetCree } from './service-securite.js';
 import { CONFIG, PREMIER_DEMARRAGE_REEL } from './config.js';
 import { nombreDAdministrateurs } from './comptes.js';
 import { verrouillerLesDistants } from './depot-public.js';
@@ -162,7 +165,42 @@ export function registerProject(input: {
 
   const saved = store.saveProject(project);
   recupererFaviconEnTache(saved);
+  // Un projet neuf entre dans le service Sécurité dès sa création (jamais bloquant).
+  suivreLeProjetCree(saved.id);
   return saved;
+}
+
+/**
+ * UN PROJET LÉGER POUR UNE ENTREPRISE EXTÉRIEURE (décision de l'utilisateur, 14/11/2026). Un dossier rangé dans les
+ * données du démon, un dépôt git LOCAL avec un premier enregistrement vide (les cartes partent d'une branche), et
+ * rien d'autre : ni GitHub, ni adresse publique, ni procédure de publication. Le drapeau `leger` le fait ignorer de
+ * « Publier » et du déploiement automatique. Il se complète ensuite par les écrans de projet ordinaires.
+ */
+export async function creerProjetLeger(nomDonne: string): Promise<Project> {
+  const nom = nomDonne.trim().slice(0, 80);
+  if (!nom) throw new Error('Donnez le nom ou le site de l’entreprise.');
+  const id = store.newId();
+  const dossier = path.join(CONFIG.dataDir, 'entreprises', id);
+  fs.mkdirSync(dossier, { recursive: true });
+  const git = (args: string[]) => execFileAsync('git', args, { cwd: dossier });
+  await git(['init', '-q', '-b', 'main']);
+  await git(['-c', 'user.name=Beluga', '-c', 'user.email=beluga@localhost', 'commit', '-q', '--allow-empty', '-m', `Projet léger : ${nom}`]);
+  const project = Project.parse({
+    id,
+    name: nom,
+    path: dossier,
+    leger: true,
+    rank: nextRank(),
+    archived: false,
+    createdAt: store.now(),
+    updatedAt: store.now(),
+  });
+  try {
+    creerFichierInstructions(dossier, nom);
+  } catch (err) {
+    log.warn("fichier d'instructions du projet léger non créé", err);
+  }
+  return store.saveProject(project);
 }
 
 function nextRank(): number {
@@ -171,7 +209,44 @@ function nextRank(): number {
 }
 
 /** Une étape du montage d'un projet, telle qu'elle se lit dans l'interface. */
-export type EtapeCreation = { titre: string; fait: boolean; detail?: string };
+export type EtapeCreation = { cle?: string; titre: string; fait: boolean; detail?: string };
+
+/**
+ * CE QUI SE DIT À L'ÉCRAN PENDANT LE MONTAGE : l'état ENTIER — les étapes déjà
+ * notées et celle qui vient de commencer. Facultatif : un montage appelé sans
+ * écran (contrôle, agent) se déroule exactement comme avant.
+ */
+export type SurProgresDuMontage = (etapes: EtapeCreation[], enCours?: CleEtapeMontage) => void;
+
+/**
+ * Le carnet d'un montage : `commencer` annonce l'étape qui démarre, `noter` en
+ * rend l'issue avec le titre de la règle partagée (`shared/src/etapes-du-montage.ts`).
+ * Un rappel qui lève une erreur ne casse jamais le montage.
+ */
+export function carnetDuMontage(surProgres?: SurProgresDuMontage) {
+  const etapes: EtapeCreation[] = [];
+  const dire = (enCours?: CleEtapeMontage) => {
+    if (!surProgres) return;
+    try {
+      surProgres(etapes.map((etape) => ({ ...etape })), enCours);
+    } catch {
+      /* l'écran ne suit plus : le montage continue */
+    }
+  };
+  return {
+    etapes,
+    commencer: (cle: CleEtapeMontage) => dire(cle),
+    noter: (cle: CleEtapeMontage, fait: boolean, detail?: string) => {
+      etapes.push({ cle, titre: titreDEtape(cle, fait), fait, detail });
+      dire();
+    },
+    /** Une étape déjà fabriquée ailleurs (l'adresse publique), rangée sous sa clé. */
+    ajouter: (cle: CleEtapeMontage, etape: EtapeCreation) => {
+      etapes.push({ ...etape, cle });
+      dire();
+    },
+  };
+}
 
 /**
  * LE PORT D'UN PROJET QU'ON MONTE (`shared/src/port-projet.ts`).
@@ -284,20 +359,22 @@ export async function createProjectFolder(input: {
   sousDomaine?: string;
   /** Le port sur lequel le projet écoute sur le serveur. */
   port?: number;
+  /** Chaque étape commencée ou finie, dite à l'écran qui suit le montage. */
+  surProgres?: SurProgresDuMontage;
 }): Promise<{ project: Project; etapes: EtapeCreation[] }> {
   const slug = slugEntier(input.folder?.trim() || input.name).slice(0, 50) || 'projet';
 
-  const etapes: EtapeCreation[] = [];
   /* Une étape ratée porte sa PROPRE phrase : « Dépôt GitHub créé et poussé »
-     sous un triangle d'échec disait le contraire de ce qui s'était passé. */
-  const noter = (titre: string, fait: boolean, detail?: string, titreSiEchec?: string) =>
-    etapes.push({ titre: fait ? titre : (titreSiEchec ?? titre), fait, detail });
+     sous un triangle d'échec disait le contraire de ce qui s'était passé. Les
+     titres viennent de la règle partagée, celle qui dessine la liste prévue. */
+  const { etapes, commencer, noter, ajouter } = carnetDuMontage(input.surProgres);
 
   const target = path.resolve(CONFIG.projectsRoot, slug);
   if (!target.startsWith(path.resolve(CONFIG.projectsRoot) + path.sep)) {
     throw new Error('emplacement refusé');
   }
   if (fs.existsSync(target)) throw new Error(`le dossier ${slug} existe déjà`);
+  commencer('dossier');
   // Le port AVANT le disque : un port déjà attribué à un autre projet est un refus.
   const port = await portDuNouveauProjet(input.port);
 
@@ -315,9 +392,9 @@ export async function createProjectFolder(input: {
     await execFileAsync('sudo', ['-n', 'mkdir', '-p', target], { timeout: 20000 });
     await execFileAsync('sudo', ['-n', 'chown', '-R', `${user}:${user}`, target], { timeout: 20000 });
   }
-  noter('Dossier créé sur le serveur', true, target);
+  noter('dossier', true, target);
   noter(
-    'Port du projet attribué',
+    'port',
     port !== undefined,
     port !== undefined
       ? `port ${port}${input.port ? '' : ' (choisi libre automatiquement)'}`
@@ -325,10 +402,11 @@ export async function createProjectFolder(input: {
   );
 
   const ecrits = ecrireFichiersDeDepart(target, input.name, input.description);
-  noter('Fichiers de départ écrits', true, ecrits.join(', '));
+  noter('fichiers', true, ecrits.join(', '));
 
   const avecGit = input.git !== false;
   if (avecGit) {
+    commencer('git');
     try {
       // La branche principale s'appelle « main » d'emblée : c'est le nom
       // qu'attend GitHub, et renommer après coup casse ce qui est déjà poussé.
@@ -339,9 +417,9 @@ export async function createProjectFolder(input: {
         ['-c', 'user.email=beluga@local', '-c', 'user.name=Beluga Build', 'commit', '-qm', 'Départ du projet'],
         { cwd: target, timeout: 20000 },
       );
-      noter('Dépôt git démarré sur la branche « main »', true);
+      noter('git', true);
     } catch (err: any) {
-      noter('Dépôt git démarré sur la branche « main »', false, messageErreur(err), 'Dépôt git non démarré');
+      noter('git', false, messageErreur(err));
     }
   }
 
@@ -352,16 +430,18 @@ export async function createProjectFolder(input: {
    */
   let remote = input.gitRemote?.trim() || undefined;
   if (avecGit && remote) {
+    commencer('distant');
     try {
       await execFileAsync('git', ['remote', 'add', 'origin', remote], { cwd: target, timeout: 20000 });
-      noter('Dépôt distant rattaché', true, remote);
+      noter('distant', true, remote);
     } catch (err: any) {
-      noter('Dépôt distant rattaché', false, messageErreur(err), 'Dépôt distant non rattaché');
+      noter('distant', false, messageErreur(err));
     }
   } else if (avecGit && input.github !== false) {
+    commencer('github');
     const resultat = await creerDepotGithub(target, slug, input.description, input.githubPublic === true);
     remote = resultat.remote ?? remote;
-    noter('Dépôt GitHub créé et poussé', resultat.ok, resultat.detail, 'Dépôt GitHub non créé');
+    noter('github', resultat.ok, resultat.detail);
   }
 
   /*
@@ -375,9 +455,10 @@ export async function createProjectFolder(input: {
    */
   let branchesDePublication: BranchesDePublication | undefined;
   if (avecGit) {
+    commencer('branches');
     const posees = await assurerLesBranchesDeLaRegle(target);
     if (posees.branches.dev || posees.branches.production) branchesDePublication = posees.branches;
-    noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '), 'Branches « dev » et « main » pas en place');
+    noter('branches', posees.ok, posees.details.join(' ; '));
   }
 
   /*
@@ -387,11 +468,11 @@ export async function createProjectFolder(input: {
    */
   // Le port attribué ne sert l'adresse QUE si une adresse est demandée : sans
   // nom d'adresse, la saisie d'origine est transmise telle quelle, comme avant.
-  const adresse = await etapeAdressePublique({
-    sousDomaine: input.sousDomaine,
-    port: input.sousDomaine?.trim() ? port : input.port,
-  });
-  if (adresse.etape) etapes.push(adresse.etape);
+  const saisieAdresse = { sousDomaine: input.sousDomaine, port: input.sousDomaine?.trim() ? port : input.port };
+  // L'attente du nom sur Internet dure : l'étape tourne à l'écran tout ce temps.
+  if (jugerAdresseDemandee(saisieAdresse).demandee) commencer('adresse');
+  const adresse = await etapeAdressePublique(saisieAdresse);
+  if (adresse.etape) ajouter('adresse', adresse.etape);
 
   log.info(`nouveau projet créé sur le serveur : ${target}`);
   const project = registerProject({
@@ -404,7 +485,7 @@ export async function createProjectFolder(input: {
     port,
     deploiement: reglageDeDeploiementConstate(target),
   });
-  noter('Projet inscrit dans la colonne de gauche', true);
+  noter('inscription', true);
   return { project, etapes };
 }
 

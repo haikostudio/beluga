@@ -378,6 +378,23 @@ export function ressemblanceDeTextes(a: string, b: string): number {
   return (2 * communs) / (ma.size + mb.size);
 }
 
+/** Plancher de mots significatifs du plus court titre pour qu'une inclusion compte. */
+export const MOTS_MIN_TITRE_ENGLOBE = 4;
+
+/**
+ * Vrai quand tous les mots significatifs du plus court des deux titres figurent
+ * dans l'autre (un titre complété d'un sous-titre). Le plus court doit en
+ * compter au moins `MOTS_MIN_TITRE_ENGLOBE`. Un simple recouvrement partiel ne suffit pas.
+ */
+export function titreEnglobe(a: string, b: string): boolean {
+  const ma = motsSignificatifs(a);
+  const mb = motsSignificatifs(b);
+  const [court, long] = ma.size <= mb.size ? [ma, mb] : [mb, ma];
+  if (court.size < MOTS_MIN_TITRE_ENGLOBE) return false;
+  for (const m of court) if (!long.has(m)) return false;
+  return true;
+}
+
 /** Au-dessus de ce seuil (titre et résumé), une proposition est un doublon d'une unité du même type. */
 export const SEUIL_DOUBLON_TEXTE = 0.8;
 /** Au-dessus de ce cosinus, une proposition est un doublon par le sens. */
@@ -441,7 +458,10 @@ export const RESUME_UNITE_MIN = 20;
 export const RESUME_UNITE_MAX = 700;
 export const DETAIL_UNITE_MAX = 12_000;
 
-function liste(valeur: unknown, max = 12): string[] {
+/** Les sujets d'une unité, au plus : la porte d'écriture coupe au-delà. */
+export const SUJETS_PAR_UNITE_MAX = 12;
+
+function liste(valeur: unknown, max = SUJETS_PAR_UNITE_MAX): string[] {
   const brut = Array.isArray(valeur) ? valeur : typeof valeur === 'string' ? valeur.split(/[,;\n]/) : [];
   return [...new Set(brut.map((v) => String(v ?? '').trim()).filter(Boolean))].slice(0, max);
 }
@@ -784,6 +804,21 @@ export function detailSansResumeRepete(detail: string, resume: string): string {
     .join('\n\n');
 }
 
+/**
+ * Vrai quand le résumé n'est que le DÉBUT du détail suivi de « … », ou le détail ENTIER aplati :
+ * le détail porte alors déjà tout, le poser deux fois ne coûte que des jetons. Une simple
+ * inclusion ailleurs dans le détail reste affichée. Pur, réservé au rendu.
+ */
+export function resumeRedisParLeDetail(detail: string, resume: string): boolean {
+  const aplati = espacesNormalises(detail);
+  const court = espacesNormalises(resume);
+  if (!aplati || !court) return false;
+  if (court === aplati) return true;
+  if (!court.endsWith('…')) return false;
+  const debut = court.replace(/…$/, '').trim();
+  return debut.length >= RESUME_UNITE_MIN && aplati.startsWith(debut);
+}
+
 /** Une unité rendue en Markdown, au gabarit de son type. */
 export function rendreUnite(u: Unite, niveauTitre = 2, options: OptionsDeRenduPourAgent = {}): string {
   const h = '#'.repeat(niveauTitre);
@@ -794,9 +829,13 @@ export function rendreUnite(u: Unite, niveauTitre = 2, options: OptionsDeRenduPo
     u.liens.length ? `Liens : ${u.liens.join(', ')}` : '',
   ].filter(Boolean);
   if (relations.length) lignes.push(relations.join(' · '));
-  lignes.push('', u.resume);
+  const detailPropre = detailSansSectionsVides(u.detail);
+  const sansRedite = detailSansResumeRepete(detailPropre, u.resume);
+  // Détail déjà réduit à rien par le filtre exact : le résumé porte le texte, rien à changer.
+  const detailDit = sansRedite !== '' && resumeRedisParLeDetail(detailPropre, u.resume);
+  if (!detailDit) lignes.push('', u.resume);
   const sous = '#'.repeat(niveauTitre + 1);
-  const detail = detailSansResumeRepete(detailSansSectionsVides(u.detail), u.resume);
+  const detail = detailDit ? detailPropre : sansRedite;
   if (detail) lignes.push('', detail.replace(/^### /gm, `${sous} `));
   if (u.raisonnement.trim()) lignes.push('', `${sous} Raisonnement`, '', u.raisonnement.trim());
   return lignes.join('\n');
@@ -1635,4 +1674,35 @@ export function recopieMotPourMot(unite: string, matiere: string, mots = 25): bo
     if (m.includes(` ${a.slice(i, i + mots).join(' ')} `)) return true;
   }
   return false;
+}
+
+/* ------------------------------------------------------------------ */
+/* Working : la relecture du brouillon d'une carte                       */
+/* ------------------------------------------------------------------ */
+
+/** Une note du brouillon (WORKING) d'une carte. */
+export interface NoteDeBrouillon {
+  texte: string;
+  at: number;
+}
+
+/**
+ * LA RELECTURE DU CARNET DES DÉCISIONS, avant le compte rendu.
+ *
+ * L'agent de tâche note ses choix au brouillon de SA carte, puis le relit avant
+ * de rendre : chaque décision tenue ou retirée (méthode pstack
+ * « show-me-your-work », réécrite — carte db89f57f). Les notes sont rendues
+ * dans l'ordre où elles ont été écrites, numérotées ; jamais servies comme
+ * mémoire, elles ne quittent pas la conversation de l'agent.
+ */
+export function relectureDuBrouillon(notes: readonly NoteDeBrouillon[]): string {
+  const rangees = notes
+    .map((n, i) => ({ texte: String(n.texte ?? '').trim(), at: Number(n.at) || 0, i }))
+    .filter((n) => n.texte)
+    .sort((a, b) => a.at - b.at || a.i - b.i);
+  if (!rangees.length) return 'Le brouillon de cette carte est vide : aucune décision notée à relire.';
+  return [
+    `Brouillon de la carte (${rangees.length} note${rangees.length > 1 ? 's' : ''}, dans l’ordre) — chaque décision est-elle tenue ou retirée ? Résume les choix importants au compte rendu.`,
+    ...rangees.map((n, k) => `${k + 1}. ${n.texte}`),
+  ].join('\n');
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ExternalLink, KeyRound, Loader2, LogIn, Save, Send } from 'lucide-react';
+import { ExternalLink, KeyRound, Loader2, LogIn, Save, Send, X } from '@/components/ui/icones';
 import { ConnexionCompte, connexionTerminee, descriptionMoteur, nomCourtDuMoteur, type EngineId } from '@beluga/shared';
 import { BulleInfo, Button, ChampMotDePasse, Input } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -140,16 +140,20 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
 
   const abandonner = (
     /* ABANDONNER ENGAGE : la connexion continue côté serveur si la demande
-       n'arrive pas. Elle passe donc par la demande qui attend réponse. */
+       n'arrive pas. Elle passe donc par la demande qui attend réponse.
+       UNE SIMPLE CROIX, À DROITE DE « VALIDER » (04/11/2026, demande de
+       l'utilisateur) : le gros bouton « Abandonner » sous le champ prenait
+       une ligne entière. Son nom reste dit au survol et aux lecteurs d'écran. */
     <Button
-      /* Aplat d'encre (noir en clair, clair en sombre) : en `ghost`, le bouton
-         n'était qu'un texte gris sans fond, invisible dans le tiroir. */
-      variant="creation"
-      size="sm"
+      variant="ghost"
+      size="icon"
+      className="shrink-0"
+      aria-label="Abandonner"
+      title={t('Abandonner')}
       data-connexion-abandonner
       onClick={() => void client.geste({ type: 'account.cancel', id: connexion.id }, t('Abandonner'))}
     >
-      {t('Abandonner')}
+      <X className="h-4 w-4" />
     </Button>
   );
 
@@ -206,10 +210,14 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
               className="h-8 min-w-0 flex-1 text-[13px]"
               data-connexion-adresse="1"
             />
-            <Button size="sm" disabled={envoi || !adresse.trim()} onClick={() => void envoyerAdresse(adresse)} data-connexion-valider-adresse="1">
-              {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-              {t('Valider')}
-            </Button>
+            {/* Valider et la croix restent ensemble : sur téléphone, la croix ne part jamais seule à la ligne. */}
+            <span className="flex shrink-0 items-center gap-1">
+              <Button size="sm" disabled={envoi || !adresse.trim()} onClick={() => void envoyerAdresse(adresse)} data-connexion-valider-adresse="1">
+                {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                {t('Valider')}
+              </Button>
+              {abandonner}
+            </span>
           </div>
           {erreurAdresse ? (
             <p className="text-[12.5px] leading-relaxed text-danger" data-connexion-erreur-adresse="1">
@@ -219,7 +227,6 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
         </div>
         {tempsRestant}
         <div className="flex flex-wrap items-center gap-2">
-          {abandonner}
           {connexion.proposerNavigateur ? null : (
             <button
               type="button"
@@ -287,13 +294,14 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
             {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
             {t('Valider')}
           </Button>
+          {abandonner}
         </div>
       ) : null}
 
       {connexion.engine === 'codex' ? tempsRestant : null}
 
+      {connexion.engine !== 'codex' && connexion.attendLeCode ? null : (
       <div className="flex flex-wrap items-center gap-2">
-        {abandonner}
         {/* CODEX, SECONDE VOIE : si OpenAI refuse le code dans le navigateur de
             l'utilisateur, le serveur ne le voit jamais — ce lien y mène. */}
         {connexion.engine === 'codex' ? (
@@ -308,7 +316,10 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
             {t('Se connecter autrement')}
           </button>
         ) : null}
+        {/* Sans champ à valider (le code s'affiche, la page attend), la croix se tient au bout de la rangée, à droite. */}
+        {connexion.attendLeCode ? null : <span className="ml-auto">{abandonner}</span>}
       </div>
+      )}
     </div>
   );
 }

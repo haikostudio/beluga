@@ -15,7 +15,9 @@
  * des agents ; le pire qu'il puisse faire, c'est de rester muet.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const ICI = path.dirname(new URL(import.meta.url).pathname);
@@ -104,6 +106,21 @@ async function main() {
   }
 
   /*
+   * LES ESSAIS ATTENDENT LA MÉMOIRE (`shared/src/garde-memoire.ts`, 18/11/2026) :
+   * un serveur d'essai ou un navigateur de test lancé sur une machine pleine
+   * figeait le démon. Refusé avec une phrase qui dit quoi faire, une attente
+   * BORNÉE comptée depuis le premier refus dans ce dossier de travail, puis
+   * il part quand même.
+   */
+  if (typeof regle.gardeDeMemoire === 'function') {
+    const memoire = verdictDeMemoire(regle, commande, entree?.cwd);
+    if (memoire?.verdict === 'refuse') {
+      process.stderr.write(memoire.texte + '\n');
+      process.exit(2);
+    }
+  }
+
+  /*
    * LES VRAIS SITES SONT EN LECTURE SEULE (`shared/src/garde-production.ts`) :
    * la liste voyage dans l'environnement de l'agent, posée par le démon pour
    * tout rôle sauf celui de la mise en production.
@@ -115,6 +132,45 @@ async function main() {
   if (!enProduction?.refusee) return;
   process.stderr.write(regle.refusDuGardeDeProduction(enProduction) + '\n');
   process.exit(2);
+}
+
+/** Un premier refus plus vieux que cela ne compte plus : une nouvelle attente commence. */
+const REFUS_PERIME_MS = 30 * 60_000;
+
+function verdictDeMemoire(regle, commande, cwd) {
+  try {
+    if (!regle.commandeLanceUnEssai(commande)) return null;
+    const signes = regle.signesDeMeminfo(fs.readFileSync('/proc/meminfo', 'utf8'));
+    if (!signes) return null;
+    let psi;
+    try {
+      psi = regle.psiSomeAvg10(fs.readFileSync('/proc/pressure/memory', 'utf8'));
+    } catch {
+      psi = undefined;
+    }
+    const pression = regle.pressionMemoire(signes.memPct, signes.swapPct, { psiSomeAvg10: psi });
+    const dossier = path.join(os.tmpdir(), 'beluga-garde-memoire');
+    const etat = path.join(dossier, `${createHash('sha256').update(String(cwd || process.cwd())).digest('hex').slice(0, 16)}.json`);
+    const maintenant = Date.now();
+    let premierRefusLe;
+    try {
+      const lu = JSON.parse(fs.readFileSync(etat, 'utf8')).premierRefusLe;
+      if (Number.isFinite(lu) && maintenant - lu < REFUS_PERIME_MS) premierRefusLe = lu;
+    } catch {
+      premierRefusLe = undefined;
+    }
+    const verdict = regle.gardeDeMemoire({ commande, pression, premierRefusLe, maintenant });
+    if (verdict.verdict === 'refuse' && premierRefusLe === undefined) {
+      fs.mkdirSync(dossier, { recursive: true });
+      fs.writeFileSync(etat, JSON.stringify({ premierRefusLe: maintenant }));
+    } else if (verdict.verdict !== 'refuse') {
+      fs.rmSync(etat, { force: true });
+    }
+    return verdict;
+  } catch {
+    // Au moindre doute, on laisse passer.
+    return null;
+  }
 }
 
 main().catch(() => {

@@ -47,7 +47,7 @@ export interface EngineEvent {
      * Ce qu'ont consommé les AIDES (sous-agents) du tour, À CÔTÉ du principal :
      * jamais ajouté aux totaux ci-dessus ni au quota (`partDesAides`, claude.ts).
      */
-    aides?: { tokens: number; sortie: number; modeles: string[] };
+    aides?: { tokens: number; sortie: number; entree?: number; relu?: number; modeles: string[] };
   };
   /** kind=context : taille du DERNIER appel, jamais le total facturé. */
   context?: { tokens: number; window?: number };

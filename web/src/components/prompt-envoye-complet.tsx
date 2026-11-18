@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronRight, Copy } from 'lucide-react';
+import { Check, ChevronRight, Copy } from '@/components/ui/icones';
 import {
   EntreeJournal,
   PartieDuPromptEnvoye,

@@ -52,7 +52,6 @@ export type CategorieExport =
   | 'backups'
   | 'surveillance'
   | 'reglages'
-  | 'notes'
   | 'branches';
 
 /** Ce qu'une catégorie emporte, et ce qu'on en dit à l'écran. */
@@ -123,13 +122,6 @@ export const CATEGORIES_EXPORT: readonly DefinitionCategorie[] = [
       'competence_stats',
       'memoire_consultation',
     ],
-    besoinDe: ['projets'],
-  },
-  {
-    cle: 'notes',
-    libelle: 'Notes',
-    description: 'Les notes de tous les projets, avec leur échéance, leur importance et leurs pièces jointes.',
-    tables: ['notes'],
     besoinDe: ['projets'],
   },
   {

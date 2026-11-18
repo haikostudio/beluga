@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertTriangle, Check, Loader2, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, RefreshCw, X } from '@/components/ui/icones';
 import { raisonCopieBloquee, type EtatDeLaCopieDeTest } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';

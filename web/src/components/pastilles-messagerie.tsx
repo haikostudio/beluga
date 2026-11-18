@@ -15,7 +15,7 @@
  * un tiroir, l'alignement est déjà tenu par le conteneur qui les reçoit.
  */
 import * as React from 'react';
-import { Inbox, MessageSquare } from 'lucide-react';
+import { Inbox, MessageSquare } from '@/components/ui/icones';
 import { Pastille, Tooltip } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';

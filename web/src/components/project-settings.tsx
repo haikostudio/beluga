@@ -4,12 +4,13 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderGit2,
+  Palette,
   Loader2,
   Rocket,
   Settings2,
   Trash2,
   Upload,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Project,
   RUBRIQUES_CONFIG_PROJET,
@@ -38,6 +39,7 @@ import { t } from '@/lib/langue';
 import { type ContexteConfig } from '@/components/config-projet/communs';
 import { RubriqueGeneral } from '@/components/config-projet/page-general';
 import { RubriqueDossiers } from '@/components/config-projet/page-dossiers';
+import { RubriqueChartes } from '@/components/config-projet/page-chartes';
 import { RubriqueDeploiement } from '@/components/config-projet/page-deploiement';
 import { RubriqueProduction } from '@/components/config-projet/page-production';
 import { RubriqueRetrait } from '@/components/config-projet/page-retrait';
@@ -57,6 +59,7 @@ const RENDU_DES_RUBRIQUES: Record<
 > = {
   general: { icone: Settings2, rendu: RubriqueGeneral },
   dossiers: { icone: FolderGit2, rendu: RubriqueDossiers },
+  chartes: { icone: Palette, rendu: RubriqueChartes },
   deploiement: { icone: Rocket, rendu: RubriqueDeploiement },
   production: { icone: Upload, rendu: RubriqueProduction },
   retrait: { icone: Trash2, rendu: RubriqueRetrait },
@@ -413,7 +416,8 @@ export function ProjectSettings({
             <section
               data-rubrique-ouverte={ouverte.cle}
               className={cn(
-                'flex min-h-0 w-full flex-1 flex-col',
+                // `min-w-0` : un contenu large (une charte dépliée) se replie au lieu d'élargir la fenêtre.
+                'flex min-h-0 min-w-0 w-full flex-1 flex-col',
                 !rubriqueAuPremierPlan && 'hidden sm:flex',
               )}
             >

@@ -113,38 +113,8 @@ export function recetteDuGenre(genre: string): RecetteDeTravail | null {
     case 'dictee':
       return { etapes: [script('installer-transcription.mjs')] };
     case 'voix':
-      // La voix s'appuie sur la dictée : les deux se posent dans cet ordre.
+      // Les voix d'essai du Studio (Piper) s'appuient sur l'environnement de la dictée : les deux, dans cet ordre.
       return { etapes: [script('installer-transcription.mjs'), script('installer-voix.mjs')] };
-    case 'voix-reparer':
-      /*
-       * RELANCER LA CONFIGURATION DE LA VOIX. Une voix posée à la main dans un
-       * terminal (souvent sous un autre compte) peut être là sans parler : ses
-       * fichiers sont d'abord rendus au compte du service, l'environnement
-       * Python inutilisable est mis de côté et refait, les modèles manquants ou
-       * vides retéléchargés — puis la voix est ESSAYÉE, et l'essai dit pourquoi
-       * elle se tait encore s'il échoue.
-       */
-      return {
-        etapes: [
-          {
-            ...enAdministrateur(
-              'fichiers de la voix rendus au compte du service',
-              SCRIPT_PROPRIETAIRE_DE_LA_VOIX,
-              [os.userInfo().username, CONFIG.dataDir],
-            ),
-            facultative: true,
-          },
-          { ...script('installer-transcription.mjs'), titre: 'node scripts/installer-transcription.mjs --reparer', args: [...script('installer-transcription.mjs').args, '--reparer'] },
-          script('installer-voix.mjs'),
-        ],
-        apres: async ({ ecrire }) => {
-          const { speak } = await import('./voice.js');
-          ecrire('\nEssai de la voix… ');
-          const essai = await speak('La voix de Beluga Build est prête.');
-          if (!essai.ok) throw new Error(`La voix ne parle toujours pas : ${essai.error ?? 'raison inconnue'}.`);
-          ecrire('la voix parle.\n');
-        },
-      };
     case 'gh':
       return { etapes: [enAdministrateur("l'outil GitHub (dépôt officiel)", SCRIPT_GH, [])] };
     case 'signature-des-courriels': {
@@ -183,7 +153,6 @@ function enAdministrateur(titre: string, contenu: string, args: string[]): Etape
  * le compte, `$2` le dossier de données. Seuls ces deux dossiers sont visés,
  * jamais leur parent.
  */
-const SCRIPT_PROPRIETAIRE_DE_LA_VOIX = `for d in "$2/venv" "$2/models"; do [ -e "$d" ] && chown -R "$1" "$d"; done; echo "fichiers de la voix rendus à $1."`;
 
 /** L'outil GitHub, depuis son dépôt officiel — la même recette que `scripts/installer.sh`. */
 const SCRIPT_GH = `set -e

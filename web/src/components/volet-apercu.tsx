@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowUpRight, Loader2, Monitor, RotateCw, Smartphone, Tablet, X } from 'lucide-react';
+import { ArrowUpRight, Loader2, Monitor, RotateCw, Smartphone, Tablet, X } from '@/components/ui/icones';
 import {
   CLE_APPAREIL_D_APERCU,
   CLE_FORMAT_D_APERCU,

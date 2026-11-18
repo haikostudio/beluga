@@ -6,7 +6,7 @@
  * attendant. Un fichier trop lourd est refusé AVANT de partir, en le disant.
  */
 import * as React from 'react';
-import { Paperclip, X } from 'lucide-react';
+import { Paperclip, X } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { cn } from '@/lib/utils';

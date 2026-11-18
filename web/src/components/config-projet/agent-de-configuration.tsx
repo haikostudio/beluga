@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2, RotateCw, Sparkles } from 'lucide-react';
+import { Loader2, RotateCw, Sparkles } from '@/components/ui/icones';
 import {
   LIBELLE_BOUTON_DE_CONFIGURATION,
   agentDeConfiguration,
@@ -80,8 +80,10 @@ export function useCheminVersLAgentDeConfiguration(projectId: string, cible: Cib
  * LE TIROIR (`TiroirAgentDeConfiguration`) écoute `ouvrirAgentDeConfiguration`.
  * Le bouton de la rubrique l'ouvre par-dessus la fenêtre de réglages ; la vignette
  * de l'agent au tableau et l'aiguillage des agents l'ouvrent seul, sans
- * fenêtre de réglages. Une conversation d'agent ne se pose jamais en ligne
- * dans une page qui défile : dans le tiroir, le fil est seul à défiler.
+ * fenêtre de réglages. Le tiroir montre la CONVERSATION COMPLÈTE de l'agent
+ * (`Chat`, décision du 15/11/2026 qui renverse celle du 08/11/2026), et sa
+ * question s'ouvre aussi d'elle-même dans une fenêtre au centre
+ * (`QuestionDeConfiguration`), quel que soit l'écran affiché.
  *
  * Rien ne part tout seul à la simple visite : sans agent, le tiroir s'ouvre
  * sur une phrase et un second bouton lance le premier tour — SAUF quand le
@@ -128,7 +130,17 @@ export function BoutonAgentDeConfiguration({
       ) : (
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
       )}
-      <span className="truncate">{t(LIBELLE_BOUTON_DE_CONFIGURATION[etat])}</span>
+      <span className="truncate">
+        {/* UN SEUL BOUTON, QUI DIT CE QU'IL FAIT (13/11/2026) : « Initialiser le déploiement / la mise en production »,
+            puis « Refaire l'initialisation » une fois l'étape prête. */}
+        {etat === 'initialiser'
+          ? cible === 'dev'
+            ? t('Initialiser le déploiement')
+            : t('Initialiser la mise en production')
+          : etat === 'reconfigurer'
+            ? t('Refaire l’initialisation')
+            : t(LIBELLE_BOUTON_DE_CONFIGURATION[etat])}
+      </span>
     </Button>
   );
 }
@@ -237,7 +249,7 @@ function ConversationDeConfiguration({
           {cible === 'dev'
             ? procedureEnPlace(projet, 'dev')
               ? t('Un agent étudie le projet, vous pose ses questions, puis écrit un processus de déploiement propre à ce projet. Tant qu’il n’est pas écrit, le déroulé commun reste en service.')
-              : t('Un agent étudie le projet, vous demande où et comment le déployer, puis écrit le processus que le bouton « Déployer » suivra. Tant qu’il n’est pas écrit, rien ne se déploie.')
+              : t('Un agent étudie le projet, puis écrit le processus que le bouton « Déployer » suivra : sur ce serveur, en version construite comme en production. Tant qu’il n’est pas écrit, rien ne se déploie.')
             : t('Un agent étudie le projet, vous pose ses questions sur l’endroit qui accueille la production, puis écrit le processus que le bouton « Mise en production » suivra.')}
         </p>
         <BoutonInitierProcedure cible={cible} onOuvrir={demarrer} />
@@ -255,6 +267,10 @@ function ConversationDeConfiguration({
       </div>
     );
   }
+  /* LA CONVERSATION COMPLÈTE, COMME UN AGENT ORDINAIRE (décision de l'utilisateur du 15/11/2026, capture #8e987) :
+     la décision du 08/11/2026 (« l'agent sur place, journal en fondu ») est renversée — la liste qui s'effaçait
+     au-dessus du champ laisse la place au fil entier : messages, outils, questions avec leurs choix, champ d'écriture.
+     Le serveur joint toujours ce que l'agent doit savoir à un message écrit ici (`contexteDeConfiguration`). */
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-conversation-procedure={agent.id}>
       <Chat agent={agent} projectId={projectId} libelleDuChamp={t('Écrire à l’agent de configuration')} />

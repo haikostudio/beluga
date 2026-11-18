@@ -1,4 +1,5 @@
 import { noterUneCoupure } from './mesure-d-usage';
+import { EVENEMENT_OUVRIR_PUBLIER } from '@/lib/evenements-publier';
 import {
   AccountQuota,
   Agent,
@@ -19,10 +20,12 @@ import {
   CiblePublication,
   DeployRun,
   productionsApres,
+  deploiementsApres,
   EngineInfo,
   EntreeJournal,
   fusionnerEntreeJournal,
   journalATrou,
+  finDeTourARelire,
   LigneDuCarnet,
   EtatProcedure,
   FileNode,
@@ -80,9 +83,14 @@ import {
   type FicheMoteur,
   separerLesSuivis,
   fusionnerLesReglages,
+  reglagesALaReconnexion,
+  reglagesPourCetOnglet,
   CLE_DU_DERNIER_ETAT,
   POIDS_MAX_DU_DERNIER_ETAT,
   composerLeDernierEtat,
+  reglagesDeLaColonne,
+  deployeeNonVue,
+  PREFIXE_DES_REGLAGES_DE_LA_COLONNE,
   lireLeDernierEtat,
   CLE_DU_DEMARRAGE_EN_COURS,
   DELAI_DE_DEMARRAGE_STABLE_MS,
@@ -104,6 +112,16 @@ import {
   rapportDuGesteNonParti,
   REFUS_HORS_PORTEE,
   refusAvantRedemarrage,
+  CARTES_PAR_DATE_PAR_PAQUET,
+  cleDeLecture,
+  cartesAvecAgentActif,
+  estTacheDeLaColonne,
+  lectureApresCarte,
+  lectureSansCarte,
+  type CurseurParDate,
+  type LectureParDate,
+  type PorteeDeLecture,
+  type SoldeDeServiceIa,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -119,6 +137,13 @@ import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
 import { signalerErreur } from '@/lib/erreurs';
 import { estEnVeille, pageCachee, surLaVeille, surLaVisibilite } from '@/lib/veille';
+
+/**
+ * L'IDENTIFIANT DE CET ONGLET (12/11/2026) : il accompagne chaque réglage écrit d'ici, pour que les AUTRES onglets
+ * n'en suivent que le thème, la langue et le brouillon (`reglagesPourCetOnglet`). EN MÉMOIRE seulement : un onglet
+ * dupliqué copie son `sessionStorage`, et les deux se seraient suivis à nouveau ; un rechargement en tire un neuf.
+ */
+const ID_DE_CET_ONGLET: string = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /**
  * DEUX PILES SONT-ELLES LA MÊME ? Le message persistant est recalculé toutes
@@ -199,6 +224,13 @@ export interface AppState {
    */
   pret: boolean;
   /**
+   * LE NOMBRE DE RETOURS APRÈS COUPURE (reconnexion, redémarrage du démon) : ce qui se lit par date hors du magasin
+   * (les mises en ligne, `useMisesEnLigneParDate`) se relit à chaque cran — un événement émis pendant la coupure est
+   * perdu, et une ligne restait « 50 % » dans la colonne d'un projet quand les tableaux de bord la voyaient finie
+   * (capture #ebdf du 04/11/2026).
+   */
+  reprises: number;
+  /**
    * LE STUDIO EST-IL OUVERT À CE COMPTE ? Dit par le démon dans `ready`
    * (`shared/src/studio-reserve.ts`) : seul le super administrateur le voit.
    * Faux tant que rien n'est arrivé, et sur toute autre installation.
@@ -208,6 +240,8 @@ export interface AppState {
   offreHebergee: boolean;
   /** Le niveau du compte connecté : l'écran retire ce qui lui est fermé (le serveur le refuse de toute façon). */
   monRole: 'admin' | 'membre' | 'lecteur';
+  /** Le compte connecté (`ready.compte`) : ses commentaires de charte sont « à moi ». */
+  monCompte?: { id: string; nomAffiche: string; prenom?: string };
   /** LA GRILLE d'un accès tiers (`droits-d-acces.ts`) : ce que son écran peut montrer. Absente pour l'administrateur. */
   mesDroits?: DroitsDAcces;
   /**
@@ -249,6 +283,18 @@ export interface AppState {
    */
   enRouteTerminer: EtatEnRoute | null;
   enRouteArchive: EtatEnRoute | null;
+  /**
+   * LA LISTE UNIQUE PAR DATE, PORTÉE PAR PORTÉE (`shared/src/liste-par-date.ts`,
+   * clé `cleDeLecture`) : tous les projets, un projet, ou les archives d'un projet
+   * dans la colonne de gauche. Tenue à jour par les événements `card.*`.
+   */
+  lecturesParDate: Record<string, LectureParDate>;
+  /**
+   * LES TÂCHES DE LA COLONNE DE GAUCHE, TOUS PROJETS CONFONDUS
+   * (`estTacheDeLaColonne`) : `cards` ne porte que les projets visités.
+   * `null` avant la première réponse.
+   */
+  tachesDeLaColonne: Record<string, Card> | null;
   version: string;
   settings: Settings | null;
   prefs: Record<string, unknown>;
@@ -280,7 +326,7 @@ export interface AppState {
   /** Le tiroir de mise en production demandé d'ailleurs : sur un onglet, avec ou sans fil empilé. */
   /* `surPlace` : la demande vise le tiroir du tableau DÉJÀ affiché (celui d'un
      groupe, pour l'un de ses projets) — l'application ne change pas de projet. */
-  productionDemandee: { projectId: string; agentId?: string; surPlace?: boolean; nonce: number } | null;
+  productionDemandee: { projectId: string; agentId?: string; surPlace?: boolean; run?: DeployRun; nonce: number } | null;
   /**
    * LE VOLET DU DÉPLOIEMENT demandé d'ailleurs (vignette « Dépannage », menu
    * Agents, cloche) — le pendant de `productionDemandee`. Le bloc « À
@@ -290,7 +336,7 @@ export interface AppState {
    * alors directement la FENÊTRE DE SÉLECTION du lot, comme son propre bouton,
    * et l'écran referme le tiroir de la carte pour la laisser voir.
    */
-  deploiementDemande: { projectId: string; agentId?: string; selection?: boolean; nonce: number } | null;
+  deploiementDemande: { projectId: string; agentId?: string; selection?: boolean; surPlace?: boolean; run?: DeployRun; nonce: number } | null;
   /**
    * LE TABLEAU D'UN PROJET demandé d'ailleurs : l'icône du projet devant le
    * titre d'une carte. L'écran referme la carte, ouvre le projet et montre son
@@ -328,6 +374,12 @@ export interface AppState {
    */
   quotasRecus: boolean;
   /**
+   * LES SOLDES DES SERVICES D'IA (OpenRouter, kie.ai, HeyGen…), poussés à chaque relevé du démon — tournée de
+   * fond ou « Actualiser » du volet. `null` : rien n'a encore été relevé. C'est ce qui allume le point orange
+   * au pied de la colonne sans ouvrir le volet des quotas.
+   */
+  servicesIa: { soldes: SoldeDeServiceIa[]; releveLe: number } | null;
+  /**
    * LES SITES SURVEILLÉS et leur état actuel. Ils arrivent au premier envoi puis
    * à chaque tournée : c'est ce qui allume la pastille du menu « Surveillance »
    * sans qu'on ouvre sa fenêtre.
@@ -346,6 +398,14 @@ export interface AppState {
    * détail, lui, ne voyage jamais sans avoir été demandé.
    */
   marketingVersions: Record<string, number>;
+  /** Le service Sécurité a changé (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
+  securiteVersion: number;
+  /** La liaison Beluga Pass a changé : la rubrique du coffre relit son état. */
+  belugapassVersion: number;
+  /** Les marques de l'espace Communication ont changé : ses lieux se relisent. */
+  communicationVersion: number;
+  /** Les messages du directeur marketing non lus de ce compte : le chiffre de la ligne « Communication ». */
+  communicationNonLus: number;
   /**
    * LE STUDIO : un compteur par création (et « * » pour la liste) qui monte à
    * chaque événement `studio` — l'écran ouvert se relit ; et la progression
@@ -353,6 +413,10 @@ export interface AppState {
    */
   studioVersions: Record<string, number>;
   studioProgression: Record<string, { valeur: number; etape: string }>;
+  /** Ce qu'un choix vient de poser : l'atelier de cette création y amène la tête de lecture. */
+  studioMontrer: { creationId: string; segmentId: string; debut: number; n: number } | null;
+  /** La dernière issue d'un retrait ou d'une remise du fond demandés à la main (`pose-sur-piste.tsx`). */
+  studioFond: { creationId: string; cle: string; etat: 'fait' | 'non-uni' | 'echec'; geste: 'retirer' | 'remettre'; raison?: string; segments?: number; n: number } | null;
   /**
    * LES DEUX COMPTEURS DE LA MESSAGERIE : le non-lu des clients (demandes jamais
    * ouvertes, commentaires, messages) et les demandes à traiter. Poussés à la
@@ -435,6 +499,8 @@ export interface AppState {
    * projet déjà ouvert. Reçue entière à la connexion, tenue à jour ensuite.
    */
   productions: Record<string, DeployRun>;
+  /** LES DÉPLOIEMENTS, par projet, tous projets confondus : le pendant de `productions`, pour « Mises en ligne ». */
+  deploiements: Record<string, DeployRun>;
   /**
    * Les dialogues de PROCÉDURE en cours, par `projet:cible`. Ils viennent du
    * serveur, qui les diffuse à chaque changement : le tiroir n'attend donc plus
@@ -466,6 +532,7 @@ const initialState: AppState = {
   connecting: true,
   canal: 'reconnexion',
   pret: false,
+  reprises: 0,
   studioOuvert: false,
   offreHebergee: false,
   monRole: 'admin',
@@ -475,6 +542,8 @@ const initialState: AppState = {
   enRoute: null,
   enRouteTerminer: null,
   enRouteArchive: null,
+  lecturesParDate: {},
+  tachesDeLaColonne: null,
   version: '',
   settings: null,
   prefs: {},
@@ -493,11 +562,18 @@ const initialState: AppState = {
   quotas: [],
   quotasSuivi: [],
   quotasRecus: false,
+  servicesIa: null,
   surveillance: [],
   surveillanceRecue: false,
   marketingVersions: {},
+  securiteVersion: 0,
+  belugapassVersion: 0,
+  communicationVersion: 0,
+  communicationNonLus: 0,
   studioVersions: {},
   studioProgression: {},
+  studioMontrer: null,
+  studioFond: null,
   compteursMessagerie: { nonLu: 0, aTraiter: 0 },
   connexions: [],
   capacity: null,
@@ -522,6 +598,7 @@ const initialState: AppState = {
   slash: {},
   deploys: {},
   productions: {},
+  deploiements: {},
   procedures: {},
   activeProjectId: null,
   toasts: [],
@@ -575,6 +652,9 @@ class Client {
   private retry = 0;
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
+  /** La page « Plaquettes » : relue à chaque changement d'une plaquette, jamais rangée dans l'état général. */
+  private plaquettesHandlers = new Set<(event: Extract<ServerEvent, { type: 'plaquettes.change' }>) => void>();
+  private extensionHandlers = new Set<() => void>();
   /** Les images du navigateur des sources : remises au seul volet ouvert, jamais rangées dans l'état général. */
   /*
    * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
@@ -687,8 +767,9 @@ class Client {
    */
   private journauxEnVol = new Set<string>();
 
-  ouvrirLesDonneesDeCarte(cardId: string): void {
-    this.reessayerLaConversation(cardId);
+  /** `lire: false` : la carte est reposée à l'écran sans avoir été ouverte (rechargement) — son fil vient, pas sa lecture. */
+  ouvrirLesDonneesDeCarte(cardId: string, { lire = true }: { lire?: boolean } = {}): void {
+    this.reessayerLaConversation(cardId, lire);
     this.rechargerLeJournal(cardId);
   }
 
@@ -707,7 +788,7 @@ class Client {
   private conversationsEnVol = new Map<string, { essais: number; minuteur: number }>();
 
   /** Repart de zéro : l'échec affiché s'efface, la silhouette revient le temps des essais. */
-  reessayerLaConversation(cardId: string): void {
+  reessayerLaConversation(cardId: string, lire = true): void {
     if (this.state.conversationsEnEchec[cardId]) {
       this.set((state) => {
         const conversationsEnEchec = { ...state.conversationsEnEchec };
@@ -715,7 +796,7 @@ class Client {
         return { conversationsEnEchec };
       });
     }
-    this.demanderLaConversation(cardId, 1);
+    this.demanderLaConversation(cardId, 1, lire);
   }
 
   private demanderLaConversation(cardId: string, essai: number, lire = true): void {
@@ -796,6 +877,18 @@ class Client {
   }
 
 
+  /** La rubrique « Extension » se relit quand un Chrome est relié, délié, ou qu'un site ou un geste répété change. */
+  onExtension(handler: () => void): () => void {
+    this.extensionHandlers.add(handler);
+    return () => this.extensionHandlers.delete(handler);
+  }
+
+  /** La page « Plaquettes » se relit quand une plaquette change (contenu, lien, ouverture, remarque). */
+  onPlaquettes(handler: (event: Extract<ServerEvent, { type: 'plaquettes.change' }>) => void): () => void {
+    this.plaquettesHandlers.add(handler);
+    return () => this.plaquettesHandlers.delete(handler);
+  }
+
 
 
   /** Ouvrir une carte depuis n'importe où (une carte affichée dans le chat, par exemple). */
@@ -843,7 +936,8 @@ class Client {
     }));
   }
 
-  demanderProduction(lieu: { projectId: string; agentId?: string; surPlace?: boolean } | null): void {
+  demanderProduction(lieu: { projectId: string; agentId?: string; surPlace?: boolean; run?: DeployRun } | null): void {
+    if (lieu && this.versLeMenuPublier(lieu)) return;
     if (!lieu) {
       if (this.state.productionDemandee) this.set({ productionDemandee: null });
       return;
@@ -858,8 +952,8 @@ class Client {
    * projet, puis le tiroir de son bandeau du bas. C'est le clic de sa carte
    * violette (« Tableaux de bord », chiffre bleu du projet).
    */
-  ouvrirMiseEnProduction(projectId: string): void {
-    this.demanderProduction({ projectId });
+  ouvrirMiseEnProduction(projectId: string, run?: DeployRun): void {
+    this.demanderProduction({ projectId, run });
   }
 
   demanderTableau(projectId: string | null): void {
@@ -905,7 +999,23 @@ class Client {
     this.set((state) => ({ carteMontree: { cardId, nonce: (state.carteMontree?.nonce ?? 0) + 1 } }));
   }
 
-  demanderDeploiement(lieu: { projectId: string; agentId?: string; selection?: boolean } | null): void {
+  /**
+   * PLUS DE GRAND VOLET DE PUBLICATION (13/11/2026) : suivre, choisir ses tâches ou relire une publication se fait
+   * dans le menu « Publier » du projet. Seul le FIL D'UN AGENT (dépanneur, conducteur) garde son tiroir. Rend `true`
+   * quand la demande est partie vers le menu.
+   */
+  private versLeMenuPublier(lieu: { projectId: string; agentId?: string }): boolean {
+    if (lieu.agentId) return false;
+    if (this.state.activeProjectId !== lieu.projectId) this.setActiveProject(lieu.projectId);
+    window.setTimeout(
+      () => window.dispatchEvent(new CustomEvent(EVENEMENT_OUVRIR_PUBLIER, { detail: { projectId: lieu.projectId } })),
+      this.state.activeProjectId === lieu.projectId ? 0 : 250,
+    );
+    return true;
+  }
+
+  demanderDeploiement(lieu: { projectId: string; agentId?: string; selection?: boolean; surPlace?: boolean; run?: DeployRun } | null): void {
+    if (lieu && this.versLeMenuPublier(lieu)) return;
     if (!lieu) {
       if (this.state.deploiementDemande) this.set({ deploiementDemande: null });
       return;
@@ -1046,6 +1156,11 @@ class Client {
     if (agents.length || cartes.length) this.send({ type: 'ecran.perimetre', agents, cartes });
   }
 
+  /** Le prénom du compte connecté, enregistré par le démon (`compte.prenom`) : l'écran le garde aussitôt. */
+  poserMonPrenom(prenom: string): void {
+    this.set((etat) => (etat.monCompte ? { monCompte: { ...etat.monCompte, prenom } } : {}));
+  }
+
   private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
     const next = typeof patch === 'function' ? patch(this.state) : patch;
     this.state = { ...this.state, ...next };
@@ -1152,6 +1267,8 @@ class Client {
       cards: Object.fromEntries(cartes.map((carte) => [carte.id, carte])),
       cartesTotaux: projet ? { [projet]: copie.totaux as TotauxParColonne } : {},
       cartesChargees: projet ? { [projet]: true } : {},
+      /* La colonne se redessine OUVERTE comme on l'a laissée ; le vrai bloc arrive avec `ready` et la remplace. */
+      ...(copie.prefs ? { prefs: reglagesDeLaColonne(copie.prefs) } : {}),
       copieLocale: true,
     });
   }
@@ -1192,6 +1309,7 @@ class Client {
         activeProjectId: etat.activeProjectId,
         cards: etat.cards,
         totaux: etat.cartesTotaux as Record<string, Record<string, number>>,
+        prefs: reglagesDeLaColonne(etat.prefs),
       });
       if (!copie) return;
       try {
@@ -1586,7 +1704,10 @@ class Client {
          */
         const reprise = this.dejaSynchronise;
         this.rechargerLesColonnesChargees(reprise);
-        const prefs = event.prefs ?? {};
+        if (reprise) this.relireLesListesParDate();
+        /* UNE RECONNEXION GARDE LES RÉGLAGES D'AFFICHAGE DE CET ONGLET (12/11/2026) : d'autres onglets ont pu changer
+           de page pendant la coupure. La première connexion, elle, repart de la base. */
+        const prefs = reglagesALaReconnexion(this.state.prefs, event.prefs ?? {}, reprise);
         // On rouvre sur le dernier projet consulté, retenu en base. S'il a été
         // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
         const choix = choisirProjetAOuvrir(event.projects, prefs[CLE_PROJET_ACTIF], this.state.activeProjectId);
@@ -1597,9 +1718,11 @@ class Client {
         this.set({
           moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
+          reprises: reprise ? this.state.reprises + 1 : this.state.reprises,
           studioOuvert: event.studioOuvert === true,
           offreHebergee: event.offreHebergee === true,
           monRole: event.role ?? 'admin',
+          monCompte: event.compte,
           mesDroits: event.droits ? droitsLus(event.droits) : undefined,
           copieLocale: false,
           version: event.version,
@@ -1613,8 +1736,18 @@ class Client {
           // il ne fait foi que s'il porte vraiment des comptes.
           quotasRecus: this.state.quotasRecus || event.quotas.length > 0,
           capacity: event.capacity,
-          agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
+          /*
+           * LES CONVERSATIONS SUIVIES HORS DU TABLEAU SURVIVENT À LA RECONNEXION (carte 82670384, 06/11/2026).
+           * `ready` ne porte que les agents des cartes ; celui d'une fenêtre à part (le chef de marque de
+           * Communication, l'assistant) disparaissait du magasin à chaque retour sur l'écran — la veille
+           * reconnecte — et sa fenêtre restait en silhouette pour toujours. On garde ceux qu'on suit encore.
+           */
+          agents: {
+            ...Object.fromEntries([...this.agentsSuivis].flatMap((id) => (this.state.agents[id] ? [[id, this.state.agents[id]]] : []))),
+            ...Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
+          },
           productions: Object.fromEntries((event.productions ?? []).map((run) => [run.projectId, run])),
+          deploiements: Object.fromEntries((event.deploiements ?? []).map((run) => [run.projectId, run])),
           activeProjectId: choix.id,
           /*
            * LE STUDIO ET LE MARKETING SE RELISENT APRÈS UNE COUPURE. Leurs écrans ne se rechargent que sur un
@@ -1761,6 +1894,7 @@ class Client {
             colonneComptee(event.card),
           ),
           ...this.pageApresCarte(state, event.card),
+          ...this.listesApresCarte(state, event.card),
         }));
         break;
 
@@ -1798,6 +1932,7 @@ class Client {
               event.card.column,
             ),
             ...this.pageApresCarte(state, event.card),
+            ...this.listesApresCarte(state, event.card),
           };
         });
         break;
@@ -1813,13 +1948,28 @@ class Client {
             enRoute: this.enRouteSansCarte(state.enRoute, event.id),
             enRouteTerminer: this.enRouteSansCarte(state.enRouteTerminer, event.id),
             enRouteArchive: this.enRouteSansCarte(state.enRouteArchive, event.id),
+            lecturesParDate: Object.fromEntries(
+              Object.entries(state.lecturesParDate).map(([cle, lecture]) => [cle, lectureSansCarte(lecture, event.id)]),
+            ),
+            tachesDeLaColonne: this.tachesSansCarte(state.tachesDeLaColonne, event.id),
           };
         });
         break;
 
-      case 'agent.upsert':
+      case 'agent.upsert': {
+        /* UN TOUR QUI SE TERMINE RELIT LE JOURNAL DE LA CARTE AFFICHÉE (`finDeTourARelire`, carte 71e1006a) : ses
+           dernières lignes (compréhension, réponse) ont pu se perdre sur le canal sans que rien ne le signale. Une
+           seconde et demie après, pour laisser le démon écrire les lignes de clôture ; `poserLeJournal` fusionne,
+           `journauxEnVol` empêche les doublons. */
+        const carte = this.derniereCarteOuverte;
+        if (carte && this.state.journaux[carte] && finDeTourARelire(this.state.agents[event.agent.id], event.agent, carte)) {
+          window.setTimeout(() => {
+            if (this.state.journaux[carte]) this.rechargerLeJournal(carte);
+          }, 1_500);
+        }
         this.set((state) => ({ agents: { ...state.agents, [event.agent.id]: event.agent } }));
         break;
+      }
 
       case 'agent.delete':
         this.set((state) => {
@@ -1939,10 +2089,20 @@ class Client {
         this.set((state) => ({ queues: { ...state.queues, [event.agentId]: event.queue } }));
         break;
 
+      /* UN MESSAGE EN FILE REFUSÉ OU RETIRÉ PAR LE DÉMON revient au champ de
+         son agent (`arret-agent.tsx` l'y dépose), et la raison se dit. */
+      case 'queue.rendue':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('beluga:queue-rendue', { detail: { agentId: event.agentId, textes: event.textes } }));
+        }
+        if (event.textes.length) this.pushToast('warning', event.raison);
+        break;
+
       case 'deploy.upsert':
         this.set((state) => ({
           deploys: { ...state.deploys, [event.run.projectId]: event.run },
           productions: productionsApres(state.productions, event.run, Date.now()),
+          deploiements: deploiementsApres(state.deploiements, event.run),
         }));
         break;
 
@@ -1957,10 +2117,52 @@ class Client {
         this.set({ ...quotasSepares(event.quotas), quotasRecus: true });
         break;
 
+      case 'servicesIa':
+        this.set({ servicesIa: { soldes: event.soldes, releveLe: event.releveLe } });
+        break;
+
       case 'surveillance':
         this.set({ surveillance: event.sites, surveillanceRecue: true });
         break;
 
+      case 'studio': {
+        if (event.progression) {
+          this.set({ studioProgression: { ...this.state.studioProgression, [event.progression.exportId]: { valeur: event.progression.valeur, etape: event.progression.etape } } });
+          break;
+        }
+        if (event.montrer && event.creationId) this.set({ studioMontrer: { creationId: event.creationId, ...event.montrer, n: (this.state.studioMontrer?.n ?? 0) + 1 } });
+        if (event.fond && event.creationId) this.set({ studioFond: { creationId: event.creationId, ...event.fond, n: (this.state.studioFond?.n ?? 0) + 1 } });
+        const v = this.state.studioVersions;
+        // La bibliothèque de styles a changé : seule la galerie se relit, aucune création.
+        if (event.creationId === 'bibliotheque') {
+          this.set({ studioVersions: { ...v, bibliotheque: (v.bibliotheque ?? 0) + 1 } });
+          break;
+        }
+        this.set({
+          studioVersions: {
+            ...v,
+            '*': (v['*'] ?? 0) + 1,
+            ...(event.creationId ? { [event.creationId]: (v[event.creationId] ?? 0) + 1 } : {}),
+          },
+        });
+        break;
+      }
+
+      case 'communication.marques':
+        this.set({ communicationVersion: this.state.communicationVersion + 1 });
+        break;
+
+      case 'communication.nonLus':
+        this.set({ communicationNonLus: event.nonLus });
+        break;
+
+      case 'securite':
+        this.set({ securiteVersion: this.state.securiteVersion + 1 });
+        break;
+
+      case 'belugapass':
+        this.set({ belugapassVersion: this.state.belugapassVersion + 1 });
+        break;
 
       case 'marketing': {
         const versions = this.state.marketingVersions;
@@ -2033,16 +2235,27 @@ class Client {
         window.dispatchEvent(new CustomEvent('beluga:connexion-github', { detail: event.connexion }));
         break;
 
+      // Le montage d'un projet avance : la fenêtre « Projets du serveur » qui
+      // l'a lancé coche ses étapes (`EVENEMENT_MONTAGE`, filtré par `suivi`).
+      case 'project.montage':
+        window.dispatchEvent(new CustomEvent(EVENEMENT_MONTAGE, { detail: event }));
+        break;
+
       case 'prefs':
         // Un réglage envoyé d'ici et pas encore confirmé ne recule pas. Un événement
         // `partiel` ne porte que les clés qui changent : il se fusionne dans le bloc
         // connu (le bloc entier ne part qu'à la connexion).
-        this.set((state) => ({
-          prefs: reglagesSansRecul(
-            event.partiel ? fusionnerLesReglages(state.prefs, event.prefs) : event.prefs,
-            Array.from(this.reglagesEnVol, ([cle, enVol]) => [cle, enVol.valeur] as const),
-          ),
-        }));
+        /* CHAQUE ONGLET GARDE SA PAGE (12/11/2026) : ce qu'un AUTRE onglet change n'est suivi ici que pour le thème,
+           la langue et le brouillon (`reglagesPourCetOnglet`) ; ce que le serveur change lui-même s'applique. */
+        this.set((state) => {
+          const recus = reglagesPourCetOnglet(event.prefs, event.onglet, ID_DE_CET_ONGLET);
+          return {
+            prefs: reglagesSansRecul(
+              event.partiel ? fusionnerLesReglages(state.prefs, recus) : event.onglet && event.onglet !== ID_DE_CET_ONGLET ? fusionnerLesReglages(state.prefs, recus) : recus,
+              Array.from(this.reglagesEnVol, ([cle, enVol]) => [cle, enVol.valeur] as const),
+            ),
+          };
+        });
         break;
 
       case 'attachments':
@@ -2059,6 +2272,13 @@ class Client {
 
       case 'veilles.compte':
         this.set({ veilles: { actives: event.actives, a: event.a } });
+        break;
+
+      case 'extension.change':
+        for (const handler of this.extensionHandlers) handler();
+        break;
+      case 'plaquettes.change':
+        for (const handler of this.plaquettesHandlers) handler(event);
         break;
 
       case 'captures.vues':
@@ -2084,6 +2304,18 @@ class Client {
 
       case 'toast':
         this.pushToast(event.level, event.text, event.cardId, event.motif);
+        break;
+
+      /* LE DIRECT AVEC CODEX : relayé tel quel au module de voix (`lib/direct-codex.ts`), sans rien garder ici. */
+      case 'voix.direct':
+      case 'voix.direct.tour':
+      case 'voix.direct.synthese':
+      case 'voix.direct.tache':
+      case 'voix.direct.action':
+      case 'voix.direct.activite':
+      case 'voix.direct.production':
+      case 'jarvis.geste':
+        window.dispatchEvent(new CustomEvent('beluga:voix-directe', { detail: event }));
         break;
 
       case 'notify':
@@ -2175,6 +2407,8 @@ class Client {
   /** Applique un réglage tout de suite, avant même la confirmation du serveur. */
   setPrefLocally(key: string, value: unknown): void {
     this.set((state) => ({ prefs: { ...state.prefs, [key]: value } }));
+    // Un geste de la colonne entre dans la copie locale : le prochain démarrage la redessine ainsi.
+    if (key.startsWith(PREFIXE_DES_REGLAGES_DE_LA_COLONNE)) this.programmerLaCopieLocale();
   }
 
   /**
@@ -2401,7 +2635,7 @@ class Client {
       if (!enVol.envois.size) this.reglagesEnVol.delete(key);
     };
     this.pending.set(id, { resolve: liberer, reject: liberer });
-    this.socket.send(JSON.stringify({ id, cmd: { type: 'prefs.set', key, value } }));
+    this.socket.send(JSON.stringify({ id, cmd: { type: 'prefs.set', key, value, onglet: ID_DE_CET_ONGLET } }));
     // Un accusé qui ne revient pas ne fige pas la clé : le serveur reprend la main.
     window.setTimeout(() => {
       if (this.pending.delete(id)) liberer();
@@ -2770,6 +3004,10 @@ class Client {
     archive: CARTES_EN_ROUTE_PAR_PAQUET,
   };
 
+  private lecturesEnVol = new Set<string>();
+  private profondeurDesLectures = new Map<string, number>();
+  private tachesEnVol = false;
+
   /**
    * LE PREMIER PAQUET D'UNE COLONNE DE LA PAGE, redemandé à chaque ouverture :
    * ce qu'on avait gardé reste affiché pendant ce temps, sans silhouette ni saut.
@@ -2840,6 +3078,7 @@ class Client {
       },
       deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
       productions: event.deploy ? productionsApres(state.productions, event.deploy, Date.now()) : state.productions,
+      deploiements: event.deploy ? deploiementsApres(state.deploiements, event.deploy) : state.deploiements,
       memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
       // Les cartes de ce projet sont là : le tableau peut cesser de montrer
       // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
@@ -2945,6 +3184,123 @@ class Client {
     return { ...enRoute, cartes };
   }
 
+  /** UNE CARTE A BOUGÉ : la liste par date et la colonne de gauche la rangent. */
+  private listesApresCarte(state: AppState, card: Card): Pick<AppState, 'lecturesParDate' | 'tachesDeLaColonne'> {
+    return {
+      lecturesParDate: Object.fromEntries(
+        Object.entries(state.lecturesParDate).map(([cle, lecture]) => [cle, lectureApresCarte(lecture, card)]),
+      ),
+      tachesDeLaColonne: !state.tachesDeLaColonne
+        ? null
+        : estTacheDeLaColonne(card, card.column === 'archived' && cartesAvecAgentActif(Object.values(state.agents)).has(card.id)) ||
+            deployeeNonVue(card)
+          ? { ...state.tachesDeLaColonne, [card.id]: card }
+          : this.tachesSansCarte(state.tachesDeLaColonne, card.id),
+    };
+  }
+
+  private tachesSansCarte(taches: Record<string, Card> | null, id: string): Record<string, Card> | null {
+    if (!taches?.[id]) return taches;
+    const reste = { ...taches };
+    delete reste[id];
+    return reste;
+  }
+
+  /* ---------------- La liste unique par date ---------------- */
+
+  /**
+   * LE PREMIER PAQUET D'UNE PORTÉE, redemandé à chaque ouverture : ce qu'on avait
+   * gardé reste affiché pendant ce temps, sans silhouette ni saut.
+   */
+  async chargerParDate(portee: PorteeDeLecture, limite: number = CARTES_PAR_DATE_PAR_PAQUET): Promise<void> {
+    await this.demanderParDate(portee, true, limite);
+  }
+
+  /** Le paquet suivant, sous la dernière carte reçue. Rien quand tout est là. */
+  async chargerLaSuiteParDate(portee: PorteeDeLecture, limite: number = CARTES_PAR_DATE_PAR_PAQUET): Promise<void> {
+    if (!this.state.lecturesParDate[cleDeLecture(portee)]?.reste) return;
+    await this.demanderParDate(portee, false, limite);
+  }
+
+  private async demanderParDate(portee: PorteeDeLecture, depuisLeDebut: boolean, limite: number): Promise<void> {
+    const cle = cleDeLecture(portee);
+    // Une seule demande à la fois par portée : la sentinelle peut se dire visible plusieurs fois.
+    if (this.lecturesEnVol.has(cle)) return;
+    this.lecturesEnVol.add(cle);
+    try {
+      const curseur = depuisLeDebut ? undefined : this.state.lecturesParDate[cle]?.curseur;
+      const reponse = await this.call<{ cards: Card[]; agents: Agent[]; reste: boolean; curseur?: CurseurParDate }>({
+        type: 'cards.parDate',
+        ...portee,
+        ...(curseur ? { apres: curseur } : {}),
+        limit: limite,
+      });
+      this.profondeurDesLectures.set(cle, depuisLeDebut ? limite : (this.profondeurDesLectures.get(cle) ?? 0) + limite);
+      this.set((state) => {
+        const avant = state.lecturesParDate[cle];
+        return {
+          lecturesParDate: {
+            ...state.lecturesParDate,
+            [cle]: {
+              portee,
+              // Au premier paquet, ce qui n'est plus dans la portée part.
+              cartes: {
+                ...(depuisLeDebut ? {} : (avant?.cartes ?? {})),
+                ...Object.fromEntries(reponse.cards.map((card) => [card.id, card])),
+              },
+              curseur: reponse.curseur ?? avant?.curseur,
+              reste: reponse.reste,
+              charge: true,
+            },
+          },
+          agents: { ...state.agents, ...Object.fromEntries(reponse.agents.map((agent) => [agent.id, agent])) },
+        };
+      });
+    } catch (err: any) {
+      this.set((state) => ({
+        lecturesParDate: {
+          ...state.lecturesParDate,
+          [cle]: {
+            portee,
+            cartes: state.lecturesParDate[cle]?.cartes ?? {},
+            curseur: state.lecturesParDate[cle]?.curseur,
+            reste: false,
+            charge: true,
+            erreur: err?.message ?? String(err),
+          },
+        },
+      }));
+    } finally {
+      this.lecturesEnVol.delete(cle);
+    }
+  }
+
+  /** Les tâches de la colonne de gauche. Un échec garde ce qui est affiché. */
+  async chargerLesTachesDeLaColonne(): Promise<void> {
+    if (this.tachesEnVol) return;
+    this.tachesEnVol = true;
+    try {
+      const reponse = await this.call<{ cards: Card[]; agents: Agent[] }>({ type: 'cards.tachesDeLaColonne' });
+      this.set((state) => ({
+        tachesDeLaColonne: Object.fromEntries(reponse.cards.map((card) => [card.id, card])),
+        agents: { ...state.agents, ...Object.fromEntries(reponse.agents.map((agent) => [agent.id, agent])) },
+      }));
+    } catch {
+      /* Un démon d'avant cette commande, ou une coupure : le retour du lien relira. */
+    } finally {
+      this.tachesEnVol = false;
+    }
+  }
+
+  /** Au retour du lien, ce qui a déjà été lu se relit d'un bloc : les événements de la coupure sont perdus. */
+  private relireLesListesParDate(): void {
+    if (this.state.tachesDeLaColonne) void this.chargerLesTachesDeLaColonne();
+    for (const [cle, lecture] of Object.entries(this.state.lecturesParDate)) {
+      const profondeur = this.profondeurDesLectures.get(cle) ?? CARTES_PAR_DATE_PAR_PAQUET;
+      void this.chargerParDate(lecture.portee, Math.min(LIMITE_EN_ROUTE_PAR_DEMANDE, Math.max(CARTES_PAR_DATE_PAR_PAQUET, profondeur)));
+    }
+  }
+
   /**
    * OUVRIR UNE CARTE DE LA PAGE DANS LE TIROIR. Le tiroir lit `cards` : la
    * carte y est versée d'abord, sans toucher au projet affiché ni au tableau.
@@ -3030,6 +3386,12 @@ class Client {
       20000,
     );
     return reponse.cartes ?? [];
+  }
+
+  /** La recherche de la colonne de gauche : les titres de tous les projets que le compte voit. */
+  async rechercherDansLaColonne(texte: string): Promise<Card[]> {
+    const reponse = await this.call<{ cartes: { card: Card }[] }>({ type: 'cards.rechercher', texte, titreSeul: true }, 20000);
+    return (reponse.cartes ?? []).map(({ card }) => card);
   }
 
   /**
@@ -3271,6 +3633,9 @@ export function donneesDeCarteRecues(state: AppState, cardId: string | null): bo
   return state.journaux[cardId] !== undefined && state.cardMessages[cardId] !== undefined;
 }
 
+/** L'événement de page qui porte l'avancée d'un montage de projet jusqu'à sa fenêtre. */
+export const EVENEMENT_MONTAGE = 'beluga:montage';
+
 export const client = new Client();
 
 /*
@@ -3309,15 +3674,14 @@ if (import.meta.env.MODE !== 'production') {
     // juger POUR DE VRAI qu'une requête isolée restée sans réponse n'allume
     // aucune alerte, alors qu'un vrai refus, lui, se dit toujours.
     refus: (raison: string, cardId?: string) => client.signalerRefus(raison, cardId),
-    // Une annonce vocale, comme le démon en émet à la fin d'une tâche : c'est
-    // ce qui permet de juger le module de voix sans attendre un vrai agent.
+    // Une notification de fin de tâche, comme le démon en émet : depuis le retrait des anciennes voix (17/11/2026),
+    // elle ne doit plus rien faire dire à voix haute — c'est ce que les contrôles jugent.
     annonce: (texte: string) =>
       client.handleEssai({
         type: 'notify',
         title: 'Vérification',
         body: texte,
         motif: 'tache-terminee',
-        voix: texte,
       }),
     // Un plan écrit par un agent, sans attendre un vrai tour d'écriture :
     // permet de juger le cadre et ses deux boutons pour de vrai, sur le
@@ -3348,14 +3712,15 @@ if (import.meta.env.MODE !== 'production') {
      * que ci-dessus, mais SANS le drapeau `plan` — c'est ce qui permet de
      * juger le flux vertical du compte rendu (`RapportEnFlux`) pour de vrai.
      */
-    rapport: (agentId: string, content: string, options?: { enEcriture?: boolean; id?: string }) => {
+    // `todos` : la liste de tâches du tour, pour juger le repli de fin de tour (`useRepliDeFinDeTour`).
+    rapport: (agentId: string, content: string, options?: { enEcriture?: boolean; id?: string; todos?: Message['todos'] }) => {
       const message: Message = {
         id: options?.id ?? `essai-${Math.random().toString(36).slice(2)}`,
         agentId,
         role: 'assistant',
         content,
         steps: [],
-        todos: [],
+        todos: options?.todos ?? [],
         proposals: [],
         questions: [],
         downloads: [],
@@ -3428,6 +3793,12 @@ if (import.meta.env.MODE !== 'production') {
      * plutôt que de laisser deviner par un délai.
      */
     pret: () => client.lireEtat().pret,
+    /*
+     * UNE VRAIE COMMANDE DU PROTOCOLE, par le canal de la page (carte de la charte avec son agent, 17/11/2026) : un
+     * contrôle écrit un document COMME L'AGENT (« plaquettes.modifier » diffuse le même changement que son outil) et
+     * juge que le volet suit, sans lancer de moteur.
+     */
+    commande: (cmd: Record<string, unknown>) => client.call(cmd as never),
     /** Les projets connus, pour désigner celui qu'on veut ouvrir. */
     projets: () =>
       client.lireEtat().projects.map((projet) => ({ id: projet.id, name: projet.name })),

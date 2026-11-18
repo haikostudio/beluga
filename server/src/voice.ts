@@ -4,325 +4,53 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EtatDuPoint, composerLePoint, raisonParlee } from './digest.js';
-import { VOIX_LONGUEUR_MAX } from '@beluga/shared';
 import * as store from './store.js';
 import { CONFIG, PATHS } from './config.js';
 import { cachedQuotas } from './accounts.js';
 import { runningAgentIds } from './runtime.js';
 import { log } from './logger.js';
-import {
-  PREFIXE_VOIX_GEMINI,
-  MODELE_TTS_GEMINI,
-  URL_TTS_GEMINI,
-  VOIX_GEMINI,
-  cleGeminiDuCoffre,
-  echelleDeVitesse,
-  sonGeminiEnWav,
-  texteGeminiAvecDebit,
-  voixGeminiDeLId,
-} from '@beluga/shared';
-import { listerAcces } from './coffre-fort.js';
 
 const execFileAsync = promisify(execFile);
 
+/*
+ * CE QUI RESTE DE LA VOIX DU SERVEUR (carte « En-tête collant et défilement des pages », 17/11/2026).
+ *
+ * La synthèse vocale de Beluga (Piper, Kokoro, Gemini : annonces, lecture d'un message, point du jour à voix haute,
+ * `/api/speak`, `/api/voice-sample`) a été RETIRÉE à la demande de l'utilisateur, jugée trop mécanique : la seule
+ * voix de Beluga est désormais la conversation en direct avec Codex (`voix-directe.ts`). Restent ici la DICTÉE
+ * (parole → texte, `/api/transcribe`) et le POINT DU JOUR, écrit, qui arrive en notification. Les voix d'essai du
+ * Studio ont leur propre chemin (`voix-de-realisation.ts`) et n'en dépendent pas.
+ */
 const VENV = path.join(CONFIG.dataDir, 'venv');
 const PYTHON = path.join(VENV, 'bin', 'python');
-/*
- * PIPER SE LANCE PAR SON MODULE (`python -m piper`), JAMAIS PAR LE LANCEUR
- * `venv/bin/piper` : l'entête de ce lanceur porte le chemin ABSOLU de l'interpréteur
- * au moment de l'installation (`#!/root/haikodev/…`), et il cesse de démarrer dès
- * que le dossier du projet change de nom (« cannot execute: required file not
- * found », MEM-4331). Le module, lui, suit l'interpréteur qu'on lui donne.
- */
-const PIPER_MODULE = path.join(VENV, 'lib');
+const TRANSCRIBE_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'transcribe.py');
+const VOIX_PIPER = path.join(CONFIG.dataDir, 'models', 'piper');
 
-/** Piper est-il réellement posé ? L'interpréteur ET le paquet `piper` dans son environnement. */
+/** Piper est-il réellement posé ? L'interpréteur ET le paquet `piper` dans son environnement (`python -m piper`). */
 function piperInstalle(): boolean {
   if (!fs.existsSync(PYTHON)) return false;
   try {
-    return fs.readdirSync(PIPER_MODULE).some((version) => fs.existsSync(path.join(PIPER_MODULE, version, 'site-packages', 'piper')));
+    const lib = path.join(VENV, 'lib');
+    return fs.readdirSync(lib).some((version) => fs.existsSync(path.join(lib, version, 'site-packages', 'piper')));
   } catch {
     return false;
   }
 }
-const VOICES = path.join(CONFIG.dataDir, 'models', 'piper');
-const DEFAULT_VOICE = 'fr_FR-siwis-medium';
-const PIPER_VOICE = path.join(VOICES, `${DEFAULT_VOICE}.onnx`);
-const TRANSCRIBE_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'transcribe.py');
-
-/* ------------------------------------------------------------------ */
-/* Le second moteur : Kokoro, à CÔTÉ de Piper                          */
-/* ------------------------------------------------------------------ */
 
 /**
- * Kokoro n'a ni « medium » ni « high » : c'est UN modèle unique, multilingue,
- * accompagné d'un fichier qui porte toutes ses voix. Il vit dans son propre
- * environnement Python (`venv-kokoro`) pour ne rien changer à celui de Piper.
- *
- * Il ne REMPLACE pas Piper : les deux cohabitent, la voix choisie décidant du
- * moteur employé. Une voix Kokoro se nomme « kokoro:<voix> », ce qui la
- * distingue sans ambiguïté d'un modèle Piper.
+ * Ce qui est installé sur ce serveur : la dictée, et les voix d'essai du Studio (Piper et au moins un modèle de
+ * voix, posés par la fonction facultative « voix » de l'installation).
  */
-const KOKORO_VENV = path.join(CONFIG.dataDir, 'venv-kokoro');
-const KOKORO_PYTHON = path.join(KOKORO_VENV, 'bin', 'python');
-const KOKORO_DIR = path.join(CONFIG.dataDir, 'models', 'kokoro');
-const KOKORO_MODELE = path.join(KOKORO_DIR, 'kokoro-v1.0.onnx');
-const KOKORO_VOIX = path.join(KOKORO_DIR, 'voices-v1.0.bin');
-const KOKORO_SCRIPT = path.join(CONFIG.selfPath, 'scripts', 'kokoro-voix.py');
-const KOKORO_PREFIXE = 'kokoro:';
-
-/**
- * Les voix Kokoro proposées. La gamme française de ce moteur est MINCE : le
- * modèle porte cinquante-quatre voix, dont une SEULE en français (`ff_siwis`).
- * On ne montre que celle-là : les voix anglaises ne serviraient à rien pour un
- * assistant qui parle français, et allongeraient la liste de cinquante lignes.
- */
-const VOIX_KOKORO: Record<string, { label: string; description: string }> = {
-  ff_siwis: {
-    label: 'Camille',
-    description: 'Voix de femme, moteur Kokoro. La seule voix française de ce moteur.',
-  },
-};
-
-/** Kokoro est-il réellement posé sur ce serveur ? */
-function kokoroInstalle(): boolean {
-  return (
-    fs.existsSync(KOKORO_PYTHON) &&
-    fs.existsSync(KOKORO_MODELE) &&
-    fs.existsSync(KOKORO_VOIX) &&
-    fs.existsSync(KOKORO_SCRIPT)
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Le troisième moteur : Gemini, chez Google                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Les voix Gemini ne tournent PAS sur le serveur : elles partent chez Google
- * avec la clé du coffre (règles pures dans `shared/src/voix-gemini.ts`). Elles
- * ne sont proposées que si une clé Gemini est rangée, et la clé est RELUE à
- * chaque son : la remplacer dans le coffre suffit, sans redémarrage.
- */
-function cleGemini(): string | undefined {
+export function voiceAvailable(): { transcribe: boolean; voixDuStudio: boolean } {
+  let modeles = false;
   try {
-    return cleGeminiDuCoffre(listerAcces());
+    modeles = fs.readdirSync(VOIX_PIPER).some((f) => f.endsWith('.onnx'));
   } catch {
-    /* base pas encore ouverte (contrôle isolé) : pas de voix Gemini */
-    return undefined;
+    modeles = false;
   }
-}
-
-/** Combien on attend Google pour une phrase avant de retomber sur Piper. */
-const DELAI_GEMINI_MS = 45_000;
-
-async function synthetiserParGemini(voix: string, texte: string, echelle: number, sortie: string): Promise<void> {
-  const cle = cleGemini();
-  if (!cle) throw new Error('aucune clé Gemini dans le coffre-fort');
-  const reponse = await fetch(URL_TTS_GEMINI, {
-    method: 'POST',
-    signal: AbortSignal.timeout(DELAI_GEMINI_MS),
-    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': cle },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: texteGeminiAvecDebit(texte, echelle) }] }],
-      generationConfig: {
-        responseModalities: ['AUDIO'],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voix } } },
-      },
-    }),
-  });
-  const corps = (await reponse.json().catch(() => ({}))) as any;
-  if (!reponse.ok) {
-    throw new Error(`Gemini a refusé la synthèse (${reponse.status}) : ${String(corps?.error?.message ?? '').slice(0, 160)}`);
-  }
-  const part = corps?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data);
-  if (!part) throw new Error('Gemini a répondu sans son');
-  const brut = Buffer.from(part.inlineData.data, 'base64');
-  fs.writeFileSync(sortie, sonGeminiEnWav(brut, String(part.inlineData.mimeType ?? '')));
-}
-
-/* ------------------------------------------------------------------ */
-/* Les voix disponibles                                                */
-/* ------------------------------------------------------------------ */
-
-/**
- * Un fichier de voix peut contenir PLUSIEURS personnes (le modèle « upmc » en
- * porte deux). Une voix se nomme donc « modèle » ou « modèle arobase
- * personne » : c'est cet identifiant qui est enregistré dans les préférences.
- */
-const SEPARATEUR = '@';
-
-/**
- * Les étiquettes tenues à la main. Les noms techniques des modèles sont des
- * noms de jeux de données (« siwis », « upmc ») : ils ne disent rien à
- * l'oreille de personne. Une voix installée mais absente de cette table
- * s'affiche quand même, sous son nom brut.
- */
-const ETIQUETTES: Record<string, { label: string; description: string }> = {
-  'fr_FR-siwis-medium': { label: 'Claire', description: 'Voix de femme, posée et nette. La voix d\'origine.' },
-  'fr_FR-tom-medium': { label: 'Thomas', description: 'Voix d\'homme, chaleureuse et très articulée.' },
-  [`fr_FR-upmc-medium${SEPARATEUR}pierre`]: { label: 'Pierre', description: 'Voix d\'homme, grave et rapide.' },
-  [`fr_FR-upmc-medium${SEPARATEUR}jessica`]: { label: 'Jessica', description: 'Voix de femme, douce et plus feutrée.' },
-};
-
-export interface VoiceInfo {
-  id: string;
-  label: string;
-  description: string;
-}
-
-/**
- * Une voix RÉSOLUE : le fichier de modèle à charger, et de quoi le faire
- * parler. `moteur` dit lequel des deux chemins de synthèse emprunter ; il
- * entre aussi dans l'empreinte du cache, sans quoi deux voix homonymes de
- * moteurs différents se partageraient le même son.
- */
-export interface VoixResolue {
-  moteur: 'piper' | 'kokoro' | 'gemini';
-  /** Le fichier de modèle : une voix Piper, le modèle unique de Kokoro, ou le modèle Gemini. */
-  modele: string;
-  /** Piper : le numéro de la personne dans un modèle qui en porte plusieurs. */
-  personne?: number;
-  /** Kokoro et Gemini : le nom de la voix à prendre. */
-  voix?: string;
-}
-
-/** Le fichier de modèle d'une voix, et la personne à demander dedans. */
-export function resoudre(id: string): VoixResolue | null {
-  if (id.startsWith(PREFIXE_VOIX_GEMINI)) {
-    const voix = voixGeminiDeLId(id);
-    if (!voix || !cleGemini()) return null;
-    return { moteur: 'gemini', modele: MODELE_TTS_GEMINI, voix };
-  }
-  if (id.startsWith(KOKORO_PREFIXE)) {
-    const voix = id.slice(KOKORO_PREFIXE.length);
-    if (!VOIX_KOKORO[voix] || !kokoroInstalle()) return null;
-    return { moteur: 'kokoro', modele: KOKORO_MODELE, voix };
-  }
-
-  const [modele, personne] = id.split(SEPARATEUR);
-  const fichier = path.join(VOICES, `${modele}.onnx`);
-  if (!fichier.startsWith(VOICES) || !fs.existsSync(fichier)) return null;
-  if (!personne) return { moteur: 'piper', modele: fichier };
-  try {
-    const carte = JSON.parse(fs.readFileSync(`${fichier}.json`, 'utf8')).speaker_id_map ?? {};
-    const numero = carte[personne];
-    return typeof numero === 'number' ? { moteur: 'piper', modele: fichier, personne: numero } : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Les voix réellement installées sur le serveur, chacune sous un nom lisible.
- * Un modèle à plusieurs personnes compte pour autant de voix.
- */
-export function listVoices(): VoiceInfo[] {
-  let fichiers: string[];
-  try {
-    fichiers = fs.readdirSync(VOICES).filter((name) => name.endsWith('.onnx'));
-  } catch {
-    return [];
-  }
-
-  const voix: VoiceInfo[] = [];
-  for (const fichier of fichiers.sort()) {
-    const modele = fichier.replace(/\.onnx$/, '');
-    let personnes: string[] = [];
-    try {
-      personnes = Object.keys(JSON.parse(fs.readFileSync(path.join(VOICES, `${fichier}.json`), 'utf8')).speaker_id_map ?? {});
-    } catch {
-      /* pas de fiche lisible : une seule personne dans ce fichier */
-    }
-    const ids = personnes.length > 1 ? personnes.map((p) => `${modele}${SEPARATEUR}${p}`) : [modele];
-    for (const id of ids) {
-      const connue = ETIQUETTES[id];
-      voix.push({
-        id,
-        label: connue?.label ?? id.split(SEPARATEUR).pop() ?? id,
-        description: connue?.description ?? 'Voix installée sur le serveur.',
-      });
-    }
-  }
-
-  // Les voix de l'autre moteur entrent dans la MÊME liste : côté réglages, une
-  // voix est une voix — le moteur qui la fabrique ne regarde que le serveur.
-  if (kokoroInstalle()) {
-    for (const [nom, connue] of Object.entries(VOIX_KOKORO)) {
-      voix.push({ id: `${KOKORO_PREFIXE}${nom}`, label: connue.label, description: connue.description });
-    }
-  }
-
-  if (cleGemini()) {
-    for (const [nom, connue] of Object.entries(VOIX_GEMINI)) {
-      voix.push({ id: `${PREFIXE_VOIX_GEMINI}${nom}`, label: connue.label, description: connue.description });
-    }
-  }
-
-  // La voix d'origine en tête : c'est celle qu'on entend sans rien régler.
-  return voix.sort((a, b) => (a.id === DEFAULT_VOICE ? -1 : b.id === DEFAULT_VOICE ? 1 : a.label.localeCompare(b.label)));
-}
-
-/** La voix retenue dans les réglages, ou rien si elle est illisible. */
-function voixReglee(): string | null {
-  try {
-    return store.getSettings().ttsVoice || null;
-  } catch {
-    /* réglages illisibles : la voix d'origine fera l'affaire */
-    return null;
-  }
-}
-
-/**
- * La voix lue est celle choisie dans les préférences. Si cette voix n'est pas
- * (ou plus) sur le serveur, on retombe sur la voix livrée d'origine : mieux
- * vaut une autre voix que pas de son du tout.
- *
- * `reglee` dit d'où vient le CHOIX de l'utilisateur : laissé de côté, il est lu
- * dans les réglages du serveur — c'est le cas de tous les appels réels. Un
- * contrôle, lui, passe `null` pour juger le REPLI seul : sans cela il dépendrait
- * de la voix réglée sur la machine où il tourne, et changerait de verdict d'un
- * serveur à l'autre.
- */
-export function voiceChoisie(demandee?: string, reglee?: string | null): VoixResolue {
-  const candidats: string[] = [];
-  // Le deux-points sépare le moteur du nom de la voix : il fait partie des
-  // signes permis, au même titre que l'arobase des personnes d'un modèle.
-  if (demandee) candidats.push(demandee.replace(/[^\w.:@-]/g, ''));
-  const choisie = reglee === undefined ? voixReglee() : reglee;
-  if (choisie) candidats.push(choisie);
-  candidats.push(DEFAULT_VOICE, ...listVoices().map((v) => v.id));
-
-  for (const candidat of candidats) {
-    const resolue = resoudre(candidat);
-    if (resolue) return resolue;
-  }
-  return { moteur: 'piper', modele: PIPER_VOICE };
-}
-
-/** La phrase d'essai : courte, avec un nombre et une heure, comme un vrai point. */
-export const EXTRAIT =
-  'Bonjour. Il est quatorze heures trente. Deux tâches sont parties en ligne hier soir, et trois attendent votre feu vert.';
-
-/**
- * POURQUOI LE SERVEUR NE PARLE PAS, en une phrase — vide quand il peut. Le
- * message « voix absente du serveur » ne disait pas QUELLE pièce manquait :
- * une voix posée à la main dans un autre dossier, ou sans son moteur, restait
- * muette sans qu'on sache quoi réparer.
- */
-export function raisonDeLaVoixMuette(): string {
-  if (voiceAvailable().speak) return '';
-  if (!listVoices().length) return `aucun modèle de voix dans ${VOICES}`;
-  if (!fs.existsSync(PYTHON) && !kokoroInstalle() && !cleGemini()) return `l'environnement Python de la voix manque (${VENV})`;
-  if (!piperInstalle() && !kokoroInstalle() && !cleGemini()) return `le moteur Piper n'est pas installé dans ${VENV}`;
-  return 'aucun moteur de voix utilisable';
-}
-
-export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
     transcribe: fs.existsSync(PYTHON) && fs.existsSync(TRANSCRIBE_SCRIPT),
-    // Un seul des moteurs suffit à faire parler le serveur.
-    speak: (piperInstalle() || kokoroInstalle() || Boolean(cleGemini())) && listVoices().length > 0,
+    voixDuStudio: piperInstalle() && modeles,
   };
 }
 
@@ -466,232 +194,6 @@ export function digestText(projectId?: string): string {
   return composerLePoint(etat);
 }
 
-/* ------------------------------------------------------------------ */
-/* La mémoire des sons : une phrase déjà dite ne se refait jamais       */
-/* ------------------------------------------------------------------ */
-
-/**
- * Les sons déjà fabriqués sont RANGÉS dans un sous-dossier à eux, sous un nom
- * qui découle du texte ET de la voix : même phrase, même voix, même fichier.
- * Une réécoute — ou une annonce préparée d'avance — repart alors du fichier
- * gardé, sans relancer Piper. Le dossier ne grossit pas sans fin : au-delà de
- * `CACHE_SONS_MAX` fichiers, les plus vieux tombent (`rangerLeCache`).
- */
-const CACHE_SONS = path.join(PATHS.audio, 'cache');
-const CACHE_SONS_MAX = 200;
-
-/**
- * L'empreinte d'un son : le MOTEUR, la voix résolue, la vitesse et le texte.
- * Le moteur en fait partie — la même phrase dite par Piper et par Kokoro donne
- * deux sons différents, donc deux fichiers différents.
- */
-export function cleDuSon(retenue: VoixResolue, texte: string, echelle: number): string {
-  return crypto
-    .createHash('sha256')
-    .update(
-      `${retenue.moteur}\u0000${retenue.modele}\u0000${retenue.personne ?? ''}\u0000${retenue.voix ?? ''}\u0000${echelle}\u0000${texte}`,
-    )
-    .digest('hex')
-    .slice(0, 32);
-}
-
-/**
- * Une synthèse déjà EN COURS pour une même empreinte n'est pas relancée : le
- * navigateur qui demande le son pendant qu'on le prépare d'avance attend le
- * MÊME travail, jamais un second Piper sur la même phrase.
- */
-const enCours = new Map<string, Promise<{ ok: boolean; file?: string; error?: string }>>();
-
-/** Ne garde que les `CACHE_SONS_MAX` sons les plus récents ; efface le reste. */
-function rangerLeCache(): void {
-  try {
-    const fichiers = fs
-      .readdirSync(CACHE_SONS)
-      .filter((n) => n.endsWith('.wav'))
-      .map((n) => {
-        const chemin = path.join(CACHE_SONS, n);
-        return { chemin, age: fs.statSync(chemin).mtimeMs };
-      })
-      .sort((a, b) => b.age - a.age);
-    for (const trop of fichiers.slice(CACHE_SONS_MAX)) fs.unlinkSync(trop.chemin);
-  } catch {
-    /* dossier absent ou fichier déjà parti : rien à ranger */
-  }
-}
-
-/**
- * Le texte tel que Piper le recevra : borné à la longueur d'une annonce et
- * débarrassé de ses espaces de bord. Appliqué au même endroit côté adresse
- * `/api/speak` et côté préparation d'avance, pour que les deux tombent sur la
- * MÊME empreinte — donc le même fichier.
- */
-export function normaliserTexteVoix(texte: string): string {
-  return texte.slice(0, VOIX_LONGUEUR_MAX).trim();
-}
-
-/**
- * La vitesse lue est celle passée à l'appel (l'essai en impose une), sinon
- * celle des préférences : ainsi TOUTES les paroles — point du jour, annonces
- * automatiques, réécoutes — suivent le réglage sans que le navigateur ait à le
- * répéter à chaque fois.
- */
-function vitesseChoisie(vitesse?: string): number {
-  if (vitesse) return echelleDeVitesse(vitesse);
-  try {
-    return echelleDeVitesse(store.getSettings().voixVitesse);
-  } catch {
-    return echelleDeVitesse();
-  }
-}
-
-/**
- * Lance le moteur qui convient et lui fait écrire le son demandé. C'est le SEUL
- * endroit où les deux moteurs diffèrent : au-dessus (cache, empreinte, file
- * d'attente) et en dessous (adresse `/api/speak`, essai de voix), tout est
- * commun.
- *
- * Les deux prennent le texte sur leur entrée standard et rendent un WAV, et
- * tous deux reçoivent la MÊME échelle de vitesse : le script de Kokoro se
- * charge de la retourner, ce moteur comptant en vitesse là où Piper compte en
- * longueur.
- */
-function lancerLaSynthese(
-  retenue: VoixResolue,
-  texte: string,
-  echelle: number,
-  sortie: string,
-): Promise<void> {
-  if (retenue.moteur === 'gemini') return synthetiserParGemini(String(retenue.voix), texte, echelle, sortie);
-  const [commande, arguments_] =
-    retenue.moteur === 'kokoro'
-      ? [
-          KOKORO_PYTHON,
-          [
-            KOKORO_SCRIPT,
-            '--model',
-            retenue.modele,
-            '--voices',
-            KOKORO_VOIX,
-            '--voice',
-            String(retenue.voix),
-            '--length-scale',
-            String(echelle),
-            '--output-file',
-            sortie,
-          ],
-        ]
-      : [
-          PYTHON,
-          [
-            '-m',
-            'piper',
-            '--model',
-            retenue.modele,
-            ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),
-            '--length_scale',
-            String(echelle),
-            '--output_file',
-            sortie,
-          ],
-        ];
-
-  return new Promise<void>((resolve, reject) => {
-    const child = execFile(commande, arguments_, { timeout: 180000 }, (err) =>
-      err ? reject(err) : resolve(),
-    );
-    child.stdin?.write(texte);
-    child.stdin?.end();
-  });
-}
-
-/**
- * Fabrique un fichier audio ordinaire, lisible partout. Sans voix précisée,
- * c'est celle des préférences — l'extrait d'essai, lui, en impose une ; de même
- * pour la vitesse.
- */
-export async function speak(
-  text: string,
-  voix?: string,
-  vitesse?: string,
-): Promise<{ ok: boolean; file?: string; error?: string }> {
-  const available = voiceAvailable();
-  if (!available.speak) return { ok: false, error: `voix absente du serveur : ${raisonDeLaVoixMuette()}` };
-
-  const retenue = voiceChoisie(voix);
-  const echelle = vitesseChoisie(vitesse);
-  const cle = cleDuSon(retenue, text, echelle);
-  const file = path.join(CACHE_SONS, `${cle}.wav`);
-
-  // Déjà fabriqué : on le rend tel quel, et on rafraîchit sa date pour qu'un son
-  // souvent réécouté ne soit pas emporté par le nettoyage.
-  if (fs.existsSync(file)) {
-    try {
-      const maintenant = new Date();
-      fs.utimesSync(file, maintenant, maintenant);
-    } catch {
-      /* date non modifiable : sans importance */
-    }
-    return { ok: true, file };
-  }
-
-  // Déjà en cours de fabrication (préparation d'avance) : on attend le même son.
-  const dejaLa = enCours.get(cle);
-  if (dejaLa) return dejaLa;
-
-  const travail = (async () => {
-    fs.mkdirSync(CACHE_SONS, { recursive: true });
-    // On écrit d'abord dans un fichier temporaire, renommé à la fin : une
-    // lecture concurrente ne tombe jamais sur un son à moitié écrit.
-    const provisoire = path.join(CACHE_SONS, `.tmp-${crypto.randomBytes(6).toString('hex')}.wav`);
-    try {
-      await lancerLaSynthese(retenue, text, echelle, provisoire);
-      fs.renameSync(provisoire, file);
-      rangerLeCache();
-      return { ok: true, file };
-    } catch (err: any) {
-      try {
-        fs.unlinkSync(provisoire);
-      } catch {
-        /* rien à retirer */
-      }
-      // Google a refusé ou n'a pas répondu : la voix du serveur prend le relais,
-      // sous SA propre empreinte — le son de repli ne passe jamais pour celui
-      // de Gemini, et la prochaine demande retentera Google.
-      if (retenue.moteur === 'gemini' && resoudre(DEFAULT_VOICE)) {
-        log.warn('voix Gemini indisponible, repli sur la voix du serveur', err?.message);
-        return speak(text, DEFAULT_VOICE, vitesse);
-      }
-      log.warn('synthèse vocale impossible', err?.message);
-      // La première ligne utile de l'erreur voyage : c'est elle qui dit quoi réparer.
-      const detail = String(err?.stderr ?? err?.message ?? '')
-        .split('\n')
-        .map((ligne) => ligne.trim())
-        .filter(Boolean)
-        .slice(-1)[0];
-      return { ok: false, error: `synthèse vocale impossible${detail ? ` : ${detail.slice(0, 240)}` : ''}` };
-    }
-  })();
-
-  enCours.set(cle, travail);
-  try {
-    return await travail;
-  } finally {
-    enCours.delete(cle);
-  }
-}
-
-/**
- * Prépare d'avance le son d'une phrase d'annonce, sans bloquer l'appelant : le
- * fichier est ainsi déjà là quand le navigateur le demande, et l'annonce part
- * sans délai perceptible. Un échec de synthèse est avalé — le navigateur
- * retombera sur sa propre voix, comme aujourd'hui.
- */
-export function precharger(texte: string): void {
-  const t = normaliserTexteVoix(texte);
-  if (!t || !voiceAvailable().speak) return;
-  void speak(t).catch(() => undefined);
-}
-
 /** Les premières phrases COMPLÈTES d'un texte, sans jamais couper un mot. */
 function phrasesEntieres(texte: string, maximum: number): string {
   if (texte.length <= maximum) return texte;
@@ -705,7 +207,7 @@ function phrasesEntieres(texte: string, maximum: number): string {
 
 /**
  * Le rendez-vous quotidien (PLAN §22) : à l'heure choisie, le point du jour est
- * préparé et arrive en notification ; un appui lance la lecture.
+ * préparé et arrive en notification, écrit — il ne se lit plus à voix haute.
  */
 export function scheduleDailyDigest(hourGetter: () => number | undefined): NodeJS.Timeout {
   let lastDay = -1;
@@ -718,8 +220,6 @@ export function scheduleDailyDigest(hourGetter: () => number | undefined): NodeJ
       lastDay = now.getDate();
 
       const text = digestText();
-      // L'audio est fabriqué à l'avance : au clic, la lecture démarre tout de suite.
-      const spoken = await speak(text);
       const { notify } = await import('./notify.js');
       // Le point du jour attend qu'on l'ouvre : il n'appelle aucune décision,
       // il se signale donc dans l'application seulement.
@@ -730,7 +230,7 @@ export function scheduleDailyDigest(hourGetter: () => number | undefined): NodeJ
         // milieu d'un mot donne l'impression que quelque chose s'est perdu.
         body: phrasesEntieres(text, 200),
       });
-      log.info(`point du jour préparé${spoken.ok ? ' (avec audio)' : ''}`);
+      log.info('point du jour préparé');
     },
     5 * 60 * 1000,
   );
@@ -742,9 +242,11 @@ export function purgeOldAudio(): void {
     for (const entry of fs.readdirSync(PATHS.audio)) {
       const full = path.join(PATHS.audio, entry);
       const stat = fs.statSync(full);
-      // Le sous-dossier des sons gardés se nettoie tout seul (`rangerLeCache`) :
-      // on ne le touche pas ici, un `unlinkSync` sur un dossier échouerait.
-      if (stat.isDirectory()) continue;
+      // L'ancien cache des sons de la voix retirée (`cache/`) part en entier, une fois.
+      if (stat.isDirectory()) {
+        if (entry === 'cache') fs.rmSync(full, { recursive: true, force: true });
+        continue;
+      }
       if (stat.mtimeMs < cutoff) fs.unlinkSync(full);
     }
   } catch {

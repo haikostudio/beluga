@@ -1,5 +1,12 @@
+import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
+import { BoutonFiltres } from '@/components/ui/boutons-a-menu';
+import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
+import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
+import { CelluleProjet } from '@/components/ui/colonne-projet';
+import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
+import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
 import {
   Archive,
   ArrowDown,
@@ -19,13 +26,14 @@ import {
   Play,
   RotateCcw,
   Search,
+  Settings,
   Sparkles,
   KanbanSquare,
   ListFilter,
   Wrench,
   Trash2,
   TriangleAlert,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Agent,
   CONSERVATION_MAX,
@@ -65,6 +73,7 @@ import {
   Button,
   ConfirmDialog,
   DialogFooter,
+  EnteteDeFeuille,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -81,9 +90,12 @@ import {
   ListeDeroulante,
   FormulaireEnColonnes,
   LigneFormulaire,
+  TELEPHONE_AVANT_SECTION,
+  TELEPHONE_ENTRE_BLOCS,
+  TELEPHONE_SOUS_UN_BLOC,
 } from '@/components/ui';
 import { SilhouetteBackups } from '@/components/silhouettes';
-import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
+import { BoutonPrincipal, CranDuFil, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { Chat } from '@/components/chat';
@@ -92,6 +104,7 @@ import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { PasAPas } from '@/components/pas-a-pas';
 import { useTelephone } from '@/lib/telephone';
+import { CLASSE_BOUTON_PLEINE_LARGEUR } from '@/components/menu-du-bas';
 import { cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 import { lancerIntervalleVisible } from '@/lib/veille';
@@ -210,6 +223,10 @@ export function Backups({
   const [pointARestaurer, setPointARestaurer] = React.useState<PointDeSauvegarde | null>(null);
   const [recherche, setRecherche] = React.useState('');
   const [tri, setTri] = React.useState<{ colonne: ColonneTri; sens: 1 | -1 }>({ colonne: 'nom', sens: 1 });
+  /* UN SEUL TABLEAU (carte « Services homogènes et centrés », 14/11/2026) : les sites sauvegardés ET les projets sans
+     sauvegarde ; le filtre d'état montre l'un, l'autre ou les deux. Lignes ou cartes, au choix retenu. */
+  const [etatRetenu, setEtatRetenu] = React.useState<'tous' | 'sauvegardes' | 'sans'>('tous');
+  const [vueDeLaListe, setVueDeLaListe] = useVueDeLaListe('backups.vueDeLaListe');
   /** La conversation de l'assistant, ouverte dans SON PROPRE tiroir latéral —
    *  plus en plein écran, à la place de cette fenêtre. */
   const [conversation, setConversation] = React.useState<{ agentId: string; projectId: string } | null>(null);
@@ -258,7 +275,12 @@ export function Backups({
     },
   });
 
-  const resumes = resumeParSite(etat.sites, etat.points);
+  /* DANS L'ONGLET D'UN PROJET (refonte du 13/11/2026) : ses sites seulement. */
+  const projetDuService = useProjetDuService();
+  const resumes = resumeParSite(
+    projetDuService ? etat.sites.filter((site) => site.projectId === projetDuService.id) : etat.sites,
+    etat.points,
+  );
 
   // LA RECHERCHE FILTRE EN TEMPS RÉEL, sur le nom du site — puis le TRI
   // s'applique, choisi par un clic sur l'entête de colonne.
@@ -276,6 +298,15 @@ export function Backups({
     });
     return tries;
   }, [resumes, recherche, tri]);
+
+  const projetsSans = React.useMemo(() => {
+    const mot = recherche.trim().toLowerCase();
+    const liste = projetDuService ? etat.projets.filter((p) => p.id === projetDuService.id) : etat.projets;
+    return mot ? liste.filter((p) => p.nom.toLowerCase().includes(mot) || p.chemin.toLowerCase().includes(mot)) : liste;
+  }, [etat.projets, projetDuService?.id, recherche]);
+  const sitesVus = etatRetenu === 'sans' ? [] : resumesAffiches;
+  const projetsVus = etatRetenu === 'sauvegardes' ? [] : projetsSans;
+  const nomDuProjet = (id: string | null) => (id ? (state.projects.find((p) => p.id === id)?.name ?? null) : null);
 
   const trierPar = (colonne: ColonneTri) =>
     setTri((avant) => (avant.colonne === colonne ? { colonne, sens: avant.sens === 1 ? -1 : 1 } : { colonne, sens: 1 }));
@@ -404,6 +435,31 @@ export function Backups({
     }
   };
 
+  /* UN PROJET SANS SAUVEGARDE, OUVERT EN ONGLET : il le dit, et propose de commencer (maquette #828a). */
+  if (projetDuService && !chargement && !resumes.length && !fiche) {
+    return (
+      <>
+        <Drawer open={open} onClose={onClose} enPage={enPage}>
+          <EtatVideDuProjet
+            icone={<HardDrive />}
+            titre={t('Aucune sauvegarde pour {v0}', { v0: projetDuService.name })}
+            texte={t('Ce projet n’est pas encore sauvegardé. Un agent prépare la sauvegarde avec vous — base de données, fichiers, fréquence — puis elle tourne toute seule.')}
+            action={t('Créer une sauvegarde')}
+            enCours={projetLance === projetDuService.id}
+            onAction={() => void configurerProjet({ id: projetDuService.id, nom: projetDuService.name, chemin: projetDuService.path })}
+            note={t('Les copies vont sur le disque de stockage, jamais sur le serveur.')}
+            data-backups-vide
+          />
+        </Drawer>
+        <TiroirConversationAssistant
+          depart={conversation}
+          onClose={() => setConversation(null)}
+          agent={conversation ? (state.agents[conversation.agentId] ?? null) : null}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       {/* LA LARGEUR EST CELLE DE TOUTES LES PAGES (`Drawer enPage`) : plus de
@@ -493,82 +549,61 @@ export function Backups({
           </div>
         ) : null}
 
-        {/* LA RECHERCHE ET, À SA DROITE SUR TÉLÉPHONE, LE TRI : un bouton
-            d'icône sans libellé, sur la même rangée (comme les notes). Les sites
-            y sont des FICHES, il n'y a plus d'entête à cliquer : le menu porte
-            les mêmes clés que les entêtes du tableau et le même second appui qui
-            inverse le sens. Il partage l'état `tri` — aucune règle de tri n'est
-            réécrite. Sur ordinateur, la rangée ne change pas. */}
-        {resumes.length ? (
-          <div className="shrink-0 pb-4">
-            <div className="flex items-center gap-1.5">
-              <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-                <Input
-                  value={recherche}
-                  onChange={(e) => setRecherche(e.target.value)}
-                  placeholder={t('Rechercher un site…')}
-                  className="h-10 rounded-xl pl-10 text-[14px]"
-                  autoComplete="off"
-                  data-backups-recherche
-                />
-              </div>
-              {telephone ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-12 sm:h-10 w-12 sm:w-10 shrink-0"
-                      title={t('Trier les sites')}
-                      aria-label="Trier les sites"
-                      data-backups-tri-mobile={tri.colonne}
-                    >
-                      <ListFilter className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {CLES_TRI.map((colonne) => {
-                      const actif = tri.colonne === colonne;
-                      return (
-                        <DropdownMenuItem
-                          key={colonne}
-                          onSelect={() => trierPar(colonne)}
-                          data-backups-tri-choix={colonne}
-                          data-actif={actif ? '' : undefined}
-                          aria-current={actif ? 'true' : undefined}
-                          className={cn(actif && 'text-teinte')}
-                        >
-                          <span className="min-w-0 flex-1">{t(CLES_LIBELLE_TRI[colonne])}</span>
-                          {actif ? (
-                            tri.sens === 1 ? (
-                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-teinte" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-teinte" aria-hidden />
-                            )
-                          ) : null}
-                          <Check className={cn('h-3.5 w-3.5 shrink-0 text-teinte', !actif && 'invisible')} aria-hidden />
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
-          </div>
+        {/* LA RECHERCHE, LE FILTRE D'ÉTAT ET LA BASCULE, DANS LA RANGÉE DU TITRE (carte « Services homogènes et
+            centrés ») : plus de loupe à part ni de seconde recherche « Rechercher un projet… ». Sur téléphone, le tri
+            des fiches et le disque de stockage sont des lignes du menu d'options. */}
+        {resumes.length || etat.projets.length ? (
+          <>
+            <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher un site…')} data-backups-recherche />
+            <BasculeDePage>
+              <BoutonFiltres
+                icone
+                repere="backups-etat"
+                groupes={[
+                  {
+                    cle: 'etat',
+                    titre: t('État'),
+                    valeur: etatRetenu,
+                    tout: 'tous',
+                    options: [
+                      { valeur: 'tous', libelle: t('Tous'), nombre: resumes.length + projetsSans.length },
+                      { valeur: 'sauvegardes', libelle: t('Sauvegardés'), nombre: resumes.length },
+                      { valeur: 'sans', libelle: t('Sans sauvegarde'), nombre: projetsSans.length },
+                    ],
+                    onChoisir: (v) => setEtatRetenu(v as 'tous' | 'sauvegardes' | 'sans'),
+                  },
+                ]}
+              />
+              <BasculeTableauCartes repere="vue-des-backups" valeur={vueDeLaListe} onChange={setVueDeLaListe} />
+            </BasculeDePage>
+          </>
         ) : null}
+        <OptionsDePage>
+          {refusDestination ? null : (
+            <OptionDePage icone={<HardDrive className="h-3.5 w-3.5" />} disabled detail={etat.dossier} data-backups-disque-option>
+              {t('Disque de stockage')}
+            </OptionDePage>
+          )}
+          {telephone
+            ? CLES_TRI.map((colonne) => (
+                <OptionDePage
+                  key={colonne}
+                  icone={tri.colonne === colonne ? tri.sens === 1 ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" /> : <ListFilter className="h-3.5 w-3.5" />}
+                  onClick={() => trierPar(colonne)}
+                  data-backups-tri-choix={colonne}
+                >
+                  {t('Trier : {v0}', { v0: t(CLES_LIBELLE_TRI[colonne]) })}
+                </OptionDePage>
+              ))
+            : null}
+        </OptionsDePage>
 
         <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
-          {refusDestination ? null : (
-            <p className="truncate pb-2 text-[12.5px] text-faint" data-backups-disque>
-              {t('Disque de stockage : {dossier}', { dossier: etat.dossier })}
-            </p>
-          )}
           {chargement && !etat.sites.length ? (
             /* Le tableau à venir en silhouette : entêtes puis lignes, à leur
                place finale — plus de phrase grise ni d'état vide prématuré. */
             <SilhouetteBackups fiches={telephone} />
-          ) : !resumes.length ? (
+          ) : !resumes.length && !etat.projets.length ? (
             <PasAPas
               repere="backups"
               titre={t('Aucun site à sauvegarder pour l’instant.')}
@@ -579,30 +614,88 @@ export function Backups({
                 t('Faites un essai : la première copie dit si tout est bien relié.'),
               ]}
             />
-          ) : !resumesAffiches.length ? (
+          ) : !sitesVus.length && !projetsVus.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun site ne correspond à cette recherche.')}</p>
+          ) : vueDeLaListe === 'cartes' ? (
+            /* LES CARTES : une par site, une par projet sans sauvegarde — toutes de la même forme. */
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-tableau="backups" data-backups-cartes data-tableau-cartes>
+              {sitesVus.map((resume) => {
+                const props = propsDeSite(resume);
+                return (
+                  <div
+                    key={resume.site.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('a,button,[role=menu],[role=dialog]')) return;
+                      props.onOuvrir();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) props.onOuvrir();
+                    }}
+                    className="flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl bg-surface transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teinte/40"
+                    data-backups-site={resume.site.id}
+                    data-ligne-de-tableau={resume.site.id}
+                  >
+                    <CarteDeTableau
+                      projet={{ id: resume.site.projectId, nom: nomDuProjet(resume.site.projectId) }}
+                      etat={<BadgeStatut dernier={resume.dernier} />}
+                      titre={resume.site.nom}
+                      texte={cadenceLisible(resume.site.frequenceMinutes)}
+                      chiffres={[
+                        { libelle: t('Dernière prise'), valeur: resume.dernier ? dateLisible(resume.dernier.debut) : t('jamais') },
+                        { libelle: t('Volume'), valeur: formaterOctets(resume.octets) },
+                        { libelle: t('Points'), valeur: resume.points.length },
+                      ]}
+                      bas={<ActionsDeSite {...props} />}
+                    />
+                  </div>
+                );
+              })}
+              {projetsVus.map((projet) => (
+                <div key={projet.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-surface" data-backups-projet-ligne={projet.id}>
+                  <CarteDeTableau
+                    projet={{ id: projet.id, nom: projet.nom }}
+                    etat={<Badge tone="neutral">{t('Sans sauvegarde')}</Badge>}
+                    titre={projet.nom}
+                    texte={projet.chemin}
+                    chiffres={[
+                      { libelle: t('Dernière prise'), valeur: '—' },
+                      { libelle: t('Volume'), valeur: '—' },
+                      { libelle: t('Points'), valeur: '—' },
+                    ]}
+                    bas={<BoutonConfigurer projet={projet} projetLance={projetLance} onConfigurer={configurerProjet} />}
+                  />
+                </div>
+              ))}
+            </div>
           ) : telephone ? (
-            /* SUR TÉLÉPHONE, UNE FICHE PAR SITE. Le tableau tenait six colonnes
-               dans 390 px : le statut se rognait et les boutons sortaient de
-               l'écran. Les fiches consomment la MÊME liste déjà filtrée et
-               triée, et les mêmes gestes. */
+            /* SUR TÉLÉPHONE, UNE FICHE PAR SITE, puis une par projet sans sauvegarde — la MÊME liste filtrée et triée. */
             <div className="space-y-2" data-backups-fiches>
-              {resumesAffiches.map((resume) => (
+              {sitesVus.map((resume) => (
                 <FicheSiteMobile key={resume.site.id} {...propsDeSite(resume)} />
+              ))}
+              {projetsVus.map((projet) => (
+                <div key={projet.id} className="flex items-center gap-3 rounded-xl bg-surface px-3.5 py-3" data-backups-projet-ligne={projet.id}>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-[13.5px] text-text">{projet.nom}</span>
+                    <span className="truncate text-[12px] text-faint">{t('Aucune sauvegarde réglée')}</span>
+                  </span>
+                  <BoutonConfigurer projet={projet} projetLance={projetLance} onConfigurer={configurerProjet} />
+                </div>
               ))}
             </div>
           ) : (
-            /* QUATRE COLONNES ET LES GESTES, DANS LA LARGEUR D'UNE PAGE : le
-               site prend la place libre et se tronque, tout le reste tient sur
-               une ligne sans retour. La cadence n'a plus sa colonne — elle se
-               lit sous la dernière prise, comme le nombre de points sous le
-               volume. */
-            <table className="w-full border-collapse text-left" data-backups-tableau>
+            /* UN SEUL TABLEAU : les sites (état, dernière prise, volume, gestes), puis les projets sans sauvegarde
+               (« Sans sauvegarde », « Configurer »). L'aperçu au survol vaut pour les sites. */
+            <ApercuAuSurvol lire={(id) => sitesVus.find((r) => r.site.id === id)} rendu={(r) => <ApercuDuSiteSauvegarde resume={r} />}>
+            <table className="w-full border-collapse text-left" data-tableau="backups" data-backups-tableau>
               <thead>
-                <tr className="text-[12.5px] text-faint">
+                <tr className="text-[12.5px] bg-tableau-entete text-faint [&>th:first-child]:rounded-l-md [&>th:last-child]:rounded-r-md">
                   <EnteteTriable colonne="nom" tri={tri} onTrier={trierPar} className="pl-1">
                     {t('Site')}
                   </EnteteTriable>
+                  <th className="hidden w-[170px] whitespace-nowrap px-2 h-11 py-2 font-medium lg:table-cell">{t('Projet')}</th>
                   <EnteteTriable colonne="dernier" tri={tri} onTrier={trierPar}>
                     {t('Dernière prise')}
                   </EnteteTriable>
@@ -612,19 +705,42 @@ export function Backups({
                   <EnteteTriable colonne="statut" tri={tri} onTrier={trierPar}>
                     {t('Statut')}
                   </EnteteTriable>
-                  <th className="px-2 py-1.5 font-normal" aria-hidden />
+                  <th className="px-2 h-11 py-2 font-medium" aria-hidden />
                 </tr>
               </thead>
               <tbody>
-                {resumesAffiches.map((resume) => (
-                  <LigneSite key={resume.site.id} {...propsDeSite(resume)} />
+                {sitesVus.map((resume) => (
+                  <LigneSite key={resume.site.id} {...propsDeSite(resume)} projet={nomDuProjet(resume.site.projectId)} />
+                ))}
+                {projetsVus.map((projet) => (
+                  <tr key={projet.id} className="border-b border-border transition-colors hover:bg-surface" data-backups-projet-ligne={projet.id}>
+                    <td className="w-full min-w-[9rem] max-w-[9rem] py-3 pl-1 pr-2 align-middle">
+                      <span className="flex w-full min-w-0 flex-col gap-0.5">
+                        <span className="truncate text-[13.5px] text-text">{projet.nom}</span>
+                        <span className="truncate text-[12px] text-faint">{t('Aucune sauvegarde réglée')}</span>
+                      </span>
+                    </td>
+                    <td className="hidden w-[170px] px-2 py-3 align-middle lg:table-cell">
+                      <CelluleProjet id={projet.id} nom={projet.nom} />
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-3 align-middle text-[12.5px] text-faint">—</td>
+                    <td className="hidden whitespace-nowrap px-2 py-3 align-middle text-[12.5px] text-faint md:table-cell">—</td>
+                    <td className="whitespace-nowrap px-2 py-3 align-middle">
+                      <Badge tone="neutral" data-backups-sans-sauvegarde={projet.id}>
+                        {t('Sans sauvegarde')}
+                      </Badge>
+                    </td>
+                    <td className="whitespace-nowrap py-3 pl-2 pr-1 align-middle">
+                      <div className="flex items-center justify-end">
+                        <BoutonConfigurer projet={projet} projetLance={projetLance} onConfigurer={configurerProjet} />
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
+            </ApercuAuSurvol>
           )}
-          {etat.projets.length ? (
-            <TableauProjetsSansSauvegarde projets={etat.projets} projetLance={projetLance} onConfigurer={configurerProjet} />
-          ) : null}
         </ZoneDefilement>
       </Drawer>
 
@@ -703,7 +819,7 @@ function EnteteTriable({
 }) {
   const actif = tri.colonne === colonne;
   return (
-    <th className={cn('whitespace-nowrap px-2 py-1.5 font-normal', className)}>
+    <th className={cn('whitespace-nowrap px-2 h-11 py-2 font-medium', className)}>
       <button
         type="button"
         onClick={() => onTrier(colonne)}
@@ -799,65 +915,57 @@ function BadgeRecette({ site }: { site: SiteASauvegarder }) {
  * vue marcher par personne.
  */
 function RecetteDuSite({ site }: { site: SiteASauvegarder }) {
-  const [commandes, setCommandes] = React.useState(false);
-  useTiroirAdresse('commandes-backups', commandes, setCommandes);
   const recette = recetteEffective(site);
+  /* SUR TÉLÉPHONE, LA MENTION « ÉCRITE PAR L'AGENT, ESSAYÉE LE… » ENTRE DANS LA BULLE ⓘ (03/11/2026) : elle prenait
+     une ligne entière. */
+  const telephone = useTelephone();
+  const mention = site.recette
+    ? site.recetteValideeLe
+      ? t('Écrite par l’agent, essayée le {date}', { date: dateLisible(site.recetteValideeLe) })
+      : t('Écrite par l’agent')
+    : t('Déduite de la fiche, en attendant l’analyse');
+  const bulle = telephone ? (
+    <>
+      {site.recette?.explication ? <span className="block">{site.recette.explication}</span> : null}
+      <span className={cn('block', site.recette?.explication && 'mt-1.5 text-faint')} data-backups-mention-dans-la-bulle>
+        {mention}
+      </span>
+    </>
+  ) : site.recette?.explication ?? null;
   return (
     <div className="flex flex-col gap-1.5 pt-2" data-backups-recette-site={site.id}>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
           <Archive className="h-3.5 w-3.5 shrink-0 text-faint" />
           {t('Recette de backup')}
-          {site.recette?.explication ? <BulleInfo cote="start">{site.recette.explication}</BulleInfo> : null}
+          {bulle ? <BulleInfo cote="start">{bulle}</BulleInfo> : null}
         </h3>
-        <span className="text-[12px] text-faint">
-          {site.recette
-            ? site.recetteValideeLe
-              ? t('Écrite par l’agent, essayée le {date}', { date: dateLisible(site.recetteValideeLe) })
-              : t('Écrite par l’agent')
-            : t('Déduite de la fiche, en attendant l’analyse')}
-        </span>
+        {telephone ? null : <span className="text-[12px] text-faint">{mention}</span>}
       </div>
+      {/* LA RECETTE EN TABLEAU (14/11/2026) : une ligne par élément sauvegardé et son type ; ses commandes (prendre,
+          remettre) se déplient sur la ligne. */}
       {recette.etapes.length ? (
-        <ol className="flex flex-col gap-1">
-          {recette.etapes.map((etape) => (
-            <li key={etape.id} className="flex flex-col gap-1 rounded-md bg-bloc px-2.5 py-1.5" data-backups-etape={etape.id}>
-              <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-2">
-                <span className="min-w-0 text-[12.5px] text-text">{etape.libelle}</span>
-                <span className="flex justify-end whitespace-nowrap">
-                  <Badge tone="neutral">{t(LIBELLE_GENRE_D_ETAPE[etape.genre])}</Badge>
-                </span>
-              </span>
-              {commandes ? (
-                <>
-                  <span className="text-[11px] uppercase tracking-wide text-faint">{t('Prendre')}</span>
-                  <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-text">
-                    {etape.prendre}
-                  </pre>
-                  <span className="text-[11px] uppercase tracking-wide text-faint">{t('Remettre')}</span>
-                  <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-text">
-                    {etape.remettre}
-                  </pre>
-                </>
-              ) : null}
-            </li>
-          ))}
-        </ol>
+        <Tableau
+          repere="recette-backups"
+          lignes={recette.etapes}
+          cle={(etape) => etape.id}
+          colonnes={[
+            { cle: 'libelle', libelle: t('Élément'), valeur: (etape) => etape.libelle, rendu: (etape) => <span className="text-text">{etape.libelle}</span> },
+            { cle: 'genre', libelle: t('Type'), largeur: 170, valeur: (etape) => t(LIBELLE_GENRE_D_ETAPE[etape.genre]), rendu: (etape) => <Badge tone="neutral">{t(LIBELLE_GENRE_D_ETAPE[etape.genre])}</Badge> },
+          ]}
+          attributsLigne={(etape) => ({ 'data-backups-etape': etape.id })}
+          detail={(etape) => (
+            <div className="flex min-w-0 flex-col gap-1 py-1" data-backups-commandes-etape={etape.id}>
+              <span className="text-[11px] uppercase tracking-wide text-faint">{t('Prendre')}</span>
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-text">{etape.prendre}</pre>
+              <span className="text-[11px] uppercase tracking-wide text-faint">{t('Remettre')}</span>
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-text">{etape.remettre}</pre>
+            </div>
+          )}
+        />
       ) : (
         <p className="text-[12px] text-warning">{t('Aucune étape : ce site ne sauvegarde rien pour l’instant.')}</p>
       )}
-      {recette.etapes.length ? (
-        <button
-          type="button"
-          onClick={() => setCommandes((avant) => !avant)}
-          aria-expanded={commandes}
-          className="inline-flex items-center gap-1 self-start text-[12px] text-faint hover:text-text"
-          data-backups-commandes
-        >
-          {commandes ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          {t(commandes ? 'Masquer les commandes' : 'Voir les commandes')}
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -989,14 +1097,47 @@ function FicheSiteMobile(props: PropsDeSite) {
   );
 }
 
-function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConversation, onCarte, onRelire }: PropsDeSite) {
+/** L'aperçu d'un site au survol : statut, volume, cadence, et ses trois derniers points. */
+function ApercuDuSiteSauvegarde({ resume }: { resume: ResumeDeSite }) {
   const { site, dernier, octets, points } = resume;
   return (
-    <tr className="group/ligne" data-backups-site={site.id}>
+    <CorpsDApercu
+      sous={cadenceLisible(site.frequenceMinutes)}
+      titre={site.nom}
+      chiffres={[
+        { libelle: t('Statut'), valeur: <BadgeStatut dernier={dernier} /> },
+        { libelle: t('Volume'), valeur: formaterOctets(octets) },
+        { libelle: t('Points'), valeur: points.length },
+        { libelle: t('Dernière prise'), valeur: dernier ? dateLisible(dernier.debut) : t('jamais') },
+      ]}
+    >
+      {points.length ? (
+        <ul className="mt-2 flex flex-col gap-1" data-derniers-points>
+          {points.slice(0, 3).map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-2 text-[12px]">
+              <span className="truncate text-muted">{dateLisible(p.debut)}</span>
+              <span className="shrink-0 tabular-nums text-faint">{formaterOctets(p.octetsBase + p.octetsFichiers)}</span>
+              <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', p.statut === 'reussi' ? 'bg-faint' : p.statut === 'partiel' ? 'bg-warning' : 'bg-danger')} aria-hidden />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </CorpsDApercu>
+  );
+}
+
+function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConversation, onCarte, onRelire, projet }: PropsDeSite & { projet?: string | null }) {
+  const { site, dernier, octets, points } = resume;
+  return (
+    <tr className="group/ligne cursor-pointer border-b border-border transition-colors hover:bg-surface" data-backups-site={site.id} data-ligne-de-tableau={site.id} onClick={(e) => {
+      // Toute la ligne ouvre la fiche, sauf ses propres gestes (lancer, conversation, carte, relire).
+      if ((e.target as HTMLElement).closest('a,button,[role=menu],[role=dialog]')) return;
+      onOuvrir();
+    }}>
       {/* LA COLONNE DU SITE PREND CE QUI RESTE, ET SE TRONQUE : `w-full` lui
           donne la place libre, la largeur bornée empêche un nom long d'élargir
           le tableau au-delà de la page. */}
-      <td className="w-full min-w-[9rem] max-w-[9rem] py-1.5 pl-1 pr-2 align-top">
+      <td className="w-full min-w-[9rem] max-w-[9rem] py-3 pl-1 pr-2 align-middle">
         <button type="button" onClick={onOuvrir} className="flex w-full min-w-0 flex-col items-start gap-0.5 text-left">
           <span className="flex w-full min-w-0 items-center gap-1.5">
             <span className={cn('min-w-0 truncate text-[13.5px]', site.actif ? 'text-text' : 'text-faint')}>
@@ -1021,7 +1162,10 @@ function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConv
           </span>
         </button>
       </td>
-      <td className="whitespace-nowrap px-2 py-1.5 align-top text-[12.5px] text-faint">
+      <td className="hidden w-[170px] px-2 py-3 align-middle lg:table-cell">
+        <CelluleProjet id={site.projectId} nom={projet ?? null} />
+      </td>
+      <td className="whitespace-nowrap px-2 py-3 align-middle text-[12.5px] text-faint">
         <span className="flex flex-col gap-0.5">
           <span className="inline-flex items-center gap-1">
             <Clock className="h-3 w-3" />
@@ -1030,16 +1174,16 @@ function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConv
           <span className="text-[12px]">{cadenceLisible(site.frequenceMinutes)}</span>
         </span>
       </td>
-      <td className="hidden whitespace-nowrap px-2 py-1.5 align-top text-[12.5px] text-faint md:table-cell">
+      <td className="hidden whitespace-nowrap px-2 py-3 align-middle text-[12.5px] text-faint md:table-cell">
         <span className="flex flex-col gap-0.5">
           <span>{formaterOctets(octets)}</span>
           <span className="text-[12px]">{t('{n} point(s)', { n: points.length })}</span>
         </span>
       </td>
-      <td className="whitespace-nowrap px-2 py-1.5 align-top">
+      <td className="whitespace-nowrap px-2 py-3 align-middle">
         <BadgeStatut dernier={dernier} />
       </td>
-      <td className="whitespace-nowrap py-1.5 pl-2 pr-1 align-top">
+      <td className="whitespace-nowrap py-3 pl-2 pr-1 align-middle">
         <div className="flex items-center justify-end gap-1">
           <ActionsDeSite
             resume={resume}
@@ -1223,85 +1367,21 @@ function AssistantDeSite({
  * = un projet, son dossier, et le geste qui fait écrire sa recette par
  * l'assistant. Sur téléphone la colonne du dossier passe sous le nom.
  */
-function TableauProjetsSansSauvegarde({
-  projets,
+/** « Configurer » : l'assistant écrit la sauvegarde d'un projet qui n'en a pas. */
+function BoutonConfigurer({
+  projet,
   projetLance,
   onConfigurer,
 }: {
-  projets: { id: string; nom: string; chemin: string }[];
+  projet: { id: string; nom: string; chemin: string };
   projetLance: string;
   onConfigurer: (projet: { id: string; nom: string; chemin: string }) => void;
 }) {
-  const [recherche, setRecherche] = React.useState('');
-
-  const filtres = React.useMemo(() => {
-    const mot = recherche.trim().toLowerCase();
-    return mot ? projets.filter((p) => p.nom.toLowerCase().includes(mot) || p.chemin.toLowerCase().includes(mot)) : projets;
-  }, [projets, recherche]);
-
   return (
-    <section className="mt-10 flex flex-col gap-3" data-backups-projets-sans-fiche>
-      <div className="flex items-center gap-1.5 px-1">
-        <h3 className="text-[16px] font-semibold text-text">{t('Projets sans sauvegarde')}</h3>
-        <Badge tone="neutral">{projets.length}</Badge>
-        <BulleInfo cote="start">{t('Un clic sur « Configurer », et l’assistant écrit la sauvegarde du projet.')}</BulleInfo>
-      </div>
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-        <Input
-          value={recherche}
-          onChange={(e) => setRecherche(e.target.value)}
-          placeholder={t('Rechercher un projet…')}
-          className="h-8 pl-7 text-[13px]"
-          autoComplete="off"
-          data-backups-projets-recherche
-        />
-      </div>
-      <div role="table" className="flex flex-col" data-backups-projets-tableau>
-        <div
-          role="row"
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 py-1.5 text-[12.5px] text-faint sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
-        >
-          <span role="columnheader">{t('Projet')}</span>
-          <span role="columnheader" className="hidden sm:block">
-            {t('Dossier')}
-          </span>
-          <span role="columnheader" aria-hidden />
-        </div>
-        {filtres.length ? (
-          filtres.map((projet) => (
-            <div
-              key={projet.id}
-              role="row"
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
-              data-backups-projet-ligne={projet.id}
-            >
-              <span role="cell" className="flex min-w-0 flex-col">
-                <span className="truncate text-[12.5px] text-text">{projet.nom}</span>
-                <span className="truncate font-mono text-[11px] text-faint sm:hidden">{projet.chemin}</span>
-              </span>
-              <span role="cell" className="hidden truncate font-mono text-[11.5px] text-faint sm:block">
-                {projet.chemin}
-              </span>
-              <span role="cell" className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!!projetLance}
-                  onClick={() => onConfigurer(projet)}
-                  data-backups-projet-sans-fiche={projet.id}
-                >
-                  {projetLance === projet.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                  {t('Configurer')}
-                </Button>
-              </span>
-            </div>
-          ))
-        ) : (
-          <p className="px-1 py-3 text-[12px] text-faint">{t('Aucun projet ne correspond à cette recherche.')}</p>
-        )}
-      </div>
-    </section>
+    <Button variant="subtle" size="sm" disabled={!!projetLance} onClick={() => onConfigurer(projet)} data-backups-projet-sans-fiche={projet.id}>
+      {projetLance === projet.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+      {t('Configurer')}
+    </Button>
   );
 }
 
@@ -1341,9 +1421,11 @@ function FicheSite({
   restaurations: string[];
   onRestaurer: (point: PointDeSauvegarde) => void;
 }) {
+  const telephone = useTelephone();
   const [site, setSite] = React.useState<SiteASauvegarder>(siteVierge());
   const [enCours, setEnCours] = React.useState(false);
   const [aSupprimer, setASupprimer] = React.useState(false);
+  const [reglagesOuverts, setReglagesOuverts] = React.useState(false);
 
   // Le formulaire se remplit à l'OUVERTURE, et seulement là : la relecture de
   // l'état toutes les cinq secondes ne doit pas écraser une frappe en cours.
@@ -1364,7 +1446,9 @@ function FicheSite({
       await client.call({ type: 'backups.enregistrerSite', site });
       client.pushToast('success', t('Site enregistré.'));
       onChange();
-      onClose();
+      /* Un site existant reste affiché : seule la feuille des réglages se referme. */
+      if (site.id) setReglagesOuverts(false);
+      else onClose();
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Site non enregistré'));
     } finally {
@@ -1385,53 +1469,16 @@ function FicheSite({
 
   const distant = site.fichiers.moyen === 'ssh' || site.fichiers.moyen === 'ftp';
 
-  return (
-    <>
-      <Drawer open={fiche !== null} onClose={onClose} empile>
-        {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
-            Backup › ProjetE » ; son interrupteur et son « i » montent à droite
-            de la barre d'en-tête de la page. Plus de rangée de titre sous elle. */}
-        <DialogTitle className="min-w-0 truncate px-3 pb-2">
-          {site.id ? site.nom || t('Site') : t('Nouveau site')}
-        </DialogTitle>
-        <GestesDePage className="px-3">
-          {/* LE BOUTON DE L'AGENT REVIENT ICI (demande du 12/10/2026) : il ne
-              s'affichait que sur la liste, et seulement sur un échec ou un site
-              sans recette. Sur la fiche, il est toujours là. */}
-          {site.id && onRelire ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0"
-              disabled={relu}
-              onClick={onRelire}
-              title={site.recette ? t('Faire relire et réparer la recette de ce site par l’agent') : t('Faire écrire la recette de ce site par l’agent d’analyse')}
-              data-backups-fiche-agent={site.id}
-              data-agent-au-travail={relu ? '' : undefined}
-            >
-              {relu ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {relu ? t('L’agent travaille…') : t('Configurer avec l’agent')}
-            </Button>
-          ) : null}
-          <BulleInfo>{t(
-                'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
-              )}</BulleInfo>
-          <Switch
-            checked={site.actif}
-            onCheckedChange={(actif) => setSite((avant) => ({ ...avant, actif }))}
-            data-backups-actif
-          />
-        </GestesDePage>
-
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <FormulaireEnColonnes>
+  /* LES RÉGLAGES : la page d'un site neuf, la feuille d'un site existant. */
+  const champsDuSite = (
+    <FormulaireEnColonnes>
             <Champ libelle={t('Nom du site')}>
               <Input
                 value={site.nom}
                 onChange={(e) => setSite((avant) => ({ ...avant, nom: e.target.value }))}
                 maxLength={NOM_SITE_MAX}
                 placeholder={t('Comment reconnaître ce site')}
-                className="h-8 text-[13px]"
+                className="sm:h-8 sm:text-[13px]"
                 autoComplete="off"
                 data-backups-nom
               />
@@ -1454,7 +1501,7 @@ function FicheSite({
                   <Input
                     value={site.base.nom}
                     onChange={(e) => majBase({ nom: e.target.value })}
-                    className="h-8 text-[13px]"
+                    className="sm:h-8 sm:text-[13px]"
                     autoComplete="off"
                     data-backups-base-nom
                   />
@@ -1484,7 +1531,7 @@ function FicheSite({
                       <Input
                         value={site.base.utilisateur}
                         onChange={(e) => majBase({ utilisateur: e.target.value })}
-                        className="h-8 text-[13px]"
+                        className="sm:h-8 sm:text-[13px]"
                         autoComplete="off"
                         data-backups-base-utilisateur
                       />
@@ -1493,7 +1540,7 @@ function FicheSite({
                       <ChampMotDePasse
                         value={site.base.motDePasse}
                         onChange={(e) => majBase({ motDePasse: e.target.value })}
-                        className="h-8 text-[13px]"
+                        className="sm:h-8 sm:text-[13px]"
                         autoComplete="off"
                       />
                     </Champ>
@@ -1520,7 +1567,7 @@ function FicheSite({
                     value={site.fichiers.chemin}
                     onChange={(e) => majFichiers({ chemin: e.target.value })}
                     placeholder="/var/www/site"
-                    className="h-8 text-[13px]"
+                    className="sm:h-8 sm:text-[13px]"
                     autoComplete="off"
                     data-backups-chemin
                   />
@@ -1550,7 +1597,7 @@ function FicheSite({
                       <Input
                         value={site.fichiers.utilisateur}
                         onChange={(e) => majFichiers({ utilisateur: e.target.value })}
-                        className="h-8 text-[13px]"
+                        className="sm:h-8 sm:text-[13px]"
                         autoComplete="off"
                         data-backups-fichiers-utilisateur
                       />
@@ -1559,7 +1606,7 @@ function FicheSite({
                       <ChampMotDePasse
                         value={site.fichiers.motDePasse}
                         onChange={(e) => majFichiers({ motDePasse: e.target.value })}
-                        className="h-8 text-[13px]"
+                        className="sm:h-8 sm:text-[13px]"
                         autoComplete="off"
                       />
                     </Champ>
@@ -1577,7 +1624,7 @@ function FicheSite({
                     onChange={(e) =>
                       setSite((avant) => ({ ...avant, frequenceMinutes: Number(e.target.value) || 0 }))
                     }
-                    className="h-8 text-[13px]"
+                    className="sm:h-8 sm:text-[13px]"
                     data-backups-frequence
                   />
                 </Champ>
@@ -1590,7 +1637,7 @@ function FicheSite({
                     onChange={(e) =>
                       setSite((avant) => ({ ...avant, conservationJours: Number(e.target.value) || 0 }))
                     }
-                    className="h-8 text-[13px]"
+                    className="sm:h-8 sm:text-[13px]"
                     data-backups-conservation
                   />
                 </Champ>
@@ -1611,16 +1658,113 @@ function FicheSite({
               </p>
             ) : null}
 
+      <div className="flex items-center gap-2 text-[13px] text-text">
+        <Switch
+          checked={site.actif}
+          onCheckedChange={(actif) => setSite((avant) => ({ ...avant, actif }))}
+          aria-label="Site actif"
+          data-backups-actif
+        />
+        <span>{t('Site actif')}</span>
+        <BulleInfo>{t(
+          'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
+        )}</BulleInfo>
+      </div>
+    </FormulaireEnColonnes>
+  );
+  const piedDesReglages = (
+    <DialogFooter className="justify-start px-3 pt-2">
+      <Button variant="subtle" size="sm" onClick={enregistrer} disabled={enCours || !jugement.ok} data-backups-enregistrer>
+        {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+        {t('Enregistrer')}
+      </Button>
+      {site.id ? (
+        <Button variant="ghost" size="sm" onClick={() => setASupprimer(true)} data-backups-supprimer>
+          <Trash2 className="h-3 w-3" />
+          {t('Retirer')}
+        </Button>
+      ) : null}
+    </DialogFooter>
+  );
 
-            {site.id ? (
-              <div data-pleine-largeur>
-                <RecetteDuSite site={site} />
-              </div>
-            ) : null}
+  return (
+    <>
+      {/* UN VRAI TIROIR PAR-DESSUS LA PAGE (15/11/2026) : la feuille commune sur ordinateur, la liste des sites reste
+          dessous ; la feuille du bas pleine hauteur sur téléphone (DEC-474). */}
+      <Drawer open={fiche !== null} onClose={onClose} feuille={!telephone} empile className={telephone ? undefined : 'h-[92dvh]'}>
+        {fiche !== null && !telephone ? (
+          <SuiteDuFil onRacine={onClose}>
+            <CranDuFil data-backups-cran={site.id || 'nouveau'}>{site.id ? site.nom || t('Site') : t('Nouveau site')}</CranDuFil>
+          </SuiteDuFil>
+        ) : null}
+        {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
+            Backup › ProjetE » ; son interrupteur et son « i » montent à droite
+            de la barre d'en-tête de la page. Plus de rangée de titre sous elle. */}
+        <DialogTitle className="min-w-0 truncate px-3 pb-2">
+          {site.id ? site.nom || t('Site') : t('Nouveau site')}
+        </DialogTitle>
+        <GestesDePage className="px-3">
+          {/* LE BOUTON DE L'AGENT REVIENT ICI (demande du 12/10/2026) : il ne
+              s'affichait que sur la liste, et seulement sur un échec ou un site
+              sans recette. Sur la fiche, il est toujours là. */}
+          {site.id && onRelire && !telephone ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              disabled={relu}
+              onClick={onRelire}
+              title={site.recette ? t('Faire relire et réparer la recette de ce site par l’agent') : t('Faire écrire la recette de ce site par l’agent d’analyse')}
+              data-backups-fiche-agent={site.id}
+              data-agent-au-travail={relu ? '' : undefined}
+            >
+              {relu ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {relu ? t('L’agent travaille…') : t('Configurer avec l’agent')}
+            </Button>
+          ) : null}
+          {site.id ? (
+            telephone ? (
+              /* SUR TÉLÉPHONE, RÉGLAGES N'EST QU'UNE ICÔNE (03/11/2026). */
+              <Button variant="ghost" size="icon" className="h-[38px] w-[38px] shrink-0 text-muted" aria-label="Réglages" title={t('Réglages')} onClick={() => setReglagesOuverts(true)} data-backups-ouvrir-reglages>
+                <Settings className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setReglagesOuverts(true)} data-backups-ouvrir-reglages>
+                <Settings className="h-3.5 w-3.5" />
+                {t('Réglages')}
+              </Button>
+            )
+          ) : null}
+        </GestesDePage>
+
+        {site.id && telephone && onRelire ? (
+          /* SUR TÉLÉPHONE, « CONFIGURER AVEC L'AGENT » EST LE BOUTON PLEINE LARGEUR DU BAS DE LA FICHE (03/11/2026),
+             teinté de violet : il lance le travail d'un agent. */
+          <div className="order-last shrink-0 pb-[var(--pied-natif,calc(10px+env(safe-area-inset-bottom)))] pt-2" data-backups-pied-fiche>
+            <button
+              type="button"
+              disabled={relu}
+              onClick={onRelire}
+              className={cn(CLASSE_BOUTON_PLEINE_LARGEUR, 'bg-teinte/15 text-teinte active:bg-teinte/25')}
+              data-backups-fiche-agent={site.id}
+              data-agent-au-travail={relu ? '' : undefined}
+            >
+              {relu ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {relu ? t('L’agent travaille…') : t('Configurer avec l’agent')}
+            </button>
+          </div>
+        ) : null}
+        {site.id ? (
+          /* LA FICHE S'OUVRE SUR CE QUI EST RÉCUPÉRÉ (demande du 31/10/2026) : la recette puis l'historique. */
+          <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+            <FormulaireEnColonnes>
+            <div data-pleine-largeur>
+              <RecetteDuSite site={site} />
+            </div>
 
             {/* L'HISTORIQUE DE CE SITE : ce qui vivait dans un tiroir séparé
                 se lit maintenant ici, au clic sur le site lui-même. */}
-            {site.id ? (
+            {(
               <div className="flex min-w-0 flex-col gap-1.5 pt-2" data-backups-historique-site={site.id} data-pleine-largeur>
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
@@ -1637,40 +1781,43 @@ function FicheSite({
                 {!points.length ? (
                   <p className="text-[12px] text-faint">{t('Jamais sauvegardé.')}</p>
                 ) : (
-                  <div className="flex flex-col gap-1">
-                    {points.map((point) => (
-                      <LignePoint
-                        key={point.id}
-                        point={point}
-                        enRestauration={restaurations.includes(point.id)}
-                        onRestaurer={() => onRestaurer(point)}
-                      />
-                    ))}
-                  </div>
+                  /* L'HISTORIQUE EN TABLEAU (14/11/2026, « toutes les données qui sont en liste doivent être dans des
+                     tableaux ») : une ligne par sauvegarde, qui se déplie sur ce que l'archive contient. */
+                  <TableauDesPoints points={points} restaurations={restaurations} onRestaurer={onRestaurer} />
                 )}
               </div>
-            ) : null}
-          </FormulaireEnColonnes>
-        </ZoneDefilement>
+            )}
+            </FormulaireEnColonnes>
+          </ZoneDefilement>
+        ) : (
+          /* Un site neuf n'a rien à montrer : ses réglages sont la page. */
+          <>
+            <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+              {champsDuSite}
+            </ZoneDefilement>
+            {piedDesReglages}
+          </>
+        )}
+      </Drawer>
 
-        <DialogFooter className="justify-start px-3 pt-2">
-          <Button
-            variant="subtle"
-            size="sm"
-            onClick={enregistrer}
-            disabled={enCours || !jugement.ok}
-            data-backups-enregistrer
-          >
-            {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            {t('Enregistrer')}
-          </Button>
-          {site.id ? (
-            <Button variant="ghost" size="sm" onClick={() => setASupprimer(true)} data-backups-supprimer>
-              <Trash2 className="h-3 w-3" />
-              {t('Retirer')}
-            </Button>
-          ) : null}
-        </DialogFooter>
+      <Drawer
+        adresse="reglages-backups"
+        open={reglagesOuverts && !!site.id}
+        onClose={() => {
+          setReglagesOuverts(false);
+          /* Fermer sans enregistrer abandonne les modifications. */
+          if (fiche) setSite(fiche);
+        }}
+        empile
+        feuille
+      >
+        <div className="flex min-h-0 flex-1 flex-col" data-backups-reglages>
+          <EnteteDeFeuille titre={t('Réglages')} />
+          <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+            {champsDuSite}
+          </ZoneDefilement>
+          {piedDesReglages}
+        </div>
       </Drawer>
 
       <ConfirmDialog
@@ -1707,44 +1854,82 @@ function detailHorsInventaire(point: PointDeSauvegarde): string {
   return detail.slice(0, detail.length - dejaDit.length).replace(/[\s—–-]+$/, '');
 }
 
-/** Un point de sauvegarde : sa date, son issue, son poids, et ce qui a cloché. */
-function LignePoint({
-  point,
-  enRestauration,
+/** Le geste « Restaurer » d'un point, dans sa ligne du tableau. */
+function BoutonRestaurer({ point, enRestauration, onRestaurer }: { point: PointDeSauvegarde; enRestauration: boolean; onRestaurer: () => void }) {
+  const restaurable = point.statut !== 'echec' && !!(point.cheminArchive || point.chemin);
+  if (!restaurable) return null;
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      disabled={enRestauration}
+      onClick={(e) => {
+        e.stopPropagation();
+        onRestaurer();
+      }}
+      data-backups-restaurer={point.id}
+    >
+      {enRestauration ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+      {t(enRestauration ? 'Restauration…' : 'Restaurer')}
+    </Button>
+  );
+}
+
+/** L'historique d'un site, en tableau : la date, le volume, l'origine, l'issue et « Restaurer » ; le détail se déplie. */
+function TableauDesPoints({
+  points,
+  restaurations,
   onRestaurer,
 }: {
-  point: PointDeSauvegarde;
-  enRestauration: boolean;
-  onRestaurer: () => void;
+  points: readonly PointDeSauvegarde[];
+  restaurations: readonly string[];
+  onRestaurer: (point: PointDeSauvegarde) => void;
 }) {
-  const restaurable = point.statut !== 'echec' && !!(point.cheminArchive || point.chemin);
+  const colonnes: ColonneDuTableauCommun<PointDeSauvegarde>[] = [
+    { cle: 'date', libelle: t('Date'), valeur: (p) => p.debut, rendu: (p) => <span className="text-text">{dateLisible(p.debut)}</span>, sensNaturel: 'desc' },
+    { cle: 'volume', libelle: t('Volume'), largeur: 110, droite: true, masqueSurTelephone: true, valeur: (p) => volumeDuPoint(p), rendu: (p) => formaterOctets(volumeDuPoint(p)) },
+    { cle: 'origine', libelle: t('Origine'), largeur: 130, masqueSurTelephone: true, filtre: 'choix', valeur: (p) => t(p.origine === 'manuel' ? 'À la main' : 'Automatique') },
+    {
+      cle: 'etat',
+      libelle: t('État'),
+      largeur: 190,
+      masqueSurTelephone: true,
+      filtre: 'choix',
+      lireFiltre: (p) => p.statut,
+      valeur: (p) => p.statut,
+      rendu: (p) => (
+        <Badge tone={p.statut === 'reussi' ? 'success' : p.statut === 'partiel' ? 'warning' : 'danger'}>{t(phraseDeStatut(p))}</Badge>
+      ),
+    },
+    {
+      cle: 'restaurer',
+      libelle: '',
+      largeur: 140,
+      droite: true,
+      libre: true,
+      rendu: (p) => <BoutonRestaurer point={p} enRestauration={restaurations.includes(p.id)} onRestaurer={() => onRestaurer(p)} />,
+    },
+  ];
+  return (
+    <Tableau
+      repere="historique-backups"
+      recherche={false}
+      lignes={points}
+      colonnes={colonnes}
+      cle={(p) => p.id}
+      triInitial={{ colonne: 'date', sens: 'desc' }}
+      detail={(p) => <DetailDuPoint point={p} />}
+      attributsLigne={(p) => ({ 'data-backups-point': p.id })}
+    />
+  );
+}
+
+/** Ce que l'archive d'un point contient, et ce qui a cloché : le détail déplié d'une ligne de l'historique. */
+function DetailDuPoint({ point }: { point: PointDeSauvegarde }) {
   const detail = point.statut !== 'reussi' ? detailHorsInventaire(point) : '';
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-md bg-bloc px-2.5 py-2" data-backups-point={point.id}>
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-text">{dateLisible(point.debut)}</span>
-        <span className="shrink-0 text-[12px] text-faint">{formaterOctets(volumeDuPoint(point))}</span>
-        <Badge tone={point.statut === 'reussi' ? 'success' : point.statut === 'partiel' ? 'warning' : 'danger'}>
-          {t(point.origine === 'manuel' ? 'À la main' : 'Automatique')}
-        </Badge>
-        {restaurable ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={enRestauration}
-            onClick={onRestaurer}
-            data-backups-restaurer={point.id}
-          >
-            {enRestauration ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <RotateCcw className="h-3 w-3" />
-            )}
-            {t(enRestauration ? 'Restauration…' : 'Restaurer')}
-          </Button>
-        ) : null}
-      </span>
-      <span className="text-[11.5px] leading-relaxed text-faint">{t(phraseDeStatut(point))}</span>
+    <div className="flex min-w-0 flex-col gap-1 py-1" data-backups-detail-point={point.id}>
+
       {/* CE QUE L'ARCHIVE CONTIENT, relu dans le zip : c'est cet inventaire qui
           a décidé du statut. Un point d'avant les archives le dit.
 

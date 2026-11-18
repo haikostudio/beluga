@@ -9,7 +9,7 @@ import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { ArrowLeft, Check, ChevronDown, ChevronRight, EllipsisVertical, Eye, EyeOff, Info, Loader2, Search, WandSparkles, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, EllipsisVertical, Eye, EyeOff, Info, Loader2, Search, WandSparkles, X } from '@/components/ui/icones';
 import {
   DUREE_REUSSITE_MS,
   EVENEMENT_ATTENTE_LONGUE,
@@ -23,12 +23,16 @@ import {
   niveauQuota,
   suiteDesEtats,
   type EtatDeBouton,
+  lireRgba,
 } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { useSurvol } from '@/lib/pointeur';
 import { useTelephone } from '@/lib/telephone';
+import { useVoileAffiche } from '@/lib/barre-de-l-heure';
+import { useGlisserPourFermer, useRefsFusionnees } from '@/lib/glisser-pour-fermer';
 import { t } from '@/lib/langue';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
+import { poserLaGardeAuDessusDesFenetres } from '@/lib/au-dessus-des-fenetres';
 
 /**
  * Le socle visuel, posé AVANT les écrans (PLAN §17, §30). Les composants sont
@@ -48,7 +52,7 @@ import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
  */
 export const CLASSE_BOUTON_DE_CREATION = 'bg-encre text-encre-fg hover:opacity-90';
 
-const buttonVariants = cva(
+export const buttonVariants = cva(
   'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:pointer-events-none disabled:opacity-40 select-none',
   {
     variants: {
@@ -87,15 +91,37 @@ const buttonVariants = cva(
          * remplace — jamais le blanc franc refusé en sombre.
          */
         principal: cn(CLASSE_BOUTON_DE_CREATION, 'dark:bg-text/[0.3] dark:text-text dark:hover:bg-text/[0.36] dark:hover:opacity-100'),
+        /*
+         * LE BOUTON D'ICÔNE « DOUX » DU TÉLÉPHONE (carte « Icônes, contrastes et artefacts », 15/11/2026, capture de
+         * référence #922bd) : sur téléphone, un petit carré à coins doux posé sur le gris LÉGER commun
+         * (`--controle-doux`) ; sur ordinateur, le bouton fantôme d'avant — la mise en page n'y bouge pas. Sans bordure.
+         */
+        doux: 'text-muted hover:text-text max-sm:bg-controle-doux max-sm:hover:bg-controle-doux-survol sm:hover:bg-raised',
       },
       size: {
+        /* LA HAUTEUR COMMUNE (`HAUTEUR_DE_CONTROLE`, 04/11/2026) : boutons, champs, listes de choix et boutons à menu
+           ont TOUS la même hauteur — « tous les composants de la même taille ». `md` la prend aussi. */
         sm: 'h-[38px] sm:h-8 px-3.5 sm:px-3 text-[13.5px]',
-        md: 'h-[43px] sm:h-9 px-4 sm:px-3.5 text-[14.5px]',
+        md: 'h-[38px] sm:h-8 px-3.5 sm:px-3 text-[14px]',
         lg: 'h-12 sm:h-10 px-5 sm:px-4 text-[14.5px]',
         icon: 'h-[34px] sm:h-7 w-[34px] sm:w-7',
         /* La case d'icône d'une BARRE d'en-tête (voir `CLASSE_RANGEE_DE_BOUTONS`). */
         'icon-barre': 'h-[38px] sm:h-8 w-[38px] sm:w-8',
         'icon-sm': 'h-[29px] sm:h-6 w-[29px] sm:w-6',
+        /*
+         * LES PASTILLES D'ICÔNE (15/11/2026, décision de l'utilisateur : « réduis le padding, augmente l'icône », coins
+         * DOUX et non ronds — MEM-0813). La case garde à peu près sa taille, l'icône grandit et la marge fond :
+         *  - `pastille` : le haut du téléphone (☰, ⋮, robot) — 40 px, icône 24 px ; sur ordinateur la case de barre
+         *    (32 px, comme ses voisines de rangée) et une icône de 18 px au lieu de 16 ;
+         *  - `pastille-champ` : la rangée du champ d'écriture (trombone, micro, envoi) — 36 px, icône 22 px ; sur
+         *    ordinateur la case de 28 px d'avant, icône de 16 px au lieu de 14.
+         * L'icône y garde SA taille : le grossissement général du téléphone (`button > svg { scale }`, styles.css) est
+         * neutralisé, sinon il s'ajouterait.
+         */
+        pastille:
+          'h-10 w-10 rounded-[11px] sm:h-8 sm:w-8 sm:rounded-lg [&>svg]:h-6 [&>svg]:w-6 [&>svg]:[scale:1] sm:[&>svg]:h-[18px] sm:[&>svg]:w-[18px]',
+        'pastille-champ':
+          'h-9 w-9 rounded-[11px] sm:h-7 sm:w-7 sm:rounded-md [&>svg]:h-[22px] [&>svg]:w-[22px] [&>svg]:[scale:1] sm:[&>svg]:h-4 sm:[&>svg]:w-4',
         /*
          * LE BOUTON D'UN PIED — en bas d'un écran, d'une colonne ou d'un tiroir,
          * sur toute la largeur. Tous les pieds ont la MÊME hauteur : celle d'une
@@ -259,6 +285,13 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 Button.displayName = 'Button';
 
+/**
+ * LA HAUTEUR COMMUNE DES CONTRÔLES (retours du 04/11/2026, deuxième passe : « tous les composants de la même taille ») :
+ * un bouton (`sm` et `md`), un champ (`Input`), une liste de choix (`ListeDeroulante`, ses deux tenues), un segment de
+ * bouton groupé et un bouton à menu (`ui/boutons-a-menu.tsx`) la prennent tous. Plus de hauteur écrite à la main.
+ */
+export const HAUTEUR_DE_CONTROLE = 'h-[38px] sm:h-8';
+
 /* ----------------------------- Champs ----------------------------- */
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
@@ -266,7 +299,8 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'h-10 w-full rounded-lg border border-transparent bg-raised px-3.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
+        HAUTEUR_DE_CONTROLE,
+        'w-full rounded-lg border border-transparent bg-champ px-3 text-[14px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
         className,
       )}
       {...props}
@@ -319,7 +353,8 @@ export const ChampMotDePasse = React.forwardRef<
         autoCapitalize="off"
         autoCorrect="off"
         className={cn(
-          'h-10 w-full rounded-lg border border-transparent bg-raised px-3.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
+          HAUTEUR_DE_CONTROLE,
+        'w-full rounded-lg border border-transparent bg-champ px-3 text-[14px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
           onGenerer ? 'pr-[4.25rem]' : 'pr-10',
           className,
         )}
@@ -361,7 +396,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
     <textarea
       ref={ref}
       className={cn(
-        'w-full resize-none rounded-lg border border-transparent bg-raised px-3.5 py-2.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none',
+        'w-full resize-none rounded-lg border border-transparent bg-champ px-3.5 py-2.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none',
         className,
       )}
       {...props}
@@ -489,6 +524,13 @@ Badge.displayName = 'Badge';
  */
 export const CLASSE_POINT_DE_BOUTON = 'pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full';
 
+/*
+ * L'ÉLÉMENT OUVERT D'UNE LISTE NE PORTE PLUS AUCUN POINT (décision de l'utilisateur du 16/11/2026, capture
+ * #b166) : son fond léger et son texte en couleur suffisent. L'ancien `CLASSE_REPERE_OUVERT` (point de 6 px
+ * à cheval sur le bord gauche) et son repère `data-repere-demi-rond` ont disparu partout ; ne pas les rétablir.
+ * Contrôle : `scripts/verif-retouches-colonne.mjs` (« aucun point devant la ligne ouverte »).
+ */
+
 /**
  * LA RÈGLE D'UNE RANGÉE DE BOUTONS : UN SEUL PAS, D'UN BOUT À L'AUTRE.
  *
@@ -586,7 +628,9 @@ export const Tabs = TabsPrimitive.Root;
  * le fond de la page ; `--ligne-active` est le gris le plus marqué des deux
  * palettes, et l'onglet ouvert s'y détache en clair comme en sombre.
  */
-export const CLASSES_LISTE_ONGLETS = 'h-[38px] sm:h-8 items-center gap-0.5 rounded-lg bg-ligne-active p-0.5';
+export const CLASSES_LISTE_ONGLETS = 'h-[38px] sm:h-8 items-center gap-0.5 rounded-lg bg-onglets-barre p-0.5';
+/* TROIS FONDS (03/11/2026) : la barre, le plus profond ; l'onglet au repos, intermédiaire ; le choisi, le plus
+   clair et en violet. La même tenue que `BarreDOnglets` (`ui/barre-d-onglets.tsx`). */
 
 export const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
@@ -620,16 +664,29 @@ TabsList.displayName = 'TabsList';
 
 export const TabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> & {
+    /** CHAQUE ONGLET DIT COMBIEN IL EN A (03/11/2026) : le compteur, zéro compris ; absent, pas de compteur. */
+    nombre?: number | null;
+  }
+>(({ className, nombre, children, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex h-[34px] sm:h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 sm:px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-bg data-[state=active]:text-teinte data-[state=active]:shadow-sm dark:data-[state=active]:bg-faint/30',
+      'group/onglet inline-flex h-[34px] sm:h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-transparent px-3 sm:px-2.5 text-[13px] font-medium text-muted transition-colors hover:bg-onglets-repos hover:text-text data-[state=active]:hover:bg-onglets-actif data-[state=active]:bg-onglets-actif data-[state=active]:text-teinte data-[state=active]:shadow-sm',
       className,
     )}
     {...props}
-  />
+  >
+    {children}
+    {nombre === undefined || nombre === null ? null : (
+      <span
+        className="min-w-[1.25rem] rounded-full bg-onglets-barre/70 px-1.5 text-center text-[11px] font-normal leading-[16px] tabular-nums text-faint group-data-[state=active]/onglet:bg-teinte/15 group-data-[state=active]/onglet:text-teinte"
+        data-compteur-onglet={nombre}
+      >
+        {nombre.toLocaleString(undefined)}
+      </span>
+    )}
+  </TabsPrimitive.Trigger>
 ));
 TabsTrigger.displayName = 'TabsTrigger';
 
@@ -675,16 +732,16 @@ const OMBRE_COURBE =
 const BORD_ARRONDI_PX = 24;
 
 /** Le fondu de l'ombre vers ses côtés : doux contre le bord, plein ensuite. */
-const BORD_COURBE = (sens: 'right' | 'bottom') =>
-  `linear-gradient(to ${sens}, rgb(0 0 0 / 0) 0, rgb(0 0 0 / 0.35) ${BORD_ARRONDI_PX * 0.35}px, rgb(0 0 0 / 0.8) ${BORD_ARRONDI_PX * 0.7}px, black ${BORD_ARRONDI_PX}px, black calc(100% - ${BORD_ARRONDI_PX}px), rgb(0 0 0 / 0.8) calc(100% - ${BORD_ARRONDI_PX * 0.7}px), rgb(0 0 0 / 0.35) calc(100% - ${BORD_ARRONDI_PX * 0.35}px), rgb(0 0 0 / 0) 100%)`;
+const BORD_COURBE = (sens: 'right' | 'bottom', bande = BORD_ARRONDI_PX) =>
+  `linear-gradient(to ${sens}, rgb(0 0 0 / 0) 0, rgb(0 0 0 / 0.15) ${bande * 0.2}px, rgb(0 0 0 / 0.35) ${bande * 0.35}px, rgb(0 0 0 / 0.6) ${bande * 0.55}px, rgb(0 0 0 / 0.8) ${bande * 0.7}px, rgb(0 0 0 / 0.95) ${bande * 0.88}px, black ${bande}px, black calc(100% - ${bande}px), rgb(0 0 0 / 0.95) calc(100% - ${bande * 0.88}px), rgb(0 0 0 / 0.8) calc(100% - ${bande * 0.7}px), rgb(0 0 0 / 0.6) calc(100% - ${bande * 0.55}px), rgb(0 0 0 / 0.35) calc(100% - ${bande * 0.35}px), rgb(0 0 0 / 0.15) calc(100% - ${bande * 0.2}px), rgb(0 0 0 / 0) 100%)`;
 
 /**
  * Le masque de l'ombre : son extinction depuis le bord de la zone (`sens`),
  * MULTIPLIÉE par le fondu de ses côtés (`intersect`, `source-in` sous Safari).
  * Sans cette composition, deux masques s'additionnent et rien ne s'efface.
  */
-const masqueDeLOmbre = (sens: 'top' | 'bottom' | 'left' | 'right'): React.CSSProperties => {
-  const cotes = BORD_COURBE(sens === 'top' || sens === 'bottom' ? 'right' : 'bottom');
+const masqueDeLOmbre = (sens: 'top' | 'bottom' | 'left' | 'right', bande = BORD_ARRONDI_PX): React.CSSProperties => {
+  const cotes = BORD_COURBE(sens === 'top' || sens === 'bottom' ? 'right' : 'bottom', bande);
   const image = `${cotes}, linear-gradient(to ${sens}, ${OMBRE_COURBE})`;
   return {
     maskImage: image,
@@ -701,9 +758,8 @@ const masqueDeLOmbre = (sens: 'top' | 'bottom' | 'left' | 'right'): React.CSSPro
  * largeur bornée), l'ombre pleine largeur dessinait une bande sombre dans le
  * vide de part et d'autre. On mesure donc l'étendue horizontale du contenu
  * — les enfants qui ont une largeur, en descendant à travers les enveloppes
- * pleine largeur — et le voile s'y cale, débordant de la moitié de sa bande
- * d'extinction (`BORD_ARRONDI_PX`) pour que le contenu au bord de la colonne
- * soit couvert à pleine force. Un contenu pleine largeur, ou rangé d'un seul
+ * pleine largeur — et le voile s'y cale, sans jamais en dépasser les bords
+ * (padding vide exclu, 17/11/2026). Un contenu pleine largeur, ou rangé d'un seul
  * côté (une liste alignée à gauche), garde le voile sur toute la largeur.
  */
 const PROFONDEUR_COLONNE = 3;
@@ -716,7 +772,24 @@ const ENFANTS_COLONNE_MAX = 12;
  */
 function etendueDuContenu(element: Element, pleine: number, profondeur: number): [number, number] | null {
   const cadre = element.getBoundingClientRect();
-  if (cadre.width < pleine - 2) return [cadre.left, cadre.right];
+  if (cadre.width < pleine - 2) {
+    /*
+     * LE CONTENU, PAS SA MARGE INTÉRIEURE (17/11/2026, capture #def0f : « pourquoi j'ai encore les shadows qui
+     * dépassent ») : une colonne de service (`px-10`) rendait sa boîte entière, marges vides comprises — l'ombre
+     * débordait de 40 px de chaque côté de la liste. Une colonne SANS FOND rend sa boîte de contenu ; un bloc qui a
+     * son fond (une carte, un panneau) se voit jusqu'à son bord et garde sa boîte. Une tête collée
+     * (`data-tete-collante`) a le fond de la page pour cacher ce qui passe dessous : ce fond ne dessine
+     * rien, sa marge reste vide.
+     */
+    const style = getComputedStyle(element);
+    const sansFond =
+      element.hasAttribute('data-tete-collante') ||
+      (/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor) && style.backgroundImage === 'none');
+    if (!sansFond) return [cadre.left, cadre.right];
+    const g = cadre.left + parseFloat(style.paddingLeft || '0') + parseFloat(style.borderLeftWidth || '0');
+    const d = cadre.right - parseFloat(style.paddingRight || '0') - parseFloat(style.borderRightWidth || '0');
+    return d > g ? [g, d] : [cadre.left, cadre.right];
+  }
   if (profondeur === 0) return null;
   // Du texte posé directement dans une enveloppe pleine largeur : il la remplit.
   for (const noeud of element.childNodes) {
@@ -740,6 +813,28 @@ function etendueDuContenu(element: Element, pleine: number, profondeur: number):
   return gauche < droite ? [gauche, droite] : null;
 }
 
+/**
+ * LA BARRE DE DÉFILEMENT TOUT AU BORD DE LA ZONE, PAS DE LA COLONNE (demande du 15/11/2026, capture #3a67 : « il faut
+ * que la scrollbar soit toute à droite et non pas dans la colonne centrale, et ça pour l'ensemble de l'application »).
+ *
+ * Une page de lecture centre son contenu dans une colonne (820 px pour une conversation, une page de service) : la
+ * zone qui défile, posée DANS cette colonne, avait sa barre au milieu de l'écran. Plutôt que de réécrire chaque écran,
+ * la zone S'ÉTEND d'elle-même jusqu'aux bords de la zone qui la porte (le « bord » : la zone principale, une page
+ * posée par-dessus) — marges négatives sur l'enveloppe — et rend la même largeur en BORDURES TRANSPARENTES sur la
+ * zone qui défile : le contenu ne bouge pas d'un pixel, la barre dessinée part au bord, et la molette posée dans les
+ * marges fait défiler la page nativement.
+ *
+ * Elle ne s'étend QUE si tout cela est vrai : elle n'est pas dans une autre zone qui défile, son axe est vertical,
+ * elle est CENTRÉE dans son bord (une liste rangée d'un côté, une conversation à côté d'un volet ouvert ne bougent
+ * pas), elle occupe au moins 40 % de sa hauteur (une petite liste encadrée reste à sa place), et rien entre elle et
+ * son bord ne rogne ce qui déborde.
+ */
+const SELECTEUR_DU_BORD = '[data-bord-de-defilement], [data-page-de-zone], main[data-zone="centre"]';
+/** Une zone plus basse que cette part de son bord n'est pas la page : elle garde sa barre. */
+const PART_DE_HAUTEUR_DU_BORD = 0.4;
+/** Le contexte qui dit à une zone qu'elle est DANS une autre : elle ne s'étend jamais. */
+const DansUneZoneQuiDefile = React.createContext(false);
+
 /** Une barre dessinée s'éteint après ce temps d'immobilité. */
 const REPOS_BARRE_MS = 800;
 /** Le pouce ne descend jamais sous cette longueur : il reste saisissable. */
@@ -752,16 +847,48 @@ const FONDU_ENTREE = 'opacity 140ms ease-out';
 const FONDU_SORTIE = 'opacity 420ms ease-in';
 
 /**
- * Une zone qui défile, avec un fondu à son BAS : le contenu ne se coupe plus
- * net au-dessus de la barre d'écriture, il s'efface et se floute en glissant
- * derrière. Le voile prend la couleur du fond courant — donc noir en thème
- * sombre, blanc en thème clair, sans réglage. Il s'éteint une fois le bout
- * atteint : un voile permanent laisserait croire qu'il reste toujours à lire.
+ * L'OMBRE SOUS UNE TÊTE COLLÉE (17/11/2026, capture #def0f) : la tête d'une page qui reste en haut au défilement
+ * (`data-tete-collante`) porte son ombre SUR ELLE-MÊME, sous son bord (`top:100%`), comme la barre collée du bas — la
+ * zone éteint alors son propre voile du début. Même flou progressif et même ombre que les voiles de `ZoneDefilement`
+ * (couleur du conteneur × 0,94, côtés éteints), aucune place prise, seule l'opacité change : la feuille de style
+ * l'allume quand la tête est réduite (`[data-tete-reduite]`). Sa largeur est celle que lui donne `className`.
+ */
+export function OmbreDeTete({ className, hauteur = 28 }: { className?: string; hauteur?: number }) {
+  const fond = 'var(--fond-zone-defilement, hsl(var(--bg)))';
+  return (
+    <div
+      aria-hidden
+      data-ombre-de-tete
+      className={cn('pointer-events-none absolute top-full opacity-0 transition-opacity duration-200', className)}
+      style={{ height: hauteur }}
+    >
+      {COUCHES_FLOU.map((fin, index) => (
+        <div
+          key={index}
+          className="absolute inset-0"
+          style={{
+            backdropFilter: `blur(${FLOU_PAR_COUCHE}px)`,
+            WebkitBackdropFilter: `blur(${FLOU_PAR_COUCHE}px)`,
+            maskImage: `linear-gradient(to bottom, black ${COUCHES_FLOU[index - 1] ?? 0}%, transparent ${fin}%)`,
+            WebkitMaskImage: `linear-gradient(to bottom, black ${COUCHES_FLOU[index - 1] ?? 0}%, transparent ${fin}%)`,
+          }}
+        />
+      ))}
+      <div className="absolute inset-0" style={{ background: ombreDuFondu(fond), ...masqueDeLOmbre('bottom') }} />
+    </div>
+  );
+}
+
+/**
+ * Une zone qui défile, avec un fondu à ses DEUX BOUTS : le contenu ne se
+ * coupe plus net sous les onglets ou au-dessus de la barre d'écriture, il
+ * s'efface et se floute en glissant derrière. Le voile prend la couleur du
+ * fond courant — donc noir en thème sombre, blanc en thème clair, sans
+ * réglage.
  *
- * EN HAUT, UNE COUPE NETTE (demande du 30/10/2026, captures #3f547 et #b6de) :
- * à la verticale, plus aucun voile au début, ni flou ni ombre. Sur iPhone, cette
- * bande grise floue se lisait comme un défaut sous la barre du titre ; le
- * contenu passe désormais sous le bord, sur le fond plein du conteneur.
+ * Le fondu du début ne s'allume que si quelque chose est déjà passé derrière,
+ * celui de la fin s'éteint une fois le bout atteint : un voile permanent
+ * laisserait croire qu'il reste toujours à lire.
  *
  * À LA VERTICALE, LE FONDU EST D'OFFICE ; À L'HORIZONTALE, IL SE DEMANDE.
  * Sur une barre d'onglets ou un rail, un voile masquerait le bord des
@@ -785,8 +912,8 @@ export const ZoneDefilement = React.forwardRef<
      */
     axe?: 'vertical' | 'horizontal';
     /**
-     * Le fondu : au bas seul à la verticale, où il est allumé d'office ; aux
-     * deux bouts à l'horizontale, où il se demande zone par zone.
+     * Le fondu aux deux bouts. Allumé d'office à la verticale, éteint d'office
+     * à l'horizontale — où il se demande zone par zone.
      */
     voile?: boolean;
     /**
@@ -799,6 +926,13 @@ export const ZoneDefilement = React.forwardRef<
      * `barre={false}` rend la barre du navigateur (amincie dans styles.css).
      */
     barre?: boolean;
+    /**
+     * LE VOILE DE DÉBUT TOUJOURS ALLUMÉ, éteint d'office. Il sépare alors la
+     * zone de ce qui la précède (un entête fixe) même au repos, sans attendre
+     * le moindre défilement. Celui qui l'allume pose un padding haut au moins
+     * égal à `hauteur`, sinon la première ligne est floue au repos.
+     */
+    voileDebutToujours?: boolean;
     /**
      * LE VOILE SUR LA COLONNE DU CONTENU, allumé d'office à la verticale : il
      * s'arrête aux bords du contenu centré (`etendueDuContenu`). `false` le
@@ -816,6 +950,19 @@ export const ZoneDefilement = React.forwardRef<
      * gardent leur voile entier.
      */
     voileBorne?: string;
+    /**
+     * LA ZONE S'ÉTEND JUSQU'AU BORD de la zone qui la porte (voir `SELECTEUR_DU_BORD`), allumé d'office : sa barre
+     * passe au bord droit de l'écran, son contenu reste dans sa colonne. `false` la garde dans son parent.
+     */
+    jusquAuBord?: boolean;
+    /**
+     * LE VOILE SE CALE SUR UN ÉLÉMENT (le champ d'écriture, pour le fil d'une discussion, capture #d470) : sélecteur
+     * cherché dans les ancêtres de la zone ; le voile prend exactement ses bords, sans l'élargissement de la mesure
+     * du contenu. Sans élément trouvé, la mesure habituelle reprend.
+     */
+    voileCaleSur?: string;
+    /** La bande d'extinction des côtés de l'ombre, en pixels (défaut : `BORD_ARRONDI_PX`). */
+    fonduLateral?: number;
   }
 >(function ZoneDefilement(
   {
@@ -832,11 +979,16 @@ export const ZoneDefilement = React.forwardRef<
     axe = 'vertical',
     voile: voileDemande,
     barre = true,
+    voileDebutToujours = false,
     voileSurContenu = true,
     voileBorne,
+    jusquAuBord = true,
+    voileCaleSur,
+    fonduLateral = BORD_ARRONDI_PX,
     className,
     onScroll,
     children,
+    style,
     ...props
   },
   ref,
@@ -855,13 +1007,31 @@ export const ZoneDefilement = React.forwardRef<
    */
   const [deborde, setDeborde] = React.useState(false);
   /**
+   * LA ZONE RETIENT-ELLE LE GESTE ? (17/11/2026, capture #def0f : « je dois pouvoir scroller en étant sur le contenu »)
+   * Une zone qui ne déborde PAS sur son axe ne pose plus `overscroll-*-contain` : une liste posée dans le panneau d'un
+   * service, à sa pleine hauteur, avalait la molette (Chrome) et la page ne défilait que la souris dans la marge. Mesurée
+   * à CHAQUE mesure, barre ou non — `deborde`, lui, ne suit que la barre dessinée. Un booléen, jamais un objet.
+   */
+  const [retient, setRetient] = React.useState(false);
+  /**
+   * UNE TÊTE COLLÉE EN HAUT FAIT LE BORD (`data-tete-collante`, la tête d'une page de service) : comme la barre collée
+   * du bas, elle porte sa propre ombre et éteint le voile du début, sinon le flou passait SUR le titre.
+   */
+  const [teteColle, setTeteColle] = React.useState(false);
+  /**
    * LE FONDU DU BAS SE POSE AU-DESSUS D'UNE BARRE COLLÉE AU BAS DE LA ZONE
    * (`data-pied-colle`, la barre « Répondre / Joindre / Annuler » d'une
    * question, capture #2e5f) : c'est le contenu qui défile qui s'estompe,
    * jamais les boutons qui restent fixes. La hauteur de la barre collée se
    * relit à chaque mesure ; un nombre, donc aucun rendu de plus s'il ne bouge pas.
    */
-  const [retraitFin, setRetraitFin] = React.useState(0);
+  /**
+   * UNE BARRE COLLÉE AU BAS FAIT LE BORD (capture #d4b1, 04/11/2026) : tant qu'une barre `[data-pied-colle]` est
+   * réellement collée au bas de la zone, le fondu du bas s'éteint — elle ferme la zone elle-même. Remonté au-dessus
+   * d'elle (#2e5f), il voilait le texte de la question juste au-dessus des boutons, et se lisait comme une ombre
+   * cassée.
+   */
+  const [piedColle, setPiedColle] = React.useState(false);
   /**
    * LA BANDE HORIZONTALE DU VOILE, relative à l'enveloppe : deux NOMBRES, jamais
    * un objet (même piège que `deborde`). Largeur -1 = toute la zone.
@@ -871,7 +1041,7 @@ export const ZoneDefilement = React.forwardRef<
   const [voileLargeur, setVoileLargeur] = React.useState(-1);
   /** Le fond opaque du cadre qui borne le voile ; une CHAÎNE, vide sans cadre. */
   const [fondBorne, setFondBorne] = React.useState('');
-  const colonneUtile = avecVoile && !horizontal && (voileSurContenu || !!voileBorne);
+  const colonneUtile = avecVoile && !horizontal && (voileSurContenu || !!voileBorne || !!voileCaleSur);
   const mesurerLaColonne = React.useCallback(() => {
     const zone = interne.current;
     const cadreEnveloppe = enveloppe.current?.getBoundingClientRect();
@@ -890,6 +1060,22 @@ export const ZoneDefilement = React.forwardRef<
       return;
     }
     setFondBorne('');
+    if (voileCaleSur) {
+      let cale: HTMLElement | null = null;
+      for (let a = enveloppe.current?.parentElement; a && !cale; a = a.parentElement) {
+        cale = Array.from(a.querySelectorAll<HTMLElement>(voileCaleSur)).find((n) => n.getBoundingClientRect().width > 0) ?? null;
+      }
+      const c = cale?.getBoundingClientRect();
+      if (c) {
+        const g = Math.max(0, Math.round(c.left - cadreEnveloppe.left));
+        const d = Math.min(Math.round(cadreEnveloppe.width), Math.round(c.right - cadreEnveloppe.left));
+        if (d > g) {
+          setVoileGauche(g);
+          setVoileLargeur(d - g);
+          return;
+        }
+      }
+    }
     const cadreZone = zone.getBoundingClientRect();
     const etendue = cadreZone.width ? etendueDuContenu(zone, cadreZone.width, PROFONDEUR_COLONNE + 1) : null;
     let gauche = 0;
@@ -898,8 +1084,10 @@ export const ZoneDefilement = React.forwardRef<
       const vide = [etendue[0] - cadreZone.left, cadreZone.right - etendue[1]];
       // Centré seulement : un contenu rangé d'un côté garde le voile entier.
       const centre = Math.abs(vide[0] - vide[1]) <= Math.max(24, cadreZone.width * 0.15);
-      const g = Math.max(0, Math.round(etendue[0] - BORD_ARRONDI_PX / 2 - cadreEnveloppe.left));
-      const d = Math.min(Math.round(cadreEnveloppe.width), Math.round(etendue[1] + BORD_ARRONDI_PX / 2 - cadreEnveloppe.left));
+      // JAMAIS AU-DELÀ DU CONTENU (17/11/2026) : l'ancien élargissement d'une demi-bande d'extinction faisait sortir
+      // l'ombre des bords de la liste ; elle s'éteint désormais vers ses côtés À L'INTÉRIEUR du contenu.
+      const g = Math.max(0, Math.ceil(etendue[0] - cadreEnveloppe.left));
+      const d = Math.min(Math.round(cadreEnveloppe.width), Math.floor(etendue[1] - cadreEnveloppe.left));
       if (centre && (g > 1 || d < cadreEnveloppe.width - 1) && d > g) {
         gauche = g;
         largeur = d - g;
@@ -907,7 +1095,62 @@ export const ZoneDefilement = React.forwardRef<
     }
     setVoileGauche(gauche);
     setVoileLargeur(largeur);
-  }, [colonneUtile, voileBorne]);
+  }, [colonneUtile, voileBorne, voileCaleSur]);
+
+  /*
+   * L'EXTENSION JUSQU'AU BORD (`SELECTEUR_DU_BORD`) : deux NOMBRES, l'écart à combler de chaque côté. La place
+   * NATURELLE de la zone se relit sans l'extension déjà posée (`posee`), sinon la mesure se mordrait la queue.
+   */
+  const dansUneZone = React.useContext(DansUneZoneQuiDefile);
+  const peutSEtendre = jusquAuBord && !horizontal && !dansUneZone;
+  const [etendueGauche, setEtendueGauche] = React.useState(0);
+  const [etendueDroite, setEtendueDroite] = React.useState(0);
+  const posee = React.useRef({ gauche: 0, droite: 0 });
+  posee.current = { gauche: etendueGauche, droite: etendueDroite };
+  const mesurerLeBord = React.useCallback(() => {
+    const env = enveloppe.current;
+    const parent = env?.parentElement;
+    const rien = () => {
+      setEtendueGauche(0);
+      setEtendueDroite(0);
+    };
+    if (!env || !parent || !peutSEtendre) return rien();
+    const bord = parent.closest<HTMLElement>(SELECTEUR_DU_BORD);
+    if (!bord) return rien();
+    // Un ancêtre qui rogne ce qui déborde cacherait la barre : la zone reste alors dans sa colonne.
+    for (let element: HTMLElement | null = parent; element && element !== bord; element = element.parentElement) {
+      if (getComputedStyle(element).overflowX !== 'visible') return rien();
+    }
+    const cadre = env.getBoundingClientRect();
+    const cadreDuBord = bord.getBoundingClientRect();
+    const gauche = Math.round(cadre.left + posee.current.gauche - cadreDuBord.left);
+    const droite = Math.round(cadreDuBord.right - (cadre.right - posee.current.droite));
+    const centree = Math.abs(gauche - droite) <= 2;
+    const haute = cadre.height >= cadreDuBord.height * PART_DE_HAUTEUR_DU_BORD;
+    if (!centree || !haute || gauche < 2 || droite < 2) return rien();
+    setEtendueGauche(gauche);
+    setEtendueDroite(droite);
+  }, [peutSEtendre]);
+  React.useLayoutEffect(() => {
+    const env = enveloppe.current;
+    const parent = env?.parentElement;
+    if (!env || !parent || !peutSEtendre) {
+      setEtendueGauche(0);
+      setEtendueDroite(0);
+      return;
+    }
+    mesurerLeBord();
+    const bord = parent.closest<HTMLElement>(SELECTEUR_DU_BORD);
+    const suivi = new ResizeObserver(() => mesurerLeBord());
+    suivi.observe(parent);
+    if (bord) suivi.observe(bord);
+    window.addEventListener('resize', mesurerLeBord);
+    return () => {
+      suivi.disconnect();
+      window.removeEventListener('resize', mesurerLeBord);
+    };
+  }, [peutSEtendre, mesurerLeBord]);
+  const etendue = etendueGauche > 0 || etendueDroite > 0;
   const [enMouvement, setEnMouvement] = React.useState(false);
   const piste = React.useRef<HTMLDivElement | null>(null);
   const pouceRef = React.useRef<HTMLDivElement | null>(null);
@@ -920,11 +1163,18 @@ export const ZoneDefilement = React.forwardRef<
     const position = horizontal ? zone.scrollLeft : zone.scrollTop;
     const vue = horizontal ? zone.clientWidth : zone.clientHeight;
     const total = horizontal ? zone.scrollWidth : zone.scrollHeight;
-    // Le début n'a de voile qu'à l'horizontale : à la verticale, il ne relance aucun rendu.
-    if (horizontal) setDebut(position > 4);
+    setDebut(position > 4);
     setFin(position + vue < total - 4);
+    setRetient(total - vue > 1);
     if (!horizontal) {
-      let retrait = 0;
+      let tete = false;
+      const haut = zone.getBoundingClientRect().top;
+      for (const t of zone.querySelectorAll<HTMLElement>('[data-tete-collante]')) {
+        const c = t.getBoundingClientRect();
+        if (c.height && Math.abs(c.top - haut) < 2) tete = true;
+      }
+      setTeteColle(tete);
+      let colle = false;
       const pieds = zone.querySelectorAll<HTMLElement>('[data-pied-colle]');
       if (pieds.length) {
         const basDeLaZone = zone.getBoundingClientRect().bottom;
@@ -934,18 +1184,18 @@ export const ZoneDefilement = React.forwardRef<
            * posée à sa place, au bas de son bloc, ne déplace pas le fondu — il
            * reste au bord bas de la zone, sinon il sautait au-dessus des
            * boutons au gré du défilement. Collée, son bloc (le parent du
-           * `sticky`) descend sous la zone ; le retrait suit alors ce qui en
-           * dépasse, jusqu'au HAUT de la barre, sans saut à la bascule.
+           * `sticky`) descend sous la zone ; le fondu du bas s'éteint alors
+           * (`piedColle`) : la barre opaque fait le bord.
            */
           const cadre = pied.getBoundingClientRect();
           const bloc = pied.parentElement?.getBoundingClientRect();
           const depasse = bloc ? bloc.bottom - basDeLaZone : 0;
           if (cadre.height && depasse > 1 && basDeLaZone - cadre.bottom < 24 && cadre.bottom <= basDeLaZone + 2) {
-            retrait = Math.max(retrait, Math.round(Math.min(basDeLaZone - cadre.top, depasse)));
+            colle = true;
           }
         }
       }
-      setRetraitFin(retrait);
+      setPiedColle(colle);
     }
     if (!barre) return;
     const part = total > 0 ? Math.min(1, vue / total) : 1;
@@ -1102,7 +1352,9 @@ export const ZoneDefilement = React.forwardRef<
       ? cote === 'debut'
         ? 'right'
         : 'left'
-      : 'top';
+      : cote === 'debut'
+        ? 'bottom'
+        : 'top';
     return (
       <div
         aria-hidden
@@ -1123,7 +1375,9 @@ export const ZoneDefilement = React.forwardRef<
             ? cote === 'debut'
               ? '-left-px'
               : '-right-px'
-            : '-bottom-px',
+            : cote === 'debut'
+              ? '-top-px'
+              : '-bottom-px',
           visible ? 'opacity-100' : 'opacity-0',
         )}
         style={
@@ -1131,7 +1385,6 @@ export const ZoneDefilement = React.forwardRef<
             ? { width: hauteur + 1 }
             : {
                 height: hauteur + 1,
-                ...(retraitFin ? { bottom: retraitFin - 1 } : null),
                 ...(voileLargeur >= 0 ? { left: voileGauche, width: voileLargeur } : null),
               }
         }
@@ -1173,7 +1426,7 @@ export const ZoneDefilement = React.forwardRef<
                 }
               : {
                   background: ombreDuFondu(fond),
-                  ...masqueDeLOmbre(sens),
+                  ...masqueDeLOmbre(sens, fonduLateral),
                 }
           }
         />
@@ -1192,8 +1445,10 @@ export const ZoneDefilement = React.forwardRef<
         horizontal ? 'min-w-0 flex-1 flex-row' : 'min-h-0 flex-1 flex-col',
         classeEnveloppe,
       )}
+      data-zone-jusqu-au-bord={etendue ? '' : undefined}
+      style={etendue ? { marginLeft: -etendueGauche, marginRight: -etendueDroite } : undefined}
     >
-      {horizontal ? voile('debut', debut) : null}
+      {voile('debut', (debut || voileDebutToujours) && !teteColle)}
       <div
         ref={(noeud) => {
           interne.current = noeud;
@@ -1210,15 +1465,33 @@ export const ZoneDefilement = React.forwardRef<
           horizontal
             ? 'min-w-0 flex-1 overflow-x-auto overflow-y-hidden'
             : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden',
+          /* LE DÉFILEMENT RESTE DANS SA ZONE (demande du 31/10/2026, captures
+             #af1f/#f9b0) : arrivée en butée, une zone ne passe plus le geste à
+             celle qui la contient — la liste des tâches au-dessus du champ ne
+             fait plus défiler la conversation. Seul l'axe de la zone est tenu :
+             une rangée horizontale laisse la page défiler à la verticale. */
+          (retient || !mesureUtile) && (horizontal ? 'overscroll-x-contain' : 'overscroll-y-contain'),
           // La barre du navigateur laisse la place à celle qu'on dessine.
           barre && 'sans-barre-native',
           className,
         )}
+        style={
+          etendue
+            ? {
+                ...style,
+                /* La largeur gagnée rendue en bordures transparentes : le padding de la zone reste le sien, et un
+                   fond éventuel ne s'étale pas dans les marges. */
+                borderLeft: `${etendueGauche}px solid transparent`,
+                borderRight: `${etendueDroite}px solid transparent`,
+                backgroundClip: 'padding-box',
+              }
+            : style
+        }
         {...props}
       >
-        {children}
+        <DansUneZoneQuiDefile.Provider value>{children}</DansUneZoneQuiDefile.Provider>
       </div>
-      {voile('fin', fin)}
+      {voile('fin', fin && !piedColle)}
       {/* LA BARRE DESSINÉE, par-dessus tout : une piste transparente qui ne
           capte rien, et un pouce qui, lui, se saisit. Elle ne paraît que si
           la zone déborde vraiment (`part < 1`). */}
@@ -1390,7 +1663,7 @@ export function DialogHeader({
 }) {
   if (libre) {
     return (
-      <div data-fenetre-entete className={cn('shrink-0 px-5 pb-2 pr-12 pt-5', className)} {...props}>
+      <div data-fenetre-entete className={cn('shrink-0 px-5 pb-2 pt-5 sm:pr-12', className)} {...props}>
         {children}
       </div>
     );
@@ -1413,7 +1686,7 @@ export function DialogHeader({
         <div data-fenetre-titre className="flex min-h-[38px] sm:min-h-8 min-w-0 items-center justify-center gap-1 text-center">
           {titre}
         </div>
-        <div data-fenetre-droite className={cn('flex h-[38px] sm:h-8 min-w-0 items-center justify-end gap-1', !sansCroix && 'pr-10 sm:pr-8')}>
+        <div data-fenetre-droite className={cn('flex h-[38px] sm:h-8 min-w-0 items-center justify-end gap-1', !sansCroix && 'sm:pr-8')}>
           {droite}
         </div>
       </div>
@@ -1450,7 +1723,7 @@ export function DialogFooter({
         pleineLargeur ? 'flex-col items-stretch gap-2 [&>*]:w-full' : 'flex-wrap items-center justify-end gap-1.5 gap-y-2',
         className,
       )}
-      style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))', ...style }}
+      style={{ paddingBottom: `var(--pied-natif, calc(max(12px, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))`, ...style }}
       {...props}
     />
   );
@@ -1481,7 +1754,21 @@ function repartirEmplacements(children: React.ReactNode) {
   return { entete, pied, corps };
 }
 
-export const Dialog = DialogPrimitive.Root;
+/**
+ * SOMMES-NOUS DANS UN VRAI `Dialog` DE RADIX ? (14/11/2026, page détail des Statistiques : « DialogTitle must be used
+ * within Dialog » faisait tomber tout l'écran). Une page `Drawer enPage` posée dans une fenêtre ou une page de service
+ * rend un simple bloc, sans `Dialog` autour : `DialogTitle` et `DialogDescription` y deviennent un simple titre et un
+ * simple paragraphe. Toute racine de dialogue rétablit le vrai.
+ */
+const DansUnDialogue = React.createContext(true);
+export function RacineDeDialogue(props: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
+  return (
+    <DialogPrimitive.Root {...props}>
+      <DansUnDialogue.Provider value>{props.children}</DansUnDialogue.Provider>
+    </DialogPrimitive.Root>
+  );
+}
+export const Dialog = RacineDeDialogue;
 
 /**
  * LA BANDE DU VOILE, SOUS L'HEURE (demande du 22/10/2026, capture d'un menu
@@ -1521,15 +1808,8 @@ function couleurOpaqueSous(x: number, y: number, ignorer: Element): [number, num
   return fond ? [fond[0], fond[1], fond[2]] : null;
 }
 
-function lireRgba(couleur: string): [number, number, number, number] | null {
-  const m = couleur.match(/rgba?\(([^)]+)\)/);
-  if (!m) return null;
-  const parts = m[1]!.split(/[ ,/]+/).filter(Boolean).map(Number);
-  if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return null;
-  return [parts[0]!, parts[1]!, parts[2]!, parts[3] ?? 1];
-}
-
 export function BandeDuVoile() {
+  useVoileAffiche();
   const ref = React.useRef<HTMLDivElement>(null);
   const [couleur, setCouleur] = React.useState<string | undefined>(undefined);
   React.useLayoutEffect(() => {
@@ -1589,12 +1869,37 @@ type ProprietesDeFenetre = React.ComponentPropsWithoutRef<typeof DialogPrimitive
   empile?: boolean;
 };
 
+/**
+ * CE QUI FLOTTE AU-DESSUS DE TOUT (`data-au-dessus-de-tout` : le chef de Communication, carte « Refonte de l'espace
+ * Médias », 05/11/2026) n'est jamais « dehors » pour une feuille ou une fenêtre ouverte dessous : un appui ou le focus
+ * qui y passent ne la referment pas, et Échap tapé dans son champ non plus.
+ */
+const AU_DESSUS_DE_TOUT = '[data-au-dessus-de-tout]';
+/* …ET UNE FENÊTRE MODALE NE LUI VOLE NI LE FOCUS NI LA MOLETTE (`lib/au-dessus-des-fenetres.ts`, 18/11/2026). */
+poserLaGardeAuDessusDesFenetres();
+export function vientDAuDessusDeTout(event: { target: EventTarget | null }): boolean {
+  return !!(event.target as Element | null)?.closest?.(AU_DESSUS_DE_TOUT);
+}
+function echapAuDessusDeTout(event: KeyboardEvent): void {
+  if (typeof document === 'undefined') return;
+  const actif = document.activeElement as Element | null;
+  /* UN CHAMP QUI GARDE ÉCHAP POUR LUI (`data-echap-retenu`, le champ d'écriture menu « / » ouvert) : Radix écoute Échap
+     en capture, avant le champ — la page se refermait au lieu du seul menu. */
+  if (actif?.closest?.(AU_DESSUS_DE_TOUT) || actif?.closest?.('[data-echap-retenu="oui"]')) event.preventDefault();
+}
+
 function FenetreCentree({
   className,
   children,
   onInteractOutside,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+  /* SUR TÉLÉPHONE, LA FENÊTRE EST UNE FEUILLE DU BAS : elle en prend la tenue
+     (coins, poignée) et le geste — on la tire vers le bas pour la refermer. La
+     poignée EST un bouton de fermeture : le geste passe par lui. */
+  const telephone = useTelephone();
+  const fermeur = React.useRef<HTMLButtonElement>(null);
+  const glisser = useGlisserPourFermer(() => fermeur.current?.click(), telephone);
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
@@ -1619,11 +1924,13 @@ function FenetreCentree({
                laissait la fenêtre défilable, et un `scrollIntoView` (un clic
                de contrôle pendant l'ouverture) décalait tout son contenu de
                3 px — titre décentré, flèche de retour au bord. */
-            'pointer-events-auto relative flex max-h-[88dvh] w-full min-h-0 flex-col overflow-clip bg-bg shadow-2xl outline-none',
-            'rounded-t-2xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+            'pointer-events-auto relative flex max-h-[min(88dvh,calc(100dvh-var(--zone-sure-haut,0px)-20px-var(--clavier,0px)))] max-sm:max-h-[calc(100dvh-var(--zone-sure-haut,0px)-20px-var(--clavier,0px))] w-full min-h-0 flex-col overflow-clip bg-bg shadow-2xl outline-none max-sm:bg-surface',
+            CLASSE_COINS_DE_FEUILLE,
+            'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
             'sm:w-[min(560px,100%)] sm:rounded-2xl sm:border sm:border-border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
             className,
           )}
+          ref={glisser.feuille}
           style={{
             /* Une fenêtre est blanche comme la page : ce qui, dedans, se réglait
                sur le fond d'un tiroir se règle sur elle. */
@@ -1638,9 +1945,16 @@ function FenetreCentree({
              la fenêtre « Configuration du projet » restée dessous. */
           onInteractOutside={(event) => {
             onInteractOutside?.(event);
-            if ((event.target as Element | null)?.closest?.('[data-tiroir-empile="oui"]')) event.preventDefault();
+            if ((event.target as Element | null)?.closest?.('[data-tiroir-empile="oui"]') || vientDAuDessusDeTout(event)) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            props.onEscapeKeyDown?.(event);
+            echapAuDessusDeTout(event);
           }}
         >
+          {telephone ? (
+            <PoigneeDeFeuille {...glisser.poignee} fermer={<DialogPrimitive.Close ref={fermeur} aria-label="Fermer" className={CLASSE_BARRE_DE_PRISE} />} />
+          ) : null}
           {/* Une fenêtre ouverte depuis une page a SON titre et SES boutons :
               ils ne montent pas dans la barre de la page d'où elle vient. */}
           <EmplacementDuTitreDePage.Provider value={null}>
@@ -1694,7 +2008,7 @@ export function DialogContent({
         fond="hsl(var(--bg))"
         data-fenetre-corps
         className={cn('px-5', entete.length ? 'pt-1' : 'pt-5', pied.length ? 'pb-4' : null)}
-        style={pied.length ? undefined : { paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+        style={pied.length ? undefined : { paddingBottom: `var(--pied-natif, calc(max(20px, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))` }}
       >
         {corps}
       </ZoneDefilement>
@@ -1703,7 +2017,7 @@ export function DialogContent({
         ref={croix}
         aria-label="Fermer"
         title={t('Fermer')}
-        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
+        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text max-sm:hidden"
       >
         <X className="h-4 w-4" />
       </DialogPrimitive.Close>
@@ -1743,7 +2057,7 @@ export function DialogContentLibre({
         ref={croix}
         aria-label="Fermer"
         title={t('Fermer')}
-        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
+        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text max-sm:hidden"
       >
         <X className="h-4 w-4" />
       </DialogPrimitive.Close>
@@ -1752,51 +2066,115 @@ export function DialogContentLibre({
 }
 
 /**
- * LA FENÊTRE DE LA VISIONNEUSE D'IMAGES : CENTRÉE, ET TOUJOURS DE LA MÊME
- * HAUTEUR. Ni volet qui monte du bas (l'aperçu y restait « coincé en bas »), ni
- * `FenetreCentree` (collée en bas sur téléphone, hauteur qui suit l'image) :
- * sur téléphone elle prend l'écran entier, zones sûres comprises ; sur
- * ordinateur une grande fenêtre de hauteur FIXE — une image haute et une image
- * large ouvrent exactement la même fenêtre. Le contenu reçoit une colonne : à
- * lui de poser son entête (avec `DialogClose`) et sa scène.
+ * LA FENÊTRE DE LA VISIONNEUSE : TOUJOURS DE LA MÊME HAUTEUR. Sur ordinateur, une
+ * grande fenêtre centrée de hauteur FIXE — une image haute et une image large
+ * ouvrent exactement la même fenêtre. SUR TÉLÉPHONE, UNE FEUILLE DU BAS ouverte au
+ * maximum, au niveau du menu principal (demande du 31/10/2026, capture #7674), sans
+ * croix : on la referme en tirant son haut vers le bas ou en touchant le voile,
+ * jamais par un geste sur l'image, qui garde les siens. Le contenu reçoit une
+ * colonne : à lui de poser son entête et sa scène.
  */
 export function FenetreDeVisionneuse({
   className,
   children,
   adresse,
   style,
+  nonModale = false,
+  onInteractOutside,
+  onEscapeKeyDown,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { adresse?: string }) {
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  adresse?: string;
+  /**
+   * POSÉE DANS UN `Dialog modal={false}` (l'aperçu d'un média, carte « Refonte de l'espace Médias ») : pas de piège à
+   * focus ni de page figée — on écrit au chef flottant, aperçu ouvert. Le voile est alors dessiné ici (celui de Radix
+   * n'existe qu'en modale) ; un appui dessus est un appui « dehors », qui referme la fenêtre.
+   */
+  nonModale?: boolean;
+}) {
   const croix = React.useRef<HTMLButtonElement>(null);
+  const contenu = React.useRef<HTMLDivElement | null>(null);
+  const telephone = useTelephone();
+  const glisser = useGlisserPourFermer(() => croix.current?.click(), telephone);
+  /* Une référence STABLE (`useRefsFusionnees`) : la fenêtre, et la feuille du geste au téléphone seulement. */
+  const refDuContenu = useRefsFusionnees<HTMLDivElement>(contenu, telephone ? glisser.feuille : undefined);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
-        <BandeDuVoile />
-      </DialogPrimitive.Overlay>
-      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center sm:p-4">
+      {nonModale ? (
+        <div data-voile-de-fenetre data-state="open" aria-hidden className={cn('fixed inset-0 z-50 animate-fade-in', telephone ? 'bg-voile/70' : 'bg-voile/80 backdrop-blur-[3px]')}>
+          <BandeDuVoile />
+        </div>
+      ) : (
+        <DialogPrimitive.Overlay
+          data-voile-de-fenetre
+          className={cn(
+            'fixed inset-0 z-50 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+            telephone ? 'bg-voile/70' : 'bg-voile/80 backdrop-blur-[3px]',
+          )}
+        >
+          <BandeDuVoile />
+        </DialogPrimitive.Overlay>
+      )}
+      <div
+        className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4"
+        style={telephone ? { paddingBottom: 'var(--clavier, 0px)' } : undefined}
+      >
         <DialogPrimitive.Content
           data-fenetre-visionneuse
+          ref={refDuContenu}
           className={cn(
-            'pointer-events-auto relative flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-2xl outline-none',
-            'h-[var(--hauteur-app,100dvh)] sm:h-[min(88dvh,940px)] sm:w-[min(1200px,100%)] sm:rounded-xl',
-            'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+            /* LE FOND FONCÉ DES TIROIRS (`--bg`, décision du 05/11/2026 : « on ne distingue pas le média du fond ») :
+               le post, en `--surface`, s'en détache. */
+            'pointer-events-auto relative flex w-full min-h-0 flex-col overflow-hidden bg-bg shadow-2xl outline-none',
+            telephone
+              ? cn(CLASSE_COINS_DE_FEUILLE, 'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out')
+              : 'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+            'sm:h-[min(88dvh,940px)] sm:w-[min(1200px,100%)] sm:rounded-xl',
             className,
           )}
           style={{
-            paddingTop: 'var(--zone-sure-haut, 0px)',
-            paddingBottom: 'var(--zone-sure-bas, 0px)',
-            ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
+            ...(telephone
+              ? { height: HAUTEUR_MAX_DE_FEUILLE, paddingBottom: 'var(--marge-bas-hors-clavier, 0px)', ['--marche-du-bas' as string]: '0px', ['--pied-natif' as string]: 'var(--pied-natif-dedans)', }
+              : { paddingTop: 'var(--zone-sure-haut, 0px)', paddingBottom: 'var(--zone-sure-bas, 0px)' }),
+            ['--fond-zone-defilement' as string]: 'hsl(var(--bg))',
             ...style,
           }}
           {...props}
+          onInteractOutside={(event) => {
+            onInteractOutside?.(event);
+            /* Un menu ou une liste posés par-dessus (le calendrier de « Reporter ») ne sont pas « dehors » non plus. */
+            if (vientDAuDessusDeTout(event) || (event.target as Element | null)?.closest?.('[role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]')) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            onEscapeKeyDown?.(event);
+            echapAuDessusDeTout(event);
+          }}
+          /* NON MODALE, LE FOCUS QUI PART AILLEURS NE LA REFERME PAS (comme une modale, qui l'interdit d'office) : le
+             focus rendu à un bouton de menu refermé juste avant, ou posé dans le champ du chef, fermait l'aperçu. Seul un
+             appui dehors (le voile) ou Échap la referment. */
+          onFocusOutside={(event) => {
+            props.onFocusOutside?.(event);
+            if (!nonModale) return;
+            event.preventDefault();
+            /* …ET LE FOCUS PARTI SUR LA PAGE DESSOUS (un bouton de menu qui reprend le focus en se refermant) REVIENT
+               DANS LA FENÊTRE, comme dans une modale — les flèches ← → y feuillettent. Le chef flottant, un menu, une
+               liste ou un calendrier posés par-dessus gardent le leur. */
+            const cible = event.target as Element | null;
+            if (!cible?.closest?.('[data-au-dessus-de-tout], [data-radix-popper-content-wrapper], [role="menu"], [role="listbox"], [role="dialog"]')) contenu.current?.focus({ preventScroll: true });
+          }}
         >
+          {telephone ? (
+            <div {...glisser.poignee} data-poignee-tiroir className={cn(CLASSE_PRISE_DE_FEUILLE, 'pb-1 pt-2.5')}>
+              <DialogPrimitive.Close ref={croix} aria-label="Fermer" data-fermer-visionneuse className={CLASSE_BARRE_DE_PRISE} />
+            </div>
+          ) : null}
           {adresse ? <AdresseDeFenetre adresse={adresse} fermer={() => croix.current?.click()} /> : null}
           <EmplacementDuTitreDePage.Provider value={null}>
             <CibleDesGestesDePage.Provider value={null}>
               <CibleDuBasDePage.Provider value={null}>{children}</CibleDuBasDePage.Provider>
             </CibleDesGestesDePage.Provider>
           </EmplacementDuTitreDePage.Provider>
-          <DialogPrimitive.Close ref={croix} className="hidden" aria-hidden tabIndex={-1} />
+          {telephone ? null : <DialogPrimitive.Close ref={croix} className="hidden" aria-hidden tabIndex={-1} />}
         </DialogPrimitive.Content>
       </div>
     </DialogPrimitive.Portal>
@@ -1838,7 +2216,8 @@ export const DialogClose = DialogPrimitive.Close;
  */
 export const CLASSE_LARGEUR_DE_CONTENU = 'max-w-[820px]';
 /** Les marges d'une page autour de son contenu : avec elles, 756 px de lecture. */
-export const CLASSE_MARGES_DE_PAGE = 'px-4 sm:px-8';
+/** 16 px (12 px dans l'application iPhone, `--marge-de-page`, styles.css), 32 px au-delà de 640 px. */
+export const CLASSE_MARGES_DE_PAGE = 'px-[var(--marge-de-page,1rem)] sm:px-8';
 /*
  * L'ÉCHELLE DES ÉCARTS (demande du 22/10/2026 : « que tous les gaps soient
  * corrects »). Trois écarts verticaux entre deux blocs, et aucun autre :
@@ -1849,6 +2228,30 @@ export const CLASSE_MARGES_DE_PAGE = 'px-4 sm:px-8';
  * réels dans le navigateur et refuse ce qui sort de cette échelle (0, 4, 8,
  * 16 px : `gap-1`, `gap-2`, `gap-4`).
  */
+/*
+ * LA RÈGLE DU TÉLÉPHONE (demande de l'utilisateur du 03/11/2026, captures #2900 à #a93c : « les gaps sont trop
+ * grands, les composants sont trop petits et ne respectent pas la taille des autres déjà existants »). C'est
+ * l'échelle ci-dessus, appliquée SANS « respiration » : chaque écran du téléphone prend ses écarts et la hauteur de
+ * ses commandes ICI, jamais une valeur à lui. Toutes sont préfixées `max-sm:` : posées APRÈS les classes d'un écran,
+ * elles ne changent que le téléphone — l'ordinateur garde les siennes.
+ */
+/** Sous la barre du haut, avant le premier bloc : l'écart BLOC. */
+export const TELEPHONE_SOUS_LA_BARRE = 'max-sm:pt-2';
+/** Entre deux blocs d'un même écran (cartes, rangées, tuiles) : l'écart BLOC. */
+export const TELEPHONE_ENTRE_BLOCS = 'max-sm:gap-2';
+/** Entre deux sections titrées : l'écart SECTION. */
+export const TELEPHONE_ENTRE_SECTIONS = 'max-sm:space-y-4';
+/** Avant une section posée seule (`mt-…`) : l'écart SECTION. */
+export const TELEPHONE_AVANT_SECTION = 'max-sm:mt-4';
+/** Sous un bloc qui précède une zone qui défile (la rangée de recherche) : l'écart BLOC. */
+export const TELEPHONE_SOUS_UN_BLOC = 'max-sm:pb-2';
+/**
+ * LA HAUTEUR DES COMMANDES DU TÉLÉPHONE : 38 px, celle du déclencheur des listes (« Toutes les marques »), des
+ * boutons (`size="sm"`), des onglets (`CLASSES_LISTE_ONGLETS`), de la recherche et des segments. Aucune commande d'une
+ * page n'est plus petite que sa voisine.
+ */
+export const TELEPHONE_HAUTEUR_DE_COMMANDE = 'max-sm:h-[38px]';
+
 /**
  * LE PIED D'UNE CONVERSATION : chaque bloc empilé sous le fil — déroulé du
  * cahier ou du tournage, « Ce que l'agent a vu », panneau de décision,
@@ -1864,6 +2267,104 @@ export const CLASSE_FIN_DU_PIED = 'pb-2';
 export const CLASSE_LARGEUR_PAGE = CLASSE_LARGEUR_DE_CONTENU;
 /** La largeur de la feuille du bas (`Drawer feuille`) : 960 px au plus sur grand écran. */
 const CLASSE_LARGEUR_TIROIR = 'max-w-[960px]';
+
+/**
+ * LA TENUE COMMUNE DES FEUILLES DU BAS (demande du 31/10/2026 : « ils doivent
+ * tous ressembler à ça », capture #99d8) : les mêmes coins, la même prise, la
+ * même barre, sur téléphone comme sur ordinateur. Toute feuille qui monte du
+ * bas — `Drawer feuille`, menu et liste de choix du téléphone, fenêtre du
+ * téléphone, volet devenu feuille — les reprend d'ici.
+ */
+export const CLASSE_COINS_DE_FEUILLE = 'rounded-t-xl';
+/** La bande de la poignée : centrée, et seule prise de la souris. */
+export const CLASSE_PRISE_DE_FEUILLE = 'flex shrink-0 cursor-grab touch-none select-none justify-center active:cursor-grabbing';
+/** La petite barre de prise elle-même. */
+export const CLASSE_BARRE_DE_PRISE = 'h-1 w-10 shrink-0 rounded-full bg-muted transition-colors hover:bg-text';
+
+/* ------------------------------------------------------------------ *
+ * LA FEUILLE DU BAS DU TÉLÉPHONE : UNE SEULE PIÈCE, PAS UNE RESSEMBLANCE.
+ *
+ * Demande de l'utilisateur du 03/11/2026, répétée avec colère (captures #8c97, #a2f7, #3356 contre #a266, #874d) :
+ * « utilise le composant drawer existant qu'on a utilisé pour les menus ». La correction d'avant avait RECOPIÉ des
+ * classes dans la liste de choix et les menus : une règle oubliée (`max-sm:rounded-none`) y remettait des coins
+ * carrés, le fond restait celui des tiroirs d'ordinateur (`--surface`, plus clair que « Dans quel projet ? »), le
+ * titre avait sa propre taille.
+ *
+ * Tout panneau qui monte du bas sur téléphone — `FeuilleDuBas` (menu principal, `Drawer feuille`, pages de détail),
+ * la fenêtre devenue feuille (`FenetreCentree`), la liste de choix (`ListeDeroulante`, rendue DANS `FeuilleDuBas`),
+ * les menus « … » et leurs sous-menus (`DropdownMenuContent`, dont la bibliothèque impose son propre conteneur) —
+ * prend son habit ICI et nulle part ailleurs : `HABIT_DE_FEUILLE` (fond, coins, ombre), `FOND_DE_FEUILLE` (le fond de
+ * la page, celui de « Dans quel projet ? »), `PoigneeDeFeuille`, `CLASSE_VOILE_DE_FEUILLE`, `CLASSE_TITRE_DE_FEUILLE`
+ * et `MARGE_DE_FEUILLE`. Un écran n'écrit jamais ces valeurs lui-même.
+ * ------------------------------------------------------------------ */
+
+/** L'habit : fond (réglé par `FOND_DE_FEUILLE`), coins du haut arrondis, aucun trait, l'ombre qui monte. */
+export const HABIT_DE_FEUILLE = cn('border-0 bg-surface', CLASSE_COINS_DE_FEUILLE, 'shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)]');
+/** L'habit d'une feuille posée PAR-DESSUS une autre : une ombre plus marquée fait sentir la couche du dessus. */
+export const OMBRE_DE_FEUILLE_EMPILEE = 'shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]';
+/**
+ * LE FOND D'UNE FEUILLE DU TÉLÉPHONE EST CELUI DE LA PAGE (« Dans quel projet ? », capture #874d), jamais le gris plus
+ * clair des tiroirs d'ordinateur : ce qui, dedans, se réglait sur `--surface` se règle sur lui, comme dans une
+ * fenêtre. Le menu principal garde le fond de la colonne (`data-zone="gauche"`, qui l'emporte).
+ */
+export const FOND_DE_FEUILLE: React.CSSProperties = {
+  /* LE FOND DU MENU PRINCIPAL (`--fond-du-menu`, styles.css : celui de la colonne de gauche), pour TOUTES les
+     feuilles du téléphone — demande du 03/11/2026, capture #b7f6 : « prends la couleur du drawer du menu
+     principal ». Le fond de la page (`--bg`) faisait varier la teinte d'une feuille à l'autre. */
+  ['--surface' as string]: 'var(--fond-du-menu)',
+  ['--fond-zone-defilement' as string]: 'hsl(var(--fond-du-menu))',
+};
+/** Le voile : il couvre tout l'écran et se fond avec la feuille. Le rang (`z-…`) est posé par celui qui l'emploie. */
+export const CLASSE_VOILE_DE_FEUILLE = 'fixed inset-0 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out';
+/** Le titre d'une feuille : centré sous la poignée, la même taille partout (`EnteteDeFeuille`, liste, page devenue feuille). */
+export const CLASSE_TITRE_DE_FEUILLE = 'min-w-0 truncate text-center text-[15.5px] font-semibold text-text';
+/**
+ * Les marges de côté d'une feuille du téléphone : CELLES DU MENU PRINCIPAL (colonne : 8 px, puis 10 px dans la ligne,
+ * `LIGNE_DE_FEUILLE`) — capture #b7f6 du 03/11/2026, « le padding autour est trop grand » à 16 + 8 px.
+ */
+export const MARGE_DE_FEUILLE = 'px-2';
+/**
+ * UNE LIGNE DE FEUILLE AU DOIGT : la hauteur des lignes de « Dans quel projet ? » (48 px), sur téléphone seulement —
+ * options d'une liste, entrées d'un menu, sous-menus. L'ordinateur garde ses lignes serrées.
+ */
+export const LIGNE_DE_FEUILLE = 'max-sm:min-h-12 max-sm:rounded-lg max-sm:px-2.5';
+
+/**
+ * LA POIGNÉE DE TOUTE FEUILLE : la même bande, la même barre, le même air au-dessus et au-dessous (celui du menu
+ * principal). `fermer` en fait un vrai bouton de fermeture (fenêtres, feuilles Radix) ; sans lui, la barre n'est
+ * qu'un repère et le geste de tirer suffit (menus).
+ */
+export function PoigneeDeFeuille({
+  fermer,
+  className,
+  ...reste
+}: React.HTMLAttributes<HTMLDivElement> & { fermer?: React.ReactNode } & Record<`data-${string}`, string | number | boolean | undefined>) {
+  return (
+    <div data-poignee-tiroir {...reste} className={cn(CLASSE_PRISE_DE_FEUILLE, 'pb-2 pt-3.5', className)}>
+      {fermer ?? <span className={CLASSE_BARRE_DE_PRISE} />}
+    </div>
+  );
+}
+
+/**
+ * LE RANG DU TITRE D'UNE FEUILLE, pour ce qui n'est pas une fenêtre Radix (menus) : le titre centré, un geste à
+ * droite. Dans une fenêtre, `EnteteDeFeuille` en est la version lue à voix haute (`DialogTitle`).
+ */
+export function RangeeDeTitreDeFeuille({
+  titre,
+  droite,
+  ...reste
+}: { titre: React.ReactNode; droite?: React.ReactNode } & Record<`data-${string}`, string | number | boolean | undefined>) {
+  return (
+    <header className="grid min-h-[38px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 pb-2" data-entete-feuille>
+      <span aria-hidden />
+      <span className={cn(CLASSE_TITRE_DE_FEUILLE, 'max-w-[min(70vw,560px)]')} {...reste}>
+        {titre}
+      </span>
+      <span className="flex min-w-0 items-center justify-end gap-1">{droite}</span>
+    </header>
+  );
+}
 
 /* Une hauteur demandée pour l'ancienne feuille (`max-h-[80dvh]`, `h-[92dvh]`)
    n'a plus de sens sur une page, qui prend toujours la hauteur de la zone. */
@@ -1881,26 +2382,55 @@ function FeuilleDeTiroir({
   plein,
   hauteurFixe,
   empile,
-  enFenetre,
+  cadre = null,
   entete,
   className,
   children,
   onInteractOutside,
+  cache = false,
+  sousLeHaut = false,
   ...props
 }: Omit<React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>, 'children'> & {
+  /** GARDÉE EN MÉMOIRE, CACHÉE : l'onglet d'une tâche qu'on ne regarde pas (voir `Drawer`). */
+  cache?: boolean;
+  /** Commence sous le haut commun du téléphone (voir `Drawer`). */
+  sousLeHaut?: boolean;
   onClose?: () => void;
   open?: boolean;
   plein?: boolean;
   hauteurFixe?: boolean;
   empile?: boolean;
-  enFenetre?: boolean;
+  /**
+   * LE CADRE D'UNE FENÊTRE DE SERVICE (13/11/2026) : ouverte depuis un outil posé en grande fenêtre (Surveillance,
+   * Backup…), la page se pose EXACTEMENT sur la partie droite de la fenêtre, devant elle, au lieu de couvrir la zone.
+   */
+  cadre?: HTMLElement | null;
   /** L'en-tête propre à la page ; sans lui, la barre « Retour » ordinaire. */
   entete?: React.ReactNode;
   children: React.ReactNode;
 }) {
   void open;
   void hauteurFixe;
-  void enFenetre;
+  /* LE CADRE SE MESURE ET SE SUIT (fenêtre redimensionnée) : la page en prend la place exacte. */
+  const [boite, setBoite] = React.useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  React.useLayoutEffect(() => {
+    if (!cadre) {
+      setBoite(null);
+      return;
+    }
+    const mesurer = () => {
+      const r = cadre.getBoundingClientRect();
+      setBoite({ top: r.top, left: r.left, width: r.width, height: r.height });
+    };
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(cadre);
+    window.addEventListener('resize', mesurer);
+    return () => {
+      observateur.disconnect();
+      window.removeEventListener('resize', mesurer);
+    };
+  }, [cadre]);
   /* L'EN-TÊTE PAR DÉFAUT EST LA BARRE AU FIL D'ARIANE de l'application : la
      page lui prête deux emplacements — son titre, ses gestes — et les offre à
      son contenu. Une page qui apporte son propre en-tête (la conversation d'une
@@ -1918,9 +2448,17 @@ function FeuilleDeTiroir({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Content
         {...props}
+        onEscapeKeyDown={(event) => {
+          props.onEscapeKeyDown?.(event);
+          /* Une page cachée ne se referme jamais sur Échap : elle n'est pas sous les yeux. */
+          if (cache) event.preventDefault();
+          echapAuDessusDeTout(event);
+        }}
+        {...(cache ? { inert: '', 'aria-hidden': true, 'data-page-cachee': '' } : {})}
         data-tiroir={plein ? 'plein' : 'normal'}
         data-tiroir-empile={empile ? 'oui' : undefined}
         data-page-de-zone
+        data-sous-le-haut={sousLeHaut ? '' : undefined}
         onWheel={defilerDepuisLesMarges}
         /* UNE PAGE N'EST PAS UNE FENÊTRE : à l'ouverture, le focus ne saute pas
            sur le premier bouton de sa barre, qui s'entourait d'un anneau sans
@@ -1939,16 +2477,22 @@ function FeuilleDeTiroir({
         onInteractOutside={(event) => {
           onInteractOutside?.(event);
           const cible = event.target as Element | null;
-          /* …et, dans la colonne, le MENU DE LA PAGE ELLE-MÊME (les options
-             d'une tâche, `data-colonne-de-page`) : y choisir une ligne change
-             ce que la page montre, il ne la quitte pas.
-             …et le PIED de la colonne (`data-pied-colonne` : quotas, cloche,
-             réglages) : il n'ouvre que des volets ou des fenêtres par-dessus la
-             page, on la retrouve en les refermant. */
+          /* …et, dans la colonne, CE QUI NE QUITTE PAS LA PAGE : les tâches dépliées (la
+             tâche choisie remplace celle-ci, sans passer par « refermée ») ET la zone « En
+             cours » en tête de colonne (01/11/2026, capture #2709 : sans elle, la tâche d'un
+             autre projet s'ouvrait puis était refermée par ce même clic, et l'on restait sur
+             la page du projet), ce qui se déplie (`aria-expanded` : un projet, un groupe, les archives), les services
+             (un menu par-dessus), la ligne du projet déjà ouvert — et le PIED
+             (`data-pied-colonne` : quotas, cloche, réglages), qui n'ouvre que des volets
+             ou des fenêtres par-dessus la page, retrouvée en les refermant. */
           if (
             !cible?.closest?.('[data-colonne-projets]') ||
             cible.closest('[data-replier-colonne]') ||
-            cible.closest('[data-colonne-de-page]') ||
+            cible.closest('[data-taches-du-projet]') ||
+            cible.closest('[data-taches-en-cours-colonne]') ||
+            cible.closest('button[aria-expanded]') ||
+            cible.closest('[data-navigation-compacte]') ||
+            cible.closest('[data-actif]') ||
             cible.closest('[data-pied-colonne]')
           )
             event.preventDefault();
@@ -1960,16 +2504,28 @@ function FeuilleDeTiroir({
              l'agent de configuration s'ouvrait SOUS la fenêtre « Configuration
              du projet », et rien ne s'y cliquait. À rang égal, c'est la
              dernière ouverte qui est devant — la page, puis les menus et les
-             fenêtres qu'elle ouvre à son tour. */
-          empile ? 'z-50' : 'z-40',
-          'left-0 sm:left-[var(--zone-principale-gauche,0px)]',
+             fenêtres qu'elle ouvre à son tour. POSÉE DANS LE CADRE D'UN SERVICE
+             (`boite` : la fiche d'une demande de la Messagerie, une fiche de
+             Surveillance…), elle est en `z-[55]` : devant les fenêtres (`z-50`),
+             mais SOUS la conversation de Jarvis (`z-[56]`, demande du 18/11/2026,
+             capture #5f80c : en `z-[60]`, la fiche masquait le volet) et sous les
+             menus (`z-[60]`+), qui s'ouvrent toujours devant elle. */
+          boite ? 'z-[55] sm:rounded-br-2xl' : empile ? 'z-50' : 'z-40',
+          !boite && 'left-0 sm:left-[var(--zone-principale-gauche,0px)]',
+          cache && '!hidden',
           'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
         )}
         style={{
           /* La page s'arrête sous la barre d'état et au-dessus de la barre
-             d'accueil du téléphone, et laisse sa place au clavier. */
-          paddingTop: 'var(--zone-sure-haut, 0px)',
-          paddingBottom: 'calc(var(--zone-sure-bas, 0px) + var(--clavier, 0px))',
+             d'accueil du téléphone, et laisse sa place au clavier. Sous le haut
+             commun, elle commence à son bas, qui a déjà compté la barre d'état. */
+          ...(sousLeHaut ? { top: 'var(--bas-du-haut-telephone, 0px)' } : null),
+          ...(boite ? { top: boite.top, left: boite.left, width: boite.width, height: boite.height, right: 'auto', bottom: 'auto' } : null),
+          paddingTop: sousLeHaut || boite ? 0 : 'var(--zone-sure-haut, 0px)',
+          paddingBottom: 'calc(var(--marge-bas-hors-clavier, 0px) + var(--clavier, 0px))',
+          /* La page a compté la marche du bas : son contenu ne la recompte pas. */
+          ['--marche-du-bas' as string]: '0px',
+          ['--pied-natif' as string]: 'var(--pied-natif-dedans)',
           /* LA MARGE DU HAUT EST DÉJÀ COMPTÉE ICI : la barre d'en-tête de la
              page (`EnteteDeZone`) ne la recompte pas. Comptée deux fois, elle
              laissait une bande vide de la hauteur de l'heure sur téléphone. */
@@ -2015,12 +2571,29 @@ function FeuilleDeTiroir({
 }
 
 /**
+ * L'ESPACE LAISSÉ SOUS LA BARRE D'ÉTAT PAR TOUTE FEUILLE (31/10/2026 : « il ne
+ * faut pas que les drawer prennent 100 % de la hauteur, laisse quand même
+ * 20px entre le haut et la statusbar »). Une seule valeur : les hauteurs des
+ * feuilles s'en déduisent, clavier ouvert compris. Les classes Tailwind qui ne
+ * peuvent pas lire une constante (fenêtre, menus) recopient ce même calcul.
+ */
+export const ESPACE_SOUS_LA_BARRE_D_ETAT = 20;
+export const HAUTEUR_MAX_DE_FEUILLE = `calc(100dvh - var(--zone-sure-haut, 0px) - ${ESPACE_SOUS_LA_BARRE_D_ETAT}px - var(--clavier, 0px))`;
+/**
+ * Une feuille haute sans être pleine : 92 % de l'écran sur ordinateur. SUR TÉLÉPHONE, elle monte jusqu'au même niveau
+ * que le menu principal (demande du 31/10/2026) : `--plafond-de-feuille-haute` y vaut l'écran (`styles.css`), et le
+ * plafond tranche. Une feuille sans hauteur fixe suit toujours son contenu, jusqu'à là.
+ */
+export const HAUTEUR_DE_FEUILLE_HAUTE = `min(calc(var(--plafond-de-feuille-haute, 92dvh) - var(--clavier, 0px)), ${HAUTEUR_MAX_DE_FEUILLE})`;
+
+/**
  * LA FEUILLE DU BAS, À LA DEMANDE (`Drawer feuille`) : voile, feuille qui monte
  * du bas, poignée qu'on tire vers le bas pour refermer. Le voile recouvre toute
  * l'application et un clic dessus referme la feuille (jamais deux à la fois). C'est l'ancien tiroir,
- * rétabli pour DEUX surfaces seulement — « Déploiement » et « Mise en
+ * rétabli pour quelques surfaces seulement — « Déploiement » et « Mise en
  * production » (demande du 15/10/2026 : « des drawers, pas des pages
- * entières »). Tout le reste de l'application garde sa page de zone.
+ * entières »), le menu du téléphone (30/10/2026). Le reste de l'application
+ * garde sa page de zone.
  *
  * Elle n'a ni barre d'en-tête ni fil d'Ariane : le titre et les gestes de son
  * contenu se posent EN TÊTE de la feuille, dans le contenu (`DialogTitle`,
@@ -2032,43 +2605,55 @@ function FeuilleDuBas({
   plein,
   hauteurFixe,
   empile,
+  zone,
+  jusquEnHaut,
+  enteteDePage,
+  classeDuCorps,
   className,
   children,
+  attributs,
+  refDuContenu,
+  reperesDePoignee,
 }: {
+  /** Des repères posés sur la feuille elle-même (une liste de choix y met `data-liste-panneau`). */
+  attributs?: Record<string, string | undefined>;
+  /** Pour qui doit savoir si un appui tombe DANS la feuille (la liste de choix ouverte dans une fenêtre). */
+  refDuContenu?: React.Ref<HTMLDivElement>;
+  /** Des repères posés sur la poignée (`data-liste-poignee`). */
+  reperesDePoignee?: Record<string, string | undefined>;
   onClose: () => void;
   open: boolean;
   plein?: boolean;
   hauteurFixe?: boolean;
   empile?: boolean;
+  zone?: 'gauche';
+  jusquEnHaut?: boolean;
+  /**
+   * UNE PAGE DE DÉTAIL DEVENUE FEUILLE SUR TÉLÉPHONE (03/11/2026) : la feuille pose en tête un rang à elle — le
+   * titre de la page (son premier `DialogTitle` y monte) et ses gestes (`GestesDePage`, `OptionsDePage`) —, à la
+   * place de la barre au fil d'Ariane. On la referme en la tirant vers le bas : aucune flèche de retour.
+   */
+  enteteDePage?: boolean;
+  /** Les classes de la page, posées sur son corps (sans hauteur : la feuille a la sienne). */
+  classeDuCorps?: string;
   className?: string;
   children: React.ReactNode;
 }) {
-  const [decalage, setDecalage] = React.useState(0);
-  const depart = React.useRef<number | null>(null);
-  const poignee = {
-    onPointerDown: (event: React.PointerEvent) => {
-      depart.current = event.clientY;
-      try {
-        (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-      } catch {
-        /* rien à capturer : les écouteurs suffisent */
-      }
-    },
-    onPointerMove: (event: React.PointerEvent) => {
-      if (depart.current === null) return;
-      setDecalage(Math.max(0, event.clientY - depart.current));
-    },
-    onPointerUp: () => {
-      if (depart.current === null) return;
-      depart.current = null;
-      // `onClose()` ne vit pas dans la fonction de mise à jour : React la joue
-      // pendant le rendu.
-      const tire = decalage;
-      setDecalage(0);
-      if (tire > 110) onClose();
-    },
-  };
-  const hauteurPleine = 'calc(100dvh - max(10px, var(--zone-sure-haut, 0px)) - var(--clavier, 0px))';
+  const [cibleDuTitre, setCibleDuTitre] = React.useState<HTMLElement | null>(null);
+  const [cibleDesGestes, setCibleDesGestes] = React.useState<HTMLElement | null>(null);
+  const titreOccupe = React.useRef<symbol | null>(null);
+  const emplacementDuTitre = React.useMemo(
+    () => (enteteDePage && cibleDuTitre ? { cible: cibleDuTitre, occupe: titreOccupe } : null),
+    [enteteDePage, cibleDuTitre],
+  );
+  /* Le doigt tire la bande du haut, la souris la poignée (`useGlisserPourFermer`). */
+  const glisser = useGlisserPourFermer(onClose, open);
+  /* AUCUNE FEUILLE NE TOUCHE LA BARRE D'ÉTAT, menu du téléphone compris
+     (`jusquEnHaut` ne change plus la hauteur, 31/10/2026). */
+  void jusquEnHaut;
+  const hauteurPleine = HAUTEUR_MAX_DE_FEUILLE;
+  const telephone = useTelephone();
+  const refDeLaFeuille = useRefsFusionnees<HTMLDivElement>(glisser.feuille, refDuContenu);
   return (
     <DialogPrimitive.Portal>
       {/* LE VOILE EST UNE VRAIE SURFACE (demande du 15/10/2026 : « le backdrop ne
@@ -2091,7 +2676,7 @@ function FeuilleDuBas({
           event.stopPropagation();
           onClose();
         }}
-        className="fixed inset-0 z-50 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out"
+        className={cn(CLASSE_VOILE_DE_FEUILLE, 'z-50')}
       >
         <BandeDuVoile />
       </div>
@@ -2107,30 +2692,44 @@ function FeuilleDuBas({
           if (
             origine?.type === 'focusin' ||
             cible?.closest?.(
-              '[data-voile-tiroir], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-replier-colonne], [data-pied-colonne], [data-fenetre-centree]',
+              '[data-voile-tiroir], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-replier-colonne], [data-pied-colonne], [data-fenetre-centree], [data-au-dessus-de-tout]',
             )
           )
             event.preventDefault();
         }}
+        onEscapeKeyDown={echapAuDessusDeTout}
         data-tiroir={plein ? 'plein' : 'normal'}
         data-tiroir-empile={empile ? 'oui' : undefined}
         data-feuille-du-bas
+        data-zone={zone}
+        {...attributs}
+        ref={refDeLaFeuille}
         className={cn(
-          'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden bg-surface outline-none',
+          'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden outline-none',
           CLASSE_LARGEUR_TIROIR,
-          'rounded-t-xl sm:rounded-t-2xl',
+          /* L'HABIT COMMUN (`HABIT_DE_FEUILLE`) : coins du haut arrondis partout, menu du téléphone qui monte
+             jusqu'en haut compris, et du même rayon sur téléphone et sur ordinateur (demande du 31/10/2026). */
+          HABIT_DE_FEUILLE,
+          /* SUR ORDINATEUR, UN SEUL FOND DE LA POIGNÉE AU PIED (décision de l'utilisateur du 05/11/2026, capture
+             #7cbf : « c'est quoi ce haut de drawer qui a une autre couleur que le fond ? ») : le fond de la page
+             (`--bg`), celui de la page de l'agent et des pages qu'on y ouvre — plus le `--surface` plus clair,
+             qui faisait une bande au-dessus du corps. */
+          !telephone && 'bg-bg',
           'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-          empile ? 'shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]' : 'shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)]',
+          empile && OMBRE_DE_FEUILLE_EMPILEE,
           className,
         )}
         style={{
+          /* SUR TÉLÉPHONE, LE FOND EST CELUI DU MENU (`FOND_DE_FEUILLE`) ; sur ordinateur, celui de la page. */
+          ...(telephone ? FOND_DE_FEUILLE : null),
           bottom: 'var(--clavier, 0px)',
-          maxHeight: plein ? hauteurPleine : 'calc(92dvh - var(--clavier, 0px))',
-          height: plein ? hauteurPleine : hauteurFixe ? 'calc(92dvh - var(--clavier, 0px))' : undefined,
-          paddingBottom: 'var(--zone-sure-bas, 0px)',
-          transform: decalage ? `translateY(${decalage}px)` : undefined,
-          transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
-          ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
+          maxHeight: plein ? hauteurPleine : HAUTEUR_DE_FEUILLE_HAUTE,
+          height: plein ? hauteurPleine : hauteurFixe ? HAUTEUR_DE_FEUILLE_HAUTE : undefined,
+          paddingBottom: 'var(--marge-bas-hors-clavier, 0px)',
+          /* La feuille a compté la marche du bas : son contenu ne la recompte pas. */
+          ['--marche-du-bas' as string]: '0px',
+          ['--pied-natif' as string]: 'var(--pied-natif-dedans)',
+          ...(telephone ? null : { ['--fond-zone-defilement' as string]: 'hsl(var(--bg))' }),
         }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -2138,25 +2737,36 @@ function FeuilleDuBas({
         }}
         tabIndex={-1}
       >
-        <div
-          {...poignee}
-          onPointerCancel={poignee.onPointerUp}
-          data-poignee-tiroir
-          className={cn(
-            'flex shrink-0 cursor-grab touch-none justify-center active:cursor-grabbing',
-            plein ? 'pb-2 pt-3.5' : 'pb-3 pt-5',
-          )}
-        >
-          <DialogPrimitive.Close
-            aria-label="Fermer"
-            className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text"
-          />
-        </div>
+        <PoigneeDeFeuille {...glisser.poignee} {...reperesDePoignee} fermer={<DialogPrimitive.Close aria-label="Fermer" className={CLASSE_BARRE_DE_PRISE} />} />
+        {enteteDePage ? (
+          /* LE TITRE D'UNE FEUILLE EST CENTRÉ EN HAUT (03/11/2026), comme celui de toutes les feuilles
+             (`EnteteDeFeuille`) : une colonne vide à gauche équilibre les gestes de droite. */
+          <div className="grid min-h-[38px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 pb-2" data-entete-de-feuille-de-page>
+            <span aria-hidden />
+            {/* SUR TÉLÉPHONE, LE TITRE LAISSE LA PLACE DE DEUX GESTES DE CHAQUE CÔTÉ (15/11/2026) : borné à 70 % de
+                l'écran, il passait sous le trombone d'une demande de la Messagerie. */}
+            <span ref={setCibleDuTitre} className="flex min-w-0 max-w-[calc(100vw-208px)] items-center justify-center text-center sm:max-w-[min(70vw,560px)] [&>*]:!text-[15.5px] [&>*]:!font-semibold [&>*]:truncate" data-titre-de-feuille />
+            <div ref={setCibleDesGestes} className="flex min-w-0 items-center justify-end gap-1" data-gestes-de-page="feuille" data-rangee-de-boutons />
+          </div>
+        ) : null}
         {/* Une feuille n'a pas de barre de page : son titre et ses gestes
-            restent dans son contenu, jamais dans la barre de la page dessous. */}
-        <EmplacementDuTitreDePage.Provider value={null}>
-          <CibleDesGestesDePage.Provider value={null}>
-            <CibleDuBasDePage.Provider value={null}>{children}</CibleDuBasDePage.Provider>
+            restent dans son contenu (ou dans son propre rang), jamais dans la barre de la page dessous. */}
+        <EmplacementDuTitreDePage.Provider value={enteteDePage ? emplacementDuTitre : null}>
+          <CibleDesGestesDePage.Provider value={enteteDePage ? cibleDesGestes : null}>
+            <CibleDuBasDePage.Provider value={null}>
+              {enteteDePage ? (
+                <div
+                  data-corps-de-page
+                  /* Une page apporte ses propres marges (`px-3`, comme dans une page de zone) : le corps n'ajoute que 4 px,
+                     et son contenu tombe sur la marge commune des feuilles (`MARGE_DE_FEUILLE`, 16 px). */
+                  className={cn('flex min-h-0 w-full flex-1 flex-col px-1', sansHauteurDeFeuille(classeDuCorps))}
+                >
+                  {children}
+                </div>
+              ) : (
+                children
+              )}
+            </CibleDuBasDePage.Provider>
           </CibleDesGestesDePage.Provider>
         </EmplacementDuTitreDePage.Provider>
       </DialogPrimitive.Content>
@@ -2178,21 +2788,54 @@ export function Drawer({
   pret,
   entete,
   feuille,
+  zone,
+  jusquEnHaut,
+  modal,
+  cache,
+  sousLeHaut,
 }: {
+  /**
+   * SUR TÉLÉPHONE, DANS UN PROJET, LA PAGE S'OUVRE SOUS LE HAUT COMMUN (13/11/2026) : le nom du projet et sa rangée
+   * d'onglets restent ceux de l'application, jamais recouverts — la page commence à leur bas
+   * (`--bas-du-haut-telephone`, mesuré par l'application) et ne pose aucun en-tête à elle.
+   */
+  sousLeHaut?: boolean;
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
   /**
+   * LA PAGE RESTE MONTÉE, CACHÉE (13/11/2026, onglets instantanés) : l'onglet d'une tâche qu'on a quitté garde sa
+   * conversation, son défilement et son brouillon ; il revient d'un coup, sans silhouette. Inerte et hors de la vue
+   * tant qu'il est caché. Seule la page de zone par défaut (celle d'une tâche) le connaît.
+   */
+  cache?: boolean;
+  /**
+   * UNE FEUILLE OUVERTE DEPUIS UNE FENÊTRE (« Ajouter un LLM » depuis les réglages, 03/11/2026) EST MODALE : la
+   * fenêtre dessous verrouille le défilement et les appuis de tout ce qui n'est pas elle, et prendrait l'appui sur
+   * la feuille pour un appui « dehors ». Modale, la feuille pose son verrou par-dessus — seul le dernier compte.
+   */
+  modal?: boolean;
+  /**
    * LA FEUILLE DU BAS au lieu de la page de zone : voile, poignée à tirer,
-   * titre et gestes en tête du contenu. Réservé à « Déploiement » et « Mise en
-   * production » — les autres écrans restent des pages (refonte du 11/10/2026) —,
-   * ET AUX PANNEAUX D'UN MÉDIA (demande explicite de l'utilisateur du
-   * 26/10/2026) : chaque option du menu « … » d'un média d'une création
+   * titre et gestes en tête du contenu. « Déploiement » et « Mise en
+   * production », LE MENU DU TÉLÉPHONE (demande du 30/10/2026), les listes et
+   * sous-pages d'un service sur téléphone (03/11/2026 : le bas de chaque service
+   * ouvre ses lieux en feuille ; une page `empile` y devient feuille d'office,
+   * plus haut) ET LES PANNEAUX D'UN MÉDIA
+   * (demande explicite de l'utilisateur du 26/10/2026) : chaque option du menu « … » d'un média d'une création
    * (visage, lumière, angles, animation, gestes, consigne, réglages) ouvre sa
    * feuille, avec le composant adapté et le prix sur le bouton.
    */
   feuille?: boolean;
+  /** La feuille prend le fond de cette zone, poignée comprise (`data-zone`). */
+  zone?: 'gauche';
+  /**
+   * LA FEUILLE MONTE JUSQU'EN HAUT DE LA VUE, sous la barre d'état, sans marge :
+   * le menu du téléphone (demande du 30/10/2026). Ses coins du haut restent
+   * arrondis, comme toute feuille (demande du 31/10/2026).
+   */
+  jusquEnHaut?: boolean;
   /** L'en-tête propre à la page (fil d'Ariane, gestes) ; sans lui, la barre « Retour ». */
   entete?: React.ReactNode;
   /**
@@ -2238,13 +2881,58 @@ export function Drawer({
   pret?: boolean;
 }) {
   /* Le volet suit l'adresse du navigateur dès qu'il porte un nom. */
+  const enFenetre = React.useContext(DansUneFenetreDeService);
+  const dansUnePage = React.useContext(DansUnePageDeService);
+  const cadreDeFenetre = React.useContext(CadreDesPagesDeFenetre);
+  /* Une page posée par-dessus un service ne prête pas la rangée du service à ses tableaux. */
+  if (!enPage) children = <EmplacementsDeLaPage.Provider value={null}>{children}</EmplacementsDeLaPage.Provider>;
+  /* Une page ouverte depuis une zone qui défile n'est pas DANS cette zone : sa propre zone peut s'étendre au bord. */
+  children = <DansUneZoneQuiDefile.Provider value={false}>{children}</DansUneZoneQuiDefile.Provider>;
   useTiroirAdresse(enPage ? null : adresse, open, (ouvert) => (ouvert ? onOuvrir?.() : onClose()), {
     pret: pret ?? true,
   });
+  /*
+   * SUR TÉLÉPHONE, UNE PAGE DE DÉTAIL OUVERTE PAR-DESSUS UN SERVICE EST UNE FEUILLE DU BAS (décision de l'utilisateur
+   * du 03/11/2026 : « quand on ouvre une page détail, par exemple le coffre-fort, ça doit ouvrir un drawer et non pas
+   * une page avec le header qui ne sert à rien »). Toute page `empile` sans en-tête propre — une fiche du coffre-fort,
+   * un site surveillé ou sauvegardé, une tâche récurrente… — monte du bas, pleine hauteur, son titre et ses gestes
+   * dans son propre rang. Sur ordinateur, la page de zone ne change pas.
+   */
+  const telephone = useTelephone();
+  /*
+   * …ET DANS LA FEUILLE D'UN SERVICE, TOUTE PAGE DE DÉTAIL EN EST UNE AUSSI (15/11/2026) : la fiche d'une demande de la
+   * Messagerie (`Drawer` sans `empile`) s'ouvrait en page de zone (z-40), SOUS la feuille du service (z-50) — l'adresse
+   * nommait la demande, l'écran montrait la liste. Sur téléphone, dans une fenêtre de service, elle monte du bas.
+   */
+  if (telephone && (empile || enFenetre) && entete === undefined && !enPage && !feuille) {
+    return (
+      <RacineDeDialogue open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
+        <FeuilleDuBas onClose={onClose} open={open} plein empile zone={zone} enteteDePage classeDuCorps={className}>
+          {children}
+        </FeuilleDuBas>
+      </RacineDeDialogue>
+    );
+  }
+
+  if (enPage && enFenetre) {
+    /* DANS UNE FENÊTRE DE SERVICE : la page occupe la fenêtre, sans sa colonne centrée ni son air au-dessus. DANS UNE
+       PAGE DE SERVICE (ordinateur), plus aucune marge : la colonne commune de la page les porte (même bord que le
+       titre et le bouton du bas). */
+    return open ? (
+      <div
+        className={cn('flex h-full min-h-0 w-full flex-col', dansUnePage ? '' : 'px-4 pt-3 sm:px-5', className)}
+        data-ecran-plein
+        data-page-en-fenetre
+        style={{ ['--fond-zone-defilement' as string]: 'hsl(var(--bg))' }}
+      >
+        <DansUnDialogue.Provider value={false}>{children}</DansUnDialogue.Provider>
+      </div>
+    ) : null;
+  }
 
   if (enPage) {
     return (
-      <DialogPrimitive.Root open={open} modal={false} onOpenChange={() => undefined}>
+      <RacineDeDialogue open={open} modal={false} onOpenChange={() => undefined}>
         <DialogPrimitive.Content
           data-ecran-plein
           onInteractOutside={(event) => event.preventDefault()}
@@ -2274,27 +2962,30 @@ export function Drawer({
         >
           {children}
         </DialogPrimitive.Content>
-      </DialogPrimitive.Root>
+      </RacineDeDialogue>
     );
   }
 
   if (feuille) {
     return (
-      <DialogPrimitive.Root open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
-        <FeuilleDuBas onClose={onClose} open={open} plein={plein} hauteurFixe={hauteurFixe} empile={empile} className={className}>
+      <RacineDeDialogue open={open} modal={!!modal} onOpenChange={(next) => !next && onClose()}>
+        <FeuilleDuBas onClose={onClose} open={open} plein={plein} hauteurFixe={hauteurFixe} empile={empile} zone={zone} jusquEnHaut={jusquEnHaut} className={className}>
           {children}
         </FeuilleDuBas>
-      </DialogPrimitive.Root>
+      </RacineDeDialogue>
     );
   }
 
   return (
     /* `modal={false}` : la page ne fige pas le reste de l'écran — la colonne des
        projets reste cliquable (voir `FeuilleDeTiroir`). */
-    <DialogPrimitive.Root open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
+    <RacineDeDialogue open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
       <FeuilleDeTiroir
         open={open}
         onClose={onClose}
+        cadre={enFenetre ? cadreDeFenetre : null}
+        cache={cache}
+        sousLeHaut={sousLeHaut}
         plein={plein}
         hauteurFixe={hauteurFixe}
         empile={empile}
@@ -2303,7 +2994,7 @@ export function Drawer({
       >
         {children}
       </FeuilleDeTiroir>
-    </DialogPrimitive.Root>
+    </RacineDeDialogue>
   );
 }
 
@@ -2363,7 +3054,7 @@ export function SidePanel({
   };
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
+    <RacineDeDialogue open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
           <BandeDuVoile />
@@ -2380,7 +3071,9 @@ export function SidePanel({
             // vide en bas sur téléphone.
             height: 'var(--hauteur-app, 100dvh)',
             paddingTop: 'var(--zone-sure-haut, 0px)',
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            paddingBottom: `var(--pied-natif, calc(env(safe-area-inset-bottom) + var(--marche-du-bas, 0px)))`,
+            ['--marche-du-bas' as string]: '0px',
+            ['--pied-natif' as string]: 'var(--pied-natif-dedans)',
             transform: decalage ? `translateX(${decalage}px)` : undefined,
             transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
           }}
@@ -2398,7 +3091,7 @@ export function SidePanel({
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    </RacineDeDialogue>
   );
 }
 
@@ -2436,7 +3129,7 @@ export function EnteteDeFeuille({
           {gauche}
         </div>
         <div className="relative flex min-w-0 max-w-[min(70vw,560px)] items-center justify-center" data-entete-titre>
-          <DialogTitle className="min-w-0 truncate text-center text-[15.5px] font-semibold text-text">{titre}</DialogTitle>
+          <DialogTitle className={CLASSE_TITRE_DE_FEUILLE}>{titre}</DialogTitle>
           {info ? (
             <span className="absolute left-full top-1/2 ml-0.5 flex -translate-y-1/2 items-center" data-entete-info>
               <BulleInfo cote="start">{info}</BulleInfo>
@@ -2461,6 +3154,7 @@ export function DialogTitle({ className, ...props }: React.ComponentPropsWithout
      titre écrit monte dans la barre d'en-tête de la page, au lieu de refaire un
      en-tête sous elle. Il reste le titre lu à voix haute de la page. */
   const emplacement = React.useContext(EmplacementDuTitreDePage);
+  const dansUnDialogue = React.useContext(DansUnDialogue);
   const jeton = React.useRef(Symbol('titre'));
   const [enTete, setEnTete] = React.useState(false);
   React.useLayoutEffect(() => {
@@ -2476,6 +3170,10 @@ export function DialogTitle({ className, ...props }: React.ComponentPropsWithout
       if (emplacement.occupe.current === mien) emplacement.occupe.current = null;
     };
   }, [emplacement]);
+  if (!dansUnDialogue) {
+    const { asChild: _asChild, ...reste } = props as typeof props & { asChild?: boolean };
+    return <h2 data-titre-hors-dialogue="" className={cn('text-[15.5px] font-semibold text-text', className)} {...reste} />;
+  }
   if (emplacement && enTete) {
     return ReactDOM.createPortal(
       <DialogPrimitive.Title className="min-w-0 truncate text-[14.5px] font-medium text-text" data-titre-de-page {...props} />,
@@ -2486,20 +3184,54 @@ export function DialogTitle({ className, ...props }: React.ComponentPropsWithout
 }
 
 /**
- * LE TITRE D'UNE PAGE DE SERVICE : grand, seul sur sa ligne, en tête de la
- * colonne centrée. Il reste le titre lu à voix haute de la page (`Dialog`).
+ * LE TITRE D'UNE PAGE DE SERVICE : seul sur sa ligne, en tête de la colonne centrée, à la taille de l'échelle unique
+ * (`TITRE_DE_PAGE`, 18 px — décision du 03/11/2026). Il reste le titre lu à voix haute de la page (`Dialog`).
  *
- * SUR TÉLÉPHONE, LE NOM DE LA PAGE NE S'ÉCRIT QU'UNE FOIS, dans la barre
- * d'en-tête (demande du 11/10/2026 : « éviter les doubles header avec le titre
- * à double ») : ce titre-ci ne se dessine plus (`CLASSE_TITRE_SEUL_EN_BARRE`),
- * il reste seulement lu à voix haute.
+ * SUR TÉLÉPHONE IL EST DE NOUVEAU VISIBLE (03/11/2026) : la barre du haut n'y montre plus la page mais le SERVICE
+ * (petit) et le PROJET (grand) ; le nom de la page se lit donc ici, et porte ses onglets à sa droite
+ * (`TitreEtOnglets`). `CLASSE_TITRE_SEUL_EN_BARRE` est gardée vide pour les écrans qui l'importent encore.
  */
-export const CLASSE_TITRE_SEUL_EN_BARRE = 'max-sm:sr-only';
+export const CLASSE_TITRE_SEUL_EN_BARRE = '';
+/**
+ * UN SERVICE MONTRÉ DANS UNE GRANDE FENÊTRE (Mémoire, Coffre-fort, services créatifs — 13/11/2026,
+ * `fenetre-de-service.tsx`) : sa page (`Drawer enPage`) se pose telle quelle dans la fenêtre, sans marges de page, et
+ * son titre n'est plus écrit (le titre de la fenêtre le dit).
+ */
+export const DansUneFenetreDeService = React.createContext(false);
+/** Le service est rendu dans une PAGE centrale (14/11/2026) : son fil d'Ariane de sous-page s'y écrit. */
+export const DansUnePageDeService = React.createContext(false);
+/**
+ * LES EMPLACEMENTS DE LA RANGÉE D'UNE PAGE DE SERVICE (`fenetre-de-service.tsx`) : onglets, recherche, bascule et
+ * réglages du service s'y posent. Une page ou une feuille ouverte PAR-DESSUS (`Drawer` hors `enPage`) les coupe : ses
+ * propres contrôles restent chez elle.
+ */
+export interface EmplacementsDeLaPageDeService {
+  rubriques: HTMLElement | null;
+  recherche: HTMLElement | null;
+  bascule: HTMLElement | null;
+  droite: HTMLElement | null;
+}
+export const EmplacementsDeLaPage = React.createContext<EmplacementsDeLaPageDeService | null>(null);
+/** La partie droite d'une fenêtre de service : une page ouverte depuis l'outil s'y pose (`FeuilleDeTiroir`, `cadre`). */
+export const CadreDesPagesDeFenetre = React.createContext<HTMLElement | null>(null);
+
 export function TitreDePage({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
+  const enFenetre = React.useContext(DansUneFenetreDeService);
+  /* DANS UNE FENÊTRE OU UNE PAGE DE SERVICE, aucun `Dialog` n'entoure la page (`Drawer enPage` y rend un simple bloc) :
+     le titre de Radix y jetait « DialogTitle must be used within Dialog » et l'écran entier tombait (Charte graphique,
+     14/11/2026). Le titre y reste pour les lecteurs d'écran, en simple titre. */
+  if (enFenetre) {
+    const { asChild: _asChild, ...reste } = props as typeof props & { asChild?: boolean };
+    return <h2 data-titre-de-page data-titre-en-fenetre="" className={cn('sr-only', className)} {...reste} />;
+  }
   return (
     <DialogPrimitive.Title
       data-titre-de-page
-      className={cn('shrink-0 pb-5 text-[26px] font-semibold leading-tight tracking-tight text-text sm:pb-6', className, CLASSE_TITRE_SEUL_EN_BARRE)}
+      data-titre-en-fenetre={enFenetre ? '' : undefined}
+      /* PAS DE NOM EN DOUBLE SUR TÉLÉPHONE (décision du 03/11/2026 : « c'est le haut de l'écran qui prime ») : le titre
+         d'un service (Surveillance, Backups, Coffre-fort…) redisait le nom centré du haut ; il ne reste que pour les
+         lecteurs d'écran. */
+      className={cn('shrink-0 pb-3 text-[18px] font-semibold leading-tight tracking-tight text-text max-sm:sr-only sm:pb-4', className, CLASSE_TITRE_SEUL_EN_BARRE, enFenetre && 'sr-only')}
       {...props}
     />
   );
@@ -2514,6 +3246,11 @@ export function DialogDescription({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
+  const dansUnDialogue = React.useContext(DansUnDialogue);
+  if (!dansUnDialogue) {
+    const { asChild: _asChild, ...reste } = props as typeof props & { asChild?: boolean };
+    return <p className={cn('mt-1 text-[14px] text-muted', className)} {...reste} />;
+  }
   return <DialogPrimitive.Description className={cn('mt-1 text-[14px] text-muted', className)} {...props} />;
 }
 
@@ -2548,15 +3285,30 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
 /** Vrai sous un `Tooltip` : un bouton y garde sa bulle d'enveloppe, sans `title` en doublon. */
 const DansUneInfobulle = React.createContext(false);
 
-export function Tooltip({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
+export function Tooltip({
+  children,
+  label,
+  side,
+  desactive = false,
+  className,
+}: {
+  children: React.ReactNode;
+  label: React.ReactNode;
+  /** Le côté où la bulle se pose (en haut par défaut). */
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  /** Vrai : la bulle reste fermée (un menu ouvert sur la ligne), sans démonter le déclencheur. */
+  desactive?: boolean;
+  className?: string;
+}) {
   const survol = useSurvol();
+  const [ouverte, setOuverte] = React.useState(false);
   // Sans survol, l'infobulle ne s'affichera JAMAIS (elle est masquée en dessous
   // de `sm`) : son déclencheur ne ferait que s'interposer entre le doigt et ce
   // qu'il vise — un interrupteur, par exemple. On ne le pose donc pas du tout.
   if (!label || !survol) return <>{children}</>;
   return (
     <DansUneInfobulle.Provider value>
-    <TooltipPrimitive.Root delayDuration={DELAI_INFOBULLE_MS}>
+    <TooltipPrimitive.Root delayDuration={DELAI_INFOBULLE_MS} open={ouverte && !desactive} onOpenChange={setOuverte}>
       <TooltipPrimitive.Trigger asChild data-infobulle-declencheur="">
         {children}
       </TooltipPrimitive.Trigger>
@@ -2566,9 +3318,12 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
             sous le bouton de redémarrage. On ne l'affiche qu'à la souris. */}
         <TooltipPrimitive.Content
           data-infobulle
+          side={side}
           sideOffset={6}
+          collisionPadding={8}
           className={cn(
             CLASSES_INFOBULLE,
+            className,
             'pointer-events-auto hidden sm:block',
             'data-[state=delayed-open]:animate-fade-in data-[state=instant-open]:animate-fade-in data-[state=closed]:animate-fade-out',
           )}
@@ -2593,6 +3348,19 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
  * l'attribut reste en place : la bulle native n'y est jamais dessinée, et les
  * contrôles qui lisent `title` le lisent toujours.
  */
+/** `closest` qui TRAVERSE LES OMBRES ouvertes : la charte (document et miniatures) vit dans des `attachShadow`, où
+ *  `closest` s'arrête à la racine de l'ombre. On remonte alors à son hôte, et ainsi de suite jusqu'au document. */
+function plusProcheATraversLesOmbres(depart: Element | null, selecteur: string): HTMLElement | null {
+  let el: Element | null = depart;
+  while (el) {
+    const trouve = el.closest?.(selecteur) as HTMLElement | null;
+    if (trouve) return trouve;
+    const racine = el.getRootNode?.();
+    el = racine instanceof ShadowRoot ? racine.host : null;
+  }
+  return null;
+}
+
 export function InfobullesDeLApplication() {
   const survol = useSurvol();
   const [bulle, setBulle] = React.useState<{ texte: string; rect: DOMRect; visible: boolean } | null>(null);
@@ -2626,17 +3394,26 @@ export function InfobullesDeLApplication() {
     };
     const entrer = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
-      const trouve = (e.target as Element | null)?.closest?.('[title],[data-infobulle-titre]') as HTMLElement | null;
+      /* L'élément RÉELLEMENT survolé : dans une ombre, `e.target` est reciblé sur l'hôte et le `title` intérieur (les
+         miniatures de la charte) ne serait jamais vu — la bulle native du navigateur paraissait à la place. */
+      const origine = ((e.composedPath?.()[0] as Element | undefined) ?? (e.target as Element | null)) || null;
+      const survole = origine && origine.nodeType === 1 ? origine : (origine as Node | null)?.parentElement ?? null;
+      const trouve = plusProcheATraversLesOmbres(survole, '[title],[data-infobulle-titre]');
       /* UNE BULLE PLUS PROCHE GAGNE : un déclencheur de `Tooltip` posé DANS
          l'élément titré (l'interrupteur dans l'entête d'une colonne) a sa
          propre bulle — celle de l'ancêtre la recouvrait et l'empêchait de
          paraître. */
-      const declencheur = (e.target as Element | null)?.closest?.('[data-infobulle-declencheur]');
-      const el = trouve && declencheur && declencheur !== trouve && trouve.contains(declencheur) ? null : trouve;
+      const declencheur = plusProcheATraversLesOmbres(survole, '[data-infobulle-declencheur]');
+      let el = trouve && declencheur && declencheur !== trouve && trouve.contains(declencheur) ? null : trouve;
+      /* UN BOUTON À ICÔNE SANS `title` A QUAND MÊME SA BULLE (03/11/2026 : « des info-bulles partout ») : son nom lu
+         à voix haute (`aria-label`) la remplit. Il gagne sur un ancêtre titré qui le contient — c'est lui qu'on vise. */
+      const icone = plusProcheATraversLesOmbres(survole, 'button[aria-label],a[aria-label],[role="button"][aria-label]');
+      const iconeSeule = icone && !icone.hasAttribute('title') && !icone.hasAttribute('data-infobulle-titre') && !(icone.textContent ?? '').trim() ? icone : null;
+      if (iconeSeule && (!el || (el !== iconeSeule && el.contains(iconeSeule)))) el = iconeSeule;
       if (el === cible) return;
       fermer();
       if (!el) return;
-      const texte = (el.getAttribute('title') ?? el.getAttribute('data-infobulle-titre') ?? '').trim();
+      const texte = (el.getAttribute('title') ?? el.getAttribute('data-infobulle-titre') ?? (el === iconeSeule ? el.getAttribute('aria-label') : '') ?? '').trim();
       if (!texte) return;
       cible = el;
       if (!pilote && el.hasAttribute('title')) {
@@ -2655,6 +3432,9 @@ export function InfobullesDeLApplication() {
       if (!cible) return;
       const vers = e.relatedTarget as Node | null;
       if (vers && cible.contains(vers)) return;
+      /* Une cible DANS UNE OMBRE : `relatedTarget` est reciblé sur l'hôte, on ne sait pas d'ici si le pointeur reste
+         dans la cible. Le `pointerover` suivant tranche (même cible : rien ; autre élément : fermeture). */
+      if (vers && cible.getRootNode() instanceof ShadowRoot) return;
       fermer();
     };
     document.addEventListener('pointerover', entrer, true);
@@ -2737,6 +3517,9 @@ export function BulleInfo({
   const [ouvert, setOuvert] = React.useState(false);
   const fermeture = React.useRef<number | undefined>(undefined);
   const pointeur = React.useRef('');
+  /* Sur téléphone, la bulle est une petite feuille du bas : elle se tire aussi. */
+  const telephone = useTelephone();
+  const glisser = useGlisserPourFermer(() => setOuvert(false), telephone && ouvert);
   const entrer = (e: React.PointerEvent) => {
     if (e.pointerType !== 'mouse') return;
     window.clearTimeout(fermeture.current);
@@ -2783,7 +3566,13 @@ export function BulleInfo({
           onOpenAutoFocus={(e) => e.preventDefault()}
           onPointerEnter={entrer}
           onPointerLeave={sortir}
-          className="z-[60] max-w-[300px] select-text whitespace-pre-line rounded-md border border-border bg-raised px-2.5 py-2 text-[12.5px] font-normal normal-case leading-relaxed tracking-normal text-muted shadow-xl animate-fade-in max-sm:max-w-none max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3"
+          ref={glisser.feuille}
+          className={cn(
+            'z-[60] select-text whitespace-pre-line text-[12.5px] font-normal normal-case leading-relaxed tracking-normal text-muted animate-fade-in',
+            /* Sur téléphone, la bulle est une feuille du bas : l'habit commun (`HABIT_DE_FEUILLE`). */
+            telephone ? cn(HABIT_DE_FEUILLE, 'max-w-none px-4 pb-6 pt-3') : 'max-w-[300px] rounded-md border border-border bg-raised px-2.5 py-2 shadow-xl',
+          )}
+          style={telephone ? FOND_DE_FEUILLE : undefined}
         >
           {children}
         </PopoverPrimitive.Content>
@@ -2823,10 +3612,7 @@ function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null
       data-state={etat}
       /* Sur grand écran un menu déroulant n'assombrit rien : il se pose à côté
          de son bouton, il n'interrompt pas. */
-      className={cn(
-        'fixed inset-0 z-[55] bg-voile/70 backdrop-blur-[2px] sm:hidden',
-        'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-      )}
+      className={cn(CLASSE_VOILE_DE_FEUILLE, 'z-[55] sm:hidden')}
       style={{ opacity: etat === 'closed' ? 0 : undefined }}
     >
       <BandeDuVoile />
@@ -2841,41 +3627,8 @@ function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null
  * poignée seule, sinon il empêcherait le contenu de défiler. Rend les
  * écouteurs à étaler sur la poignée et le style à poser sur le panneau.
  */
-function usePoigneeDuBas(fermer: () => void) {
-  const [decalage, setDecalage] = React.useState(0);
-  const depart = React.useRef<number | null>(null);
-  const relacher = () => {
-    if (depart.current === null) return;
-    depart.current = null;
-    setDecalage((valeur) => {
-      if (valeur > 110) fermer();
-      return 0;
-    });
-  };
-  return {
-    poignee: {
-      onPointerDown: (event: React.PointerEvent) => {
-        depart.current = event.clientY;
-        // Un pointeur qui n'existe pas — un événement fabriqué par un contrôle —
-        // fait lever cette capture : le geste ne doit pas mourir pour autant.
-        try {
-          (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-        } catch {
-          /* rien à capturer : les écouteurs suffisent */
-        }
-      },
-      onPointerMove: (event: React.PointerEvent) => {
-        if (depart.current === null) return;
-        setDecalage(Math.max(0, event.clientY - depart.current));
-      },
-      onPointerUp: relacher,
-      onPointerCancel: relacher,
-    },
-    style: {
-      transform: decalage ? `translateY(${decalage}px)` : undefined,
-      transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
-    } as React.CSSProperties,
-  };
+function fermerParEchap() {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 }
 
 /**
@@ -2939,47 +3692,59 @@ function avalerLaTapeDeFermeture(): void {
   window.addEventListener('pointerdown', apresUnAutreAppui, true);
 }
 
+/**
+ * UN MENU QUI S'OUVRE PAR-DESSUS SON BOUTON, À SA LARGEUR (15/11/2026, « Nouvel artefact » et « Services » de la
+ * colonne) : sur ordinateur, le menu recouvre le bouton — bord haut sur bord haut quand il descend, bord bas sur bord
+ * bas quand il monte — au lieu de s'ouvrir dessous. Le décalage suit le côté RÉEL (`data-side`) : un menu retourné
+ * par manque de place recouvre encore son bouton. À poser avec `sideOffset={0}` ; le téléphone (feuille du bas)
+ * n'est pas touché.
+ */
+export const CLASSE_MENU_PAR_DESSUS_DU_BOUTON =
+  'sm:w-[var(--radix-dropdown-menu-trigger-width)] sm:relative sm:data-[side=bottom]:top-[calc(-1*var(--radix-dropdown-menu-trigger-height))] sm:data-[side=top]:top-[var(--radix-dropdown-menu-trigger-height)]';
+
 export function DropdownMenuContent({
   className,
   onPointerDownOutside,
+  titre,
+  style,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
+}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content> & {
+  /** Le titre du menu, centré sous la poignée sur téléphone (comme toute feuille) ; rien sur ordinateur. */
+  titre?: React.ReactNode;
+}) {
   /*
-   * Sur téléphone le menu est un TIROIR, donc il se referme comme les autres :
-   * en tirant la poignée vers le bas (`usePoigneeDuBas`). Le menu n'expose pas
-   * son « fermer » : on passe par la touche d'échappement, que la bibliothèque
-   * écoute déjà.
+   * Sur téléphone le menu est une FEUILLE DU BAS, avec l'habit commun de toutes les feuilles (`HABIT_DE_FEUILLE`,
+   * `FOND_DE_FEUILLE`, `PoigneeDeFeuille`, `MARGE_DE_FEUILLE`) — la bibliothèque des menus impose son conteneur,
+   * mais rien de son apparence n'est écrit ici. Il se referme comme les autres : en tirant vers le bas la poignée
+   * ou, au doigt, la bande du haut (`useGlisserPourFermer`). Le menu n'expose pas son « fermer » : on passe par la
+   * touche d'échappement, que la bibliothèque écoute déjà.
    */
+  const telephone = useTelephone();
   const panneau = React.useRef<HTMLDivElement | null>(null);
-  const { poignee, style: styleDeLaPoignee } = usePoigneeDuBas(() =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
-  );
+  const glisser = useGlisserPourFermer(fermerParEchap, telephone);
+  const refDuPanneau = useRefsFusionnees<HTMLDivElement>(panneau, glisser.feuille);
 
   return (
     <DropdownPrimitive.Portal>
-      {/* Posé en bas, sur toute la largeur, avec sa poignée. Les classes « ! »
-          sont nécessaires pour couvrir le placement calculé par la
-          bibliothèque. */}
+      {/* Sur téléphone, l'enveloppe de la bibliothèque est épinglée en bas sur toute la largeur (`styles.css`). */}
       <DropdownPrimitive.Content
-        ref={panneau}
+        ref={refDuPanneau}
         sideOffset={4}
         className={cn(
           // RANG 60 : AU-DESSUS DE LA COLONNE DÉPLIÉE AU SURVOL (`z-[55]`, sidebar.tsx),
           // qui ouvre elle-même des menus — en `z-50`, ils passeraient sous elle.
-          'z-[60] flex min-w-[190px] flex-col overflow-hidden border border-border bg-bg p-1.5 shadow-xl',
-          'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-          // La hauteur réelle de l'écran, mesurée en direct : dvh seul laisse
-          // une bande vide quand l'application est installée sur le téléphone.
-          // Le tiroir passe AU-DESSUS de son propre voile, lui-même au-dessus
-          // des panneaux déjà ouverts.
-          'max-sm:z-[60] max-sm:w-full max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-t-xl',
-          'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
-          'max-sm:data-[state=open]:animate-slide-sheet max-sm:data-[state=closed]:animate-slide-sheet-out',
-          'sm:rounded-xl',
+          'z-[60] flex min-w-[190px] flex-col overflow-hidden',
+          telephone
+            ? cn(
+                HABIT_DE_FEUILLE,
+                'w-full max-h-[min(calc(var(--hauteur-app,100dvh)*0.8),calc(100dvh-var(--zone-sure-haut,0px)-20px-var(--clavier,0px)))] pb-[var(--pied-natif,calc(10px+env(safe-area-inset-bottom)+var(--marche-du-bas,0px)))]',
+                'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+              )
+            : 'rounded-xl border border-border bg-bg p-1.5 shadow-xl data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           className,
           CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR,
         )}
-        style={styleDeLaPoignee}
+        style={telephone ? { ...FOND_DE_FEUILLE, ...style } : style}
         onPointerDownOutside={(event) => {
           onPointerDownOutside?.(event);
           // Un appelant qui retient la fermeture garde aussi son clic.
@@ -2990,15 +3755,11 @@ export function DropdownMenuContent({
         {/* Le voile part dans la page, pas ici : la bibliothèque n'accepte
             qu'un seul enfant sous son portail. */}
         <VoileMenu panneau={panneau} />
-        <div
-          {...poignee}
-          className="mb-1.5 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing sm:hidden"
-        >
-          <span className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text" />
-        </div>
+        {telephone ? <PoigneeDeFeuille {...glisser.poignee} /> : null}
+        {telephone && titre ? <RangeeDeTitreDeFeuille titre={titre} data-menu-titre /> : null}
         {/* Le contenu défile seul : la poignée reste sous le doigt même quand la
             liste est longue. */}
-        <ZoneDefilement fond="hsl(var(--surface))" hauteur={32} className="overscroll-contain">
+        <ZoneDefilement fond="hsl(var(--surface))" hauteur={32} className={telephone ? MARGE_DE_FEUILLE : undefined}>
           {props.children}
         </ZoneDefilement>
       </DropdownPrimitive.Content>
@@ -3014,6 +3775,8 @@ export function DropdownMenuItem({
     <DropdownPrimitive.Item
       className={cn(
         'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[highlighted]:bg-raised data-[disabled]:cursor-default data-[disabled]:opacity-50',
+        /* SUR TÉLÉPHONE, UNE LIGNE DE MENU A LA HAUTEUR D'UNE LIGNE DE FEUILLE (`LIGNE_DE_FEUILLE`). */
+        LIGNE_DE_FEUILLE,
         className,
       )}
       {...props}
@@ -3043,8 +3806,11 @@ export function DropdownMenuSubTrigger({
   return (
     <DropdownPrimitive.SubTrigger
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[14px] text-muted outline-none',
-        'data-[highlighted]:bg-raised data-[highlighted]:text-text data-[state=open]:bg-raised data-[state=open]:text-text',
+        /* LE MÊME DESSIN QU'UNE ENTRÉE ORDINAIRE (13/11/2026 : « Déplacer vers un autre projet » n'avait ni le même
+           retrait, ni le même arrondi, ni la même couleur que ses voisines) : seul le chevron dit « il y a une suite ». */
+        'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[disabled]:cursor-default data-[disabled]:opacity-50',
+        LIGNE_DE_FEUILLE,
+        'data-[highlighted]:bg-raised data-[state=open]:bg-raised',
         className,
       )}
       {...props}
@@ -3058,34 +3824,44 @@ export function DropdownMenuSubTrigger({
 export function DropdownMenuSubContent({
   className,
   children,
+  style,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.SubContent>) {
+  /* Sur téléphone, le sous-menu est une feuille du bas comme son menu : même habit, même poignée, même geste. */
+  const telephone = useTelephone();
+  const glisser = useGlisserPourFermer(fermerParEchap, telephone);
   return (
     <DropdownPrimitive.Portal>
       {/* Sur grand écran, le sous-menu FLOTTE à côté de son entrée, et la
           bibliothèque le replace s'il sortait de l'écran. Sur téléphone, tout
           panneau flottant se pose au bas de l'écran (`styles.css`) : il passe
-          donc AU-DESSUS du panneau du menu (z-index plus haut) et en prend la
-          tenue — coins du haut arrondis, creux du bas réservé.
+          donc AU-DESSUS du panneau du menu (rang plus haut) et en prend l'habit.
           UNE LISTE LONGUE (les modèles d'un moteur, les étiquettes d'un
           projet) NE SORT PAS DE L'ÉCRAN : la hauteur est bornée à la place
           libre, et la liste défile chez elle. */}
       <DropdownPrimitive.SubContent
+        ref={glisser.feuille}
         sideOffset={2}
         alignOffset={-4}
         collisionPadding={8}
         className={cn(
-          'z-[60] flex min-w-[170px] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
-          'max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))]',
-          'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-          'max-sm:z-[70] max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.7)] max-sm:rounded-b-none max-sm:rounded-t-xl',
-          'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
+          'flex min-w-[170px] flex-col overflow-hidden',
+          telephone
+            ? cn(
+                HABIT_DE_FEUILLE,
+                OMBRE_DE_FEUILLE_EMPILEE,
+                'z-[70] w-full max-h-[calc(var(--hauteur-app,100dvh)*0.7)] pb-[var(--pied-natif,calc(10px+env(safe-area-inset-bottom)+var(--marche-du-bas,0px)))]',
+                'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+              )
+            : 'z-[60] max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))] rounded-md border border-border bg-surface p-1 shadow-xl data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           className,
           CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR,
         )}
         {...props}
+        style={telephone ? { ...FOND_DE_FEUILLE, ...style } : style}
       >
-        <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="overscroll-contain">
+        {telephone ? <PoigneeDeFeuille {...glisser.poignee} /> : null}
+        <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className={telephone ? MARGE_DE_FEUILLE : undefined}>
           {children}
         </ZoneDefilement>
       </DropdownPrimitive.SubContent>
@@ -3099,6 +3875,33 @@ export function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<
 
 export function DropdownMenuSeparator() {
   return <DropdownPrimitive.Separator className="my-1 h-px bg-border" />;
+}
+
+/* ------------------------- Le bouton groupé ------------------------ *
+ *
+ * UN SEUL BOUTON GROUPÉ DANS TOUTE L'APPLICATION (modèle A choisi le 03/11/2026) : une pilule coupée en deux — des
+ * segments du MÊME fond, de la MÊME hauteur, séparés par un jour de 2 px, sans aucun trait, arrondis seulement aux
+ * deux bouts. Il sert au « geste principal + chevron d'options » et à « recherche + filtre ». Chaque segment prend
+ * `CLASSE_SEGMENT_DE_GROUPE` (ou un `ChampDeRecherche`, déjà du même fond et de la même hauteur).
+ */
+export const CLASSE_SEGMENT_DE_GROUPE =
+  'inline-flex h-[38px] shrink-0 items-center justify-center gap-1.5 bg-champ px-2.5 text-[13px] text-text outline-none transition-colors hover:bg-fond-survol focus-visible:bg-fond-survol disabled:opacity-50 sm:h-8 sm:text-[12.5px]';
+
+export function BoutonGroupe({ className, children, ...reste }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      role="group"
+      data-bouton-groupe
+      className={cn(
+        'inline-flex min-w-0 items-stretch gap-[2px]',
+        '[&>*]:!rounded-none [&>*:first-child]:!rounded-l-lg [&>*:last-child]:!rounded-r-lg',
+        className,
+      )}
+      {...reste}
+    >
+      {children}
+    </div>
+  );
 }
 
 /* ----------------------------- Divers ----------------------------- */
@@ -3128,7 +3931,10 @@ export const Switch = React.forwardRef<
         /* AUCUN TRAIT : c'est le fond qui dit l'état. Éteint, un gris franc
            (`--faint` voilé) — en `--raised`, tout près du fond, on ne voyait
            plus l'interrupteur, en clair comme en sombre. */
-        'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-faint/40',
+        /* LE FOND SE LIT SUR `aria-checked`, JAMAIS SUR `data-state` : sous un `Tooltip`,
+           la bulle écrase ce repère par le sien (« closed », « delayed-open ») et le
+           rail n'avait plus aucun fond, le rond seul semblant flotter. */
+        'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors aria-[checked=true]:bg-accent aria-[checked=false]:bg-faint/50',
         // L'interrupteur ne fait que 18 px de haut : au doigt, la moitié des
         // appuis tombe à côté. Un calque invisible de 36 × 32 px, centré
         // dessus, agrandit la CIBLE sans rien changer à l'aspect ni à la place
@@ -3659,7 +4465,12 @@ export function ListeDeroulante({
    * Un déclencheur à soi ; sinon un bouton qui montre la valeur. `ouvrir`
    * reçoit l'événement du clic : la liste s'ancre sur l'élément cliqué.
    */
-  declencheur?: (ouvrir: (evenement?: { currentTarget?: EventTarget | null } | Element | null) => void, libelle: string) => React.ReactNode;
+  declencheur?: (
+    ouvrir: (evenement?: { currentTarget?: EventTarget | null } | Element | null) => void,
+    libelle: string,
+    /** Referme la liste (le double clic d'un cran du fil d'Ariane, qui va à sa section au lieu d'ouvrir la liste). */
+    fermer: () => void,
+  ) => React.ReactNode;
   /** Ouverte par-dessus un tiroir déjà ouvert. */
   empile?: boolean;
   /** UN PIED FIXE, HORS DU DÉFILEMENT : un geste qui vaut pour toute la liste (« Ajouter un client »). */
@@ -3728,8 +4539,7 @@ export function ListeDeroulante({
   useTiroirAdresse(telephone ? 'choix' : null, ouvert, (encore) => {
     if (!encore) setOuvert(false);
   });
-  const { poignee, style: styleDeLaPoignee } = usePoigneeDuBas(() => setOuvert(false));
-  void empile;
+  /* Sur téléphone, la feuille du bas porte son propre geste de fermeture (`FeuilleDuBas`). */
   React.useEffect(() => {
     if (mot) setActif(vues.findIndex((o) => !o.desactivee));
   }, [mot]);
@@ -3821,7 +4631,7 @@ export function ListeDeroulante({
         onClick={() => choisir(option)}
         className={cn(
           'flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors',
-          telephone ? 'py-2 text-[14px]' : 'py-1.5 text-[13px]',
+          telephone ? cn('py-1.5 text-[14px]', LIGNE_DE_FEUILLE) : 'py-1.5 text-[13px]',
           /* L'OPTION RETENUE S'ÉCRIT EN VIOLET (`--teinte`), survolée ou non :
              la coche seule, au bout de la ligne, ne suffisait pas à la
              distinguer des autres. */
@@ -3879,15 +4689,15 @@ export function ListeDeroulante({
   });
 
   const recherche = avecRecherche ? (
-    <div className={cn('shrink-0', telephone ? 'px-3 pb-2' : 'p-1 pb-1.5')}>
+    <div className={cn('shrink-0', telephone ? cn(MARGE_DE_FEUILLE, 'pb-2') : 'p-1 pb-1.5')}>
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
         <Input
           value={cherche}
           onChange={(event) => setCherche(event.target.value)}
           onKeyDown={clavier}
           placeholder={t('Rechercher…')}
-          className="h-8 pl-7 text-[13px]"
+          className={telephone ? 'pl-8' : 'h-8 pl-7 text-[13px]'}
           aria-controls={`${id}-liste`}
           aria-activedescendant={actif >= 0 ? `${id}-o${actif}` : undefined}
           {...(m ? { 'data-selecteur-recherche': repere } : { 'data-liste-recherche': repere })}
@@ -3940,8 +4750,8 @@ export function ListeDeroulante({
         variante === 'champ'
           ? /* La tenue d'un champ de saisie (`Input`) : un fond, aucun trait au
                repos ; ouverte, le même filet discret qu'un champ qui a le focus. */
-            'h-[38px] sm:h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-fond-survol'
-          : 'h-[34px] sm:h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
+            'h-[38px] sm:h-8 w-full rounded-md border border-transparent bg-champ px-2 text-[13px] text-text hover:bg-fond-survol'
+          : 'h-[38px] sm:h-8 max-w-full rounded-md px-2 text-[13px] text-text hover:bg-raised',
         ouvert && variante === 'champ' && 'border-faint/60',
         className,
       )}
@@ -3957,7 +4767,39 @@ export function ListeDeroulante({
     </button>
   );
 
-  const leDeclencheur = declencheur ? declencheur(ouvrir, libelle) : declencheurParDefaut;
+  const leDeclencheur = declencheur ? declencheur(ouvrir, libelle, fermer) : declencheurParDefaut;
+
+  const piedDeListe = pied ? <div className={cn('shrink-0', telephone ? cn(MARGE_DE_FEUILLE, 'pt-2.5') : 'px-1 pb-0.5 pt-1')}>{pied(fermer)}</div> : null;
+
+  /*
+   * SUR TÉLÉPHONE, LA LISTE S'OUVRE DANS LA FEUILLE DU BAS ELLE-MÊME (`FeuilleDuBas`, celle du menu principal et
+   * de « Dans quel projet ? ») — demande de l'utilisateur du 03/11/2026 : plus un panneau flottant épinglé en bas par
+   * une règle de style qui l'imitait. Le corps (titre, recherche, options, pied) est le même que sur ordinateur.
+   * OUVERTE DANS UNE FENÊTRE, la feuille est modale : son verrou de défilement passe devant celui de la fenêtre et la
+   * laisse défiler (piège de la molette du 07/10/2026).
+   */
+  if (telephone) {
+    return (
+      <RacineDeDialogue open={ouvert} modal={dansUneFenetre} onOpenChange={(o) => (o ? setOuvert(true) : fermer())}>
+        {leDeclencheur}
+        <FeuilleDuBas
+          open={ouvert}
+          onClose={fermer}
+          empile={empile || dansUneFenetre}
+          refDuContenu={panneau}
+          attributs={{ 'data-liste-panneau': repere ?? '', 'aria-label': titre }}
+          reperesDePoignee={{ 'data-liste-poignee': '' }}
+        >
+          <EnteteDeFeuille titre={<span data-liste-titre>{titre}</span>} droite={actionTitre ? actionTitre(fermer) : null} />
+          {recherche}
+          <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className={cn('min-h-0', MARGE_DE_FEUILLE, !pied && 'pb-1')}>
+            {listbox}
+          </ZoneDefilement>
+          {piedDeListe}
+        </FeuilleDuBas>
+      </RacineDeDialogue>
+    );
+  }
 
   return (
     /* OUVERTE DANS UNE FENÊTRE, LA LISTE EST MODALE. Une fenêtre (Dialog Radix,
@@ -3981,7 +4823,7 @@ export function ListeDeroulante({
           data-liste-panneau={repere ?? ''}
           onOpenAutoFocus={(e) => {
             // Le focus va à la recherche (autoFocus) ou à la liste, jamais au premier bouton d'action.
-            if (!avecRecherche || telephone) {
+            if (!avecRecherche) {
               e.preventDefault();
               corpsListe.current?.focus();
             }
@@ -3994,45 +4836,28 @@ export function ListeDeroulante({
           onKeyDown={(e) => {
             if (e.key === 'Escape') e.stopPropagation();
           }}
-          style={{ minWidth: Math.max(220, ancre.current?.getBoundingClientRect().width ?? 0), ...styleDeLaPoignee }}
+          style={{ minWidth: Math.max(220, ancre.current?.getBoundingClientRect().width ?? 0) }}
           className={cn(
             'z-[80] flex max-h-[min(380px,var(--radix-popover-content-available-height))] max-w-[min(440px,calc(100vw-16px))] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
             'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-            /* SUR TÉLÉPHONE : le panneau du bas, sur toute la largeur (son
-               enveloppe y est épinglée par `styles.css`), comme un menu. */
-            'max-sm:w-full max-sm:max-w-none max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-none max-sm:rounded-t-xl',
-            'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
-            'max-sm:data-[state=open]:animate-slide-sheet max-sm:data-[state=closed]:animate-slide-sheet-out',
           )}
         >
-          {telephone ? (
-            <>
-              <VoileMenu panneau={panneau} />
-              <div
-                {...poignee}
-                data-liste-poignee
-                className="mb-1 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing"
-              >
-                <span className="h-1 w-10 rounded-full bg-muted" />
-              </div>
-            </>
-          ) : null}
-          {actionTitre || telephone ? (
+          {actionTitre ? (
             <header className="flex shrink-0 items-center gap-2 px-2 pb-1 pt-0.5">
               <span
-                className={cn('min-w-0 flex-1 truncate font-medium', telephone ? 'text-[14.5px] text-text' : 'text-[12px] text-muted')}
+                className="min-w-0 flex-1 truncate text-[12px] font-medium text-muted"
                 data-liste-titre
               >
                 {titre}
               </span>
-              {actionTitre ? actionTitre(fermer) : null}
+              {actionTitre(fermer)}
             </header>
           ) : null}
           {recherche}
-          <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="min-h-0 overscroll-contain">
+          <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="min-h-0">
             {listbox}
           </ZoneDefilement>
-          {pied ? <div className="shrink-0 px-1 pb-0.5 pt-1 max-sm:pt-2.5">{pied(fermer)}</div> : null}
+          {piedDeListe}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -4113,6 +4938,7 @@ export function MenuActions({
   empile,
   taille: tailleVoulue,
   onOuvert,
+  fermerSi,
 }: {
   titre: string;
   repere: string;
@@ -4134,6 +4960,8 @@ export function MenuActions({
   taille?: ButtonProps['size'];
   /** Prévenu à chaque ouverture et fermeture — un menu à deux niveaux y revient à son premier. */
   onOuvert?: (ouvert: boolean) => void;
+  /** Devenu vrai, le menu se referme (un glisser vient de démarrer). */
+  fermerSi?: boolean;
 }) {
   void empile;
   const dansUneBarre = React.useContext(DansUneBarreDEnTete);
@@ -4146,6 +4974,9 @@ export function MenuActions({
     surOuverture.current?.(valeur);
   }, []);
   const fermer = React.useCallback(() => setOuvert(false), [setOuvert]);
+  React.useEffect(() => {
+    if (fermerSi) setOuvert(false);
+  }, [fermerSi, setOuvert]);
 
   /*
    * LE CLAVIER ATTEINT AUSSI CE QUI N'EST PAS UNE ENTRÉE. Un menu retient la

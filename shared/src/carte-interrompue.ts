@@ -1,4 +1,4 @@
-import type { ColumnKey } from './columns.js';
+import { COLONNES_AVANT_LE_TRAVAIL, type ColumnKey } from './columns.js';
 
 /**
  * UNE TÂCHE COUPÉE EN VOL NE PASSE JAMAIS POUR TERMINÉE.
@@ -170,4 +170,45 @@ export const RAISON_TRAVAIL_HORS_COPIE =
  */
 export function traceAcquise(trace: TraceDuTravail): boolean {
   return trace === 'oui';
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. La décision qu'un redémarrage rend caduque                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE CARTE QUI ANNONCE « JE REPARS » NE RESTE PAS RETENUE PAR UNE DÉCISION
+ * D'AVANT LE REDÉMARRAGE (15/11/2026).
+ *
+ * La veille des compétences du 15/11 portait « la carte repart d'elle-même »,
+ * et l'ordonnanceur la refusait toutes les quinze secondes, en silence : une
+ * décision « Relancer / Ignorer / Arrêter », posée AVANT le redémarrage sur un
+ * tour mort avant le moteur, était restée ouverte (`decisionOuverteSurLaCarte`).
+ * Le redémarrage est justement la relance : il la remplace, une fois par
+ * coupure. Si la reprise échoue à son tour, une décision NEUVE est posée, la
+ * carte le dit (`raisonDuRefusDeLancement`), et rien ne la referme plus avant
+ * le prochain redémarrage.
+ *
+ * Rend `true` pour une carte encore avant le travail, non suspendue, dont la
+ * phrase est celle d'une coupure qui repart d'elle-même.
+ */
+export function decisionsCaduquesAuRedemarrage(carte: {
+  column: ColumnKey | string;
+  scheduling?: { waitingReason?: string; suspendu?: boolean } | null;
+}): boolean {
+  if (carte.scheduling?.suspendu) return false;
+  if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column as ColumnKey)) return false;
+  return carte.scheduling?.waitingReason === RAISON_COUPE_EN_VOL;
+}
+
+/**
+ * LE REFUS D'UN LANCEMENT AUTOMATIQUE, ÉCRIT SUR LA CARTE. `startCard` rendait
+ * « Lancement refusé : … » à une boucle qui n'en faisait rien : la carte gardait
+ * une phrase devenue fausse. La raison s'écrit désormais en clair, sans le
+ * préfixe technique, avec une majuscule.
+ */
+export function raisonDuRefusDeLancement(erreur: string | undefined): string | undefined {
+  const brut = (erreur ?? '').replace(/^Lancement refusé\s*:\s*/i, '').trim();
+  if (!brut) return undefined;
+  return brut.charAt(0).toUpperCase() + brut.slice(1);
 }

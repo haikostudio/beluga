@@ -48,6 +48,8 @@ export interface PieceJointeIdentifiee {
   id: string;
   name: string;
   alias?: string;
+  /** Les chemins d'origine d'une capture de l'agent rangée en pièce (`Attachment.chemins`). */
+  chemins?: readonly string[];
 }
 
 /**
@@ -203,6 +205,9 @@ export function repereDuNomSurDisque(chemin: string): string | null {
  */
 export function pieceDuChemin<P extends PieceJointeIdentifiee>(chemin: string, pieces: readonly P[] | undefined): P | null {
   if (!pieces?.length) return null;
+  /* UNE CAPTURE DE L'AGENT RANGÉE EN PIÈCE se retrouve par son chemin d'origine (17/11/2026). */
+  const rangee = pieces.find((p) => p.chemins?.includes(chemin));
+  if (rangee) return rangee;
   const nom = chemin.split(/[\\/]/).pop() ?? '';
   const tiret = nom.indexOf('-');
   if (tiret < LONGUEUR_ALIAS) return null;

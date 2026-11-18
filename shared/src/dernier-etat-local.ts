@@ -37,6 +37,12 @@ export interface DernierEtat<Projet = unknown, Groupe = unknown, Carte = unknown
   /** Les cartes du projet ouvert, et seulement les siennes. */
   cards: Carte[];
   totaux: Record<string, number>;
+  /**
+   * LES RÉGLAGES DE LA COLONNE DE GAUCHE (`sidebar.*`, `liste-de-la-colonne.ts`) : sans eux, le premier
+   * affichage montrait chaque projet replié jusqu'à l'arrivée du serveur. Facultatif : une copie plus
+   * ancienne reste lisible.
+   */
+  prefs?: Record<string, unknown>;
 }
 
 /** Ce que l'écran garde : `null` quand il n'y a rien d'utile à redessiner. */
@@ -48,6 +54,8 @@ export function composerLeDernierEtat<Projet, Groupe, Carte extends { projectId:
   activeProjectId: string | null;
   cards: Readonly<Record<string, Carte>>;
   totaux: Readonly<Record<string, Record<string, number>>>;
+  /** Les réglages de la colonne seulement (`reglagesDeLaColonne`). */
+  prefs?: Readonly<Record<string, unknown>>;
 }): DernierEtat<Projet, Groupe, Carte> | null {
   if (!entree.projects.length) return null;
   const projet = entree.activeProjectId;
@@ -59,6 +67,7 @@ export function composerLeDernierEtat<Projet, Groupe, Carte extends { projectId:
     activeProjectId: projet,
     cards: projet ? Object.values(entree.cards).filter((carte) => carte.projectId === projet) : [],
     totaux: projet ? { ...(entree.totaux[projet] ?? {}) } : {},
+    ...(entree.prefs ? { prefs: { ...entree.prefs } } : {}),
   };
 }
 
@@ -87,5 +96,6 @@ export function lireLeDernierEtat(
   if (!Array.isArray(etat.groups) || !Array.isArray(etat.cards)) return null;
   if (etat.activeProjectId !== null && typeof etat.activeProjectId !== 'string') return null;
   if (!etat.totaux || typeof etat.totaux !== 'object') return null;
+  if (etat.prefs !== undefined && (!etat.prefs || typeof etat.prefs !== 'object' || Array.isArray(etat.prefs))) return null;
   return etat as DernierEtat;
 }

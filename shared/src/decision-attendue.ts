@@ -107,6 +107,23 @@ export function alertesParCarte(decisions: DecisionAttendue[]): Record<string, n
 }
 
 /**
+ * LES QUESTIONS QUI ATTENDENT UNE RÉPONSE, PAR CARTE (décision de l'utilisateur du 16/11/2026, #2a77) : le JAUNE ne
+ * s'allume plus que pour elles — question posée par l'outil, devinée dans un texte, ou gardée sur la carte. Une
+ * compréhension, un plan ou une carte proposée qui attend un geste ne met que la ligne en gras ; le triangle et la
+ * cloche, eux, les signalent toujours (`alertesParCarte`).
+ */
+const SOURCES_DE_QUESTION: ReadonlySet<string> = new Set(['question-outil', 'question-en-texte', 'question-de-carte']);
+
+export function questionsParCarte(decisions: DecisionAttendue[]): Record<string, number> {
+  const compte: Record<string, number> = {};
+  for (const decision of decisionsQuiAlertent(decisions)) {
+    if (!decision.cardId || decision.geste || !SOURCES_DE_QUESTION.has(decision.source ?? '')) continue;
+    compte[decision.cardId] = (compte[decision.cardId] ?? 0) + 1;
+  }
+  return compte;
+}
+
+/**
  * Combien de décisions attend chaque CARTE — le triangle posé sur la carte du
  * tableau, et sur l'onglet « Conversation » de son tiroir.
  */

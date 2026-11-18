@@ -153,6 +153,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
     defaultEngine: z.string().optional(),
     devUrl: z.string().optional(),
   }),
+  /**
+   * UN PROJET LÉGER POUR UNE ENTREPRISE EXTÉRIEURE (14/11/2026) : un dossier local et un dépôt git vide, sans
+   * GitHub, sans adresse publique, sans publication (`Project.leger`). `site` est l'adresse donnée, s'il y en a une.
+   */
+  z.object({ type: z.literal('project.creerLeger'), nom: z.string(), site: z.string().optional() }),
   z.object({ type: z.literal('project.update'), id: z.string(), patch: z.record(z.any()) }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   /**
@@ -207,8 +212,20 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('cards.rechercher'),
-    projectId: z.string(),
+    /** Absent : tous les projets en service que le compte voit (recherche de la colonne de gauche). */
+    projectId: z.string().optional(),
     column: ColumnKey.optional(),
+    texte: z.string().max(200),
+    /** Le titre seul : la colonne montre des titres, une ligne doit s'expliquer d'elle-même. */
+    titreSeul: z.boolean().optional(),
+  }),
+  /**
+   * LA RECHERCHE AU CLAVIER ÉLARGIE (⌘F, carte « Lecteur de charte : commentaires et barre ») : documents de charte,
+   * fiches du coffre (leur NOM seulement), créations du Studio, mémoire et sites suivis — chaque source lue par sa
+   * propre commande de liste, avec les portes de sa page (`trierLaRechercheGlobale`).
+   */
+  z.object({
+    type: z.literal('recherche.globale'),
     texte: z.string().max(200),
   }),
   /**
@@ -229,6 +246,35 @@ export const ClientCommand = z.discriminatedUnion('type', [
      * (rangé sur la page par l'utilisateur).
      */
     onglet: z.enum(['actif', 'terminer', 'archive']).optional(),
+  }),
+  /**
+   * LA LISTE UNIQUE PAR DATE (`shared/src/liste-par-date.ts`) : les cartes d'un
+   * projet ou de tous, toutes colonnes confondues (sauf `colonne`), la dernière
+   * modifiée d'abord, sous le curseur `apres`. Réponse directe : les cartes, les
+   * agents qui les portent, le curseur suivant et `reste`.
+   */
+  z.object({
+    type: z.literal('cards.parDate'),
+    projectId: z.string().optional(),
+    colonne: ColumnKey.optional(),
+    apres: z.object({ updatedAt: z.number(), id: z.string() }).optional(),
+    limit: z.number().int().positive().max(200).optional(),
+  }),
+  /**
+   * LES TÂCHES DE LA COLONNE DE GAUCHE, TOUS PROJETS CONFONDUS
+   * (`estTacheDeLaColonne`). Réponse directe, jamais au premier envoi.
+   */
+  z.object({ type: z.literal('cards.tachesDeLaColonne') }),
+  /**
+   * LES MISES EN LIGNE PAR DATE (`shared/src/mises-en-ligne-du-flux.ts`) : les
+   * déploiements et mises en production d'un projet ou de tous, la dernière
+   * modifiée d'abord, sous le curseur `avant`. Réponse directe : `runs`, `reste`.
+   */
+  z.object({
+    type: z.literal('deploys.parDate'),
+    projectId: z.string().optional(),
+    avant: z.object({ at: z.number(), id: z.string() }).optional(),
+    limit: z.number().int().positive().max(100).optional(),
   }),
   /**
    * L'ANCIENNE COLONNE « TERMINÉS », gardée pour un écran resté ouvert sur la
@@ -265,6 +311,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * Rend `{ effacees, refusees }`.
    */
   z.object({ type: z.literal('projet.nettoyerCopies'), projectId: z.string(), chemins: z.array(z.string()) }),
+  /**
+   * LES CHARTES D'INTERFACE d'un projet (`docs/chartes/*.md` de son dépôt,
+   * `shared/src/chartes.ts`) et sa carte de rédaction encore ouverte. Rend
+   * `{ chartes, carte }`.
+   */
+  z.object({ type: z.literal('chartes.lister'), projectId: z.string() }),
+  /** Valider une charte proposée (ou la repasser en proposée). L'état vit en base : le dépôt n'est pas touché. */
+  z.object({ type: z.literal('chartes.etat'), projectId: z.string(), nom: z.string(), etat: z.enum(['proposee', 'validee']) }),
+  /** Poser ET lancer la carte qui rédige la charte du projet, dans CE projet. Rend `{ cardId }`. */
+  z.object({ type: z.literal('chartes.rediger'), projectId: z.string() }),
   z.object({ type: z.literal('group.create'), name: z.string() }),
   z.object({
     type: z.literal('group.update'),
@@ -291,6 +347,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('project.new'),
+    /** L'identifiant tiré par l'écran pour suivre CE montage en direct (`project.montage`). */
+    suivi: z.string().max(80).optional(),
     name: z.string(),
     folder: z.string().optional(),
     description: z.string().optional(),
@@ -325,6 +383,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('project.fromGithub'),
+    /** L'identifiant tiré par l'écran pour suivre CE montage en direct (`project.montage`). */
+    suivi: z.string().max(80).optional(),
     /** Le lien collé, ou « compte/depot » choisi dans la liste. */
     lien: z.string(),
     /** Le nom voulu dans la colonne de gauche. Vide : le nom du dépôt. */
@@ -400,8 +460,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /* La veille d'une carte (`server/src/veille-de-carte.ts`) : l'arrêter, ou la rejouer tout de suite. */
   z.object({ type: z.literal('card.veille.arreter'), cardId: z.string() }),
   z.object({ type: z.literal('card.veille.verifier'), cardId: z.string() }),
+  z.object({ type: z.literal('card.veille.reparer'), cardId: z.string() }),
   /* Le service « Tâches récurrentes » : toutes les veilles, actives et terminées (`VeilleListee`). */
   z.object({ type: z.literal('veilles.lister') }),
+  /* La fenêtre « Services » : un chiffre par carte, lu en un seul message (`server/src/resume-des-services.ts`). */
+  z.object({ type: z.literal('services.resume') }),
   /**
    * LE CAHIER DES CHARGES D'UN NOUVEAU PROJET : mettre en pause (l'agent
    * s'arrête, l'avancement reste), reprendre (l'agent repart à la question
@@ -476,12 +539,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * à la fin de son tour, sans second clic.
    */
   z.object({ type: z.literal('card.plan.souhaite'), cardId: z.string(), actif: z.boolean() }),
-  /**
-   * L'INTERRUPTEUR « CRÉATION », voisin de « Plan » : SUR LA CARTE
-   * (`parcours.creationSouhaitee`), éteint à la naissance. Allumé, l'agent de
-   * la carte orchestre plusieurs moteurs (`shared/src/mode-creation.ts`).
-   */
-  z.object({ type: z.literal('card.creation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
   /**
    * Le menu « Réalisation » (caméra) de la barre d'écriture : le type de média
    * choisi AVANT l'envoi (`CHOIX_DE_DEPART`), écrit dans `realisation.medias` et
@@ -590,8 +647,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
      est coupé, et elle part aussitôt sur la même session. */
   z.object({ type: z.literal('queue.send-now'), id: z.string() }),
   /* Une demande en attente s'ouvre (`actif`) ou se referme dans la barre
-     d'écriture : tant qu'elle est ouverte, la file ne la fait pas partir. */
-  z.object({ type: z.literal('queue.edition'), id: z.string(), actif: z.boolean() }),
+     d'écriture : tant qu'elle est ouverte, la file ne la fait pas partir — et
+     elle ne se referme QUE sur ce geste (enregistrer, annuler). `brouillon` :
+     le texte tapé pendant la modification, gardé par le serveur au fil de la
+     frappe (temporisé) et repris à la réouverture ; jamais envoyé au moteur. */
+  z.object({
+    type: z.literal('queue.edition'),
+    id: z.string(),
+    actif: z.boolean(),
+    brouillon: z.object({ text: z.string(), attachments: z.array(z.string()).optional() }).optional(),
+  }),
 
   // Propositions de tâche
   /** Répondre à une question posée par un agent : il reprend aussitôt. */
@@ -602,6 +667,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     answer: z.string(),
     /** Les images jointes à la réponse : l'agent les reçoit comme celles du fil. */
     attachments: z.array(z.string()).default([]),
+    /** Réponse posée par le mode Auto de la carte (jamais par un écran). */
+    parAuto: z.boolean().optional(),
   }),
   /** Écarter une compétence retenue d'office au cadrage — refusé une fois la carte lancée. */
   z.object({ type: z.literal('competence.ecarter'), messageId: z.string(), questionId: z.string() }),
@@ -820,9 +887,85 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('deploy.etatProduction'), projectId: z.string() }),
   /** L'instant de la dernière publication RÉUSSIE de chaque étape (repère « Essai réussi »). Lecture seule. */
   z.object({ type: z.literal('deploy.reussites'), projectId: z.string() }),
+  /* LE MENU « PUBLIER » (13/11/2026) : les tâches déployées pas encore en production, et l'essai à blanc d'une
+     mise en production partielle (`server/src/production-partielle.ts`). */
+  z.object({ type: z.literal('deploy.aProduire'), projectId: z.string() }),
+  z.object({ type: z.literal('deploy.verifierProduction'), projectId: z.string(), selectedCardIds: z.array(z.string()) }),
+  /* LES PUBLICATIONS EN ATTENTE, TOUS PROJETS (16/11/2026) : les deux tableaux en tête des « Tableaux de bord »
+     (`server/src/deploy.ts`, `publicationsEnAttente`). Lecture seule, en base. */
+  z.object({ type: z.literal('deploy.enAttente') }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
+  /*
+   * LES FICHIERS RANGÉS PAR PROJET ET PAR SERVICE (`server/src/fichiers-ranges.ts`) : un dossier de l'arbre, la
+   * recherche (plein texte + sens), la corbeille, les gestes, et le rangement des fichiers existants (essai à blanc
+   * puis application, administrateur seul). Chaque réponse est bornée, au serveur, aux droits du compte.
+   */
+  z.object({ type: z.literal('fichiers.dossier'), chemin: z.string().max(2000) }),
+  /* LES PLAQUETTES CLIENT (`server/src/plaquettes.ts`) — réservées à l'administrateur (aucune liste de droits ne les nomme). */
+  z.object({ type: z.literal('plaquettes.liste'), projectId: z.string() }),
+  /* Toutes les plaquettes de tous les projets ouverts (la page « Plaquettes ») ; `id` : la seule ligne de celle-là. */
+  z.object({ type: z.literal('plaquettes.toutes'), id: z.string().optional() }),
+  z.object({ type: z.literal('plaquettes.fiche'), id: z.string() }),
+  z.object({
+    type: z.literal('plaquettes.modifier'),
+    id: z.string(),
+    titre: z.string().max(200).optional(),
+    langue: z.string().max(5).optional(),
+    blocs: z.array(z.record(z.unknown())).max(60).optional(),
+    marque: z.record(z.unknown()).optional(),
+    format: z.enum(['a4-portrait', 'a4-paysage', 'diapositives']).optional(),
+    adresse: z.enum(['tu', 'vous']).optional(),
+  }),
+  /*
+   * LIRE, ÉDITER, ENREGISTRER (carte « Finitions du lecteur de charte ») : les retouches de l'équipe vont dans un
+   * BROUILLON que le client ne voit pas ; « Enregistrer » le publie en nouvelle version (avec le dernier changement, s'il
+   * y en a un) ; « Abandonner » l'efface.
+   */
+  z.object({
+    type: z.literal('plaquettes.brouillon'),
+    id: z.string(),
+    titre: z.string().max(200).optional(),
+    langue: z.string().max(5).optional(),
+    blocs: z.array(z.record(z.unknown())).max(60).optional(),
+    marque: z.record(z.unknown()).optional(),
+    format: z.enum(['a4-portrait', 'a4-paysage', 'diapositives']).optional(),
+    adresse: z.enum(['tu', 'vous']).optional(),
+  }),
+  z.object({
+    type: z.literal('plaquettes.publier'),
+    id: z.string(),
+    titre: z.string().max(200).optional(),
+    langue: z.string().max(5).optional(),
+    blocs: z.array(z.record(z.unknown())).max(60).optional(),
+    marque: z.record(z.unknown()).optional(),
+    format: z.enum(['a4-portrait', 'a4-paysage', 'diapositives']).optional(),
+    adresse: z.enum(['tu', 'vous']).optional(),
+  }),
+  z.object({ type: z.literal('plaquettes.abandonner'), id: z.string() }),
+  z.object({ type: z.literal('plaquettes.lien'), id: z.string(), geste: z.enum(['couper', 'rouvrir', 'nouveau']) }),
+  z.object({ type: z.literal('plaquettes.pdf'), id: z.string() }),
+  /* Les messages du client lus : ceux d'un fil (`fil`), ou de tout le document. */
+  z.object({ type: z.literal('plaquettes.lues'), id: z.string(), fil: z.string().max(64).optional() }),
+  /* LES FILS DE COMMENTAIRES (carte « Refonte du service Charte graphique ») : l'équipe répond, résout, rouvre. */
+  z.object({ type: z.literal('plaquettes.repondre'), id: z.string(), fil: z.string().max(64), texte: z.string().max(4000) }),
+  z.object({ type: z.literal('plaquettes.resoudre'), id: z.string(), fil: z.string().max(64), resolu: z.boolean() }),
+  /* L'ÉQUIPE COMMENTE un endroit précis du document (le « + » du lecteur commun), et supprime SES messages. */
+  z.object({ type: z.literal('plaquettes.commenter'), id: z.string(), texte: z.string().max(4000), page: z.number(), y: z.number(), bloc: z.string().max(64).optional() }),
+  z.object({ type: z.literal('plaquettes.supprimerMessage'), id: z.string(), fil: z.string().max(64), message: z.string().max(64) }),
+  z.object({ type: z.literal('plaquettes.supprimer'), id: z.string() }),
+  /* L'AGENT D'UN DOCUMENT (`server/src/agent-de-charte.ts`) : son identifiant, créé à la première ouverture. */
+  z.object({ type: z.literal('plaquettes.ouvrirAgent'), id: z.string() }),
+  /* « Créer la charte graphique » : un document neuf et son agent, sans carte. Rend { plaquetteId, agentId }. */
+  z.object({ type: z.literal('plaquettes.creerVide'), projectId: z.string() }),
+  z.object({ type: z.literal('fichiers.recherche'), demande: z.string().max(300), projetId: z.string().optional() }),
+  z.object({ type: z.literal('fichiers.corbeille') }),
+  z.object({ type: z.literal('fichiers.renommer'), id: z.string(), nom: z.string().min(1).max(200) }),
+  z.object({ type: z.literal('fichiers.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('fichiers.restaurer'), id: z.string() }),
+  z.object({ type: z.literal('fichiers.rangement'), appliquer: z.boolean() }),
+  z.object({ type: z.literal('fichiers.dossierDuProjet'), projectId: z.string() }),
   z.object({
     type: z.literal('files.archive'),
     projectId: z.string(),
@@ -912,7 +1055,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   // Système
   z.object({ type: z.literal('settings.get') }),
   /** Réglages d'affichage (largeurs, thème, replis) : conservés en base. */
-  z.object({ type: z.literal('prefs.set'), key: z.string(), value: z.any() }),
+  /** `onglet` : l'onglet qui change le réglage — les AUTRES onglets ignorent ce qui n'est pas thème, langue ou brouillon (`reglages-de-l-onglet.ts`). */
+  z.object({ type: z.literal('prefs.set'), key: z.string(), value: z.any(), onglet: z.string().optional() }),
   /**
    * LES IMAGES DÉJÀ OUVERTES EN GRAND, PAR COMPTE (`capture_vues`). L'écran
    * demande l'état des SEULES clés de la bande qu'il affiche (`captures.vues`),
@@ -922,6 +1066,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('captures.vues'), cles: ClesDeCaptures }),
   z.object({ type: z.literal('captures.voir'), cles: ClesDeCaptures }),
   z.object({ type: z.literal('settings.update'), patch: z.record(z.any()) }),
+  /** Le nom d'assistant saisi sera-t-il entendu par le micro ? (`server/src/assistant-global.ts`) */
+  z.object({ type: z.literal('assistant.nom.verifier'), nom: z.string().max(200) }),
+  /** Le prénom du compte connecté, que l'assistant emploie en lui parlant. */
+  z.object({ type: z.literal('compte.prenom'), prenom: z.string().max(200) }),
   /*
    * L'INSTALLATION : ce que l'assistant de démarrage et la page « Installation »
    * des réglages demandent au démon (`server/src/installation-commandes.ts`).
@@ -978,6 +1126,20 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('capacity.processes') }),
   z.object({ type: z.literal('capacity.history') }),
+  /*
+   * LA PAGE « SERVEUR » DES RÉGLAGES (`server/src/occupation-disque.ts`) : la
+   * fiche de la machine et ses courbes, les dix plus lourds (relevé en
+   * arrière-plan, jamais lancé par l'ouverture de la page), l'explorateur en
+   * lecture seule et la carte de ménage. Réservées à l'administrateur (aucune
+   * n'est ouverte à un autre rôle dans `droits-commandes.ts`) ; tout sauf la
+   * fiche est refusé par le démon sur l'offre hébergée.
+   */
+  z.object({ type: z.literal('serveur.fiche') }),
+  z.object({ type: z.literal('serveur.lourds') }),
+  z.object({ type: z.literal('serveur.releve') }),
+  z.object({ type: z.literal('serveur.dossier'), chemin: z.string().min(1).max(4096) }),
+  z.object({ type: z.literal('serveur.dossier.tailles'), chemin: z.string().min(1).max(4096), force: z.boolean().optional() }),
+  z.object({ type: z.literal('serveur.menage'), chemin: z.string().min(1).max(4096) }),
   z.object({ type: z.literal('process.stop'), id: z.string() }),
   z.object({ type: z.literal('process.start'), id: z.string() }),
   z.object({ type: z.literal('engines.list') }),
@@ -1103,6 +1265,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('account.remove'), id: z.string() }),
   /** Consommation des comptes sur les derniers jours, pour la courbe. */
   z.object({ type: z.literal('quota.history'), days: z.number().optional() }),
+  /** Les soldes des services d'IA connectés (OpenRouter, kie.ai…), gardés 5 min ; `force` relit. Jamais une clé en retour. */
+  z.object({ type: z.literal('servicesIa.releve'), force: z.boolean().optional() }),
   /** Le journal des amorces de fenêtre posées par le serveur. */
   z.object({ type: z.literal('amorce.history'), limit: z.number().optional() }),
   /**
@@ -1111,6 +1275,41 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * `cleApi.creer`. Révoquer date la clé sans effacer la ligne ; oublier ne
    * vaut que pour une clé DÉJÀ révoquée.
    */
+  /**
+   * LE PILOTAGE DE CHROME (`server/src/extension-chrome.ts`, rubrique « Extension » des réglages) : l'état (Chrome
+   * reliés, sites, gestes répétés), un code de liaison, délier, régler un site, régler un geste répété ou en créer
+   * un depuis une carte qui a travaillé dans Chrome (« Refaire chaque… »).
+   */
+  z.object({ type: z.literal('extension.etat') }),
+  z.object({ type: z.literal('extension.code'), ordinateurId: z.string().optional(), nom: z.string().max(80).optional() }),
+  z.object({ type: z.literal('relaisMac.etat') }),
+  z.object({ type: z.literal('relaisMac.code'), ordinateurId: z.string().optional() }),
+  z.object({ type: z.literal('relaisMac.delier'), ordinateurId: z.string().optional() }),
+  /** Rouvrir sur le Mac l'écran des réglages d'une autorisation (assistant d'installation de la page Extension). */
+  z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran']) }),
+  /*
+   * LES ORDINATEURS NOMMÉS (`server/src/ordinateurs.ts`, carte « Choisir l'ordinateur visé depuis le téléphone ») :
+   * en créer un (avant d'y relier un navigateur ou le programme du Mac), le renommer, le délier ; lire la liste avec
+   * l'ordinateur retenu pour un agent (barre d'écriture), et en retenir un (ou aucun : `null`).
+   */
+  z.object({ type: z.literal('ordinateur.creer'), nom: z.string().max(80) }),
+  z.object({ type: z.literal('ordinateur.renommer'), id: z.string(), nom: z.string().max(80) }),
+  z.object({ type: z.literal('ordinateur.delier'), id: z.string() }),
+  z.object({ type: z.literal('ordinateur.etat'), agentId: z.string().optional(), cardId: z.string().optional() }),
+  z.object({ type: z.literal('ordinateur.choisir'), agentId: z.string().optional(), cardId: z.string().optional(), ordinateurId: z.string().nullable() }),
+  z.object({ type: z.literal('extension.delier'), id: z.string() }),
+  z.object({ type: z.literal('extension.site'), origine: z.string(), mode: z.enum(['autorise', 'lecture_seule', 'refuse']).nullable() }),
+  z.object({
+    type: z.literal('extension.routine'),
+    id: z.string(),
+    actif: z.boolean().optional(),
+    frequence: z.enum(['semaine', 'mois']).optional(),
+    jour: z.number().int().optional(),
+    heure: z.number().int().optional(),
+    minute: z.number().int().optional(),
+    supprimer: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal('extension.routine.creer'), cardId: z.string(), frequence: z.enum(['semaine', 'mois']) }),
   z.object({ type: z.literal('cleApi.lister') }),
   z.object({ type: z.literal('cleApi.creer'), nom: z.string() }),
   z.object({ type: z.literal('cleApi.revoquer'), id: z.string() }),
@@ -1177,21 +1376,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('memoire.regenerer'), portee: z.string() }),
   z.object({ type: z.literal('memoire.importer'), portee: z.string().optional() }),
   /**
-   * LES NOTES (`shared/src/notes.ts`). Lister rend TOUTES les notes, de TOUS
-   * les projets, avec leurs pièces jointes résolues : la recherche, le tri et
-   * le filtre par projet se font ensuite dans le navigateur, sans un
-   * aller-retour de plus à chaque lettre tapée.
-   */
-  /**
    * LE JOURNAL COMPLET D'UNE CARTE, en UN SEUL document : toutes les requêtes
    * et tous les points de travail, du cadrage au rapport
    * (`shared/src/journal-carte.ts`). L'écran le demande à l'ouverture de
    * l'onglet, puis suit les ajouts par l'événement `journal.entree`.
    */
   z.object({ type: z.literal('card.journal'), cardId: z.string() }),
-  z.object({ type: z.literal('notes.lister') }),
-  z.object({ type: z.literal('notes.enregistrer'), note: z.any() }),
-  z.object({ type: z.literal('notes.supprimer'), id: z.string() }),
   /**
    * LES BACKUPS DES SITES EN PRODUCTION (`shared/src/backups.ts`). `etat`
    * rend tout ce que les deux fenêtres affichent en une fois : les sites, leurs
@@ -1269,6 +1459,29 @@ export const ClientCommand = z.discriminatedUnion('type', [
      porte tout ce qui a été détecté (`shared/src/correction-wordpress.ts`). */
   z.object({ type: z.literal('surveillance.wordpress.corriger'), id: z.string() }),
   /**
+   * LE SERVICE « SÉCURITÉ » (`server/src/service-securite.ts`) : les projets suivis, l'ajout d'un projet de Beluga (son
+   * premier audit part aussitôt), un audit à la demande, l'historique de douze mois et la vue d'UN audit (son rapport,
+   * l'état de chaque point, ce qui y est nouveau). `agent` rend l'agent de sécurité du projet, né au besoin. Les
+   * changements reviennent par l'événement `securite`, qui ne porte que le projet : l'écran relit.
+   */
+  z.object({ type: z.literal('securite.lister') }),
+  z.object({ type: z.literal('securite.ajouter'), projectId: z.string() }),
+  z.object({ type: z.literal('securite.retirer'), projectId: z.string() }),
+  z.object({ type: z.literal('securite.auditer'), projectId: z.string() }),
+  z.object({ type: z.literal('securite.audits'), projectId: z.string() }),
+  z.object({ type: z.literal('securite.audit'), projectId: z.string(), auditId: z.string().nullish() }),
+  z.object({ type: z.literal('securite.agent'), projectId: z.string() }),
+  /** « Corriger la sélection » : une carte de correction par projet coché, créée PUIS lancée. */
+  z.object({ type: z.literal('securite.corriger'), projets: z.array(z.string()).min(1).max(200) }),
+  /**
+   * LA LIAISON AVEC BELUGA PASS (`server/src/belugapass.ts`) : l'état (jamais une clé), une nouvelle clé de liaison
+   * (la seule réponse qui la porte, une fois), délier, ouvrir ou fermer l'accès des agents. Fermées aux collaborateurs.
+   */
+  z.object({ type: z.literal('belugapass.etat') }),
+  z.object({ type: z.literal('belugapass.lier'), endpoint: z.string().optional(), origine: z.string().optional() }),
+  z.object({ type: z.literal('belugapass.delier') }),
+  z.object({ type: z.literal('belugapass.acces'), ouvrir: z.boolean() }),
+  /**
    * L'ATELIER MARKETING (`shared/src/marketing.ts`, `server/src/marketing.ts`).
    * La liste des projets et leur avancement ; l'espace complet d'UN projet,
    * demandé à l'ouverture de son écran (un écran qu'on n'a pas ouvert ne se
@@ -1318,6 +1531,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('realisation.passer'),
     cardId: z.string(),
     geste: z.enum(['passer-esquisses', 'passer-sequences', 'passer-montage', 'passer-telechargement', 'revenir-esquisses']),
+  }),
+  /* LE MENU DES MODÈLES DE L'ENCART « GÉNÉRER » (01/11/2026) : une lecture sans frais, puis un changement sans dépense. */
+  z.object({
+    type: z.literal('realisation.lot.modeles'),
+    lotId: z.string(),
+  }),
+  z.object({
+    type: z.literal('realisation.lot.modele'),
+    messageId: z.string(),
+    questionId: z.string(),
+    service: z.string(),
+    modele: z.string(),
+    prixVu: z.number().nonnegative().nullable(),
   }),
   z.object({
     type: z.literal('realisation.panneau.chiffrer'),
@@ -1383,8 +1609,43 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('statistiques.etapesInstallation'), cardId: z.string() }),
   z.object({ type: z.literal('statistiques.analyserObjectifs'), id: z.string() }),
   z.object({ type: z.literal('statistiques.etudierSite'), id: z.string(), identifiant: z.string().optional(), motDePasse: z.string().optional() }),
+  /* L'ESPACE COMMUNICATION (`server/src/communication.ts`) : ce que chaque lieu lit. */
+  z.object({ type: z.literal('communication.marques') }),
+  z.object({ type: z.literal('communication.vue'), periode: z.number().optional() }),
+  z.object({ type: z.literal('communication.accueil'), marqueId: z.string(), periode: z.number().optional() }),
+  z.object({ type: z.literal('communication.publications'), marqueId: z.string(), periode: z.number().optional() }),
+  z.object({ type: z.literal('communication.reserve'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.messages'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.fil'), marqueId: z.string(), messageId: z.string() }),
+  z.object({ type: z.literal('communication.medias'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.canaux'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.connexion'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.strategie'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.rapport'), marqueId: z.string(), documentId: z.string().optional() }),
+  z.object({ type: z.literal('communication.campagnes'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.campagne'), marqueId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('communication.directeur') }),
+  z.object({ type: z.literal('communication.directeur.etat') }),
+  /* Ce qui change quelque chose : toujours le geste d'une personne, avec ses droits. */
+  z.object({ type: z.literal('communication.marque.creer'), nom: z.string(), origine: z.string(), projets: z.array(z.string()).optional(), adresse: z.string().optional(), description: z.string().optional() }),
+  z.object({ type: z.literal('communication.marque.reunir'), nom: z.string(), projets: z.array(z.string()) }),
+  z.object({ type: z.literal('communication.marque.refuser'), nom: z.string() }),
+  z.object({ type: z.literal('communication.marque.renommer'), marqueId: z.string(), nom: z.string() }),
+  z.object({ type: z.literal('communication.marque.retirerProjet'), marqueId: z.string(), projectId: z.string() }),
+  z.object({ type: z.literal('communication.campagne.ecrire'), campagne: z.record(z.any()) }),
+  /* COMMUNICATION 2 : une demande au chef de la marque, en coulisses (`server/src/communication-coulisses.ts`), et son état. */
+  z.object({ type: z.literal('communication.coulisses'), marqueId: z.string(), genre: z.string(), texte: z.string().max(2000).optional(), campagneId: z.string().optional(), contenuId: z.string().optional(), messageId: z.string().optional() }),
+  z.object({ type: z.literal('communication.coulisses.etat'), marqueId: z.string() }),
+  z.object({ type: z.literal('communication.geste'), geste: z.string(), id: z.string().optional(), donnees: z.record(z.any()).optional() }),
+  z.object({ type: z.literal('communication.directeur.contexte'), contexte: z.string(), agentId: z.string().optional() }),
+  /* LES CHEFS DE MARQUE ET DE PROJET (03/11/2026) : ouvrir (créer à la demande) un chef, lister l'équipe. */
+  z.object({ type: z.literal('communication.chef'), marqueId: z.string(), projetId: z.string().optional() }),
+  z.object({ type: z.literal('communication.chefs'), marqueId: z.string().optional() }),
+  z.object({ type: z.literal('communication.directeur.reglages'), sourdine: z.boolean().optional(), routines: z.boolean().optional() }),
+  z.object({ type: z.literal('communication.directeur.lu'), agentId: z.string().optional() }),
   z.object({ type: z.literal('marketing.lister') }),
   z.object({ type: z.literal('marketing.espace'), projectId: z.string(), jours: z.number().optional() }),
+  z.object({ type: z.literal('marketing.vueDEnsemble'), projectId: z.string().optional(), periode: z.number().optional() }),
   /* « demande » : une phrase libre ; « geste » : le bouton unique de l'écran (initialiser, réanalyser) ou « Générer la suite » (suite). */
   z.object({
     type: z.literal('marketing.assistant'),
@@ -1437,6 +1698,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     secret: z.string().optional(),
     etat: z.enum(['absente', 'en_creation', 'en_validation', 'validee']).optional(),
     note: z.string().optional(),
+    /** Meta : l'ID de configuration de la connexion unifiée (Instagram sans page). */
+    configConnexion: z.string().optional(),
   }),
   z.object({ type: z.literal('marketing.messages'), projectId: z.string() }),
   z.object({ type: z.literal('marketing.messages.relever'), projectId: z.string() }),
@@ -1445,22 +1708,154 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('marketing.contenu.supprimer'), id: z.string() }),
   z.object({ type: z.literal('marketing.action.faite'), id: z.string(), fait: z.boolean() }),
   z.object({ type: z.literal('marketing.action.modifier'), projectId: z.string(), id: z.string(), datePrevue: z.string() }),
+  /**
+   * LE STUDIO (`shared/src/studio.ts`, `server/src/studio.ts`). La liste des
+   * créations ; une création ouverte (sa composition courante, son historique,
+   * sa bibliothèque, ses exports, ses dépenses — demandée à l'ouverture) ; une
+   * OPÉRATION de l'écran devient une version ; voix d'essai gratuite, devis et
+   * validation de la voix finale ; exports ; le clic sur une dépense ; parler à
+   * l'agent de la création. Chaque changement se rediffuse par l'événement `studio`.
+   */
+  z.object({ type: z.literal('studio.lister'), projectId: z.string().optional() }),
+  z.object({
+    type: z.literal('studio.espace.ecrire'),
+    projectId: z.string(),
+    kit: z.record(z.any()).optional(),
+    voixFinale: z.string().optional(),
+    voixEssai: z.string().optional(),
+  }),
+  /* LA VRAIE POLICE DU PRODUIT : un fichier déposé (pièce jointe) rangé dans les polices du projet, ou retiré. */
+  z.object({ type: z.literal('studio.polices.ajouter'), projectId: z.string(), attachmentId: z.string(), famille: z.string().optional() }),
+  z.object({ type: z.literal('studio.polices.retirer'), projectId: z.string(), famille: z.string() }),
+  z.object({
+    type: z.literal('studio.creation.creer'),
+    projectId: z.string(),
+    titre: z.string().optional(),
+    formats: z.array(z.string()).optional(),
+    /* Un dessin gardé de la bibliothèque, posé comme premier segment. */
+    depuisMedia: z.string().optional(),
+    /* Un MODÈLE du projet : la nouvelle création part de sa composition entière. */
+    depuisModele: z.string().optional(),
+  }),
+  z.object({ type: z.literal('studio.creation.ouvrir'), id: z.string() }),
+  /* LE MONTAGE D'UNE CARTE (grand volet de montage) : la création liée à la carte, créée au premier appel, nourrie de ses plans. */
+  z.object({ type: z.literal('studio.carte.montage'), cardId: z.string() }),
+  z.object({ type: z.literal('studio.creation.modifier'), id: z.string(), titre: z.string().optional(), formats: z.array(z.string()).optional() }),
+  /** Le réglage de l'agent d'une création, choisi avant sa première demande (`null` l'efface). */
+  z.object({
+    type: z.literal('studio.creation.agent'),
+    id: z.string(),
+    run: z.object({ engine: z.string(), model: z.string().optional(), thinking: z.string().optional(), account: z.string().optional() }).nullable(),
+  }),
+  z.object({ type: z.literal('studio.creation.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('studio.creation.dupliquer'), id: z.string() }),
+  /* LES MODÈLES : « Garder comme modèle » (le refaire met le modèle à jour), lister, retirer, copier vers un autre projet. */
+  z.object({ type: z.literal('studio.modele.valider'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.modele.lister'), projectId: z.string().optional() }),
+  z.object({ type: z.literal('studio.modele.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('studio.modele.copier'), id: z.string(), projectId: z.string() }),
+  z.object({ type: z.literal('studio.operation'), creationId: z.string(), operation: z.record(z.any()) }),
+  z.object({ type: z.literal('studio.annuler'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.retablir'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.restaurer'), creationId: z.string(), numero: z.number() }),
+  z.object({ type: z.literal('studio.historique'), creationId: z.string() }),
+  /* Ce que l'écran a sélectionné : l'agent le lit avec chaque demande. */
+  z.object({
+    type: z.literal('studio.selection'),
+    creationId: z.string(),
+    segmentIds: z.array(z.string()),
+    elementId: z.string().optional(),
+    curseur: z.number(),
+    format: z.string().optional(),
+  }),
+  z.object({ type: z.literal('studio.media.importer'), projectId: z.string(), attachmentId: z.string(), creationId: z.string().optional(), licence: z.string().optional() }),
+  z.object({ type: z.literal('studio.media.modifier'), id: z.string(), nom: z.string().optional(), categorie: z.string().optional(), usage: z.string().optional(), licence: z.string().optional() }),
+  z.object({ type: z.literal('studio.media.supprimer'), id: z.string() }),
+  /* La bande d'images d'une vidéo (fenêtre d'édition d'un élément), extraite une fois puis gardée. */
+  z.object({ type: z.literal('studio.media.bande'), creationId: z.string(), mediaId: z.string() }),
+  /* LE CATALOGUE DE STYLES (collection libre de consignes de vidéos animées) : la galerie « Bibliothèque », en haut de l’aperçu. */
+  z.object({ type: z.literal('studio.styles.lister') }),
+  /* La fenêtre d'aperçu agrandi : le début de la consigne, les liens et le crédit, demandés à l'ouverture. */
+  z.object({ type: z.literal('studio.styles.lire'), id: z.string() }),
+  /* La voix d'essai, gratuite : un segment, ou toutes les voix qui n'en ont pas. */
+  z.object({ type: z.literal('studio.voix.essai'), creationId: z.string(), segmentId: z.string().optional() }),
+  /* Le PLAFOND de prix des voix finales, lu en direct AVANT le clic. `segmentIds` : les phrases cochées (sans : celles à refaire) ; `refaire` : toutes, même déjà finales. */
+  z.object({ type: z.literal('studio.voix.devis'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), refaire: z.boolean().optional() }),
+  /* LE CLIC « Valider la voix » (ou « Refaire la voix », `refaire`) : autorise jusqu'au plafond affiché, et lance. */
+  z.object({ type: z.literal('studio.voix.valider'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), plafond: z.number(), refaire: z.boolean().optional() }),
+  z.object({ type: z.literal('studio.voix.extraits') }),
+  z.object({
+    type: z.literal('studio.exporter'),
+    creationId: z.string(),
+    format: z.string(),
+    genre: z.enum(['video', 'image']).optional(),
+    /** L'instant pris pour une image : la tête de lecture. */
+    instant: z.number().nonnegative().optional(),
+    /** Qualité, définition, images par seconde, type, son, format d'image (`studio-export.ts`), lus avec tolérance. */
+    reglages: z.record(z.unknown()).optional(),
+    /** Le lot du clic « Exporter » : le même pour chaque format coché (`partagerLesExports`). */
+    lot: z.string().max(64).optional(),
+  }),
+  z.object({ type: z.literal('studio.export.annuler'), id: z.string() }),
+  /* « Vider les anciens exports » : retire les exports FINIS de la création (lignes et fichiers), sauf ceux à garder. */
+  z.object({ type: z.literal('studio.exports.vider'), creationId: z.string(), garder: z.array(z.string()).max(200).optional() }),
+  z.object({ type: z.literal('studio.depense.valider'), id: z.string() }),
+  z.object({ type: z.literal('studio.depense.refuser'), id: z.string() }),
+  z.object({ type: z.literal('studio.credit') }),
   /*
-   * LES SERVICES DE CRÉATION de l'utilisateur (une fiche du coffre par service) :
-   * l'encadré de branchement d'une carte caméra et la rubrique des paramètres
-   * s'en servent. Ouverts à l'administrateur qui pilote ses agents, jamais à un
-   * collaborateur ni à un client.
+   * LES MÊMES GESTES HORS DU STUDIO (studio créatif, 24/10/2026) : l'encadré de
+   * branchement d'une carte caméra et la rubrique des paramètres s'en servent.
+   * Ouverts à l'administrateur qui pilote ses agents, jamais à un collaborateur
+   * ni à un client ; le Studio garde ses « studio.services.* ».
    */
   z.object({ type: z.literal('services.creation.lister') }),
   z.object({ type: z.literal('services.creation.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
   z.object({ type: z.literal('services.creation.tester'), service: z.string() }),
   z.object({ type: z.literal('services.creation.retirer'), service: z.string() }),
-  /*
-   * « CRÉER LE VISUEL » depuis un contenu de l'atelier Marketing (26/10/2026) :
-   * une carte du directeur artistique, liée au contenu, rouverte ensuite ; son
-   * média livré revient au contenu (`server/src/visuels-marketing.ts`).
-   */
-  z.object({ type: z.literal('marketing.creerLeVisuel'), contenuId: z.string() }),
+  z.object({ type: z.literal('studio.assistant'), creationId: z.string(), demande: z.string(), attachments: z.array(z.string()).max(40).optional() }),
+  /* LES MODES DE RÉALISATION (tuiles du début de la conversation) : leur disponibilité, et le mode retenu sur la création. */
+  z.object({ type: z.literal('studio.modes.lister'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.mode.choisir'), creationId: z.string(), mode: z.string().nullable() }),
+  /** L'étiquette d'un style dans le champ d'écriture : sa vignette jointe, nommée « Style <titre> » (31/10/2026). */
+  z.object({ type: z.literal('studio.style.joindre'), creationId: z.string(), styleId: z.string() }),
+  /* LES NOTES POSÉES SUR L'IMAGE : un instant, un endroit (en % du cadre), un texte que l'agent lit à son tour suivant. */
+  z.object({ type: z.literal('studio.note.ajouter'), creationId: z.string(), instant: z.number(), x: z.number(), y: z.number(), texte: z.string().max(1000), segmentId: z.string().optional() }),
+  z.object({ type: z.literal('studio.note.marquer'), creationId: z.string(), id: z.string(), traitee: z.boolean() }),
+  z.object({ type: z.literal('studio.note.supprimer'), creationId: z.string(), id: z.string() }),
+  /* UN JALON : la version courante reçoit un nom, pour y revenir d'un clic (`studio.restaurer`). */
+  z.object({ type: z.literal('studio.jalon'), creationId: z.string(), nom: z.string().max(80) }),
+  /* LA BIBLIOTHÈQUE COMMUNE DU PROJET, et la pose d'un de ses médias dans cette création (sans copie du fichier). */
+  z.object({ type: z.literal('studio.bibliotheque.lister'), creationId: z.string(), recherche: z.string().optional(), genre: z.string().optional() }),
+  z.object({ type: z.literal('studio.bibliotheque.prendre'), creationId: z.string(), attachmentId: z.string() }),
+  /** RETIRER OU REMETTRE LE FOND, sans agent. La réponse part aussitôt : l'issue arrive par l'événement `studio`, un détourage de vidéo dépassant tout délai de réponse. */
+  z.object({ type: z.literal('studio.fond.retirer'), creationId: z.string(), attachmentId: z.string().optional(), mediaId: z.string().optional() }),
+  z.object({ type: z.literal('studio.fond.remettre'), creationId: z.string(), attachmentId: z.string().optional(), mediaId: z.string().optional() }),
+  /** POSER À LA MAIN (menu du média, glisser, boutons de l'atelier) : `occupe` en retour fait poser la question Remplacer / Ajouter. */
+  z.object({
+    type: z.literal('studio.poser'),
+    creationId: z.string(),
+    attachmentId: z.string().optional(),
+    mediaId: z.string().optional(),
+    segment: z.record(z.any()).optional(),
+    pisteId: z.string().optional(),
+    /** Toujours sur une piste neuve de son type. */
+    nouvellePiste: z.boolean().optional(),
+    debut: z.number(),
+    mode: z.enum(['remplacer', 'ajouter']).optional(),
+    valider: z.boolean().optional(),
+  }),
+  /* LA COUPE AU TEXTE : les mots d'un média (reconnus une fois), et les passages effacés, coupés partout en une version. */
+  z.object({ type: z.literal('studio.mots'), creationId: z.string(), mediaId: z.string() }),
+  z.object({ type: z.literal('studio.couper'), creationId: z.string(), passages: z.array(z.object({ de: z.number(), a: z.number() })).max(200) }),
+  /* LE RYTHME DE LA MUSIQUE : ses temps sur la ligne de temps, et les plans calés dessus. */
+  z.object({ type: z.literal('studio.rythme'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.rythme.caler'), creationId: z.string() }),
+  /* LA DÉCLINAISON DANS UNE AUTRE LANGUE (une copie, images gardées) et L'ENVOI EN BROUILLON vers Réseaux sociaux. */
+  z.object({ type: z.literal('studio.decliner.langue'), creationId: z.string(), langue: z.string() }),
+  z.object({ type: z.literal('studio.versReseaux'), creationId: z.string() }),
+  /* LE MODÈLE PAR TYPE DE FABRICATION (voix, musique, image, vidéo) : le menu de kie.ai, et le choix gardé sur la création (`null` le retire). */
+  z.object({ type: z.literal('studio.modeles.lister'), creationId: z.string().optional() }),
+  z.object({ type: z.literal('studio.modeles.choisir'), creationId: z.string(), genre: z.enum(['voix', 'musique', 'image', 'video']), modele: z.string().nullable() }),
   /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
@@ -1496,17 +1891,53 @@ export const ClientCommand = z.discriminatedUnion('type', [
     categories: z.array(z.string()),
     politique: z.enum(['ignorer', 'remplacer', 'remettre-a-zero']).optional(),
   }),
-  z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
-  /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
-  z.object({ type: z.literal('voice.list') }),
-  /* La voix parle-t-elle sur ce serveur ? Sinon, la pièce qui manque, en une phrase. */
-  z.object({ type: z.literal('voice.etat') }),
   /**
    * Une phrase DICTÉE, sans destinataire : l'assistant global lit la liste des
    * projets ouverts, dépose la demande dans le chef d'orchestre du bon projet
    * ou POSE LA QUESTION quand un doute demeure.
    */
   z.object({ type: z.literal('voix.demande'), texte: z.string() }),
+  /**
+   * LA CONVERSATION VOCALE EN DIRECT AVEC CODEX (`server/src/voix-directe.ts`). `demarrer` porte l'offre WebRTC
+   * du navigateur et rend la réponse du fournisseur ; `arreter` coupe la session ; `voix` liste les voix du
+   * direct ; `extrait` ouvre une courte session SANS outils, qui dit une phrase d'essai avec la voix demandée.
+   */
+  /* `agentId` : l'agent du champ où l'on a appuyé sur le bouton voix (une carte) ; absent, l'assistant (« Dis Jarvis »). */
+  /* `appel` : l'écran fera entendre l'appel « Jarvis ? » au début (ouverture d'un clic, sans mot de réveil), pour que Jarvis salue. */
+  z.object({ type: z.literal('voix.direct.demarrer'), sdp: z.string().max(200_000), voix: z.string().optional(), client: z.string().max(80).optional(), agentId: z.string().max(80).optional(), appel: z.boolean().optional() }),
+  /**
+   * LES GESTES DE JARVIS À L'ÉCRAN (`server/src/gestes-de-jarvis.ts`, carte « Relier Beluga Pass dans les réglages »,
+   * 16/11/2026). `fait` accuse un geste joué par le navigateur (`arrete` : l'utilisateur a repris la main ; `rendu` :
+   * ce que « lire » a vu) ; `arreter` vient d'un geste réel de l'utilisateur pendant l'action ; `reprendre` et
+   * `annuler` sont les deux boutons posés dans le fil du module de voix après un arrêt.
+   */
+  z.object({
+    type: z.literal('jarvis.geste.fait'),
+    id: z.string().max(80),
+    ok: z.boolean(),
+    erreur: z.string().max(2000).optional(),
+    arrete: z.boolean().optional(),
+    rendu: z.string().max(40_000).optional(),
+  }),
+  z.object({ type: z.literal('jarvis.action.arreter'), id: z.string().max(80) }),
+  z.object({ type: z.literal('jarvis.action.reprendre'), id: z.string().max(80) }),
+  z.object({ type: z.literal('jarvis.action.annuler'), id: z.string().max(80) }),
+  /** SUR UN DÉMON D'ESSAI SEULEMENT : joue un plan comme si l'assistant l'avait demandé, vers l'onglet `client`. */
+  z.object({
+    type: z.literal('jarvis.essai.jouer'),
+    client: z.string().max(80),
+    titre: z.string().max(200).optional(),
+    intention: z.string().max(300).optional(),
+    gestes: z.array(z.record(z.string(), z.unknown())).max(40),
+  }),
+  /* `raison` : pourquoi l'écran ferme (bouton, veille, coupure, rechargement, démontage…) — le journal du démon le dit. */
+  z.object({ type: z.literal('voix.direct.arreter'), raison: z.string().max(120).optional() }),
+  /* LE SALUT (18/11/2026) : l'écran a la ligne, Jarvis dit « Salut <prénom>, je t'écoute. » (`saluerLeDirect`). */
+  z.object({ type: z.literal('voix.direct.saluer') }),
+  /* Jarvis prêt à l'avance (17/11/2026) : l'écran qui a la voix activée le redit toutes les quelques minutes. */
+  z.object({ type: z.literal('voix.direct.preparer') }),
+  z.object({ type: z.literal('voix.direct.voix') }),
+  z.object({ type: z.literal('voix.direct.extrait'), sdp: z.string().max(200_000), voix: z.string() }),
   /**
    * UN TOUR DU TIROIR DE PROCÉDURE (`shared/src/procedure-publication.ts`).
    *
@@ -1569,6 +2000,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     rubrique: z.enum(RUBRIQUES_DU_RESUME),
     debut: z.number().optional(),
     fin: z.number().optional(),
+    /** Un seul projet (l'onglet « Résumé » de l'accueil d'un projet) : vue d'ensemble et tâches. */
+    projectId: z.string().optional(),
   }),
   /**
    * LA DERNIÈRE ACTIVITÉ DE CHAQUE PROJET : la date de sa carte modifiée le
@@ -1851,6 +2284,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
      * serveur, lui, ne s'y fie jamais.
      */
     role: z.enum(['admin', 'membre', 'lecteur']).optional(),
+    /**
+     * LE COMPTE CONNECTÉ (identifiant interne et nom affiché) : il dit quels commentaires d'une charte sont « à moi »
+     * (à droite, comme dans une messagerie). Absent : un ancien serveur.
+     */
+    compte: z.object({ id: z.string(), nomAffiche: z.string(), prenom: z.string().optional() }).optional(),
     /** LA GRILLE d'un accès tiers (`droits-d-acces.ts`) : ce que son écran peut montrer. Absente pour l'administrateur. */
     droits: z.any().optional(),
     settings: Settings,
@@ -1871,6 +2309,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
      * de bord » après un rechargement.
      */
     productions: z.array(DeployRun).optional(),
+    deploiements: z.array(DeployRun).optional(),
     /**
      * Le projet dont les cartes sont DÉJÀ en route, poussées juste derrière ce
      * message : le navigateur n'a alors pas à les redemander, ce qui épargne un
@@ -1890,10 +2329,26 @@ export const ServerEvent = z.discriminatedUnion('type', [
     pour: z.string().optional(),
   }),
   z.object({ type: z.literal('project.upsert'), project: Project }),
+  /**
+   * LE MONTAGE D'UN PROJET, EN DIRECT (`shared/src/etapes-du-montage.ts`) : à
+   * chaque étape commencée ou finie, l'état ENTIER du montage repart — un
+   * événement perdu n'efface donc rien, le suivant rattrape tout. `suivi` est
+   * l'identifiant tiré par l'écran qui a lancé la création ; `pour` ne laisse
+   * partir l'événement que vers le compte qui l'a demandée.
+   */
+  z.object({
+    type: z.literal('project.montage'),
+    suivi: z.string(),
+    etapes: z.array(z.object({ cle: z.string().optional(), titre: z.string(), fait: z.boolean(), detail: z.string().optional() })),
+    enCours: z.string().optional(),
+    pour: z.string().optional(),
+  }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
+  /** LE PILOTAGE DE CHROME (`server/src/extension-chrome.ts`) : un Chrome relié, délié, un site ou un geste répété a changé. */
+  z.object({ type: z.literal('extension.change') }),
   /**
    * Projets qui attendent une réponse : le compte par projet, ET l'endroit où
    * chaque décision se prend — sans quoi la ligne du projet annoncerait un
@@ -2015,6 +2470,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('carnet.lignes'), cardId: z.string(), lignes: z.array(LigneDuCarnet) }),
   z.object({ type: z.literal('queue.etat'), agentId: z.string(), queue: z.array(QueuedPrompt) }),
+  /* UN MESSAGE EN FILE QUE LE DÉMON N'A PAS PU ENVOYER (carte en publication,
+     carte déjà en ligne…) n'est plus jeté : il revient au champ d'écriture de
+     son agent, avec la raison du refus. */
+  z.object({ type: z.literal('queue.rendue'), agentId: z.string(), textes: z.array(z.string()), raison: z.string() }),
   z.object({ type: z.literal('deploy.upsert'), run: DeployRun }),
   /**
    * LE DIALOGUE DE PROCÉDURE, diffusé à chaque changement : tour parti, question
@@ -2025,6 +2484,29 @@ export const ServerEvent = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('procedure'), etat: EtatProcedure }),
   z.object({ type: z.literal('quotas'), quotas: z.array(AccountQuota) }),
+  /**
+   * LES SOLDES DES SERVICES D'IA (section « Services d'IA » du volet des quotas), rediffusés à chaque relevé —
+   * tournée de fond toutes les 30 min ou « Actualiser ». C'est ce qui allume le point orange au pied de la
+   * colonne sans ouvrir le volet. Des chiffres, un état, un lien public : JAMAIS une clé.
+   */
+  z.object({
+    type: z.literal('servicesIa'),
+    releveLe: z.number(),
+    soldes: z.array(
+      z.object({
+        id: z.enum(['openrouter', 'kie', 'heygen', 'agentik', 'groq', 'gemini-api']),
+        nom: z.string(),
+        lien: z.string(),
+        unite: z.enum(['usd', 'credits']),
+        etat: z.enum(['ok', 'non-communique', 'erreur']),
+        restant: z.number().optional(),
+        consomme: z.number().optional(),
+        total: z.number().optional(),
+        raison: z.string().optional(),
+        releveLe: z.number(),
+      }),
+    ),
+  }),
   /**
    * L'ÉTAT DES SITES SURVEILLÉS, rediffusé à chaque tournée et à chaque geste.
    * C'est lui qui allume la pastille du menu : elle doit être juste dans tous
@@ -2063,6 +2545,28 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * d'autre ne voyage — le détail ne part qu'à qui l'a demandé.
    */
   z.object({ type: z.literal('marketing'), projectId: z.string() }),
+  /** LE SERVICE SÉCURITÉ A CHANGÉ pour ce projet (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
+  z.object({ type: z.literal('securite'), projectId: z.string() }),
+  /** LA LIAISON BELUGA PASS A CHANGÉ (liée, sauvegarde reçue, accès des agents, lecture) : la rubrique ouverte relit. */
+  z.object({ type: z.literal('belugapass') }),
+  /** Les marques de l'espace Communication ont changé : l'écran relit sa colonne. */
+  z.object({ type: z.literal('communication.marques') }),
+  /** Les messages du directeur non lus de CE compte : trié à l'envoi. */
+  z.object({ type: z.literal('communication.nonLus'), pour: z.string(), nonLus: z.number() }),
+  /**
+   * LE STUDIO A CHANGÉ (une création, sa bibliothèque, un export) : l'écran
+   * ouvert se relit. Un export en cours porte sa progression, sans relecture.
+   */
+  z.object({
+    type: z.literal('studio'),
+    projectId: z.string(),
+    creationId: z.string().optional(),
+    progression: z.object({ exportId: z.string(), valeur: z.number(), etape: z.string() }).optional(),
+    /** L'écran amène la tête de lecture sur ce qu'un choix vient de poser. */
+    montrer: z.object({ segmentId: z.string(), debut: z.number() }).optional(),
+    /** L'issue d'un retrait ou d'une remise du fond demandés à la main. */
+    fond: z.object({ cle: z.string(), etat: z.enum(['fait', 'non-uni', 'echec']), geste: z.enum(['retirer', 'remettre']), raison: z.string().optional(), segments: z.number().optional() }).optional(),
+  }),
   /**
    * Le catalogue des moteurs, rediffusé quand il a changé — après une
    * connexion de compte réussie, la liste des modèles doit redevenir complète
@@ -2100,10 +2604,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
     prefs: z.record(z.any()),
     /** Vrai : `prefs` ne porte que les clés qui changent (`null` = retirée), à fusionner dans le bloc connu. */
     partiel: z.boolean().optional(),
+    /** L'onglet qui a fait le changement ; absent : le serveur lui-même. */
+    onglet: z.string().optional(),
   }),
   /** Des images viennent d'être ouvertes en grand par CE compte, sur un autre de ses appareils. */
   z.object({ type: z.literal('captures.vues'), pour: z.string(), cles: z.array(z.string()) }),
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
+  /* Une plaquette client a changé (contenu, lien, ouverture, remarque) : la page « Plaquettes » se recharge. */
+  z.object({ type: z.literal('plaquettes.change'), projectId: z.string(), plaquetteId: z.string() }),
   /** LES MÉDIAS EN FABRICATION, liste entière (`shared/src/media-en-fabrication.ts`) : le bloc d'attente du fil. */
   z.object({ type: z.literal('medias.fabrication'), items: z.array(MediaEnFabrication) }),
   /** UNE PRODUCTION A BOUGÉ (élément écrit, lot proposé ou décidé, média changé) : le volet de suivi ouvert relit. */
@@ -2135,12 +2643,6 @@ export const ServerEvent = z.discriminatedUnion('type', [
     url: z.string().optional(),
     /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
     motif: z.string().optional(),
-    /**
-     * La phrase déjà rédigée à dire à voix haute, quand Beluga Build a pu la tirer
-     * du vrai contenu de la réponse de l'agent. Absente, la voix la refabrique
-     * depuis le titre. Voir `shared/src/voix-annonce.ts`.
-     */
-    voix: z.string().optional(),
     cardId: z.string().optional(),
     projectId: z.string().optional(),
     /** L'agent où la décision se prend quand elle ne tient à aucune carte
@@ -2158,7 +2660,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
         z.object({
           nom: z.string(),
           description: z.string().optional(),
-          origine: z.enum(['moteur', 'compte', 'projet']),
+          origine: z.enum(['moteur', 'compte', 'projet', 'beluga']),
         }),
       ),
     ),
@@ -2233,6 +2735,102 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * ni projets, ni moteurs, ni quotas, ni capacité. Qui il est, et c'est tout —
    * son kanban et son fil se demandent ensuite.
    */
+  /**
+   * LE DIRECT AVEC CODEX, VU PAR LE MODULE DE VOIX. `voix.direct` dit l'état de la session (et l'erreur, en
+   * clair : jamais de repli silencieux) ; `voix.direct.tour` porte une phrase du fil — en cours (`final` faux)
+   * ou finie —, les projets dont elle parle et, pour une réponse, les sources de la mémoire consultées ;
+   * `voix.direct.tache` la tâche préparée à la voix, avec sa configuration.
+   */
+  z.object({
+    type: z.literal('voix.direct'),
+    /* « synthese » : la conversation est close, Jarvis rédige la synthèse pour le champ de `agentId`. */
+    etat: z.enum(['connexion', 'en-direct', 'synthese', 'arrete', 'erreur']),
+    agentId: z.string().optional(),
+    message: z.string().optional(),
+    voix: z.string().optional(),
+    discussion: z.string().optional(),
+  }),
+  /**
+   * LA SYNTHÈSE DE FIN D'UNE CONVERSATION VOCALE (17/11/2026) : la demande préparée à la voix, à AJOUTER à la suite du
+   * brouillon du champ de `agentId` — jamais envoyée toute seule. `texte` vide : rien à coller (l'échange n'a servi
+   * qu'à faire agir Jarvis). `erreur` : la synthèse n'a pas pu s'écrire, dit en clair.
+   */
+  z.object({
+    type: z.literal('voix.direct.synthese'),
+    agentId: z.string(),
+    texte: z.string().default(''),
+    erreur: z.string().optional(),
+    /** Un texte que Jarvis AJOUTE à la demande d'une carte (outil « carte_demande », 17/11/2026), pas la synthèse de fin. */
+    ajout: z.boolean().optional(),
+    /** L'onglet qui tient la conversation : lui seul l'ajoute (un seul ajout, quel que soit le nombre d'onglets). */
+    client: z.string().optional(),
+  }),
+  /**
+   * JARVIS A PRODUIT QUELQUE CHOSE À VOIR pendant la conversation vocale (carte proposée, image, document, fichier —
+   * 17/11/2026) : le module de voix déplie le volet de l'assistant si la conversation se tenait dans la bulle.
+   */
+  z.object({
+    type: z.literal('voix.direct.production'),
+    agentId: z.string(),
+  }),
+  z.object({
+    type: z.literal('voix.direct.tour'),
+    role: z.enum(['user', 'assistant']),
+    texte: z.string(),
+    final: z.boolean(),
+    projets: z.array(z.string()).default([]),
+    sources: z.number().optional(),
+  }),
+  /**
+   * UN GESTE DE JARVIS À JOUER, pour le SEUL navigateur `client` qui tient la conversation vocale : il le joue avec
+   * son curseur et l'accuse par `jarvis.geste.fait`. `geste.action` « lire » demande la liste de ce qui est
+   * cliquable à l'écran.
+   */
+  z.object({
+    type: z.literal('jarvis.geste'),
+    client: z.string(),
+    actionId: z.string(),
+    id: z.string(),
+    geste: z.object({
+      action: z.enum(['ouvrir', 'cliquer', 'saisir', 'touche', 'attendre', 'lire']),
+      cible: z.string().optional(),
+      texte: z.string().optional(),
+      libelle: z.string(),
+    }),
+  }),
+  /** UNE ACTION DE JARVIS À L'ÉCRAN, racontée dans le fil du module de voix : son plan et l'état de chaque geste. */
+  z.object({
+    type: z.literal('voix.direct.action'),
+    id: z.string(),
+    client: z.string(),
+    titre: z.string(),
+    statut: z.enum(['en-cours', 'arretee', 'finie', 'annulee', 'echouee']),
+    gestes: z.array(z.object({ libelle: z.string(), etat: z.enum(['todo', 'running', 'done', 'stopped', 'failed']) })),
+    erreur: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('voix.direct.tache'),
+    titre: z.string(),
+    projet: z.string().optional(),
+    niveau: z.string().optional(),
+    moteur: z.string().optional(),
+    modele: z.string().optional(),
+    /** La réflexion demandée pour la tâche (« low », « high »…), annoncée avec le moteur. */
+    reflexion: z.string().optional(),
+    etat: z.enum(['proposee', 'creee', 'lancee']),
+  }),
+  /**
+   * CE QUE JARVIS FAIT EN CE MOMENT (16/11/2026) : chaque appel d'outil de la conversation vocale, en mots courants
+   * (« Je cherche dans la mémoire : … »), posé dans le fil du volet en ligne vivante — en cours, puis finie ou échouée.
+   */
+  z.object({
+    type: z.literal('voix.direct.activite'),
+    id: z.string(),
+    libelle: z.string(),
+    etat: z.enum(['en-cours', 'finie', 'echec']),
+    /** Une action CONCRÈTE dans l'application (créer, modifier, ouvrir à l'écran…), pas une lecture (18/11/2026). */
+    agit: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal('ready.client'),
     protocol: z.number(),

@@ -123,6 +123,8 @@ interface Motif {
   expression: RegExp;
   /** Une occurrence à laisser passer (adresse de documentation, exemple). */
   admis?: (trouve: string) => boolean;
+  /** Un FORMAT de clé reconnaissable entre mille (et non une trace qui pourrait être anodine). */
+  cle?: true;
 }
 
 const MOTIFS: Motif[] = [
@@ -139,11 +141,11 @@ const MOTIFS: Motif[] = [
     admis: (adresse) => DOMAINES_D_EXEMPLE.test(adresse.split('@')[1] ?? '') || /^(git|noreply|no-reply)@/i.test(adresse),
   },
   { nom: 'un chemin personnel', expression: /(?:^|[\s"'`(=:])\/(?:root|home\/[\w.-]+)\//gm },
-  { nom: 'une clé d’API', expression: /\b(?:sk-[A-Za-z0-9_-]{16,}|sk_live_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,})/g },
-  { nom: 'un jeton GitHub', expression: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g },
-  { nom: 'une clé AWS', expression: /\bAKIA[0-9A-Z]{16}\b/g },
-  { nom: 'un jeton Slack', expression: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
-  { nom: 'une clé privée', expression: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  { nom: 'une clé d’API', expression: /\b(?:sk-[A-Za-z0-9_-]{16,}|sk_live_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,})/g, cle: true },
+  { nom: 'un jeton GitHub', expression: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g, cle: true },
+  { nom: 'une clé AWS', expression: /\bAKIA[0-9A-Z]{16}\b/g, cle: true },
+  { nom: 'un jeton Slack', expression: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, cle: true },
+  { nom: 'une clé privée', expression: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, cle: true },
   {
     nom: 'un mot de passe écrit',
     expression: /\b(?:password|passwd|mot de passe|mdp|secret|token|api[_-]?key)\s*[:=]\s*["'`]?[^\s"'`<>{}()[\],;]{6,}/gi,
@@ -152,6 +154,57 @@ const MOTIFS: Motif[] = [
   },
   { nom: 'une longue suite hexadécimale', expression: /\b[a-f0-9]{40,}\b/gi },
 ];
+
+/**
+ * LE FILTRE DE CONTENU, PARTAGÉ : le tri du dépôt public ET celui du lot des
+ * serveurs clients (`lot-competences-clients.ts`) passent par lui, pour que les
+ * deux ne divergent jamais. Rend la raison du PREMIER refus (nom de projet ou
+ * de client, puis un des MOTIFS), ou `null` si tous les fichiers sont propres.
+ * Ne jamais l'assouplir pour l'un sans l'autre.
+ */
+export function premierePieceSensible(
+  fichiers: readonly (readonly [string, string])[],
+  nomsPrives: readonly string[],
+  options: {
+    /**
+     * Un nom collé à un signe de CODE (`:root`, `/brain/`, `.root`, `$root`)
+     * n'est pas un nom de projet : il est ignoré. Réservé au lot des serveurs
+     * clients — le dépôt public garde la lecture stricte.
+     */
+    bordsDeCode?: boolean;
+    /**
+     * `cles` : seuls les FORMATS de clé (sk-, ghp_, AKIA, xox, clé privée)
+     * comptent parmi les MOTIFS. Pour le contenu d'un TIERS (bibliothèque
+     * protégée), où une adresse, une empreinte ou un « mot de passe : 12
+     * caractères » ne sont pas des traces de l'auteur. Les noms privés,
+     * eux, comptent toujours.
+     */
+    motifs?: 'tous' | 'cles';
+  } = {},
+): string | null {
+  const noms = [...new Set(nomsPrives.map((n) => n.trim()).filter((n) => n.length >= 3))];
+  const avant = options.bordsDeCode ? '(?<![\\w\\-:/.$@#])' : '(?<![\\w-])';
+  const apres = options.bordsDeCode ? '(?![\\w\\-/(])' : '(?![\\w-])';
+  const expressions = noms.map((prive) => {
+    const echappe = prive.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    return new RegExp(`${avant}${echappe}${apres}`, 'i');
+  });
+  for (const [chemin, contenu] of fichiers) {
+    for (const expression of expressions) {
+      const trouve = expression.exec(contenu);
+      if (trouve) return `${chemin} nomme un projet ou un client (« ${masquer(trouve[0])} »)`;
+    }
+    for (const motif of MOTIFS) {
+      if (options.motifs === 'cles' && !motif.cle) continue;
+      for (const trouve of contenu.matchAll(motif.expression)) {
+        const valeur = trouve[0].trim();
+        if (motif.admis?.(valeur)) continue;
+        return `${chemin} porte ${motif.nom} (« ${masquer(valeur)} »)`;
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * LE VERDICT D'UNE FICHE. `nomsPrives` : les noms de projets et de clients, et
@@ -179,20 +232,7 @@ export function jugerCompetence(fiche: FicheACommuniquer, nomsPrives: readonly s
   if (!publie) return { publiee: false, raison: themes.length ? `aucun thème publié (${themes.join(', ')})` : 'aucun thème' };
 
   const fichiers: [string, string][] = [['SKILL.md', texteAPublier(fiche.texte)], ...Object.entries(fiche.annexes ?? {})];
-  const noms = [...new Set(nomsPrives.map((n) => n.trim()).filter((n) => n.length >= 3))];
-  for (const [chemin, contenu] of fichiers) {
-    for (const prive of noms) {
-      const echappe = prive.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-      const trouve = new RegExp(`(?<![\\w-])${echappe}(?![\\w-])`, 'i').exec(contenu);
-      if (trouve) return { publiee: false, raison: `${chemin} nomme un projet ou un client (« ${masquer(trouve[0])} »)` };
-    }
-    for (const motif of MOTIFS) {
-      for (const trouve of contenu.matchAll(motif.expression)) {
-        const valeur = trouve[0].trim();
-        if (motif.admis?.(valeur)) continue;
-        return { publiee: false, raison: `${chemin} porte ${motif.nom} (« ${masquer(valeur)} »)` };
-      }
-    }
-  }
+  const sensible = premierePieceSensible(fichiers, nomsPrives);
+  if (sensible) return { publiee: false, raison: sensible };
   return { publiee: true, raison: `thème « ${publie} », contrôle passé` };
 }

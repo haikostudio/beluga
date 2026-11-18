@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Laptop, Smartphone, X } from 'lucide-react';
+import { Laptop, Smartphone, X } from '@/components/ui/icones';
 import { APPAREIL_INCONNU, type AppareilNotifie } from '@beluga/shared';
 import { Button, Input, Switch } from '@/components/ui';
 import { Champ } from '@/components/card-panel';

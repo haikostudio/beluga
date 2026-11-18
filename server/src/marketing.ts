@@ -325,6 +325,8 @@ interface LigneContenu {
   url_publiee: string | null;
   raison_echec: string | null;
   source_ref: string | null;
+  sorti_de_reserve_le?: number | null;
+  campagne_id?: string | null;
   cree_le: number;
   maj_le: number;
 }
@@ -360,6 +362,9 @@ function depuisLigneContenu(l: LigneContenu): ContenuMarketing {
     lienCible: l.lien_cible ?? undefined,
     urlPubliee: l.url_publiee ?? undefined,
     raisonEchec: l.raison_echec ?? undefined,
+    sourceRef: l.source_ref ?? undefined,
+    sortiDeReserveLe: l.sorti_de_reserve_le ?? undefined,
+    campagneId: l.campagne_id ?? undefined,
     creeLe: l.cree_le,
     majLe: l.maj_le,
   };

@@ -22,8 +22,10 @@ import { cn } from '@/lib/utils';
  * (pages en `z-40`/`z-50`, voiles, panneau des projets en `z-[55]`), qui
  * portent déjà leur propre fond jusqu'en haut.
  *
- * À CONFIRMER SUR L'IPHONE : l'émulation ne montre pas le flou. Si la bande ne
- * suffit pas, faire porter ce fond à la barre d'en-tête, rendue fixe jusqu'au bord.
+ * ELLE N'A PAS SUFFI (30/10/2026, captures #e155 et #7987), ni la barre « default »
+ * seule (capture #5d25) : l'application commence désormais SOUS la barre d'état
+ * (`web/index.html`, plus de `viewport-fit=cover`). L'encart vaut 0 et la bande n'a
+ * plus de hauteur ; elle ne reste que pour le repli de `--marge-flou-ios`.
  */
 export function BandeSousLHeure({ className }: { className?: string }) {
   return (

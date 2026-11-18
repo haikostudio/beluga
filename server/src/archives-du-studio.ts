@@ -10,14 +10,14 @@ import { joindreUnFichier } from './joindre-fichier.js';
 import { rangerLaCarte } from './deplacement-carte.js';
 
 /**
- * LES ARCHIVES DU STUDIO (décision de l'utilisateur du 26/10/2026) : le Studio
- * est retiré, ses créations ne sont jamais effacées. UNE fois, au démarrage, le
+ * LES ARCHIVES DU STUDIO (décision de l'utilisateur du 26/10/2026, quand le Studio
+ * était retiré ; il est revenu le 30/10/2026 et ses créations avec lui). UNE fois, au démarrage, le
  * démon pose dans le projet de l'application une carte « Archives du Studio »
  * qui porte, dans un commentaire, chaque vidéo exportée PRÊTE (une pièce jointe
  * par fichier, même fichier jamais deux fois) et la liste des créations, puis la range dans
  * « Archivé » — geste de code assumé, sans date de mise en ligne
- * (`beluga-aucune-archive-automatique`). Les tables `studio_*` restent en base,
- * lues ici seulement.
+ * (`beluga-aucune-archive-automatique`). Cette carte reste telle quelle : le Studio
+ * relit les mêmes tables `studio_*`, elle n'en est qu'une copie de lecture.
  */
 
 const CLE = 'archives-du-studio';

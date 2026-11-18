@@ -30,14 +30,6 @@ export const TON_COLONNE: Record<'neutre' | 'orange' | 'bleu' | 'vert', string> 
   vert: 'text-success',
 };
 
-/** Le ton d'une importance, en bordure et texte. */
-export const TON_IMPORTANCE: Record<ImportanceDemande, string> = {
-  basse: 'border-faint/60 text-faint',
-  normale: 'border-faint/60 text-muted',
-  haute: 'border-warning/50 text-warning',
-  urgente: 'border-danger/50 text-danger',
-};
-
 /**
  * LE POINT D'IMPORTANCE D'UNE VIGNETTE. Un pastillage de couleur remplace le
  * gros badge en capitales : l'information reste — le FLAT DESIGN ne retire pas

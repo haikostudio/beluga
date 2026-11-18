@@ -997,3 +997,16 @@ export function deplacerLeBloc(ordre: readonly string[], id: string, cible: stri
   const rang = sans.indexOf(cible) + (position === 'after' ? 1 : 0);
   return [...sans.slice(0, rang), id, ...sans.slice(rang)];
 }
+
+/**
+ * PROJETS ACTIFS, PUIS INACTIFS : un projet dont le suivi marketing est coupé
+ * (`actif === false`) passe dans le second tableau, en bas. Sans drapeau, un
+ * projet est actif — jamais l'inverse, pour qu'une donnée incomplète ne vide
+ * pas le tableau principal. L'ordre de chaque groupe est gardé.
+ */
+export function separerProjetsActifs<T extends { actif?: boolean }>(projets: readonly T[]): { actifs: T[]; inactifs: T[] } {
+  const actifs: T[] = [];
+  const inactifs: T[] = [];
+  for (const p of projets) (p.actif === false ? inactifs : actifs).push(p);
+  return { actifs, inactifs };
+}

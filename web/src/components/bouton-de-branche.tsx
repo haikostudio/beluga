@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, GitBranch, GitBranchPlus, Github, Loader2, PencilLine, Search } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, GitBranch, GitBranchPlus, Github, Loader2, PencilLine, Search } from '@/components/ui/icones';
 import {
   Card,
   PREFIXE_BRANCHE_DE_TACHE,
@@ -126,8 +126,14 @@ function ParcoursDeLaBranche({ card, vue }: { card: Card; vue: BranchesDeLaCarte
 export function BoutonDeBranche({
   card,
   onVoirLaBranche,
+  enBarre = false,
 }: {
   card: Card;
+  /**
+   * POSÉ À DROITE DE LA BARRE DU TÉLÉPHONE, avant les trois points (demande du 06/11/2026) : un bouton à icône de la
+   * taille des autres boutons de la barre, au lieu d'un cran du fil.
+   */
+  enBarre?: boolean;
   /**
    * « VOIR LA BRANCHE » ouvre le suivi GitHub de la tâche (ses commits, ses
    * fusions, ses déploiements) : l'onglet « GitHub » a quitté la colonne de la
@@ -440,17 +446,22 @@ export function BoutonDeBranche({
       <DropdownMenuTrigger asChild {...ouvertureAuClic(() => ouvrir(true))}>
         <button
           type="button"
-          className="group/cran ml-0.5 flex min-w-0 shrink items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text"
+          className={
+            enBarre
+              ? 'flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text'
+              : 'group/cran ml-0.5 flex min-w-0 shrink items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-[12px] text-faint transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text'
+          }
           title={courante}
+          aria-label={enBarre ? `Branche · ${courante}` : undefined}
           data-bouton-de-branche={courante}
         >
-          <GitBranch className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <GitBranch className={enBarre ? 'h-4 w-4 shrink-0' : 'h-3.5 w-3.5 shrink-0'} aria-hidden />
           <span className="hidden min-w-0 max-w-[200px] truncate font-mono sm:block">{courante.replace(/^tache\//, '')}</span>
           <ChevronDown className="hidden h-3 w-3 shrink-0 sm:block" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="start"
+        align={enBarre ? 'end' : 'start'}
         collisionPadding={8}
         className="min-w-[280px] sm:max-h-[min(560px,var(--radix-dropdown-menu-content-available-height))] sm:max-w-[min(360px,calc(100vw-16px))]"
         data-menu-de-branche

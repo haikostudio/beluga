@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -46,7 +45,10 @@ import {
 import { PATHS } from './config.js';
 import { listAccountRecords } from './accounts.js';
 import { getDb } from './db.js';
+import { git, sortieGit } from './git.js';
 import { log } from './logger.js';
+import { dossierDesCompetencesFournies, manifesteFourni } from './lot-competences-clients.js';
+import { machineHebergee } from './offre-hebergee.js';
 
 /**
  * LE POOL DE COMPÉTENCES, CÔTÉ DISQUE ET BASE (règles pures dans
@@ -160,11 +162,44 @@ function lireLaFiche(fichier: string): FicheLue {
 export function lirePool(dossier = dossierDesCompetences()): PoolLu {
   const fiches: Competence[] = [];
   const refus: RefusDeCompetence[] = [];
+  lireUnDossierDeFiches(dossier, fiches, refus);
+  /*
+   * LE LOT FOURNI, SUR UN SERVEUR LOUÉ. Le central y dépose le pool de l'auteur
+   * (`data/competences-fournies`, `server/src/lot-competences-clients.ts`) : il
+   * s'ajoute au pool du client, EN LECTURE SEULE, et une fiche du client du même
+   * nom PRIME. Une fiche protégée n'y a qu'une tête réduite (nom, une ligne).
+   */
+  if (path.resolve(dossier) === path.resolve(dossierDesCompetences()) && machineHebergee()) {
+    const fourni = dossierDesCompetencesFournies(dossier);
+    const manifeste = manifesteFourni(fourni);
+    if (manifeste) {
+      const protegees = new Set(manifeste.fiches.filter((f) => f.protegee).map((f) => f.nom));
+      const deja = new Set(fiches.flatMap((f) => [f.nom, path.basename(f.dossier)]));
+      const venues: Competence[] = [];
+      lireUnDossierDeFiches(fourni, venues, []);
+      for (const fiche of venues) {
+        if (deja.has(fiche.nom) || deja.has(path.basename(fiche.dossier))) continue;
+        const protegee = protegees.has(path.basename(fiche.dossier));
+        fiches.push({
+          ...fiche,
+          fournie: true,
+          ...(protegee ? { protegee: true, annexes: [], bibliotheque: fiche.bibliotheque ?? 'protegee' } : {}),
+        });
+      }
+    }
+  }
+
+  fiches.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  return { fiches, refus };
+}
+
+/** Les fiches d'UN dossier (le pool, ou le lot fourni), ajoutées à `fiches` et `refus`. */
+function lireUnDossierDeFiches(dossier: string, fiches: Competence[], refus: RefusDeCompetence[]): void {
   let entrees: fs.Dirent[] = [];
   try {
     entrees = fs.readdirSync(dossier, { withFileTypes: true });
   } catch {
-    return { fiches, refus };
+    return;
   }
   const registre = lireLeRegistre(dossier);
 
@@ -211,6 +246,7 @@ export function lirePool(dossier = dossierDesCompetences()): PoolLu {
       etat: etatDeFiche(entete.etat),
       themes: listeDEnTete(entete.themes),
       symptomes: listeDEnTete(entete.symptomes),
+      resumeFr: entete.resumeFr?.trim() || undefined,
       projets: listeDEnTete(entete.projets),
       etend: entete.etend?.trim() || undefined,
       provenance,
@@ -223,8 +259,6 @@ export function lirePool(dossier = dossierDesCompetences()): PoolLu {
     });
   }
 
-  fiches.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
-  return { fiches, refus };
 }
 
 /**
@@ -460,7 +494,7 @@ export function adopterLesCompetencesDuCoffre(racine = dossierDesCompetences()):
   if (bilan.adoptees.length) {
     log.info(`compétences adoptées dans le pool : ${bilan.adoptees.join(', ')}`);
     reecrireLesFichiersDEntree(racine);
-    enregistrerLePool(racine, `adopte ${bilan.adoptees.length} compétence(s) du coffre`);
+    void enregistrerLePool(racine, `adopte ${bilan.adoptees.length} compétence(s) du coffre`);
   }
   return bilan;
 }
@@ -657,7 +691,7 @@ export function ecrireLaFiche(
   }
 
   reecrireLesFichiersDEntree(racine);
-  enregistrerLePool(racine, `${existe ? 'complète' : 'ajoute'} la compétence « ${nom} »`);
+  void enregistrerLePool(racine, `${existe ? 'complète' : 'ajoute'} la compétence « ${nom} »`);
   return { ok: true, geste: existe ? 'completee' : 'creee', nom, chemin: fichier };
 }
 
@@ -693,7 +727,7 @@ export function changerLEtat(nom: string, etat: EtatDeFiche, racine = dossierDes
     return { ok: false, raisons: [`écriture impossible : ${(err as Error).message}`] };
   }
   reecrireLesFichiersDEntree(racine);
-  enregistrerLePool(racine, `passe la compétence « ${nom} » en ${etat}`);
+  void enregistrerLePool(racine, `passe la compétence « ${nom} » en ${etat}`);
   return { ok: true, geste: 'completee', nom, chemin: fichier };
 }
 
@@ -763,25 +797,41 @@ export function etatDuPoolPourLEcran(racine = dossierDesCompetences()): EtatDuPo
 }
 
 /**
- * LES DATES DE TOUTES LES FICHES, EN UN SEUL APPEL À GIT, gardées tant que le
- * dernier enregistrement du pool ne bouge pas : rouvrir l'écran ne relance
- * rien. Un pool sans git (ou git en panne) rend une table vide — la date de
- * mise à jour retombe alors sur celle du fichier.
+ * LES DATES DE TOUTES LES FICHES, EN UN SEUL APPEL À GIT, mais JAMAIS sur le
+ * chemin de l'écran : on sert la table gardée (même d'un enregistrement de
+ * retard) et la relecture complète du journal part en arrière-plan, une seule à
+ * la fois. Avant la première relecture — ou avec un pool sans git, ou git en
+ * panne — la table est vide : la date de mise à jour retombe alors sur celle du
+ * fichier.
  */
 let cacheDesDates: { racine: string; tete: string; dates: Map<string, DatesDeFiche> } | null = null;
+let relectureDesDates: Promise<void> | null = null;
 
 function datesDuPool(racine: string): Map<string, DatesDeFiche> {
   if (!fs.existsSync(path.join(racine, '.git'))) return new Map();
-  try {
-    const tete = git(racine, ['rev-parse', 'HEAD']);
-    if (cacheDesDates && cacheDesDates.racine === racine && cacheDesDates.tete === tete) return cacheDesDates.dates;
-    const journal = git(racine, ['-c', 'core.quotepath=off', 'log', '--format=@@%ct', '--name-only']);
-    const dates = datesDesFichesDepuisGit(journal);
-    cacheDesDates = { racine, tete, dates };
-    return dates;
-  } catch {
-    return new Map();
-  }
+  const servi = cacheDesDates && cacheDesDates.racine === racine ? cacheDesDates.dates : new Map<string, DatesDeFiche>();
+  void rafraichirLesDatesDuPool(racine);
+  return servi;
+}
+
+/** Relit les dates en arrière-plan ; rend la promesse en cours si une relecture est déjà partie. Ne rejette jamais. */
+export function rafraichirLesDatesDuPool(racine = dossierDesCompetences()): Promise<void> {
+  if (relectureDesDates) return relectureDesDates;
+  relectureDesDates = (async () => {
+    try {
+      const tete = (await sortieGit(racine, ['rev-parse', 'HEAD']))?.trim();
+      if (!tete) return;
+      if (cacheDesDates && cacheDesDates.racine === racine && cacheDesDates.tete === tete) return;
+      const journal = await sortieGit(racine, ['-c', 'core.quotepath=off', 'log', '--format=@@%ct', '--name-only']);
+      if (journal === null) return;
+      cacheDesDates = { racine, tete, dates: datesDesFichesDepuisGit(journal.trim()) };
+    } catch {
+      /* repli : la date du fichier */
+    } finally {
+      relectureDesDates = null;
+    }
+  })();
+  return relectureDesDates;
 }
 
 /**
@@ -810,16 +860,6 @@ function dateDeMiseAJour(racine: string, nom: string, dates: DatesDeFiche | unde
 /* LA SAUVEGARDE DU POOL                                                */
 /* ------------------------------------------------------------------ */
 
-function git(racine: string, args: string[]): string {
-  return execFileSync('git', args, {
-    cwd: racine,
-    encoding: 'utf8',
-    // Langue NEUTRE : c'est au MESSAGE qu'on reconnaît une panne de git.
-    env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
-}
-
 /**
  * LE POOL EST SON PROPRE DÉPÔT GIT. `data/` est écarté du dépôt de Beluga Build —
  * le pool était donc hors sauvegarde, alors qu'il devient la mémoire commune de
@@ -829,11 +869,16 @@ function git(racine: string, args: string[]): string {
  * Le POUSSER reste un geste de l'utilisateur : on n'invente pas un dépôt
  * distant, et publier n'appartient pas au démon.
  */
-export function preparerLeDepotDuPool(racine = dossierDesCompetences()): { ok: boolean; raison?: string } {
+export function preparerLeDepotDuPool(racine = dossierDesCompetences()): Promise<{ ok: boolean; raison?: string }> {
+  return dansLaFileDuPool(() => preparerSansFile(racine));
+}
+
+async function preparerSansFile(racine: string): Promise<{ ok: boolean; raison?: string }> {
   try {
     fs.mkdirSync(racine, { recursive: true });
     if (!fs.existsSync(path.join(racine, '.git'))) {
-      git(racine, ['init', '--initial-branch=main']);
+      const r = await git(racine, ['init', '--initial-branch=main'], DELAI_POOL_MS);
+      if (!r.ok) return { ok: false, raison: r.out };
       log.info(`pool de compétences : dépôt git créé dans ${racine}`);
     }
     // Les liens vers le coffre personnel sont enregistrés TELS QUELS (git suit
@@ -845,24 +890,53 @@ export function preparerLeDepotDuPool(racine = dossierDesCompetences()): { ok: b
   }
 }
 
+/** Un délai court : une commande du pool qui traîne est une panne, pas un travail lent. */
+const DELAI_POOL_MS = 60000;
+
+/**
+ * LA FILE DU POOL : un seul travail git à la fois, dans l'ordre d'arrivée —
+ * deux `git add` / `commit` en même temps se disputeraient `index.lock`. Le
+ * maillon ne rejette jamais, pour que la file survive à une panne.
+ */
+let filePool: Promise<unknown> = Promise.resolve();
+
+function dansLaFileDuPool<T>(travail: () => Promise<T>): Promise<T> {
+  const suite = filePool.then(travail, travail);
+  filePool = suite.catch(() => undefined);
+  return suite;
+}
+
 /**
  * ENREGISTRER LE POOL après une écriture. Silencieux si rien n'a changé, et
  * jamais bloquant : une panne de git ne doit pas faire échouer l'écriture d'une
- * fiche — le fichier, lui, est déjà sur le disque.
+ * fiche — le fichier, lui, est déjà sur le disque. L'enregistrement part en
+ * ARRIÈRE-PLAN (les appelants ne l'attendent pas) ; la promesse rendue ne
+ * rejette jamais et sert aux tests.
  */
-export function enregistrerLePool(racine = dossierDesCompetences(), message = 'met à jour le pool'): void {
-  try {
-    if (!fs.existsSync(path.join(racine, '.git'))) {
-      const prepare = preparerLeDepotDuPool(racine);
-      if (!prepare.ok) return;
+export function enregistrerLePool(racine = dossierDesCompetences(), message = 'met à jour le pool'): Promise<void> {
+  return dansLaFileDuPool(async () => {
+    try {
+      if (!fs.existsSync(path.join(racine, '.git'))) {
+        const prepare = await preparerSansFile(racine);
+        if (!prepare.ok) return;
+      }
+      const ajout = await git(racine, ['add', '-A'], DELAI_POOL_MS);
+      if (!ajout.ok) throw new Error(ajout.out);
+      const etat = await sortieGit(racine, ['status', '--porcelain'], DELAI_POOL_MS);
+      if (etat === null) throw new Error('git status a échoué');
+      if (!etat.trim()) return;
+      const commit = await git(
+        racine,
+        ['-c', 'user.name=Beluga Build', '-c', 'user.email=beluga@local', 'commit', '-m', message],
+        DELAI_POOL_MS,
+      );
+      if (!commit.ok) throw new Error(commit.out);
+      // La table des dates a un enregistrement de retard : on la relit sans attendre.
+      void rafraichirLesDatesDuPool(racine);
+    } catch (err) {
+      log.warn(`pool de compétences non enregistré : ${(err as Error).message}`);
     }
-    git(racine, ['add', '-A']);
-    const enAttente = git(racine, ['status', '--porcelain']);
-    if (!enAttente) return;
-    git(racine, ['-c', 'user.name=Beluga Build', '-c', 'user.email=beluga@local', 'commit', '-m', message]);
-  } catch (err) {
-    log.warn(`pool de compétences non enregistré : ${(err as Error).message}`);
-  }
+  });
 }
 
 /**

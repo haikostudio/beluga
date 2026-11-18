@@ -30,12 +30,12 @@ export const RUBRIQUES_DU_RESUME = [
   'taches',
   'memoire',
   'surveillance',
+  'studio',
   'coffre',
   'backups',
   'statistiques',
   'messagerie',
   'marketing',
-  'notes',
 ] as const;
 
 export type RubriqueDuResume = (typeof RUBRIQUES_DU_RESUME)[number];
@@ -288,6 +288,18 @@ export interface ResumeSurveillance extends BaseDuResume {
   }[];
 }
 
+export interface ResumeStudio extends BaseDuResume {
+  rubrique: 'studio';
+  creations: number;
+  exports: number;
+  exportsEnEchec: number;
+  /** En dollars, le montant réel facturé par les fournisseurs. */
+  depense: number;
+  medias: number;
+  parJour: { creations: number[]; exports: number[] };
+  lignes: { id: string; titre: string; projet: string | null; etat: string; exports: number; depense: number; creeLe: number; majLe: number }[];
+}
+
 export interface ResumeCoffre extends BaseDuResume {
   rubrique: 'coffre';
   fiches: number;
@@ -342,23 +354,14 @@ export interface ResumeMarketing extends BaseDuResume {
   lignes: { projectId: string; nom: string | null; contenus: number; aValider: number; publies: number; actions: number; ventes: number; montant: number }[];
 }
 
-export interface ResumeNotes extends BaseDuResume {
-  rubrique: 'notes';
-  total: number;
-  creees: number;
-  modifiees: number;
-  parJour: { creees: number[]; modifiees: number[] };
-  lignes: { id: string; titre: string; projet: string | null; importance: string; echeance: number | null; creeLe: number; modifieLe: number }[];
-}
-
 export type ResumeDeRubrique =
   | ResumeEnsemble
   | ResumeTaches
   | ResumeMemoire
   | ResumeSurveillance
+  | ResumeStudio
   | ResumeCoffre
   | ResumeBackups
   | ResumeStatistiques
   | ResumeMessagerie
-  | ResumeMarketing
-  | ResumeNotes;
+  | ResumeMarketing;

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowLeft, Check, FolderPlus, Loader2 } from 'lucide-react';
+import { ArrowLeft, Check, FolderPlus, Loader2 } from '@/components/ui/icones';
 import {
   auMoinsUnMoteurEnLigne,
   etapePassable,
@@ -8,7 +8,7 @@ import {
   type EtapeDeLAssistant,
   type EtatDeLAssistant,
 } from '@beluga/shared';
-import { Button, ZoneDefilement } from '@/components/ui';
+import { Button, ZoneDefilement, TELEPHONE_ENTRE_SECTIONS } from '@/components/ui';
 import { BoutonRelireLesMoteurs, ListeDesMoteurs } from '@/components/assistant-moteurs';
 import {
   LigneDEtat,
@@ -23,7 +23,9 @@ import {
   useEtatDeLInstallation,
   type EtatDeLInstallation,
 } from '@/components/installation/sections';
+import { SectionVotreAssistant, type EtatDeVotreAssistant } from '@/components/installation/votre-assistant';
 import { BarreDuTerminal, TerminalACote } from '@/components/installation/travail';
+import { useVoileAffiche } from '@/lib/barre-de-l-heure';
 import { client } from '@/lib/client';
 import { SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
@@ -99,6 +101,12 @@ function pageDe(etape: EtapeDeLAssistant): Page {
         intro: t('Beluga Build travaille dans des dépôts de code. Reliez d’abord GitHub ; vous pourrez ensuite ajouter un premier projet : un dépôt qui existe déjà, ou un projet neuf.'),
         but: t('Vous reliez GitHub, puis vous ajoutez le premier projet sur lequel travailler.'),
       };
+    case 'assistant':
+      return {
+        titre: t('Votre assistant'),
+        intro: t('L’assistant vous parle et vous écoute. Donnez-lui un nom, et dites-lui comment vous appeler.'),
+        but: t('Vous donnez un nom à l’assistant : c’est aussi le mot qui l’appelle.'),
+      };
     case 'courriels':
       return {
         titre: t('Les courriels'),
@@ -127,6 +135,7 @@ function pageDe(etape: EtapeDeLAssistant): Page {
 }
 
 export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant }) {
+  useVoileAffiche();
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
   const relais = useEtatDuRelais();
@@ -139,7 +148,9 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
   const page = pageDe(vue);
   const moteurPret = auMoinsUnMoteurEnLigne(state.engines, state.quotas);
   const githubRelie = Boolean(etat?.github?.connecte);
-  const peutContinuer = vue === 'moteurs' ? moteurPret : vue === 'projet' ? githubRelie : true;
+  const [assistantPret, setAssistantPret] = React.useState(false);
+  const surEtatDeLAssistant = React.useCallback((e: EtatDeVotreAssistant) => setAssistantPret(e.pret), []);
+  const peutContinuer = vue === 'moteurs' ? moteurPret : vue === 'projet' ? githubRelie : vue === 'assistant' ? assistantPret : true;
 
   /** Une page est atteignable dès qu'elle a été vue, ou que c'est la prochaine. */
   const atteignable = (etape: EtapeDeLAssistant) =>
@@ -251,11 +262,13 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
               ) : vue === 'domaine' ? (
                 <SectionDomaine etat={etat} relire={relire} />
               ) : vue === 'projet' ? (
-                <div className="space-y-6">
+                <div className={cn('space-y-6', TELEPHONE_ENTRE_SECTIONS)}>
                   <SectionGitHub etat={etat} relire={relire} />
                   {/* Le premier projet N'APPARAÎT qu'une fois GitHub relié : sans lui, rien à récupérer. */}
                   {githubRelie ? <PremierProjet /> : null}
                 </div>
+              ) : vue === 'assistant' ? (
+                <SectionVotreAssistant surEtat={surEtatDeLAssistant} versLesMoteurs={() => setVue('moteurs')} />
               ) : vue === 'courriels' ? (
                 <SectionCourriels etat={etat} relire={relire} />
               ) : vue === 'espace-client' ? (
@@ -281,10 +294,11 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
 
       </div>
 
-      <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+      <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: `var(--pied-natif, calc(max(0.75rem, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))` }}>
         <span className="min-w-0 flex-1 text-[13px] text-faint">
           {vue === 'moteurs' && !moteurPret ? t('Il faut au moins un moteur prêt pour continuer.') : null}
           {vue === 'projet' && !githubRelie ? t('Reliez GitHub pour continuer : c’est par lui que vos projets se récupèrent et se sauvegardent.') : null}
+          {vue === 'assistant' && !assistantPret ? t('Donnez votre prénom et un nom que l’assistant entendra pour continuer.') : null}
         </span>
         {etapePassable(vue) ? (
           <Button variant="ghost" size="md" data-assistant-plus-tard disabled={envoi !== null} onClick={() => void quitter('passee')}>

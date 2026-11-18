@@ -1,25 +1,28 @@
 import * as React from 'react';
-import { ChevronDown, ExternalLink, Loader2, RefreshCw, Repeat, X } from 'lucide-react';
+import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
+import { ExternalLink, Loader2, RefreshCw, Repeat, X } from '@/components/ui/icones';
 import {
   construireFragment,
-  rangerLesVeillesParProjet,
   veilleActive,
+  veilleAReparer,
   type EtapeParcours,
   type EtatVeille,
-  type ProjetDeVeilles,
   type VeilleListee,
 } from '@beluga/shared';
-import { Button, CLASSE_GROUPE_DE_LIGNES, CLASSE_LIGNE_DE_GROUPE, ConfirmDialog, DialogTitle, Drawer, TitreDePage, ZoneDefilement } from '@/components/ui';
-import { SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
-import { ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
-import { RubriqueDeColonne } from '@/components/rubriques-de-colonne';
-import { PastilleProjet } from '@/components/pastille-projet';
+import { Button, ConfirmDialog, DialogTitle, Drawer, EnteteDeFeuille, TitreDePage, ZoneDefilement } from '@/components/ui';
+import { Tableau } from '@/components/ui/tableau';
+import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
+import { colonneProjet } from '@/components/ui/colonne-projet';
+import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
+import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
 import { SilhouetteTachesRecurrentes } from '@/components/silhouettes';
-import { heureLisible, horairesDeLaVeille, issueLisible, quandLisible, useGestesDeVeille } from '@/components/veille-de-carte';
+import { BoutonDeReparation, heureLisible, horairesDeLaVeille, issueLisible, quandLisible, ResultatDeVeille, useGestesDeVeille } from '@/components/veille-de-carte';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
+import { useTelephone } from '@/lib/telephone';
+import { CranDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 
 /**
  * LE SERVICE « TÂCHES RÉCURRENTES » (demande du 22/10/2026) — les VEILLES
@@ -51,7 +54,9 @@ function etatLisible(etat: EtatVeille): string {
       ? t('Blocage levé')
       : etat === 'expiree'
         ? t('Échue')
-        : t('Arrêtée');
+        : etat === 'attend_deploiement'
+          ? t('Après le déploiement')
+          : t('Arrêtée');
 }
 
 function frequenceLisible(ms: number): string {
@@ -130,153 +135,169 @@ export function TachesRecurrentes({
   onVise: (projet: string | null, veilleId?: string | null) => void;
 }) {
   const state = useApp();
-  const dansLaColonne = useColonneDeService();
   const veilles = useVeilles(open);
-  const groupes = React.useMemo(() => (veilles ? rangerLesVeillesParProjet(veilles) : null), [veilles]);
 
-  /* SUR ORDINATEUR, UN PROJET EST TOUJOURS OUVERT : celui du tableau s'il a des
-     veilles, sinon le premier de la liste. */
+  /* DANS L'ONGLET D'UN PROJET (refonte du 13/11/2026) : ce projet, et lui seul. */
+  const projetDuService = useProjetDuService();
   React.useEffect(() => {
-    if (vise || !dansLaColonne || !groupes?.length) return;
-    const actif = groupes.find((g) => g.projectId === state.activeProjectId);
-    onVise(cleDuProjet((actif ?? groupes[0]!).projectId));
-  }, [vise, dansLaColonne, groupes, state.activeProjectId, onVise]);
+    if (projetDuService && vise !== projetDuService.id) onVise(projetDuService.id);
+  }, [projetDuService, vise, onVise]);
 
   const nomDuProjet = (cle: string) =>
     cle === SANS_CARTE ? t('Cartes supprimées') : state.projects.find((p) => p.id === cle)?.name ?? cle;
-  const groupeVise = vise ? groupes?.find((g) => cleDuProjet(g.projectId) === vise) ?? null : null;
   const veilleOuverte = veilleVisee ? veilles?.find((v) => v.id === veilleVisee) ?? null : null;
 
-  const listeDesProjets = (actif: boolean) =>
-    (groupes ?? []).map((g) => {
-      const cle = cleDuProjet(g.projectId);
-      const projet = g.projectId ? state.projects.find((p) => p.id === g.projectId) : undefined;
-      return (
-        <RubriqueDeColonne
-          key={cle}
-          icone={projet ? <PastilleProjet project={projet} /> : <Repeat />}
-          libelle={nomDuProjet(cle)}
-          compte={g.actives.length || undefined}
-          actif={actif && vise === cle}
-          onClick={() => onVise(cle)}
-          data-recurrentes-projet={cle}
+  /*
+   * UN SEUL TABLEAU, PLUS DE FEUILLE (décision du 13/11/2026, maquette #c7a3) : dans l'onglet d'un projet, ses tâches
+   * récurrentes ; sous « Tous les projets », toutes, avec la colonne Projet. Une ligne ouvre le tiroir de sa veille.
+   * L'ancienne feuille du téléphone se rouvrait toute seule et restait posée sur les autres onglets : elle n'existe
+   * plus.
+   */
+  const lignes = React.useMemo(
+    () => (veilles ?? []).filter((v) => !projetDuService || v.projectId === projetDuService.id),
+    [veilles, projetDuService?.id],
+  );
+  const ouvrir = (v: VeilleListee) => onVise(cleDuProjet(v.projectId), v.id);
+  const [recherche, setRecherche] = React.useState('');
+  const [vueDeLaListe, setVueDeLaListe] = useVueDeLaListe('taches-recurrentes.vueDeLaListe');
+  const dernierControle = (v: VeilleListee) => v.dernierControle?.a ?? v.termineA ?? v.creeA;
+  /* LA LIGNE ENTIÈRE OUVRE LA VEILLE, ET UN APERÇU AU SURVOL dit son dernier contrôle (carte « Onglets, services et
+     listes repensés », 14/11/2026). */
+  const tableau = (
+    <ApercuAuSurvol lire={(id) => lignes.find((v) => v.id === id)} rendu={(v) => <ApercuDeVeille veille={v} projet={nomDuProjet(cleDuProjet(v.projectId))} />}>
+    <Tableau<VeilleListee>
+      repere="taches-recurrentes"
+      lignes={lignes}
+      cle={(v) => v.id}
+      onLigne={ouvrir}
+      rechercheExterne={recherche}
+      {...(vueDeLaListe === 'cartes'
+        ? {
+            grille: (v: VeilleListee) => (
+              <CarteDeTableau
+                projet={{ id: v.projectId ?? null, nom: nomDuProjet(cleDuProjet(v.projectId)) }}
+                etat={<EtatDeVeille veille={v} />}
+                titre={v.raison}
+                texte={v.dernierControle?.detail ?? v.titreCarte ?? ''}
+                chiffres={[
+                  { libelle: t('Rythme'), valeur: frequenceLisible(v.intervalleMs) },
+                  { libelle: t('Dernier contrôle'), valeur: quandLisible(dernierControle(v)) },
+                  { libelle: t('Résultat'), valeur: v.dernierControle ? issueLisible(v.dernierControle.issue) : '—' },
+                ]}
+                data-recurrentes-carte={v.id}
+              />
+            ),
+          }
+        : {})}
+      disposition="auto"
+      pied="toujours"
+      triInitial={{ colonne: 'controle', sens: 'desc' }}
+      vide={t('Aucune tâche récurrente pour l’instant.')}
+      attributsLigne={(v) => ({ 'data-recurrentes-veille': v.id, 'data-veille': v.etat })}
+      colonnes={[
+        {
+          cle: 'tache',
+          libelle: t('Tâche récurrente'),
+          valeur: (v) => v.raison,
+          filtre: 'texte',
+          rendu: (v) => (
+            <button type="button" className="block w-full min-w-0 truncate text-left text-text" title={v.raison} onClick={() => ouvrir(v)}>
+              {v.raison}
+            </button>
+          ),
+        },
+        /* LA COLONNE PROJET COMMUNE (14/11/2026) : pastille et nom ; le filtre des projets de la page la remplace comme
+           filtre. */
+        colonneProjet<VeilleListee>((v) => ({ id: v.projectId ?? null, nom: nomDuProjet(cleDuProjet(v.projectId)) }), { largeur: 200 }),
+        {
+          cle: 'etat',
+          libelle: t('État'),
+          valeur: (v) => etatLisible(v.etat),
+          filtre: 'choix',
+          rendu: (v) => <EtatDeVeille veille={v} />,
+        },
+        { cle: 'rythme', libelle: t('Rythme'), valeur: (v) => v.intervalleMs, rendu: (v) => <span className="text-muted">{frequenceLisible(v.intervalleMs)}</span>, masqueSurTelephone: true },
+        {
+          cle: 'controle',
+          libelle: t('Dernier contrôle'),
+          valeur: dernierControle,
+          sensNaturel: 'desc',
+          rendu: (v) => <span className="text-muted">{quandLisible(dernierControle(v))}</span>,
+        },
+      ]}
+    />
+    </ApercuAuSurvol>
+  );
+
+  if (projetDuService && veilles !== null && !lignes.length) {
+    return (
+      <Drawer open={open} onClose={onClose} enPage={enPage}>
+        <EtatVideDuProjet
+          icone={<Repeat />}
+          titre={t('Aucune tâche récurrente pour {v0}', { v0: projetDuService.name })}
+          texte={t('Une tâche récurrente revient d’elle-même : vérifier chaque matin une fiche, relancer une publication, surveiller un concurrent… Demandez-la à un agent dans une tâche de ce projet : elle apparaîtra ici.')}
+          data-recurrentes-vide-projet
         />
-      );
-    });
+      </Drawer>
+    );
+  }
 
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
-      {dansLaColonne ? (
-        <ColonneDeService>
-          <nav aria-label="Projets avec des tâches récurrentes" data-colonne-recurrentes className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
-            {listeDesProjets(true)}
-          </nav>
-        </ColonneDeService>
+      <TitreDePage className="max-sm:sr-only">{t('Tâches récurrentes')}</TitreDePage>
+      {lignes.length ? (
+        <>
+          <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher une tâche…')} data-recurrentes-recherche />
+          <BasculeDePage>
+            <BasculeTableauCartes repere="vue-des-recurrentes" valeur={vueDeLaListe} onChange={setVueDeLaListe} />
+          </BasculeDePage>
+        </>
       ) : null}
-
-      {vise ? (
-        <>
-          <SuiteDuFil onRacine={() => onVise(null)} retour={{ action: () => onVise(null), reperes: { 'data-recurrentes-retour': '' } }}>
-            <SeparateurDuFil />
-            <span className="min-w-0 truncate font-medium text-text" data-recurrentes-fil-projet>
-              {nomDuProjet(vise)}
-            </span>
-          </SuiteDuFil>
-          <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
-            {groupes === null ? (
-              <SilhouetteTachesRecurrentes />
-            ) : (
-              <VeillesDuProjet groupe={groupeVise} onOuvrir={(id) => onVise(vise, id)} />
-            )}
-          </ZoneDefilement>
-        </>
-      ) : (
-        <>
-          <TitreDePage>{t('Tâches récurrentes')}</TitreDePage>
-          <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
-            {groupes === null ? (
-              <SilhouetteTachesRecurrentes />
-            ) : !groupes.length ? (
-              <p className="text-[14px] text-muted" data-recurrentes-vide>
-                {t('Aucune tâche récurrente pour l’instant. Quand un agent attend un tiers, il pose une veille qui revérifie toute seule : elle apparaîtra ici.')}
-              </p>
-            ) : (
-              /* SUR TÉLÉPHONE, LA LISTE DES PROJETS EST DANS LA PAGE. */
-              <div className="flex flex-col gap-0.5" data-recurrentes-liste-projets>
-                {listeDesProjets(false)}
-              </div>
-            )}
-          </ZoneDefilement>
-        </>
-      )}
-
+      <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
+        {veilles === null ? (
+          <SilhouetteTachesRecurrentes />
+        ) : !lignes.length ? (
+          <p className="text-[14px] text-muted" data-recurrentes-vide>
+            {t('Aucune tâche récurrente pour l’instant. Quand un agent attend un tiers, il pose une veille qui revérifie toute seule : elle apparaîtra ici.')}
+          </p>
+        ) : (
+          <div data-recurrentes-tableau={projetDuService ? 'projet' : 'tous'}>{tableau}</div>
+        )}
+      </ZoneDefilement>
       <TiroirDeVeille veille={veilleOuverte} onClose={() => onVise(vise, null)} />
     </Drawer>
   );
 }
 
-function VeillesDuProjet({ groupe, onOuvrir }: { groupe: ProjetDeVeilles | null; onOuvrir: (veilleId: string) => void }) {
-  const [historiqueOuvert, setHistoriqueOuvert] = React.useState(false);
-  const actives = groupe?.actives ?? [];
-  const historique = groupe?.historique ?? [];
-  return (
-    <div className="flex flex-col gap-6" data-recurrentes-veilles>
-      <section className="flex flex-col gap-2" data-recurrentes-actives={actives.length}>
-        <h2 className="px-1 text-[13px] font-medium text-muted">{t('En cours de veille')}</h2>
-        {actives.length ? (
-          <div className={CLASSE_GROUPE_DE_LIGNES}>
-            {actives.map((v) => (
-              <LigneDeVeille key={v.id} veille={v} onOuvrir={onOuvrir} />
-            ))}
-          </div>
-        ) : (
-          <p className="px-1 text-[14px] text-muted">{t('Aucune veille ne court dans ce projet.')}</p>
-        )}
-      </section>
-      {historique.length ? (
-        <section className="flex flex-col gap-2" data-recurrentes-historique={historiqueOuvert ? 'ouvert' : 'ferme'}>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 self-start rounded-lg px-1 text-[13px] font-medium text-muted hover:text-text"
-            aria-expanded={historiqueOuvert}
-            onClick={() => setHistoriqueOuvert((o) => !o)}
-            data-recurrentes-historique-bouton
-          >
-            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !historiqueOuvert && '-rotate-90')} />
-            {t('Historique ({n})', { n: historique.length })}
-          </button>
-          {historiqueOuvert ? (
-            <div className={CLASSE_GROUPE_DE_LIGNES}>
-              {historique.map((v) => (
-                <LigneDeVeille key={v.id} veille={v} onOuvrir={onOuvrir} />
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-    </div>
+/** L'état d'une veille : un point vert quand elle tourne, rouge à réparer, gris sinon. */
+function EtatDeVeille({ veille: v }: { veille: VeilleListee }) {
+  return veilleActive(v) ? (
+    <span className="inline-flex items-center gap-1.5 text-text">
+      <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-text" aria-hidden />
+      {etatLisible(v.etat)}
+    </span>
+  ) : (
+    <span className={veilleAReparer(v) ? 'text-danger' : 'text-muted'}>{etatLisible(v.etat)}</span>
   );
 }
 
-function LigneDeVeille({ veille, onOuvrir }: { veille: VeilleListee; onOuvrir: (veilleId: string) => void }) {
-  const active = veilleActive(veille);
-  const fin = veille.termineA ?? veille.dernierControle?.a ?? veille.creeA;
+/** L'aperçu d'une veille au survol : son projet, son état, son rythme et le résultat de son dernier contrôle. */
+function ApercuDeVeille({ veille: v, projet }: { veille: VeilleListee; projet: string }) {
+  const controle = v.dernierControle;
   return (
-    <button
-      type="button"
-      className={cn(CLASSE_LIGNE_DE_GROUPE, 'flex min-w-0 flex-col gap-0.5')}
-      onClick={() => onOuvrir(veille.id)}
-      data-recurrentes-veille={veille.id}
-      data-veille={veille.etat}
+    <CorpsDApercu
+      sous={[projet, v.titreCarte ?? t('carte supprimée')].join(' · ')}
+      titre={v.raison}
+      chiffres={[
+        { libelle: t('État'), valeur: etatLisible(v.etat) },
+        { libelle: t('Rythme'), valeur: frequenceLisible(v.intervalleMs) },
+        { libelle: t('Dernier contrôle'), valeur: controle ? quandLisible(controle.a) : t('jamais') },
+        { libelle: t('Résultat'), valeur: controle ? issueLisible(controle.issue) : '—' },
+      ]}
     >
-      <span className="break-words text-[14px] leading-snug text-text">{veille.raison}</span>
-      <span className="break-words text-[12.5px] leading-snug text-faint">
-        {[
-          veille.titreCarte ?? t('carte supprimée'),
-          active ? horairesDeLaVeille(veille) : t('{etat} le {date}', { etat: etatLisible(veille.etat), date: quandLisible(fin) }),
-        ].join(' · ')}
-      </span>
-    </button>
+      {controle?.detail ? <p className={cn('line-clamp-3 pt-1 text-[12px] leading-snug', controle.issue === 'levee' ? 'text-muted' : 'text-faint')}>{controle.detail}</p> : null}
+      {veilleActive(v) ? <p className="pt-1 text-[12px] text-faint">{horairesDeLaVeille(v)}</p> : null}
+    </CorpsDApercu>
   );
 }
 
@@ -291,22 +312,30 @@ function Ligne({ nom, children }: { nom: string; children: React.ReactNode }) {
 }
 
 function TiroirDeVeille({ veille, onClose }: { veille: VeilleListee | null; onClose: () => void }) {
+  const telephone = useTelephone();
   /* Le tiroir garde la dernière veille montrée pendant qu'il se referme. */
   const derniere = React.useRef<VeilleListee | null>(null);
   if (veille) derniere.current = veille;
   const v = veille ?? derniere.current;
   return (
-    <Drawer open={!!veille} onClose={onClose} empile>
+    /* UN VRAI TIROIR PAR-DESSUS LA PAGE (15/11/2026) : la feuille commune sur ordinateur — la liste reste dessous —, la
+       feuille du bas pleine hauteur sur téléphone (DEC-474). La veille ouverte est le dernier cran du fil de la page. */
+    <Drawer open={!!veille} onClose={onClose} feuille={!telephone} empile className={telephone ? undefined : 'h-[85dvh]'}>
+      {v && veille ? (
+        <SuiteDuFil onRacine={onClose} retour={{ action: onClose, reperes: { 'data-recurrentes-retour': '' } }}>
+          <CranDuFil data-recurrentes-cran={v.id}>{v.raison}</CranDuFil>
+        </SuiteDuFil>
+      ) : null}
       {v ? <ContenuDuTiroir key={v.id} veille={v} /> : null}
     </Drawer>
   );
 }
 
 function ContenuDuTiroir({ veille }: { veille: VeilleListee }) {
-  const { occupe, agir } = useGestesDeVeille(veille.cardId);
+  const { occupe, agir, resultat } = useGestesDeVeille(veille.cardId);
   const [confirmer, setConfirmer] = React.useState(false);
   const active = veilleActive(veille);
-  const arretable = active || veille.etat === 'expiree';
+  const arretable = active || veille.etat === 'expiree' || veille.etat === 'attend_deploiement';
   const controle = veille.dernierControle;
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-recurrentes-tiroir={veille.id} data-veille={veille.etat}>
@@ -318,6 +347,7 @@ function ContenuDuTiroir({ veille }: { veille: VeilleListee }) {
             {etatLisible(veille.etat)}
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-1">
+            <BoutonDeReparation veille={veille} occupe={occupe} agir={(g) => void agir(g)} />
             {active ? (
               <Button variant="ghost" size="sm" disabled={occupe !== null} onClick={() => void agir('verifier')} data-veille-verifier>
                 {occupe === 'verifier' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
@@ -332,6 +362,7 @@ function ContenuDuTiroir({ veille }: { veille: VeilleListee }) {
             ) : null}
           </div>
         </div>
+        <ResultatDeVeille resultat={resultat} />
       </div>
       <ZoneDefilement className="px-3 pb-6">
         <dl className="flex flex-col">
@@ -370,7 +401,9 @@ function ContenuDuTiroir({ veille }: { veille: VeilleListee }) {
           <Ligne nom={t('Dernier contrôle')}>
             {controle ? (
               <>
-                {t('{date}, {issue}', { date: quandLisible(controle.a), issue: issueLisible(controle.issue) })}
+                <span className={controle.issue === 'panne' ? 'text-danger' : undefined} data-veille-dernier={controle.issue}>
+                  {t('{date}, {issue}', { date: quandLisible(controle.a), issue: issueLisible(controle.issue) })}
+                </span>
                 {controle.detail ? <p className="mt-0.5 text-muted">{controle.detail}</p> : null}
               </>
             ) : (

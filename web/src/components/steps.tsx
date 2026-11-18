@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Bot, Camera, Check, ChevronRight, Circle, Loader2, MinusCircle, RotateCcw } from 'lucide-react';
+import { Bot, Camera, Check, ChevronRight, Circle, Loader2, MinusCircle, RotateCcw } from '@/components/ui/icones';
 import { EntreeJournal, RunStep, estUneAide } from '@beluga/shared';
 import { ContenuDeLEntree } from '@/components/contenu-journal';
 import { cn, duration } from '@/lib/utils';

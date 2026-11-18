@@ -46,6 +46,25 @@ interface PriseInterne extends PriseMicro {
 
 const prises = new Set<PriseInterne>();
 
+/** Le pont vers l'application iPhone (`natif/iOS/ControleurWeb.swift`), sans dépendre du module `natif`. */
+function direAuNatifAudio(actif: boolean): void {
+  (window as unknown as { __belugaNatif?: { envoyer?: (m: Record<string, unknown>) => void } }).__belugaNatif?.envoyer?.({ type: 'audio', actif });
+}
+
+/** Le délai laissé à l'iPhone pour passer en mode « appel » avant d'ouvrir le micro. */
+const BASCULE_DE_SESSION_MS = 150;
+
+/** Passe l'iPhone en mode « appel » (écho annulé, haut-parleur, vie écran verrouillé), AVANT la capture. */
+async function poserLaSessionAudio(): Promise<void> {
+  direAuNatifAudio(true);
+  await new Promise((fini) => window.setTimeout(fini, BASCULE_DE_SESSION_MS));
+}
+
+/** Rend la session audio de l'iPhone : plus aucun micro ouvert. */
+function rendreLaSessionAudio(): void {
+  direAuNatifAudio(false);
+}
+
 /** Combien de micros sont ouverts à cet instant. Zéro au repos, toujours. */
 export function microsOuverts(): number {
   return prises.size;
@@ -71,7 +90,28 @@ export async function ouvrirMicro(raison: string): Promise<PriseMicro> {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     throw new Error('micro indisponible');
   }
-  const flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+  /*
+   * DANS L'APPLICATION IPHONE, LE MICRO N'ENTEND QUE LA VOIX PROCHE (demande de l'utilisateur, 16/11/2026 : « il écoutait
+   * les conversations à côté »). On demande au téléphone d'effacer l'écho et le bruit ambiant ; la porte de niveau du
+   * module de voix (`creerPorteDeNiveau`) écarte ensuite ce qui arrive faiblement. Ailleurs, rien ne change.
+   */
+  const natif = (window as unknown as { __belugaNatif?: { plateforme?: string } }).__belugaNatif?.plateforme === 'ios';
+  /*
+   * LE MODE « APPEL » DE L'IPHONE AVANT LA CAPTURE (carte « Jarvis n'entend ni ne répond », 17/11/2026). Il était posé
+   * quand la conversation s'allumait, alors que le micro tournait déjà : changer le mode audio pendant une capture
+   * l'interrompt, et la conversation s'ouvrait sans qu'aucun son ne parte. Il est désormais posé UNE fois, avant le
+   * premier micro, et rendu après le dernier (`rendreLaSessionAudio`) — jamais changé pendant une capture.
+   */
+  if (natif && prises.size === 0) await poserLaSessionAudio();
+  let flux: MediaStream;
+  try {
+    flux = await navigator.mediaDevices.getUserMedia({
+      audio: natif ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } : true,
+    });
+  } catch (err) {
+    if (natif && prises.size === 0) rendreLaSessionAudio();
+    throw err;
+  }
 
   let ouverte = true;
   let contexte: AudioContext | null = null;
@@ -102,6 +142,8 @@ export async function ouvrirMicro(raison: string): Promise<PriseMicro> {
           /* déjà arrêtée */
         }
       }
+      // Le dernier micro refermé rend la session audio de l'iPhone (le repère orange s'éteint avec elle).
+      if (natif && prises.size === 0) rendreLaSessionAudio();
     },
   };
 

@@ -125,9 +125,11 @@ export function demandeDeReparation(panne: EtapeAReparer): string {
       '',
       'Fais exactement ceci, et rien d’autre :',
       '1. Reste sur la branche actuelle : ne change pas de branche, n’annule pas la fusion.',
-      '2. Résous chaque conflit en GARDANT LES DEUX INTENTIONS : ce qui est déjà en ligne ET l’apport de la tâche. Ne supprime jamais le travail de l’un pour faire passer l’autre ; aucun marqueur de conflit ne doit rester.',
-      '3. `git add` sur CHAQUE fichier résolu, nommé un par un (jamais `git add -A`), puis `git commit --no-edit`.',
-      '4. Si un contrôle rapide du projet existe (compilation), vérifie que ça passe encore.',
+      '2. Résous chaque conflit en GARDANT LES DEUX INTENTIONS : ce qui est déjà en ligne ET l’apport de la tâche. Ne supprime jamais le travail de l’un pour faire passer l’autre ; aucun marqueur de conflit ne doit rester. Résous AU PLUS JUSTE : ni refonte, ni nettoyage annexe. Si un côté a supprimé un mécanisme, ne garde jamais un appel sans sa définition (ni l’inverse).',
+      '3. Un fichier de verrouillage en conflit (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`…) ne se fusionne pas à la main : prends l’une des deux versions puis RÉGÉNÈRE-le avec le gestionnaire de paquets du projet (ex. `npm install --package-lock-only`).',
+      '4. Vérifie avant d’enregistrer : la compilation du projet si elle existe, PUIS les seuls tests qui touchent les fichiers en conflit — jamais la suite complète.',
+      '5. `git add` sur CHAQUE fichier résolu, nommé un par un (jamais `git add -A`), puis `git commit --no-edit`. Ne pousse pas : le déploiement s’en charge.',
+      '6. Dans ta réponse, avant le verdict, une ligne par fichier : ce que tu as gardé de chaque côté.',
       '',
       CONSIGNE_DE_VERDICT,
     ].join('\n');
@@ -166,3 +168,10 @@ export function recitDeLEssai(input: { essai: number; heurt?: string }): string 
 
 /** Le texte qui accompagne l'étape pendant la réparation : neutre, jamais alarmant. */
 export const PROGRESSION_PENDANT_LA_REPARATION = 'Ajustement en cours…';
+
+/* ------------------------------------------------------------------ */
+/* PLUS DE CARTE DE RÉPARATION (décision de l'utilisateur, 17/11/2026)  */
+/* ------------------------------------------------------------------ */
+/* Après trois réparations ratées, la publication tombe et sa ligne reste active, rouge, dans la colonne de gauche ; un
+   dépanneur s'ouvre de lui-même (`shared/src/depannage-publication.ts`) et la MÊME publication reprend à la fin de son
+   tour. La carte « Réparer le déploiement de … » d'avant n'est plus créée. */

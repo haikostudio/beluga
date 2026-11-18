@@ -11,7 +11,7 @@ import {
   Search,
   Terminal,
   Wrench,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   ChampLisible,
   EntreeJournal,
@@ -30,6 +30,7 @@ import {
   titreDeLaSorte,
   vueDeLEntree,
   nettoyerTexteColle,
+  commandesEnPastilles,
 } from '@beluga/shared';
 import { PiecesJointes } from '@/components/bulle-question';
 import {
@@ -606,7 +607,9 @@ export function TexteDeLaDemande({
   pieces: readonly string[];
   projectId?: string;
 }) {
-  const texte = useTexteLisibleDeLaDemande(brut, pieces, projectId);
+  const lisible = useTexteLisibleDeLaDemande(brut, pieces, projectId);
+  // Les commandes « / » se lisent en pastilles, comme dans le champ qui les a écrites (`commandesEnPastilles`).
+  const texte = React.useMemo(() => commandesEnPastilles(lisible), [lisible]);
   return (
     <div className="demande-en-texte min-w-0" data-contenu-sorte="demande">
       <Markdown content={texte} enTexte />

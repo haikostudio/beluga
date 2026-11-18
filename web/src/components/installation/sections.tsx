@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy, Loader2, RefreshCw, Send } from 'lucide-react';
+import { Check, Copy, Loader2, RefreshCw, Send } from '@/components/ui/icones';
 import {
   ADRESSE_DE_LA_CONNEXION_PAR_CODE,
   ADRESSE_D_UN_JETON_CLASSIQUE,
@@ -23,6 +23,7 @@ import { ExplorateurDeCompetences } from '@/components/installation/explorateur-
 import { BoutonInstaller, useTravailDuGenre } from '@/components/installation/travail';
 import { client } from '@/lib/client';
 import { installationEnDirect } from '@/lib/travail-installation';
+import { useVoixDisponible } from '@/lib/voix-disponible';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -1272,7 +1273,7 @@ function fonctionEnClair(id: string): { nom: string; detail: string } {
   if (id === 'dictee') {
     return { nom: t('Dictée'), detail: t('Parler à Beluga Build au lieu d’écrire : votre voix est transcrite sur ce serveur.') };
   }
-  return { nom: t('Voix'), detail: t('Le point du jour lu à voix haute, par une voix installée sur ce serveur.') };
+  return { nom: t('Voix d’essai du Studio'), detail: t('Les voix d’essai des vidéos du Studio, fabriquées sur ce serveur sans frais.') };
 }
 
 /**
@@ -1292,13 +1293,17 @@ function RepliParCommande({ genre, commande }: { genre: string; commande: string
 
 export function SectionFacultatif({ etat, relire }: { etat: EtatDeLInstallation | null; relire: () => Promise<void> }) {
   const [relecture, setRelecture] = React.useState(false);
+  /* LA DICTÉE N'EST PROPOSÉE QUE SANS ASSISTANT VOCAL (décision de l'utilisateur, 17/11/2026) : avec un compte ChatGPT et
+     la voix allumée, le micro du champ cède sa place au bouton voix, et rien de vocal n'est à installer. */
+  const { disponible: voixDisponible } = useVoixDisponible();
+  const fonctions = (etat?.facultatif ?? []).filter((f) => !(f.id === 'dictee' && voixDisponible));
   return (
     <div className="space-y-3" data-section-installation="facultatif">
       <p className="text-[13.5px] leading-relaxed text-muted">
         {t('Ces fonctions téléchargent plusieurs centaines de mégaoctets : elles s’installent à la demande, d’un bouton, et vous voyez l’installation se dérouler.')}
       </p>
       <ul className="space-y-1.5">
-        {(etat?.facultatif ?? []).map((fonction) => (
+        {fonctions.map((fonction) => (
           <li key={fonction.id} data-fonction={fonction.id} data-installee={fonction.installee ? '1' : '0'} className="space-y-1.5 rounded-lg bg-raised px-3 py-2.5">
             <p className="text-[14px] font-medium text-text">{fonctionEnClair(fonction.id).nom}</p>
             <p className="text-[13px] leading-relaxed text-muted">{fonctionEnClair(fonction.id).detail}</p>

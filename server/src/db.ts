@@ -3835,7 +3835,7 @@ export const MIGRATIONS: {
      * LE DÉPLOIEMENT DEMANDE UNE INITIALISATION, SAUF POUR CE QUI DÉPLOYAIT DÉJÀ
      * (10/10/2026). Un projet sans procédure passait pour « prêt » : son
      * déploiement enregistrait et poussait, sautait reconstruction et
-     * redémarrage, puis se disait réussi (Justcrazy). Désormais le déploiement
+     * redémarrage, puis se disait réussi (Wogo). Désormais le déploiement
      * exige un processus écrit par son agent de configuration
      * (`procedureEnPlace`, `shared/src/procedure-publication.ts`).
      *
@@ -4696,6 +4696,884 @@ export const MIGRATIONS: {
      * l'emporte sur le plan nommé au devis (`plan`) ; NULL : le plan du devis.
      */
     sql: `ALTER TABLE medias_realisation ADD COLUMN plan_place TEXT;`,
+  },
+  {
+    id: 148,
+    name: 'cartes-indexees-par-date',
+    siTable: 'cards',
+    /*
+     * LA LISTE UNIQUE PAR DATE (`cartesParDate`, `store.ts`), toutes colonnes
+     * confondues : `idx_cards_derniere_action` commence par la colonne et ne
+     * peut pas servir sans elle.
+     */
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_cards_par_date ON cards(updated_at, id);
+      CREATE INDEX IF NOT EXISTS idx_cards_projet_par_date ON cards(project_id, updated_at, id);
+    `,
+  },
+  {
+    id: 149,
+    name: 'studio-notes-sur-l-image',
+    siTable: 'studio_creations',
+    /* LES NOTES POSÉES SUR L'IMAGE DU STUDIO (`shared/src/studio-montage-avance.ts`) : un instant, un endroit, un texte. */
+    sql: `
+      CREATE TABLE IF NOT EXISTS studio_notes (
+        id TEXT PRIMARY KEY,
+        creation_id TEXT NOT NULL,
+        instant REAL NOT NULL,
+        x REAL NOT NULL,
+        y REAL NOT NULL,
+        segment_id TEXT,
+        texte TEXT NOT NULL,
+        traitee_le INTEGER,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_notes_creation ON studio_notes(creation_id, cree_le);
+    `,
+  },
+  {
+    id: 150,
+    name: 'versions-memoire-bornees',
+    siTable: 'connaissance_versions',
+    /* L'HISTORIQUE DE LA MÉMOIRE EST BORNÉ À 50 VERSIONS PAR FICHE (`VERSIONS_GARDEES_PAR_UNITE`) : on retire une fois le surplus déjà empilé. Le 50 est figé ici. Pas de VACUUM. */
+    sql: `
+      DELETE FROM connaissance_versions WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY unite_id ORDER BY at DESC, id DESC) AS rang FROM connaissance_versions
+        ) WHERE rang > 50
+      );
+    `,
+  },
+  {
+    id: 151,
+    name: 'marketing-audience',
+    /* LES CHIFFRES D'AUDIENCE, UN RELEVÉ PAR JOUR : `publication` vide, le compte (ses abonnés) ; sinon les compteurs cumulés d'une publication. */
+    sql: `
+      CREATE TABLE IF NOT EXISTS marketing_audience (
+        compte_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        reseau TEXT NOT NULL,
+        publication TEXT NOT NULL DEFAULT '',
+        contenu_id TEXT,
+        jour TEXT NOT NULL,
+        abonnes INTEGER,
+        vues INTEGER,
+        commentaires INTEGER,
+        reactions INTEGER,
+        releve_le INTEGER NOT NULL,
+        PRIMARY KEY (compte_id, publication, jour)
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_audience_projet ON marketing_audience(project_id, jour);
+    `,
+  },
+  {
+    id: 152,
+    name: 'fichiers-conserves',
+    /*
+     * LES COPIES DES FICHIERS ÉCRITS OU CITÉS PAR LES AGENTS (`server/src/fichiers-conserves.ts`).
+     * Une ligne par (carte, chemin, contenu) ; le fichier, lui, n'existe qu'une fois par `sha`.
+     * `expire_le` posé = copie purgée : la ligne reste pour que l'écran dise « supprimée le… ».
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS fichiers_conserves (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL,
+        card_id TEXT,
+        agent_id TEXT,
+        chemin_origine TEXT NOT NULL,
+        relatif TEXT,
+        sha TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        taille INTEGER NOT NULL,
+        at INTEGER NOT NULL,
+        expire_le INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_fichiers_conserves_unique
+        ON fichiers_conserves(project_id, IFNULL(card_id, ''), chemin_origine, sha) WHERE expire_le IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_fichiers_conserves_chemin ON fichiers_conserves(project_id, chemin_origine);
+      CREATE INDEX IF NOT EXISTS idx_fichiers_conserves_relatif ON fichiers_conserves(project_id, relatif);
+      CREATE INDEX IF NOT EXISTS idx_fichiers_conserves_sha ON fichiers_conserves(sha);
+      CREATE INDEX IF NOT EXISTS idx_fichiers_conserves_at ON fichiers_conserves(at) WHERE expire_le IS NULL;
+    `,
+  },
+  {
+    id: 153,
+    name: 'studio-fonds-retires',
+    /*
+     * LE LIEN ENTRE UN FICHIER DÉTOURÉ ET SON ORIGINAL (`server/src/studio-fond.ts`) : c'est lui qui rend
+     * « Remettre le fond » possible et qui évite de détourer deux fois. `remis_le` posé : l'utilisateur a repris
+     * l'original, le retrait d'office ne recommence pas sur ce fichier.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS studio_fonds_retires (
+        piece_detouree TEXT PRIMARY KEY,
+        piece_originale TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        remis_le INTEGER,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_fonds_originale ON studio_fonds_retires(piece_originale);
+      CREATE INDEX IF NOT EXISTS idx_studio_fonds_projet ON studio_fonds_retires(project_id);
+    `,
+  },
+  {
+    id: 154,
+    name: 'communication-marques',
+    /*
+     * L'ESPACE COMMUNICATION (`server/src/communication.ts`). Tout est ADDITIF : les tables des quatre
+     * services réunis ne bougent pas, une marque ne fait que regarder ensemble les projets qu'elle réunit.
+     *  - `communication_marque_projets` : un projet appartient à UNE marque au plus (clé primaire) ;
+     *  - `communication_medias` : ce que l'utilisateur a décidé d'un média (valider, rattacher à une campagne) ;
+     *  - `communication_media_contenu` : le média qui illustre une publication ;
+     *  - `marketing_contenus.sorti_de_reserve_le` : une annonce automatique que le directeur a fait entrer dans le circuit ;
+     *  - `marketing_contenus.campagne_id` : la campagne d'une publication.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS communication_marques (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        origine TEXT NOT NULL,
+        adresse TEXT,
+        description TEXT,
+        projet_principal TEXT,
+        niveau INTEGER NOT NULL DEFAULT 1,
+        quetes TEXT NOT NULL DEFAULT '[]',
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS communication_marque_projets (
+        project_id TEXT PRIMARY KEY,
+        marque_id TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_communication_marque_projets ON communication_marque_projets(marque_id);
+      CREATE TABLE IF NOT EXISTS communication_campagnes (
+        id TEXT PRIMARY KEY,
+        marque_id TEXT NOT NULL,
+        titre TEXT NOT NULL,
+        objectif TEXT,
+        objectif_chiffre INTEGER,
+        mesure TEXT NOT NULL DEFAULT 'visites',
+        reseaux TEXT NOT NULL DEFAULT '[]',
+        debut TEXT,
+        fin TEXT,
+        statut TEXT NOT NULL DEFAULT 'en_cours',
+        image TEXT,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_communication_campagnes_marque ON communication_campagnes(marque_id);
+      CREATE TABLE IF NOT EXISTS communication_medias (
+        cle TEXT PRIMARY KEY,
+        etat TEXT,
+        campagne_id TEXT,
+        retenue_le INTEGER,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS communication_media_contenu (
+        contenu_id TEXT NOT NULL,
+        attachment_id TEXT NOT NULL,
+        cree_le INTEGER NOT NULL,
+        PRIMARY KEY (contenu_id, attachment_id)
+      );
+      ALTER TABLE marketing_contenus ADD COLUMN sorti_de_reserve_le INTEGER;
+      ALTER TABLE marketing_contenus ADD COLUMN campagne_id TEXT;
+    `,
+  },
+  {
+    id: 155,
+    name: 'communication-objectifs',
+    /*
+     * LA DÉMARCHE D'UNE MARQUE (`shared/src/communication-demarche.ts`) : analyse, puis OBJECTIFS, puis
+     * campagnes. Un objectif est écrit par le directeur (`propose`) et retenu au clic de l'utilisateur
+     * (`actif`) ; une campagne sert un objectif (`objectif_id`). Additif : rien d'existant ne bouge.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS communication_objectifs (
+        id TEXT PRIMARY KEY,
+        marque_id TEXT NOT NULL,
+        titre TEXT NOT NULL,
+        mesure TEXT NOT NULL DEFAULT 'visites',
+        cible INTEGER,
+        echeance TEXT,
+        pourquoi TEXT,
+        statut TEXT NOT NULL DEFAULT 'propose',
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_communication_objectifs_marque ON communication_objectifs(marque_id);
+      ALTER TABLE communication_campagnes ADD COLUMN objectif_id TEXT;
+    `,
+  },
+  {
+    id: 156,
+    name: 'communication-fiche-de-campagne',
+    /*
+     * LES HUIT POINTS D'UNE CAMPAGNE (`shared/src/fiche-de-campagne.ts`, décision du 04/11/2026) : le chef les tranche
+     * avec la personne, une question à la fois, avant de produire. Réseaux, dates et objectif chiffré existaient
+     * déjà ; s'ajoutent les genres de médias (tableau JSON), leur quantité et leur rythme, la cible, le message, le
+     * ton et l'appel à l'action. Additif : les campagnes existantes gardent tout, leurs cases neuves restent vides.
+     */
+    sql: `
+      ALTER TABLE communication_campagnes ADD COLUMN types_medias TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE communication_campagnes ADD COLUMN quantite_medias INTEGER;
+      ALTER TABLE communication_campagnes ADD COLUMN rythme TEXT;
+      ALTER TABLE communication_campagnes ADD COLUMN cible TEXT;
+      ALTER TABLE communication_campagnes ADD COLUMN message TEXT;
+      ALTER TABLE communication_campagnes ADD COLUMN ton TEXT;
+      ALTER TABLE communication_campagnes ADD COLUMN appel_action TEXT;
+    `,
+  },
+  {
+    id: 157,
+    name: 'commentaires-masques',
+    /*
+     * MASQUER UN COMMENTAIRE (refonte de Communication, 04/11/2026) : le réseau le retire du public sans l'effacer ;
+     * la page Commentaires le garde, marqué « Masqué ». Une suppression, elle, efface la ligne. Additif.
+     */
+    sql: `
+      ALTER TABLE marketing_messages ADD COLUMN masque_le INTEGER;
+    `,
+  },
+  {
+    id: 158,
+    name: 'declinaisons-de-posts',
+    /*
+     * LES DÉCLINAISONS D'UN MÊME POST (`shared/src/declinaisons-de-posts.ts`, carte du 04/11/2026) : la publication
+     * TikTok d'un post écrit aussi pour Instagram pointe vers celle d'origine. Distincte de `variante_de` (la version B
+     * d'un test A/B, sur le même réseau). Additif ; les liens des publications existantes se posent à la lecture des
+     * médias (`rattraperLesDeclinaisons`).
+     */
+    sql: `
+      ALTER TABLE marketing_contenus ADD COLUMN declinaison_de TEXT;
+    `,
+  },
+  {
+    id: 159,
+    name: 'commande-campagne-montree',
+    /*
+     * UN SEUL BOUTON DU CHEF À LA FOIS (`commandeVisible`, shared/src/commandes-de-marque.ts) : « Nouvelle campagne »
+     * reste dès sa première apparition. Le moment où elle est apparue se garde sur la marque, en base, pour tenir d'un
+     * appareil à l'autre. Additif ; une marque qui a déjà une campagne l'a d'office (lu à `lireAccueil`).
+     */
+    sql: `
+      ALTER TABLE communication_marques ADD COLUMN campagne_montree_le INTEGER;
+    `,
+  },  {
+    id: 160,
+    name: 'registre-des-fichiers',
+    /*
+     * LE REGISTRE DES FICHIERS RANGÉS (carte « Fichiers rangés et captures pleine page », 05/11/2026) : une ligne par
+     * fichier créé par un projet ou un service, avec sa place `<Projet>/<Service>/…` (`chemin`), l'endroit où il vit
+     * vraiment (`chemin_reel`), qui s'en sert, et sa date de corbeille. `origine` est la clé stable (`piece:<id>`,
+     * `document:<nom>`, `journal:<agent>`, `memoire:<rel>`, `strategie:<rel>`, `sauvegarde:<point>`, `ajout:<id>`).
+     * Le plein texte et les vecteurs servent la recherche de la fenêtre « Fichiers ». Additif.
+     */
+    sql: `
+      CREATE TABLE fichiers (
+        id TEXT PRIMARY KEY,
+        origine TEXT NOT NULL UNIQUE,
+        projet_id TEXT,
+        service TEXT NOT NULL,
+        dossier TEXT NOT NULL DEFAULT '',
+        nom TEXT NOT NULL,
+        chemin TEXT NOT NULL,
+        chemin_reel TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        mime TEXT,
+        taille INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL,
+        utilise_par TEXT NOT NULL DEFAULT '[]',
+        renomme INTEGER NOT NULL DEFAULT 0,
+        supprime_le INTEGER,
+        purge_le INTEGER,
+        texte TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX idx_fichiers_chemin ON fichiers(chemin);
+      CREATE INDEX idx_fichiers_projet ON fichiers(projet_id, service);
+      CREATE VIRTUAL TABLE fichiers_fts USING fts5(
+        nom, chemin, texte,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+      CREATE TRIGGER fichiers_index_ajout AFTER INSERT ON fichiers BEGIN
+        INSERT INTO fichiers_fts (rowid, nom, chemin, texte) VALUES (new.rowid, new.nom, new.chemin, new.texte);
+      END;
+      CREATE TRIGGER fichiers_index_maj AFTER UPDATE OF nom, chemin, texte ON fichiers BEGIN
+        DELETE FROM fichiers_fts WHERE rowid = old.rowid;
+        INSERT INTO fichiers_fts (rowid, nom, chemin, texte) VALUES (new.rowid, new.nom, new.chemin, new.texte);
+      END;
+      CREATE TRIGGER fichiers_index_retrait AFTER DELETE ON fichiers BEGIN
+        DELETE FROM fichiers_fts WHERE rowid = old.rowid;
+      END;
+      CREATE TABLE fichier_vecteurs (
+        id TEXT PRIMARY KEY,
+        empreinte TEXT NOT NULL,
+        modele TEXT NOT NULL,
+        vecteur BLOB NOT NULL,
+        at INTEGER NOT NULL
+      );
+      CREATE TABLE fichiers_journal (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at INTEGER NOT NULL,
+        geste TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}'
+      );
+    `,
+  },
+  {
+    id: 161,
+    name: 'captures-et-plaquettes',
+    /*
+     * L'OUTIL DE CAPTURES ET LA PLAQUETTE CLIENT (carte « Captures d'écran et plaquette client », 05/11/2026,
+     * `server/src/plaquettes.ts`). `captures` : le genre de chaque pièce produite par l'outil (rangée sous « Captures »
+     * dans les Fichiers). `plaquettes` : une plaquette, ses blocs et sa marque en JSON, sa version, la génération de son
+     * lien et la SEULE empreinte du jeton (jamais le jeton). `plaquette_remarques` : ce que le client a laissé.
+     * `plaquette_ouvertures` : un compteur par jour, sans aucune donnée de visiteur. Additif.
+     */
+    sql: `
+      CREATE TABLE captures (
+        attachment_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE TABLE plaquettes (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        card_id TEXT,
+        agent_id TEXT,
+        projet_marque_id TEXT,
+        titre TEXT NOT NULL,
+        langue TEXT NOT NULL DEFAULT 'fr',
+        blocs TEXT NOT NULL,
+        marque TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        generation INTEGER NOT NULL DEFAULT 1,
+        jeton_hash TEXT NOT NULL UNIQUE,
+        lien_actif INTEGER NOT NULL DEFAULT 1,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL,
+        premiere_ouverture_le INTEGER,
+        derniere_ouverture_le INTEGER,
+        pdf_piece TEXT,
+        pdf_version INTEGER
+      );
+      CREATE INDEX idx_plaquettes_projet ON plaquettes(project_id, modifie_le);
+      CREATE TABLE plaquette_remarques (
+        id TEXT PRIMARY KEY,
+        plaquette_id TEXT NOT NULL,
+        nom TEXT,
+        texte TEXT NOT NULL,
+        bloc TEXT,
+        cree_le INTEGER NOT NULL,
+        lue INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_plaquette_remarques ON plaquette_remarques(plaquette_id, cree_le);
+      CREATE TABLE plaquette_ouvertures (
+        plaquette_id TEXT NOT NULL,
+        jour TEXT NOT NULL,
+        ouvertures INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (plaquette_id, jour)
+      );
+    `,
+  },
+  {
+    id: 162,
+    name: 'plaquettes-format-et-vignette',
+    /*
+     * LES FORMATS DE LA PLAQUETTE (carte « Refonte de l'espace Plaquettes », 05/11/2026) : A4 portrait, A4 paysage ou
+     * diapositives — les plaquettes déjà faites restent en A4 portrait. `vignette_piece` : la couverture photographiée
+     * avec le PDF de la même version (grille de la page, aperçu dans le fil). Additif.
+     */
+    sql: `
+      ALTER TABLE plaquettes ADD COLUMN format TEXT NOT NULL DEFAULT 'a4-portrait';
+      ALTER TABLE plaquettes ADD COLUMN vignette_piece TEXT;
+    `,
+  },
+  {
+    id: 163,
+    name: 'plaquettes-fils-de-commentaires',
+    /*
+     * LA CHARTE GRAPHIQUE (carte « Refonte du service Charte graphique », 05/11/2026) : `adresse` (tu ou vous, demandé
+     * par l'agent qui rédige) ; les COMMENTAIRES EN FILS posés par le client à un endroit du document
+     * (`plaquette_fils` : page, hauteur, section, résolu) et leurs messages (`plaquette_messages` : client ou équipe).
+     * Les remarques d'avant sont REPRISES une à une en fils d'un message (même identifiant : la reprise ne double rien),
+     * ancrées à leur section, sinon en haut de la première page ; l'ancienne table reste, intacte. Additif.
+     */
+    sql: `
+      ALTER TABLE plaquettes ADD COLUMN adresse TEXT NOT NULL DEFAULT 'vous';
+      CREATE TABLE plaquette_fils (
+        id TEXT PRIMARY KEY,
+        plaquette_id TEXT NOT NULL,
+        bloc TEXT,
+        page INTEGER NOT NULL DEFAULT 1,
+        y REAL NOT NULL DEFAULT 0,
+        resolu INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL
+      );
+      CREATE INDEX idx_plaquette_fils ON plaquette_fils(plaquette_id, cree_le);
+      CREATE TABLE plaquette_messages (
+        id TEXT PRIMARY KEY,
+        fil_id TEXT NOT NULL,
+        plaquette_id TEXT NOT NULL,
+        auteur TEXT NOT NULL DEFAULT '',
+        role TEXT NOT NULL,
+        texte TEXT NOT NULL,
+        cree_le INTEGER NOT NULL,
+        lu INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_plaquette_messages_fil ON plaquette_messages(fil_id, cree_le);
+      CREATE INDEX idx_plaquette_messages_plaquette ON plaquette_messages(plaquette_id, role, lu);
+      INSERT OR IGNORE INTO plaquette_fils (id, plaquette_id, bloc, page, y, resolu, cree_le, modifie_le)
+        SELECT id, plaquette_id, bloc, 1, 0, 0, cree_le, cree_le FROM plaquette_remarques;
+      INSERT OR IGNORE INTO plaquette_messages (id, fil_id, plaquette_id, auteur, role, texte, cree_le, lu)
+        SELECT id, id, plaquette_id, COALESCE(nom, ''), 'client', texte, cree_le, lue FROM plaquette_remarques;
+    `,
+  },
+  {
+    id: 164,
+    name: 'plaquettes-messages-supprimes',
+    /*
+     * LES MESSAGES SUPPRIMÉS PAR LEUR AUTEUR (carte « Aperçu, chat, Agentik et vraie charte », 06/11/2026) : la
+     * suppression est DOUCE — `supprime_le` posé, le texte effacé, la bulle garde la mention « message supprimé ».
+     * `visiteur` : l'empreinte du navigateur du client qui a écrit (seul lui peut supprimer son message) ; les messages
+     * d'avant n'en ont pas, et restent donc tels quels côté client. Additif : fils et remarques reprises intacts.
+     */
+    sql: `
+      ALTER TABLE plaquette_messages ADD COLUMN supprime_le INTEGER;
+      ALTER TABLE plaquette_messages ADD COLUMN visiteur TEXT;
+    `,
+  },
+  {
+    id: 165,
+    name: 'plaquettes-brouillon-et-versions',
+    /*
+     * LIRE, ÉDITER, ENREGISTRER (carte « Finitions du lecteur de charte », 06/11/2026) : la page de l'équipe s'ouvre en
+     * lecture ; ses retouches vont dans un BROUILLON (`brouillon`, JSON titre/blocs/marque/format/adresse), jamais servi
+     * au client ni au PDF ; « Enregistrer » le publie comme NOUVELLE VERSION. `brouillon_base` : la version sur laquelle
+     * le brouillon est parti (une publication de l'agent entre-temps se signale). Chaque version publiée garde son
+     * instantané dans `plaquette_versions`. Additif : les documents existants restent publiés tels quels.
+     */
+    sql: `
+      ALTER TABLE plaquettes ADD COLUMN brouillon TEXT;
+      ALTER TABLE plaquettes ADD COLUMN brouillon_modifie_le INTEGER;
+      ALTER TABLE plaquettes ADD COLUMN brouillon_base INTEGER;
+      CREATE TABLE plaquette_versions (
+        plaquette_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        titre TEXT NOT NULL,
+        langue TEXT NOT NULL,
+        blocs TEXT NOT NULL,
+        marque TEXT NOT NULL,
+        format TEXT,
+        adresse TEXT,
+        cree_le INTEGER NOT NULL,
+        PRIMARY KEY (plaquette_id, version)
+      );
+    `,
+  },
+  {
+    id: 166,
+    name: 'plaquettes-messages-compte',
+    /*
+     * QUI A ÉCRIT CHAQUE MESSAGE (carte « Lecteur de charte : commentaires et barre », 06/11/2026) : `compte`,
+     * l'identifiant du compte Beluga qui a écrit un message de l'équipe. Les commentaires se lisent comme une
+     * messagerie : chacun voit SES messages à droite, ceux des collègues et du client à gauche. Les messages d'avant
+     * n'en ont pas : ils sont reconnus par le nom affiché (`messageAMoi`). Additif.
+     */
+    sql: `
+      ALTER TABLE plaquette_messages ADD COLUMN compte TEXT;
+    `,
+  },
+  {
+    id: 167,
+    name: 'communication-medias-corbeille',
+    /*
+     * LA CORBEILLE DES MÉDIAS (carte « Retour fenêtre, médias, cahier des charges », 06/11/2026) : `supprime_le`, la
+     * date où l'utilisateur a mis un média à la corbeille. Il disparaît des listes, se restaure pendant 30 jours, puis
+     * la tournée du démon l'efface pour de bon (`purgerLaCorbeilleDesMedias`). Additif.
+     */
+    sql: `
+      ALTER TABLE communication_medias ADD COLUMN supprime_le INTEGER;
+    `,
+  },
+  {
+    id: 168,
+    name: 'cartes-securite-proposee',
+    siTable: 'cards',
+    /*
+     * LE CONTRÔLE DE SÉCURITÉ PROPOSÉ UNE FOIS PAR CARTE (07/11/2026) : les genres sensibles déjà
+     * proposés (« connexion,paiement »), pour que la suite « /securite » ne reparaisse que sur un genre
+     * nouveau (`shared/src/proposition-securite.ts`). Additif, NULL pour toutes les cartes existantes.
+     */
+    sql: `
+      ALTER TABLE cards ADD COLUMN securite_proposee TEXT;
+    `,
+  },
+  {
+    id: 169,
+    name: 'veilles-de-carte-moment',
+    /*
+     * LE MOMENT D'UNE VEILLE (carte « Communication 2 : finitions et chats ») : NULL = « pour-continuer » (toutes les
+     * veilles d'avant, comportement inchangé) ; « apres-deploiement » = la veille d'un travail fini, en
+     * `attend_deploiement` jusqu'à ce que la carte soit en ligne (`server/src/veille-de-carte.ts`). Additif.
+     */
+    sql: `
+      ALTER TABLE veilles_de_carte ADD COLUMN moment TEXT;
+    `,
+  },  {
+    id: 170,
+    name: 'extension-chrome',
+    /*
+     * LE PILOTAGE DE CHROME PAR BELUGA (`server/src/extension-chrome.ts`, 09/11/2026). Les Chrome reliés (AUCUN
+     * secret : il se recalcule du secret du serveur, compétence « clé d'appareil signée »), les codes de liaison
+     * (empreinte seulement), le mode de chaque site par compte, le Chrome retenu par carte, les gestes répétés et
+     * les références des comparaisons avant / après. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS chrome_appareils (
+        id TEXT PRIMARY KEY,
+        compte_id TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        version TEXT,
+        cree_le INTEGER NOT NULL,
+        vu_le INTEGER,
+        dernier_ts INTEGER NOT NULL DEFAULT 0,
+        revoque_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_chrome_appareils_compte ON chrome_appareils(compte_id);
+      CREATE TABLE IF NOT EXISTS chrome_codes (
+        empreinte TEXT PRIMARY KEY,
+        compte_id TEXT NOT NULL,
+        expire_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS chrome_sites (
+        compte_id TEXT NOT NULL,
+        origine TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        appareil_id TEXT,
+        decide_le INTEGER NOT NULL,
+        PRIMARY KEY (compte_id, origine)
+      );
+      CREATE TABLE IF NOT EXISTS chrome_cartes (
+        cle TEXT PRIMARY KEY,
+        appareil_id TEXT,
+        onglet_confie INTEGER,
+        onglet_url TEXT,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS chrome_routines (
+        id TEXT PRIMARY KEY,
+        compte_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        appareil_id TEXT,
+        titre TEXT NOT NULL,
+        consigne TEXT NOT NULL,
+        frequence TEXT NOT NULL,
+        jour INTEGER NOT NULL,
+        heure INTEGER NOT NULL,
+        minute INTEGER NOT NULL DEFAULT 0,
+        prochaine_echeance INTEGER NOT NULL,
+        actif INTEGER NOT NULL DEFAULT 1,
+        dernier_depart INTEGER,
+        carte_origine TEXT,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS chrome_comparaisons (
+        project_id TEXT NOT NULL,
+        adresse TEXT NOT NULL,
+        fichier TEXT NOT NULL,
+        pris_le INTEGER NOT NULL,
+        PRIMARY KEY (project_id, adresse)
+      );
+    `,
+  },
+  {
+    id: 171,
+    name: 'communication-campagnes-corbeille-et-strategie',
+    /*
+     * LA CORBEILLE DES CAMPAGNES ET LEUR STRATÉGIE (carte « Suppression de campagne et menu nettoyé », 10/11/2026).
+     * `supprime_le` : la campagne est à la corbeille (30 jours, puis effacée) ; `suppression` : ce que la suppression
+     * a emporté (médias mis à la corbeille, publications abandonnées avec leur étape d'avant), pour tout rendre à la
+     * restauration ; `strategie` : la stratégie bâtie avec l'agent de la campagne (JSON par rubrique). Additif.
+     */
+    sql: `
+      ALTER TABLE communication_campagnes ADD COLUMN supprime_le INTEGER;
+      ALTER TABLE communication_campagnes ADD COLUMN suppression TEXT;
+      ALTER TABLE communication_campagnes ADD COLUMN strategie TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
+  {
+    id: 172,
+    name: 'detail-des-aides',
+    siTable: 'usage',
+    /*
+     * LE DÉTAIL DE CE QU'ONT CONSOMMÉ LES AIDES (sous-agents) : leur entrée
+     * (neuve + écriture de cache) et leur relecture de cache, à part. Avant,
+     * `aides_tokens` les confondait. Lu par la valorisation au tarif public
+     * (`shared/src/valeur-des-jetons.ts`) ; additif, rien d'autre ne bouge.
+     */
+    sql: `
+      ALTER TABLE usage ADD COLUMN aides_entree INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN aides_relu INTEGER DEFAULT 0;
+    `,
+  },
+  {
+    id: 173,
+    name: 'apports-des-cartes-deployees',
+    /*
+     * CE QUE CHAQUE CARTE A APPORTÉ À LA BRANCHE DE DÉPLOIEMENT (refonte du 13/11/2026, mise en production
+     * partielle). La branche `tache/…` d'une carte est SUPPRIMÉE à l'archivage (`supprimerLaBrancheFusionnee`) :
+     * pour ne mettre en production QUE les cartes cochées, on garde la tête de la branche de déploiement juste avant
+     * et juste après la fusion de la carte (`avant`, `apres`). La mise en production rejoue chaque apport, dans
+     * l'ordre, sur la branche de production (`server/src/production-partielle.ts`). `production_le` : la carte est
+     * partie en production (toutes, ou cochée). Additif, une ligne par carte déployée.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS apports_de_carte (
+        card_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        avant TEXT,
+        apres TEXT NOT NULL,
+        branche TEXT,
+        fusionne_le INTEGER NOT NULL,
+        production_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_apports_de_carte_projet ON apports_de_carte(project_id, production_le);
+    `,
+  },
+  {
+    id: 174,
+    name: 'ordinateurs-nommes',
+    siTable: ['chrome_appareils', 'chrome_codes', 'chrome_cartes'],
+    /*
+     * LES ORDINATEURS NOMMÉS (carte « Choisir l'ordinateur visé depuis le téléphone », 15/11/2026). Un ordinateur porte
+     * ses navigateurs reliés (`chrome_appareils.ordinateur_id`, `navigateur` chrome | safari) et son programme du Mac
+     * (relais, rattaché par `ordinateurId` dans la table `meta`). Le code de liaison peut viser un ordinateur déjà
+     * nommé (`chrome_codes.ordinateur_id`) ; une carte retient son ordinateur (`chrome_cartes.ordinateur_id`).
+     * Chaque navigateur DÉJÀ relié reçoit son propre ordinateur (« Mac » pour un « Chrome · macOS ») : il reste relié,
+     * rien n'est à refaire. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS ordinateurs (
+        id TEXT PRIMARY KEY,
+        compte_id TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        cree_le INTEGER NOT NULL,
+        revoque_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_ordinateurs_compte ON ordinateurs(compte_id);
+      ALTER TABLE chrome_appareils ADD COLUMN ordinateur_id TEXT;
+      ALTER TABLE chrome_appareils ADD COLUMN navigateur TEXT NOT NULL DEFAULT 'chrome';
+      ALTER TABLE chrome_codes ADD COLUMN ordinateur_id TEXT;
+      ALTER TABLE chrome_codes ADD COLUMN nom TEXT;
+      ALTER TABLE chrome_cartes ADD COLUMN ordinateur_id TEXT;
+      INSERT OR IGNORE INTO ordinateurs (id, compte_id, nom, cree_le)
+        SELECT 'o' || id, compte_id,
+               CASE WHEN nom LIKE '%mac%' THEN 'Mac' WHEN nom LIKE '%win%' THEN 'PC' ELSE 'Ordinateur' END,
+               cree_le
+        FROM chrome_appareils WHERE revoque_le IS NULL;
+      UPDATE chrome_appareils SET ordinateur_id = 'o' || id WHERE revoque_le IS NULL AND ordinateur_id IS NULL;
+      UPDATE chrome_cartes SET ordinateur_id = 'o' || appareil_id
+        WHERE appareil_id IS NOT NULL AND EXISTS (SELECT 1 FROM ordinateurs WHERE ordinateurs.id = 'o' || chrome_cartes.appareil_id);
+    `,
+  },
+  {
+    id: 175,
+    name: 'service-securite',
+    /*
+     * LE SERVICE « SÉCURITÉ » (carte « Service Sécurité des projets », 15/11/2026 — `server/src/service-securite.ts`).
+     * `securite_projets` : les projets suivis et leur agent ; `securite_audits` : chaque audit, son rapport (JSON du
+     * contrôle, sans aucune valeur secrète) et les cartes mises en ligne qu'il vérifie (`cartes`), gardés douze mois ;
+     * `securite_points` : l'état de chaque point d'un projet d'un audit à l'autre (empreinte stable), et la carte de
+     * correction qui le porte (`card_id`) ; `securite_propositions` : la carte proposée par l'agent et les points
+     * qu'elle emporte, jusqu'au clic « Créer la carte ». Le lien carte ↔ points vit ICI, en vraies colonnes, sans
+     * toucher à la table des cartes. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS securite_projets (
+        project_id TEXT PRIMARY KEY,
+        ajoute_le INTEGER NOT NULL,
+        agent_id TEXT,
+        card_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS securite_audits (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        lance INTEGER NOT NULL,
+        fini INTEGER,
+        declencheur TEXT NOT NULL,
+        rapport TEXT,
+        erreur TEXT,
+        cartes TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_securite_audits_projet ON securite_audits(project_id, lance DESC);
+      CREATE TABLE IF NOT EXISTS securite_points (
+        project_id TEXT NOT NULL,
+        empreinte TEXT NOT NULL,
+        etat TEXT NOT NULL,
+        card_id TEXT,
+        premier_audit_id TEXT NOT NULL,
+        mis_a_jour_le INTEGER NOT NULL,
+        PRIMARY KEY (project_id, empreinte)
+      );
+      CREATE INDEX IF NOT EXISTS idx_securite_points_carte ON securite_points(card_id);
+      CREATE TABLE IF NOT EXISTS securite_propositions (
+        proposal_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        audit_id TEXT,
+        empreintes TEXT NOT NULL,
+        cree_le INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    id: 176,
+    name: 'etudes-de-securite-et-liaison-belugapass',
+    /*
+     * Carte « Audits passés et synchro Beluga Pass » (15/11/2026). Additif.
+     *
+     * `securite_etudes_importees` : chaque étude de sécurité rédigée (une carte « Étude de sécurité … ») rattachée au
+     * service Sécurité comme premier rapport de son projet — UNE fois : un projet retiré du suivi ne revient pas au
+     * redémarrage suivant (`server/src/service-securite.ts`, `importerLesEtudes`).
+     *
+     * `belugapass_liaison` : la liaison avec Beluga Pass (une seule ligne, `id = 1`) — adresse, EMPREINTE SHA-256 de la
+     * clé de liaison (jamais la clé), clé PUBLIQUE des agents (la privée est au coffre-fort), interrupteur des agents.
+     * `belugapass_miroir` : la dernière sauvegarde chiffrée reçue (illisible pour Beluga, remplacée à chaque envoi).
+     * `belugapass_lectures` : le journal des lectures par les agents (qui, quand, combien) — jamais un contenu.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS securite_etudes_importees (
+        card_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        audit_id TEXT,
+        importee_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS belugapass_liaison (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        endpoint TEXT NOT NULL,
+        token_hash TEXT,
+        cree_le INTEGER NOT NULL,
+        relie_le INTEGER,
+        agent_public_key TEXT,
+        agent_cle_fiche TEXT,
+        agent_access INTEGER NOT NULL DEFAULT 0,
+        derniere_sauvegarde_le INTEGER,
+        volume INTEGER,
+        coffres INTEGER,
+        fiches INTEGER,
+        derniere_erreur TEXT
+      );
+      CREATE TABLE IF NOT EXISTS belugapass_miroir (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        recu_le INTEGER NOT NULL,
+        contenu TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS belugapass_lectures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quand INTEGER NOT NULL,
+        agent TEXT NOT NULL,
+        coffres INTEGER NOT NULL,
+        fiches INTEGER NOT NULL,
+        erreur TEXT
+      );
+    `,
+  },
+  {
+    id: 177,
+    name: 'plafond-six-agents',
+    siTable: 'meta',
+    /*
+     * SIX AGENTS EN MÊME TEMPS AU PLUS (carte « Décrochages du serveur : enquête », 15/11/2026, décision de
+     * l'utilisateur). Le défaut du réglage passe de 15 à 6, mais un réglage déjà ENREGISTRÉ garde sa valeur : seul
+     * l'ancien défaut 15 est ramené à 6. Tout autre chiffre a été choisi à la main dans Réglages > Agents et reste.
+     * Rejouée, la migration ne trouve plus de 15 et ne change rien.
+     */
+    sql: `
+      UPDATE meta SET value = json_set(value, '$.maxAgents', 6)
+        WHERE key = 'settings' AND json_valid(value) AND json_extract(value, '$.maxAgents') = 15;
+    `,
+  },
+  {
+    id: 178,
+    name: 'discussions-vocales',
+    /*
+     * LE FLUX « DISCUSSIONS » DE LA MÉMOIRE (carte « En-tête du projet et assistant vocal Codex », 15/11/2026) :
+     * chaque conversation vocale en direct avec Codex, gardée en GÉNÉRAL et marquée des projets dont elle parle
+     * (`projets`, liste JSON d'identifiants). Seul le TEXTE finalisé de chaque tour est gardé, jamais le son ni
+     * les fragments (`server/src/discussions-vocales.ts`). Ce ne sont pas des unités de la base de connaissances :
+     * l'outil « memoire » les cherche à part et les rend sous leur identifiant « DISC-… ».
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS discussions_vocales (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        debut INTEGER NOT NULL,
+        fin INTEGER,
+        agent_id TEXT,
+        thread_id TEXT,
+        compte TEXT,
+        projets TEXT NOT NULL DEFAULT '[]',
+        tours INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS discussions_vocales_tours (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discussion_id INTEGER NOT NULL REFERENCES discussions_vocales(id) ON DELETE CASCADE,
+        quand INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        texte TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS discussions_vocales_tours_par_discussion ON discussions_vocales_tours(discussion_id, id);
+    `,
+  },
+  {
+    id: 179,
+    name: 'cartes-indexees-par-fin',
+    siTable: 'cards',
+    /*
+     * L'ACTIVITÉ RÉCENTE DATÉE de l'assistant (`cartesTermineesRecemment`, `store.ts`) : les dernières
+     * cartes terminées, tous projets, triées par `done_at` — une lecture bornée par l'index, jamais
+     * toutes les cartes de tous les projets relues puis filtrées.
+     */
+    sql: `CREATE INDEX IF NOT EXISTS idx_cards_terminees ON cards(done_at) WHERE done_at IS NOT NULL;`,
+  },
+  {
+    id: 180,
+    name: 'chemins-de-jarvis',
+    /*
+     * LES CHEMINS DE JARVIS À L'ÉCRAN (carte « Relier Beluga Pass dans les réglages », 16/11/2026) : chaque action
+     * jouée par Jarvis dans l'interface, finie sans interruption, garde sa demande d'origine, son projet et ses gestes
+     * (liste JSON). La nuit les range en compétences de Jarvis (`server/src/gestes-de-jarvis.ts`).
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS jarvis_chemins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        quand INTEGER NOT NULL,
+        intention TEXT NOT NULL,
+        projet TEXT,
+        gestes TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS jarvis_chemins_par_date ON jarvis_chemins(quand);
+    `,
+  },
+  {
+    id: 181,
+    name: 'prenom-des-comptes',
+    siTable: ['users', 'meta'],
+    /*
+     * LE PRÉNOM DE CHAQUE COMPTE (carte « En-tête collant et défilement des pages », 17/11/2026) : l'assistant connaît
+     * le prénom de la personne qui lui parle (`consigneDeLaVoix`). Il était commun à l'installation (réglage
+     * `voixNom`, « Chris » par défaut) : l'administrateur le reprend, les autres comptes le donneront eux-mêmes.
+     */
+    sql: `
+      ALTER TABLE users ADD COLUMN prenom TEXT NOT NULL DEFAULT '';
+      UPDATE users SET prenom = COALESCE(
+        NULLIF(TRIM((SELECT json_extract(value, '$.voixNom') FROM meta WHERE key = 'settings')), ''),
+        'Chris'
+      ) WHERE role = 'admin';
+    `,
   },
 ];
 

@@ -13,24 +13,22 @@ import {
   Mail,
   Megaphone,
   MessagesSquare,
-  NotebookPen,
   PencilLine,
   Plus,
   Target,
   Timer,
   UsersRound,
   Archive,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
-  LIBELLES_IMPORTANCE,
   LIBELLE_TYPE_ACCES,
   TITRES_COLONNES_DEMANDE,
   type ResumeBackups,
   type ResumeCoffre,
   type ResumeMarketing,
   type ResumeMessagerie,
-  type ResumeNotes,
   type ResumeStatistiques,
+  type ResumeStudio,
   type ResumeSurveillance,
 } from '@beluga/shared';
 import { TableauDeDonnees } from '@/components/ui/tableau-de-donnees';
@@ -55,7 +53,7 @@ import {
 
 /*
  * LES RUBRIQUES DES SERVICES DE BELUGA : Surveillance, Studio, Coffre-fort,
- * Backups, Statistiques, Messagerie, Marketing, Notes. Chacune : quatre
+ * Backups, Statistiques, Messagerie, Marketing. Chacune : quatre
  * tuiles, une courbe par jour, puis ses tableaux.
  *
  * LE COFFRE-FORT ne reçoit que des COMPTES (par projet, par type) : le démon
@@ -167,6 +165,94 @@ export function RubriqueSurveillance({ debut, fin }: ProprietesDeRubrique) {
                   droite: true,
                   masqueSurTelephone: true,
                 },
+              ]}
+            />
+          </Section>
+        </>
+      )}
+    </EtatDeRubrique>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Studio                                                              */
+/* ------------------------------------------------------------------ */
+
+export function RubriqueStudio({ debut, fin }: ProprietesDeRubrique) {
+  const etat = useResume<ResumeStudio>('studio', debut, fin);
+  const [taille, setTaille] = useTailleDePage();
+  return (
+    <EtatDeRubrique etat={etat}>
+      {(d) => (
+        <>
+          <Tuiles>
+            <Tuile
+              icone={<Clapperboard className="h-3.5 w-3.5" />}
+              titre={t('Créations')}
+              valeur={nombre(d.creations)}
+              dessous={t('commencées sur la période')}
+              repere="creations"
+            />
+            <Tuile
+              icone={<Film className="h-3.5 w-3.5" />}
+              titre={t('Exports')}
+              valeur={nombre(d.exports)}
+              dessous={t('{v0} en échec', { v0: nombre(d.exportsEnEchec) })}
+              repere="exports"
+            />
+            <Tuile
+              icone={<Images className="h-3.5 w-3.5" />}
+              titre={t('Médias ajoutés')}
+              valeur={nombre(d.medias)}
+              dessous={t('images, sons et vidéos')}
+              repere="medias"
+            />
+            <Tuile
+              icone={<Coins className="h-3.5 w-3.5" />}
+              titre={t('Dépenses')}
+              valeur={dollars(d.depense)}
+              dessous={t('facturées par les fournisseurs')}
+              repere="depense"
+            />
+          </Tuiles>
+          <Section titre={t('Créations et exports, jour par jour')} icone={<Clapperboard className="h-3.5 w-3.5 text-faint" />}>
+            <CourbeDuResume
+              jours={d.jours}
+              barres={{ libelle: t('Exports'), valeurs: d.parJour.exports }}
+              ligne={{ libelle: t('Créations'), valeurs: d.parJour.creations }}
+              vide={t('Aucune création ni export sur la période.')}
+            />
+          </Section>
+          <Section titre={t('Créations')} icone={<Clapperboard className="h-3.5 w-3.5 text-faint" />}>
+            <TableauDeDonnees
+              repere="creations-studio"
+              lignes={d.lignes}
+              cle={(l) => l.id}
+              taille={taille}
+              onTaille={setTaille}
+              vide={t('Aucune création travaillée sur la période.')}
+              colonnes={[
+                { cle: 'titre', libelle: t('Création'), valeur: (l) => l.titre, largeur: 'sm:min-w-[180px]' },
+                { cle: 'projet', libelle: t('Projet'), valeur: (l) => l.projet ?? t('Projet retiré'), masqueSurTelephone: true },
+                { cle: 'etat', libelle: t('État'), valeur: (l) => l.etat, rendu: (l) => (l.etat === 'exportee' ? t('Exportée') : t('Brouillon')) },
+                { cle: 'exports', libelle: t('Exports'), valeur: (l) => l.exports, droite: true },
+                {
+                  cle: 'depense',
+                  libelle: t('Dépenses'),
+                  valeur: (l) => l.depense,
+                  rendu: (l) => dollars(l.depense),
+                  droite: true,
+                  masqueSurTelephone: true,
+                },
+                {
+                  cle: 'creee',
+                  libelle: t('Créée le'),
+                  valeur: (l) => l.creeLe,
+                  rendu: (l) => dateCourte(l.creeLe),
+                  droite: true,
+                  masqueSurTelephone: true,
+                },
+                { cle: 'maj', libelle: t('Modifiée le'), valeur: (l) => l.majLe, rendu: (l) => dateHeure(l.majLe), droite: true },
               ]}
             />
           </Section>
@@ -607,92 +693,6 @@ export function RubriqueMarketing({ debut, fin }: ProprietesDeRubrique) {
                   droite: true,
                   masqueSurTelephone: true,
                 },
-              ]}
-            />
-          </Section>
-        </>
-      )}
-    </EtatDeRubrique>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Notes                                                               */
-/* ------------------------------------------------------------------ */
-
-export function RubriqueNotes({ debut, fin }: ProprietesDeRubrique) {
-  const etat = useResume<ResumeNotes>('notes', debut, fin);
-  const [taille, setTaille] = useTailleDePage();
-  return (
-    <EtatDeRubrique etat={etat}>
-      {(d) => (
-        <>
-          <Tuiles>
-            <Tuile
-              icone={<NotebookPen className="h-3.5 w-3.5" />}
-              titre={t('Notes')}
-              valeur={nombre(d.total)}
-              dessous={t('en tout')}
-              repere="total"
-            />
-            <Tuile
-              icone={<Plus className="h-3.5 w-3.5" />}
-              titre={t('Créées')}
-              valeur={nombre(d.creees)}
-              dessous={t('sur la période')}
-              repere="creees"
-            />
-            <Tuile
-              icone={<PencilLine className="h-3.5 w-3.5" />}
-              titre={t('Modifiées')}
-              valeur={nombre(d.modifiees)}
-              dessous={t('sur la période')}
-              repere="modifiees"
-            />
-            <Tuile
-              icone={<Timer className="h-3.5 w-3.5" />}
-              titre={t('Échéances dépassées')}
-              valeur={nombre(d.lignes.filter((n) => n.echeance !== null && n.echeance < Date.now()).length)}
-              dessous={t('parmi les notes de la période')}
-              repere="echeances"
-            />
-          </Tuiles>
-          <Section titre={t('Notes, jour par jour')} icone={<NotebookPen className="h-3.5 w-3.5 text-faint" />}>
-            <CourbeDuResume
-              jours={d.jours}
-              barres={{ libelle: t('Créées'), valeurs: d.parJour.creees }}
-              ligne={{ libelle: t('Modifiées'), valeurs: d.parJour.modifiees }}
-              vide={t('Aucune note créée ni modifiée sur la période.')}
-            />
-          </Section>
-          <Section titre={t('Notes de la période')} icone={<NotebookPen className="h-3.5 w-3.5 text-faint" />}>
-            <TableauDeDonnees
-              repere="notes"
-              lignes={d.lignes}
-              cle={(l) => l.id}
-              taille={taille}
-              onTaille={setTaille}
-              vide={t('Aucune note créée ni modifiée sur la période.')}
-              colonnes={[
-                { cle: 'titre', libelle: t('Note'), valeur: (l) => l.titre, largeur: 'sm:min-w-[180px]' },
-                { cle: 'projet', libelle: t('Projet'), valeur: (l) => l.projet ?? t('Projet retiré'), masqueSurTelephone: true },
-                { cle: 'importance', libelle: t('Importance'), valeur: (l) => libelle(LIBELLES_IMPORTANCE, l.importance) },
-                {
-                  cle: 'echeance',
-                  libelle: t('Échéance'),
-                  valeur: (l) => l.echeance,
-                  rendu: (l) => (l.echeance ? dateCourte(l.echeance) : '—'),
-                  droite: true,
-                },
-                {
-                  cle: 'creee',
-                  libelle: t('Créée le'),
-                  valeur: (l) => l.creeLe,
-                  rendu: (l) => dateCourte(l.creeLe),
-                  droite: true,
-                  masqueSurTelephone: true,
-                },
-                { cle: 'modifiee', libelle: t('Modifiée le'), valeur: (l) => l.modifieLe, rendu: (l) => dateHeure(l.modifieLe), droite: true },
               ]}
             />
           </Section>

@@ -19,7 +19,7 @@
  * formulaire aurait dérivé au premier changement de fond ou de repère.
  */
 import * as React from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown } from '@/components/ui/icones';
 import { cn } from '@/lib/utils';
 
 export function BlocDeFiche({

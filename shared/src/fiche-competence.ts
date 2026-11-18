@@ -27,6 +27,7 @@ import {
   FICHIER_SOMMAIRE,
   SECTIONS_DE_FICHE,
   THEME_PAR_DEFAUT,
+  quandSenServir,
   type Competence,
   type EtatDeFiche,
   type ProvenanceDeFiche,
@@ -169,7 +170,8 @@ export function texteDuSommaireDesCompetences(
   const corps = groupes.map((groupe) => {
     const lignes = groupe.fiches.map((fiche) => {
       const etat = fiche.etat === 'active' ? '' : ` _(${fiche.etat})_`;
-      return `- **${fiche.nom}**${etat} — ${fiche.description}`;
+      // Une fiche de bibliothèque résumée en français se lit par ce résumé.
+      return `- **${fiche.nom}**${etat} — ${quandSenServir(fiche)}`;
     });
     return `## ${groupe.theme}\n\n${lignes.join('\n')}`;
   });

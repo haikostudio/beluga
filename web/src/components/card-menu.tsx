@@ -1,15 +1,13 @@
 import * as React from 'react';
-import { Archive, ArrowRight, ChevronsRight, CircleDot, EllipsisVertical, FolderInput, PencilLine, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, ArrowRightLeft, Check, CircleDot, EllipsisVertical, FolderInput, PencilLine, Trash2 } from '@/components/ui/icones';
 import {
   COLUMN_KEYS,
   COLUMN_LABELS,
   Card,
   ColumnKey,
   canMove,
-  avanceDEtape,
   colonneDeReprise,
   gesteDuDepot,
-  libelleDeReprise,
   peutRedevenirNonLue,
 } from '@beluga/shared';
 import {
@@ -18,15 +16,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   PromptDialog,
 } from '@/components/ui';
-import { libelleAvance, useAvancerEtapes } from '@/components/etape-suivante';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
@@ -112,12 +107,6 @@ export function MenuCarte({
     }
     void client.moveCard(card, colonne);
   };
-  /* LE CRAN D'AVANCE, EN TÊTE DU MENU. C'est le déplacement qui revient le plus
-     souvent : le proposer d'abord évite d'aller le chercher dans la liste
-     « Déplacer vers », où il se confond avec les retours en arrière. */
-  const { avancer, dialogue: dialogueAvance } = useAvancerEtapes();
-  const avance = avanceDEtape({ colonne: card.column, agentActif });
-
   /*
    * Le menu invisible (celui du tableau) s'ouvre en plein geste : au doigt, le
    * relever compte comme un geste au-dehors ; à la souris, l'enfoncement du
@@ -149,8 +138,6 @@ export function MenuCarte({
      (`peutRedevenirNonLue`), donc jamais un geste refusé au clic. */
   const nonLuPossible = peutRedevenirNonLue({ colonne: card.column, renduA: card.renduA, luA: card.lastReadAt });
   const archivable = card.column !== 'archived' && canMove('user', card.column, 'archived').allowed;
-  // « Archivé » et la colonne de reprise ont déjà leur ligne au-dessus quand
-  // elles servent : les répéter dans les destinations n'ajouterait rien.
   /* UN GESTE OFFERT DOIT ÊTRE UN GESTE QUI ABOUTIT : la liste lit la MÊME règle
      que le dépôt à la souris (`gesteDuDepot`), et non une liste recopiée. Ce
      que le serveur refuserait — « Travail » → « Rapport » — ne s'affiche pas. */
@@ -217,26 +204,6 @@ export function MenuCarte({
           }}
         >
           {enTete}
-          {avance.possible ? (
-            <DropdownMenuItem
-              data-menu-etape-suivante=""
-              onSelect={() => avancer([{ card, agentActif }])}
-            >
-              <ChevronsRight className="h-3.5 w-3.5" />
-              {libelleAvance(avance)}
-            </DropdownMenuItem>
-          ) : null}
-
-          {reprise ? (
-            <DropdownMenuItem
-              data-sortir-archive={card.column === 'archived' ? card.id : undefined}
-              onSelect={() => client.moveCard(card, reprise)}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              {`${libelleDeReprise(card.column)} → ${t(COLUMN_LABELS[reprise])}`}
-            </DropdownMenuItem>
-          ) : null}
-
           {nonLuPossible && !sansNonLu ? (
             <DropdownMenuItem
               data-menu-non-lu={card.id}
@@ -307,31 +274,54 @@ export function MenuCarte({
             </DropdownMenuItem>
           )}
 
+          {/* LE STATUT EN UNE LIGNE, AU-DESSUS DE « SUPPRIMER » (13/11/2026, maquette #16ff3) : la colonne actuelle,
+              puis toutes les colonnes en sous-menu. Une colonne refusée au clic est éteinte avec son motif ; ce qui
+              dépense demande d'abord confirmation, comme le dépôt à la souris. Sortir d'« Archivé » ou d'« À
+              déployer » reste un GESTE HUMAIN : ce sous-menu en est un. */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-menu-statut={card.column}>
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              <span className="flex-1">{t('Statut : {v0}', { v0: t(COLUMN_LABELS[card.column]) })}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {COLUMN_KEYS.map((column) => {
+                const actuelle = column === card.column;
+                const possible =
+                  actuelle || column === reprise || (column === 'archived' ? archivable : cibles.includes(column));
+                return (
+                  <DropdownMenuItem
+                    key={column}
+                    data-passer-en={actuelle ? undefined : column}
+                    data-statut-actuel={actuelle ? '' : undefined}
+                    data-sortir-archive={card.column === 'archived' && column === reprise ? card.id : undefined}
+                    disabled={!possible}
+                    title={possible ? undefined : t('Ce passage n’est pas possible depuis « {v0} ».', { v0: t(COLUMN_LABELS[card.column]) })}
+                    className={cn(actuelle && 'text-teinte data-[highlighted]:text-teinte')}
+                    onSelect={() => {
+                      if (actuelle) return;
+                      if (column === 'archived' || column === reprise) void client.moveCard(card, column);
+                      else deplacerVers(column);
+                    }}
+                  >
+                    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                      {actuelle ? <Check className="h-3.5 w-3.5" /> : null}
+                    </span>
+                    {t(COLUMN_LABELS[column])}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
           <DropdownMenuItem
             className="text-danger data-[highlighted]:text-danger"
             onSelect={() => setConfirmSuppression(true)}
           >
             <Trash2 className="h-3.5 w-3.5" />  {t('Supprimer la carte')}
-</DropdownMenuItem>
-
-          {cibles.length ? (
-            <>
-              <DropdownMenuSeparator />
-              {/* « PASSER EN… » : la même règle que le dépôt à la souris, un cran à
-                  la fois, et ce qui dépense demande d'abord confirmation. */}
-              <DropdownMenuLabel>{t('Passer en…')}</DropdownMenuLabel>
-              {cibles.map((column) => (
-                <DropdownMenuItem key={column} data-passer-en={column} onSelect={() => deplacerVers(column)}>
-                  <ArrowRight className="h-3.5 w-3.5 text-faint" /> {t(COLUMN_LABELS[column])}
-                </DropdownMenuItem>
-              ))}
-            </>
-          ) : null}
+          </DropdownMenuItem>
           {enPied}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      {dialogueAvance}
 
       <ConfirmDialog
         open={!!depotAConfirmer}

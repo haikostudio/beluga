@@ -43,3 +43,37 @@ export function fermetureExigee(moment: MomentDeFermeture): boolean {
   }
   return false;
 }
+
+/*
+ * LE MICRO NE VIT PAS HORS DE L'ÉCRAN (décision de l'utilisateur, 16/11/2026) : dans l'application iPhone, le repère
+ * orange restait allumé application fermée. L'attente du mot de réveil comptait comme une écoute VOULUE, donc
+ * survivait au passage en arrière-plan, et le mode audio de l'application la gardait vivante. Désormais :
+ *   — l'attente du mot n'existe QUE page visible ;
+ *   — seule une CONVERSATION en cours continue écran verrouillé, jusqu'à sa fin ;
+ *   — à sa fin, page cachée, tout se coupe ; l'attente ne reprend qu'au retour à l'écran.
+ */
+export interface MomentDuMicro {
+  /** La page est-elle à l'écran ? */
+  visible: boolean;
+  /** Une conversation en direct est-elle ouverte ? */
+  conversation: boolean;
+}
+
+/** L'attente du mot (micro ouvert, rien n'en sort) est-elle permise maintenant ? */
+export function attenteDuMotPermise(moment: MomentDuMicro): boolean {
+  return moment.visible || moment.conversation;
+}
+
+/** Ce qui compte comme écoute VOULUE en arrière-plan : la conversation, et elle seule. */
+export function ecouteVoulueHorsEcran(moment: Pick<MomentDuMicro, 'conversation'>): boolean {
+  return moment.conversation;
+}
+
+/**
+ * Le micro d'attente se rouvre-t-il SANS geste au retour à l'écran ? Dans l'application iPhone seulement (décision
+ * de l'utilisateur : « Dis Jarvis » attendu dès que l'application est à l'écran), et jamais si l'utilisateur l'a
+ * coupé lui-même. Dans le navigateur et l'application installée depuis Safari, il faut toujours un geste.
+ */
+export function attenteRouverteSansGeste(p: { appNative: boolean; coupeParLUtilisateur: boolean }): boolean {
+  return p.appNative && !p.coupeParLUtilisateur;
+}

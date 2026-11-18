@@ -11,7 +11,7 @@ import {
  *
  * Deux signaux, à ne pas confondre :
  *
- *   - LA PAGE EST CACHÉE (`pageCachee`, `usePageCachee`) — dès l'instant où
+ *   - LA PAGE EST CACHÉE (`pageCachee`) — dès l'instant où
  *     elle quitte l'écran. Les horloges et les relevés s'arrêtent tout de
  *     suite : ils ne servent qu'à ce qu'on voit ;
  *   - LA PAGE DORT (`estEnVeille`, `surLaVeille`) — cachée depuis quelques
@@ -193,15 +193,6 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.addEventListener('focus', jugerLaVisibilite);
   if (document.visibilityState === 'hidden') quitterLEcran();
   else suivreLeTemoin();
-}
-
-function abonnerALaVisibilite(prevenir: () => void): () => void {
-  return surLaVisibilite(prevenir);
-}
-
-/** Vrai tant que la page est hors de l'écran. */
-export function usePageCachee(): boolean {
-  return React.useSyncExternalStore(abonnerALaVisibilite, pageCachee, () => false);
 }
 
 /**

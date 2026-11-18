@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw } from '@/components/ui/icones';
 import { Groupe } from '@/components/reglages/communs';
 import { LigneDEtat, SectionGitHub, useEtatDeLInstallation } from '@/components/installation/sections';
 import { Button } from '@/components/ui';

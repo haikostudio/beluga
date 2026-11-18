@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import {
+  DUREE_D_UN_RENDU_A_OUVRIR_MS,
+  DUREE_D_UNE_DEPLOYEE_A_OUVRIR_MS,
   DUREE_SYSTEME_TERMINE_MS,
   PROJET_DU_COFFRE,
   agentSystemeTermine,
   estUnReglageVide,
   misesEnProductionAAfficher,
+  DUREE_MISE_EN_LIGNE_FINIE_MS,
   retenueParUneEdition,
 } from '@beluga/shared';
 import {
@@ -73,6 +76,9 @@ import {
   LigneDuCarnet,
   CARTES_PAR_TRANCHE,
   CARTES_EN_ROUTE_PAR_PAQUET,
+  CARTES_PAR_DATE_PAR_PAQUET,
+  trierParDate,
+  type CurseurParDate,
   debutsDesDemandes,
   type PremierMessageDeCarte,
   COLONNES_EN_ROUTE,
@@ -81,6 +87,7 @@ import {
   pilesEnRoute,
   type TotauxParColonne,
   definirIdentiteDInstallation,
+  type CurseurDeMiseEnLigne,
 } from '@beluga/shared';
 import {
   HISTOIRE_DU_MOIS_MS,
@@ -737,7 +744,20 @@ const SANS_ENTRETIEN_INVISIBLE = `NOT EXISTS (SELECT 1 FROM card_labels il WHERE
  * en « Archivé » FERME ses questions, cloche comprise. C'est la fin de tour qui
  * retient désormais une carte de volet sur sa question — `questionEnTexteSurLaCarte`.)
  */
-const SANS_MARKETING_SEUL = `((c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label IN (${LABELS_DE_CARTES_D_ATELIER.map((l) => `'${l.replace(/'/g, "''")}'`).join(', ')}))) AND ${SANS_ENTRETIEN_INVISIBLE})`;
+const COLONNE_OU_SANS_ETIQUETTE_D_ATELIER = `c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label IN (${LABELS_DE_CARTES_D_ATELIER.map((l) => `'${l.replace(/'/g, "''")}'`).join(', ')}))`;
+const SANS_MARKETING_SEUL = `((${COLONNE_OU_SANS_ETIQUETTE_D_ATELIER}) AND ${SANS_ENTRETIEN_INVISIBLE})`;
+
+/**
+ * UN AGENT QUI TOURNE OU ATTEND UNE RÉPONSE SUR CETTE CARTE (`cartesAvecAgentActif`, la même question côté écran,
+ * qui tranche ensuite le cas du cadrage qui a déjà répondu).
+ */
+const AGENT_ACTIF_SUR_LA_CARTE = `EXISTS (SELECT 1 FROM agents ga WHERE ga.card_id = c.id AND (ga.status IN ('starting', 'running') OR json_extract(ga.data, '$.attendReponse') = 1 OR json_extract(ga.data, '$.tourVivantDepuis') IS NOT NULL))`;
+
+/**
+ * LES LISTES D'AGENTS NE PERDENT PAS UN AGENT ACTIF (`carteCacheeDesListes`) : une carte d'atelier y paraît le temps de
+ * son travail. Pour ces lectures-là seulement : les paquets et les compteurs du tableau gardent `SANS_MARKETING`.
+ */
+const LECTURE_DE_LISTE = `((${COLONNE_OU_SANS_ETIQUETTE_D_ATELIER} OR ${AGENT_ACTIF_SUR_LA_CARTE}) AND ${SANS_ENTRETIEN_INVISIBLE})`;
 
 /**
  * LES ÉTAPES D'UNE SUITE NE PARAISSENT PAS SEULES SUR LE TABLEAU DU PROJET : elles
@@ -849,7 +869,17 @@ export interface CarteTrouvee {
  */
 export function rechercherDesCartes(
   texte: string,
-  options: { projectId?: string; colonnes?: readonly ColumnKey[]; limite?: number } = {},
+  options: {
+    projectId?: string;
+    colonnes?: readonly ColumnKey[];
+    limite?: number;
+    /** Le titre seul, sans la description. */
+    titreSeul?: boolean;
+    /** Écarte les projets mis de côté. */
+    enServiceSeulement?: boolean;
+    /** Ne regarde que ces projets (la portée d'un accès tiers). */
+    projets?: readonly string[];
+  } = {},
 ): CarteTrouvee[] {
   const mots = texte
     .trim()
@@ -861,8 +891,19 @@ export function rechercherDesCartes(
   const conditions = [SANS_MARKETING];
   const valeurs: (string | number)[] = [];
   for (const mot of mots) {
-    conditions.push(`(c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')`);
-    valeurs.push(motif(mot), motif(mot));
+    if (options.titreSeul) {
+      conditions.push(`c.title LIKE ? ESCAPE '\\'`);
+      valeurs.push(motif(mot));
+    } else {
+      conditions.push(`(c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')`);
+      valeurs.push(motif(mot), motif(mot));
+    }
+  }
+  if (options.enServiceSeulement) conditions.push('c.project_id NOT IN (SELECT id FROM projects WHERE archived <> 0)');
+  if (options.projets) {
+    if (!options.projets.length) return [];
+    conditions.push(`c.project_id IN (${options.projets.map(() => '?').join(', ')})`);
+    valeurs.push(...options.projets);
   }
   if (options.projectId) {
     conditions.push('c.project_id = ?');
@@ -1019,6 +1060,92 @@ function famillesParDerniereAction(
 }
 
 /**
+ * LA LISTE UNIQUE PAR DATE (`shared/src/liste-par-date.ts`) : les CARTES, et non
+ * des familles, de la plus récemment modifiée à la plus ancienne, toutes colonnes
+ * confondues (sauf `colonne`), sous le curseur `{updatedAt, id}`. Une carte qui
+ * bouge entre deux demandes remonte au-dessus du curseur : elle ne décale rien.
+ * On lit une ligne de plus que demandé pour savoir s'il en reste, sans rien compter.
+ */
+export function cartesParDate(options: {
+  apres?: CurseurParDate;
+  limite?: number;
+  projectId?: string;
+  colonne?: ColumnKey;
+} = {}): { cards: Card[]; reste: boolean; curseur?: CurseurParDate } {
+  const limite = options.limite ?? CARTES_PAR_DATE_PAR_PAQUET;
+  const conditions = ['p.archived = 0', options.colonne ? SANS_MARKETING_SEUL : LECTURE_DE_LISTE];
+  const valeurs: Record<string, string | number> = { limite: limite + 1 };
+  if (options.projectId) {
+    conditions.push('c.project_id = @projectId');
+    valeurs.projectId = options.projectId;
+  }
+  if (options.colonne) {
+    conditions.push('c.column_key = @colonne');
+    valeurs.colonne = options.colonne;
+  }
+  if (options.apres) {
+    conditions.push('(c.updated_at < @u OR (c.updated_at = @u AND c.id < @id))');
+    valeurs.u = options.apres.updatedAt;
+    valeurs.id = options.apres.id;
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT c.* FROM cards c JOIN projects p ON p.id = c.project_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY c.updated_at DESC, c.id DESC LIMIT @limite`,
+    )
+    .all(valeurs) as LigneCarte[];
+  const reste = rows.length > limite;
+  const paquet = rows.slice(0, limite);
+  const derniere = paquet[paquet.length - 1];
+  return {
+    cards: trierParDate(cartesDesLignesParProjet(paquet)),
+    reste,
+    curseur: derniere ? { updatedAt: derniere.updated_at, id: derniere.id } : undefined,
+  };
+}
+
+/**
+ * LES TÂCHES DE LA COLONNE DE GAUCHE, TOUS PROJETS CONFONDUS (`estTacheDeLaColonne`,
+ * la même règle en SQL) : ni en ligne ni archivées, plus les mères rangées dont une
+ * fille n'est pas rangée — l'écran tranche ensuite avec leur vrai suivi —, plus les
+ * cartes rangées terminées depuis moins de trente jours et jamais ouvertes
+ * (`termineeNonOuverte`, 01/11/2026) : ce sont des ACTIVES, qui montent au-dessus du
+ * trait des listes même si leur date les met loin du premier paquet. S'y ajoutent les
+ * cartes DÉPLOYÉES pas ouvertes depuis (`deployeeNonVue`, filet de 30 jours, 15/11/2026) :
+ * la zone « En cours » de la colonne les garde en gras jusqu'à leur ouverture. Quelques dizaines de cartes,
+ * jamais les milliers de cartes rangées.
+ */
+export function tachesDeLaColonne(maintenant = Date.now()): Card[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT c.* FROM cards c JOIN projects p ON p.id = c.project_id
+        WHERE p.archived = 0 AND ${LECTURE_DE_LISTE}
+          AND (c.column_key <> 'archived'
+               OR ${AGENT_ACTIF_SUR_LA_CARTE}
+               OR EXISTS (SELECT 1 FROM cards f WHERE f.carte_mere_id = c.id AND f.column_key <> 'archived')
+               OR (c.rendu_a >= @borne
+                   AND c.rendu_a > COALESCE(c.last_read_at, json_extract(c.data, '$.lastReadAt'), 0))
+               OR (c.deployed_at >= @borneDeploiement
+                   AND c.deployed_at > COALESCE(c.last_read_at, json_extract(c.data, '$.lastReadAt'), 0)))`,
+    )
+    .all({ borne: maintenant - DUREE_D_UN_RENDU_A_OUVRIR_MS, borneDeploiement: maintenant - DUREE_D_UNE_DEPLOYEE_A_OUVRIR_MS }) as LigneCarte[];
+  return trierParDate(cartesDesLignesParProjet(rows));
+}
+
+function cartesDesLignesParProjet(rows: readonly LigneCarte[]): Card[] {
+  const parProjet = new Map<string, LigneCarte[]>();
+  for (const row of rows) {
+    const liste = parProjet.get(row.project_id);
+    if (liste) liste.push(row);
+    else parProjet.set(row.project_id, [row]);
+  }
+  const cartes: Card[] = [];
+  for (const [projectId, lignes] of parProjet) cartes.push(...cartesDepuisLignes(lignes, projectId));
+  return cartes;
+}
+
+/**
  * LES CARTES MISES EN LIGNE RESTÉES EN « À DÉPLOYER » : une publication passée
  * sous la règle retirée « plus d'archivage automatique » (08/10/2026) les y a
  * laissées. Une carte qui ENTRE dans « À déployer » perd sa date (DEC-149) :
@@ -1103,6 +1230,45 @@ function cartesDepuisLignes(rows: LigneCarte[], projectId: string): Card[] {
     }
   }
   return cartes;
+}
+
+/**
+ * LES DERNIÈRES CARTES TERMINÉES, datées, rangées comprises (`shared/src/activite-recente.ts`) :
+ * une lecture bornée par `idx_cards_terminees`, triée par `done_at` décroissant. Sert l'assistant
+ * (`assistant_resume`) : « les cinq tâches terminées hier » se lit en UNE requête. Les routines
+ * d'entretien invisibles n'y paraissent pas.
+ */
+export function cartesTermineesRecemment(options: {
+  projectId?: string;
+  depuis?: number;
+  avant?: number;
+  limite: number;
+}): { id: string; projectId: string; title: string; column: string; doneAt: number }[] {
+  const conditions = ['done_at IS NOT NULL'];
+  const valeurs: (string | number)[] = [];
+  if (options.projectId) {
+    conditions.push('project_id = ?');
+    valeurs.push(options.projectId);
+  }
+  if (options.depuis !== undefined) {
+    conditions.push('done_at >= ?');
+    valeurs.push(options.depuis);
+  }
+  if (options.avant !== undefined) {
+    conditions.push('done_at < ?');
+    valeurs.push(options.avant);
+  }
+  // Un peu plus que demandé : les cartes invisibles sont écartées APRÈS la lecture.
+  valeurs.push(options.limite + 20);
+  const lignes = getDb()
+    .prepare(
+      `SELECT id, project_id, title, column_key, done_at FROM cards WHERE ${conditions.join(' AND ')} ORDER BY done_at DESC, id LIMIT ?`,
+    )
+    .all(...valeurs) as { id: string; project_id: string; title: string; column_key: string; done_at: number }[];
+  return lignes
+    .filter((l) => !carteInvisible(l.id))
+    .slice(0, options.limite)
+    .map((l) => ({ id: l.id, projectId: l.project_id, title: l.title, column: l.column_key, doneAt: l.done_at }));
 }
 
 export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] {
@@ -1356,7 +1522,16 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
    */
   const clotureDUnTravailRendu =
     avant?.column_key === 'running' && card.column === COLONNE_DE_FIN_DE_TOUR;
-  const changeDeColonne = !!avant && avant.column_key !== card.column && !clotureDUnTravailRendu;
+  /*
+   * SECONDE EXCEPTION (demande du 01/11/2026) : LA MISE EN LIGNE D'UNE CARTE NE VAUT PAS LECTURE. La publication
+   * pose `deployedAt` puis range la carte de « À déployer » dans « Archivé » ; sans cette exception, ce rangement
+   * aurait posé `lastReadAt` après `deployedAt`, et la carte déployée n'aurait jamais pu rester EN GRAS dans la
+   * zone « En cours » de la colonne jusqu'à ce qu'on l'ouvre (`deployeeNonVue`, `shared/src/taches-en-cours.ts`).
+   * Une carte n'entre jamais dans « À déployer » avec une date de mise en ligne (DEC-149) : seule la publication
+   * passe ici avec `deployedAt`.
+   */
+  const miseEnLigneDeLaCarte = avant?.column_key === 'to_deploy' && card.column === 'archived' && !!card.deployedAt;
+  const changeDeColonne = !!avant && avant.column_key !== card.column && !clotureDUnTravailRendu && !miseEnLigneDeLaCarte;
   const value = Card.parse({
     ...card,
     updatedAt: instant,
@@ -1393,13 +1568,13 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
                           code_deja_enregistre, hors_tache, excluded_from_deploy, done_at, archived_at,
                           rangee_tableau_de_bord_at, last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id,
                           branche_choisie, branche_de_depart, tete_de_suite, rang_dans_la_suite, etape_finie_at,
-                          depart_de_la_suite_at)
+                          depart_de_la_suite_at, securite_proposee)
        VALUES (@id, @project_id, @column_key, @position, @title, @data, @deployed_at, @created_at, @updated_at,
                @description, @origin, @agent_id, @conversation_agent_id, @analyse_demandee,
                @code_deja_enregistre, @hors_tache, @excluded_from_deploy, @done_at, @archived_at,
                @rangee_tableau_de_bord_at, @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id,
                @branche_choisie, @branche_de_depart, @tete_de_suite, @rang_dans_la_suite, @etape_finie_at,
-               @depart_de_la_suite_at)
+               @depart_de_la_suite_at, @securite_proposee)
        ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, column_key = excluded.column_key,
          position = excluded.position, title = excluded.title, data = excluded.data,
          deployed_at = excluded.deployed_at, updated_at = excluded.updated_at,
@@ -1414,7 +1589,8 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
          carte_mere_id = excluded.carte_mere_id,
          branche_choisie = excluded.branche_choisie, branche_de_depart = excluded.branche_de_depart,
          tete_de_suite = excluded.tete_de_suite, rang_dans_la_suite = excluded.rang_dans_la_suite,
-         etape_finie_at = excluded.etape_finie_at, depart_de_la_suite_at = excluded.depart_de_la_suite_at`,
+         etape_finie_at = excluded.etape_finie_at, depart_de_la_suite_at = excluded.depart_de_la_suite_at,
+         securite_proposee = excluded.securite_proposee`,
     ).run(colonnes);
     ecrireListe('card_labels', 'label', value.id, value.labels);
     ecrireListe('card_attachments', 'path', value.id, value.attachments);
@@ -1525,19 +1701,31 @@ export function markProjectRead(projectId: string, at = now()): Card[] {
  * Les empreintes de commits déjà rattachées à une carte de ce projet. C'est ce
  * qui empêche de fabriquer deux fois une carte pour le même travail.
  */
+/*
+ * LES EMPREINTES ET LES BRANCHES DES CARTES se lisent EN SQL, sans décoder les
+ * cartes : la fenêtre de publication les redemande à chaque passage, et
+ * `listCards` décodait (JSON + zod) les ~4 000 cartes du projet, archives
+ * comprises — un des premiers gels du démon le 16/11/2026 (carte 4e7f1032).
+ */
 export function shasCouverts(projectId: string): string[] {
-  const out: string[] = [];
-  for (const card of listCards(projectId)) {
-    for (const commit of card.github?.commits ?? []) if (commit.sha) out.push(commit.sha);
-  }
-  return out;
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(j.value, '$.sha') AS sha FROM cards c, json_each(c.data, '$.github.commits') j
+        WHERE c.project_id = ? AND json_valid(c.data)`,
+    )
+    .all(projectId) as { sha: unknown }[];
+  return rows.map((r) => r.sha).filter((sha): sha is string => typeof sha === 'string' && !!sha);
 }
 
 /** Les branches déjà tenues par une carte de ce projet. */
 export function branchesDeCartes(projectId: string): string[] {
-  return listCards(projectId)
-    .map((card) => card.github?.branch)
-    .filter((branch): branch is string => !!branch);
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(data, '$.github.branch') AS branche FROM cards
+        WHERE project_id = ? AND json_valid(data) ORDER BY position DESC`,
+    )
+    .all(projectId) as { branche: unknown }[];
+  return rows.map((r) => r.branche).filter((b): b is string => typeof b === 'string' && !!b);
 }
 
 export function nextPosition(projectId: string, column: ColumnKey): number {
@@ -1605,6 +1793,19 @@ export function agentsActifsOuRecents(depuis: number): Agent[] {
  * un serveur au repos, `queue` est vide — la requête rend zéro ligne au lieu
  * de relire des milliers d'agents pour découvrir qu'aucun n'attend.
  */
+/**
+ * LES AGENTS D'UN PROJET QUI ONT ENCORE UN MESSAGE EN FILE ET UNE CARTE : leur
+ * carte ne part pas au déploiement tant que ce message n'est ni envoyé ni
+ * retiré (`agentsOccupes`, deploy.ts). Un agent de volet sans carte (Studio,
+ * chefs de Communication) ne retient rien : il ne livre aucun code.
+ */
+export function agentsAvecFileDuProjet(projectId: string): Agent[] {
+  const rows = getDb()
+    .prepare(`SELECT data FROM agents WHERE project_id = ? AND id IN (SELECT DISTINCT agent_id FROM queue)`)
+    .all(projectId) as { data: string }[];
+  return rows.map((r) => Agent.parse(JSON.parse(r.data))).filter((agent) => !!agent.cardId);
+}
+
 export function agentsAvecFileEnAttente(): Agent[] {
   const rows = getDb()
     .prepare(`SELECT data FROM agents WHERE id IN (SELECT DISTINCT agent_id FROM queue)`)
@@ -2394,15 +2595,7 @@ function attentesDeGeste(dejaEnAttente: ReadonlySet<string>): DecisionAttendue[]
       const conversation = carte.conversationAgentId ?? carte.agentId;
       const agent = conversation ? getAgent(conversation) : getDernierAgentDeLaCarte(carte.id);
       if (!agent) continue;
-      const messages: MessageDuParcours[] = listMessages(agent.id).map((message) => ({
-        role: message.role,
-        content: message.content,
-        at: message.createdAt,
-        streaming: message.streaming,
-        questions: message.questions,
-        erreurDeTour: message.erreurDeTour,
-        repriseCompte: message.repriseCompte,
-      }));
+      const messages = messagesDuParcours(agent.id);
       const tourEnCours = agent.status === 'running' || agent.status === 'starting';
       /*
        * LES QUESTIONS GARDÉES SUR LA CARTE par un cadrage sans témoin
@@ -2466,6 +2659,60 @@ function attentesDeGeste(dejaEnAttente: ReadonlySet<string>): DecisionAttendue[]
     }
   }
   return attentes;
+}
+
+/**
+ * LE FIL VU PAR LA RÈGLE DU PARCOURS, sans le décoder : les seuls champs que
+ * `gesteDuParcours` lit, tirés en SQL. L'ancienne forme décodait (JSON + zod)
+ * jusqu'à 400 messages ENTIERS par carte planifiée à chaque calcul des
+ * décisions — 95 gels du démon en 36 h (carte 4e7f1032, 16/11/2026). Le texte
+ * ne sert qu'à savoir s'il est vide : il ne quitte pas la base.
+ */
+export function messagesDuParcours(agentId: string, limite = 400): MessageDuParcours[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT json_extract(data, '$.role') AS role,
+              trim(coalesce(json_extract(data, '$.content'), ''), ' ' || char(9, 10, 13)) != '' AS ecrit,
+              json_extract(data, '$.createdAt') AS at,
+              json_extract(data, '$.streaming') AS streaming,
+              json_extract(data, '$.questions') AS questions,
+              json_extract(data, '$.erreurDeTour') AS erreur,
+              json_extract(data, '$.repriseCompte') AS reprise,
+              rowid AS ligne
+         FROM messages WHERE agent_id = ? AND json_valid(data) ${ORDRE_DES_MESSAGES_DESC} LIMIT ?`,
+    )
+    .all(agentId, limite) as {
+    role: unknown;
+    ecrit: number;
+    at: unknown;
+    streaming: unknown;
+    questions: string | null;
+    erreur: string | null;
+    reprise: string | null;
+    ligne: number;
+  }[];
+  const objet = (texte: string | null) => {
+    if (!texte) return undefined;
+    try {
+      const valeur = JSON.parse(texte);
+      return valeur && typeof valeur === 'object' ? valeur : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  return rows
+    .filter((r) => typeof r.role === 'string')
+    .map((r) => ({ r, at: typeof r.at === 'number' ? r.at : 0 }))
+    .sort((a, b) => a.at - b.at || a.r.ligne - b.r.ligne)
+    .map(({ r, at }) => ({
+      role: r.role as string,
+      content: r.ecrit ? '·' : '',
+      at,
+      streaming: r.streaming === 1,
+      questions: Array.isArray(objet(r.questions)) ? objet(r.questions) : undefined,
+      erreurDeTour: objet(r.erreur) ?? null,
+      repriseCompte: objet(r.reprise) ?? null,
+    }));
 }
 
 /** Le dernier agent d'une carte, quand elle ne nomme aucune conversation. */
@@ -2613,6 +2860,10 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
     try {
       const questions = row.questions ? ListeDeQuestions.parse(JSON.parse(row.questions)) : [];
       for (const question of questions) {
+        /* Une question TRANCHÉE ne pèse plus sur personne : tout lecteur la
+           jetait (`demandeOuverte`). La fabriquer coûtait ~1 700 entrées
+           enrichies à chaque calcul (carte 4e7f1032, 16/11/2026). */
+        if (question.answer || question.cancelled) continue;
         decisions.push({
           projectId: row.projectId,
           agentId: row.agentId,
@@ -2640,7 +2891,10 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
               a.id AS agentId, a.card_id AS cardId
        FROM proposals p
        JOIN messages m ON m.id = p.message_id
-       JOIN agents a ON a.id = m.agent_id`,
+       JOIN agents a ON a.id = m.agent_id
+       -- Les seules propositions NON TRANCHÉES : les ~1 400 autres n'étaient
+       -- fabriquées que pour être jetées par tous les lecteurs.
+       WHERE p.decision = 'pending'`,
     )
     .all() as {
     proposalId: string;
@@ -2790,12 +3044,16 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
     data: string;
     createdAt: number;
   }[];
+  const propositionTranchee = getDb().prepare("SELECT 1 FROM proposals WHERE id = ? AND decision != 'pending'");
   for (const porte of portees) {
     try {
       const message = Message.parse(JSON.parse(porte.data));
       for (const proposition of message.proposals) {
         if (proposition.decision !== 'pending') continue;
         if (propositionsVues.has(proposition.id)) continue;
+        /* Tranchée dans la table, encore « pending » dans le message : la
+           table fait foi, comme quand elle était relue en entier. */
+        if (propositionTranchee.get(proposition.id)) continue;
         propositionsVues.add(proposition.id);
         decisions.push({
           projectId: porte.projectId,
@@ -2975,6 +3233,24 @@ export function productionsAAfficher(maintenant: number): DeployRun[] {
 }
 
 /**
+ * LES DÉPLOIEMENTS DE « MISES EN LIGNE », tous projets confondus : le dernier de chaque projet, s'il tourne ou s'il
+ * vient de finir. Reçus à la connexion : sans eux, un rechargement perdait la ligne jusqu'au prochain événement.
+ */
+export function deploiementsAAfficher(maintenant: number): DeployRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT d.data FROM deploys d
+        WHERE COALESCE(d.cible, 'dev') <> 'production'
+          AND (d.state = 'running' OR COALESCE(d.ended_at, 0) > ?)
+          AND NOT EXISTS (SELECT 1 FROM deploys n
+                           WHERE COALESCE(n.cible, 'dev') <> 'production' AND n.project_id = d.project_id AND n.started_at > d.started_at)
+          AND EXISTS (SELECT 1 FROM projects p WHERE p.id = d.project_id)`,
+    )
+    .all(maintenant - DUREE_MISE_EN_LIGNE_FINIE_MS) as { data: string }[];
+  return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
+}
+
+/**
  * Les cartes d'un projet dont la réponse n'a pas encore été lue. C'est ce que
  * le geste « marquer comme lu » de la liste des projets doit toucher — et rien
  * d'autre : réécrire toutes les cartes du projet pour ça serait un gâchis.
@@ -3096,6 +3372,70 @@ export function getMessage(id: string): Message | null {
 export function messageDeLaProposition(proposalId: string): Message | null {
   const row = getDb().prepare('SELECT message_id AS id FROM proposals WHERE id = ?').get(proposalId) as { id: string } | undefined;
   return row ? getMessage(row.id) : null;
+}
+
+/**
+ * LE CONTEXTE ENVOYÉ D'UN MESSAGE, gardé par celui qui l'écrit en boucle (un
+ * tour vivant) : son texte tel que la base le rend, et l'objet déjà décodé.
+ */
+export interface ContexteGarde {
+  texte?: string;
+  objet?: Message['sentContext'];
+}
+
+/**
+ * UN PAS D'AGENT NE RELIT PLUS LE MESSAGE ENTIER. Chaque bribe de texte, chaque
+ * étape d'un tour relisait, revalidait et réécrivait le message complet — dont
+ * le contexte envoyé, ~130 Ko en moyenne : près d'un mégaoctet de déchets par
+ * pas, plusieurs fois par seconde et par agent, et un démon qui gonflait à
+ * 1,3 Go avec l'activité (carte 4e7f1032, 16/11/2026). Ici, le contexte reste
+ * dans la base : il est relu en TEXTE, décodé seulement s'il a changé depuis le
+ * pas précédent, et recopié par SQLite lui-même à l'écriture. L'objet rendu
+ * garde donc le MÊME contexte d'un pas à l'autre — le canal de l'écran le
+ * reconnaît sans le resérialiser (`sansContexteRepete`, `ws.ts`).
+ *
+ * Rend `null` si le message n'existe pas. Le patch ne porte jamais le contexte
+ * lui-même : celui qui le change passe par `saveMessage`.
+ */
+export function patcherMessage(
+  id: string,
+  patch: Partial<Omit<Message, 'sentContext'>>,
+  garde: ContexteGarde = {},
+): Message | null {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT json_remove(data, '$.sentContext') AS leger, json_extract(data, '$.sentContext') AS contexte
+         FROM messages WHERE id = ? AND json_valid(data)`,
+    )
+    .get(id) as { leger: string; contexte: string | null } | undefined;
+  if (!row) return null;
+  const { sentContext: _ignore, ...sansContexte } = patch as Partial<Message>;
+  const value = Message.parse({ ...JSON.parse(row.leger), ...sansContexte });
+  let contexte: Message['sentContext'];
+  if (typeof row.contexte === 'string') {
+    if (garde.texte !== row.contexte || garde.objet === undefined) {
+      garde.objet = Message.shape.sentContext.parse(JSON.parse(row.contexte));
+      garde.texte = row.contexte;
+    }
+    contexte = garde.objet;
+  } else {
+    garde.texte = undefined;
+    garde.objet = undefined;
+  }
+  db.prepare(
+    `UPDATE messages SET
+        data = CASE WHEN json_type(data, '$.sentContext') IS NULL THEN json(@leger)
+                    ELSE json_set(json(@leger), '$.sentContext', json(json_extract(data, '$.sentContext'))) END,
+        a_questions = @aQuestions, streaming = @streaming
+      WHERE id = @id`,
+  ).run({
+    id,
+    leger: JSON.stringify(value),
+    aQuestions: value.questions.length > 0 ? 1 : 0,
+    streaming: value.streaming ? 1 : 0,
+  });
+  return contexte === undefined ? value : { ...value, sentContext: contexte };
 }
 
 export function saveMessage(message: Message): Message {
@@ -3254,48 +3594,13 @@ export function enqueuePrompt(
   return item;
 }
 
-/**
- * Les canaux vivants qui déclarent modifier une demande en attente (id de la
- * demande → canaux). Tant qu'un canal la tient, elle est retenue sans délai.
- */
-const canauxEnEdition = new Map<string, Set<object>>();
-
-/** Un canal déclare (ou lève) la modification ; rend `true` si plus aucun canal ne la tient. */
-export function tenirEditionParCanal(id: string, canal: object, actif: boolean): void {
-  const tenus = canauxEnEdition.get(id) ?? new Set<object>();
-  if (actif) tenus.add(canal);
-  else tenus.delete(canal);
-  if (tenus.size) canauxEnEdition.set(id, tenus);
-  else canauxEnEdition.delete(id);
-}
-
-/**
- * Un canal se ferme : ses modifications ne sont plus tenues. Le repère de
- * chaque demande repart de MAINTENANT, pour que le délai laisse à l'écran le
- * temps de se reconnecter. Rend les agents dont la file doit être relue plus tard.
- */
-export function lacherLesEditionsDuCanal(canal: object): string[] {
-  const agents = new Set<string>();
-  for (const [id, tenus] of [...canauxEnEdition]) {
-    if (!tenus.delete(canal)) continue;
-    if (!tenus.size) canauxEnEdition.delete(id);
-    const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
-    if (!row) continue;
-    const avant = QueuedPrompt.parse(JSON.parse(row.data));
-    if (!avant.enEditionDepuis || tenus.size) continue;
-    getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify({ ...avant, enEditionDepuis: now() }), id);
-    agents.add(row.agent_id);
-  }
-  return [...agents];
-}
-
 export function dequeuePrompt(agentId: string): QueuedPrompt | null {
   const items = listQueue(agentId);
   if (!items.length) return null;
   const first = items[0];
   /* La demande de tête est ouverte dans la barre d'écriture : la file l'attend
      (`retenueParUneEdition`, shared/src/file-en-edition.ts). */
-  if (retenueParUneEdition(first, now(), (canauxEnEdition.get(first.id)?.size ?? 0) > 0)) return null;
+  if (retenueParUneEdition(first)) return null;
   getDb().prepare('DELETE FROM queue WHERE id = ?').run(first.id);
   return first;
 }
@@ -3329,6 +3634,8 @@ export function updateQueued(id: string, text: string, attachments?: string[]): 
     ...avant,
     text,
     attachments: piecesApresModification(avant.attachments, piecesDOrigine, text, attachments),
+    // La modification est enregistrée : le texte gardé au fil de la frappe n'a plus d'objet.
+    brouillonEdition: undefined,
   });
   getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
   return item;
@@ -3338,12 +3645,22 @@ export function updateQueued(id: string, text: string, attachments?: string[]): 
  * Une demande en attente s'ouvre (`actif`) ou se referme dans la barre
  * d'écriture. Rend l'agent qui la porte, ou `null` si elle est déjà partie.
  */
-export function marquerEditionEnFile(id: string, actif: boolean): string | null {
+export function marquerEditionEnFile(
+  id: string,
+  actif: boolean,
+  brouillon?: { text: string; attachments?: string[] },
+): string | null {
   const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
   if (!row) return null;
   const avant = QueuedPrompt.parse(JSON.parse(row.data));
-  if (!actif) canauxEnEdition.delete(id);
-  const item = QueuedPrompt.parse({ ...avant, enEditionDepuis: actif ? now() : undefined });
+  /* L'heure d'OUVERTURE se garde : un brouillon redit pendant la frappe ne la
+     repousse pas. Refermée (enregistrée ou annulée), la modification perd
+     repère ET brouillon. */
+  const item = QueuedPrompt.parse({
+    ...avant,
+    enEditionDepuis: actif ? (avant.enEditionDepuis ?? now()) : undefined,
+    brouillonEdition: actif ? (brouillon ?? avant.brouillonEdition) : undefined,
+  });
   getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
   return row.agent_id;
 }
@@ -3366,8 +3683,7 @@ export function remonterEnTete(id: string): string | null {
   const avant = QueuedPrompt.parse(JSON.parse(row.data));
   const premiere = listQueue(row.agent_id)[0];
   const position = premiere && premiere.id !== id ? premiere.position - 1 : avant.position;
-  canauxEnEdition.delete(id);
-  const item = QueuedPrompt.parse({ ...avant, position, enEditionDepuis: undefined });
+  const item = QueuedPrompt.parse({ ...avant, position, enEditionDepuis: undefined, brouillonEdition: undefined });
   getDb().prepare('UPDATE queue SET position = ?, data = ? WHERE id = ?').run(position, JSON.stringify(item), id);
   return row.agent_id;
 }
@@ -3391,6 +3707,33 @@ export function saveProposal(messageId: string, projectId: string, proposal: Tas
        ON CONFLICT(id) DO UPDATE SET decision = excluded.decision, data = excluded.data`,
     )
     .run(proposal.id, messageId, projectId, proposal.decision, JSON.stringify(proposal), now());
+}
+
+/**
+ * LES PROPOSITIONS ENCORE EN ATTENTE POSÉES DANS LA CONVERSATION DES AGENTS D'UNE CARTE (cadrage et tâche), ou — sans
+ * carte nommée — de toutes les cartes qui ont RENDU leur travail (« À déployer », « Archivé ») : le retrait des
+ * propositions orphelines (`propositions-orphelines.ts`) et son balayage de rattrapage.
+ */
+export function propositionsEnAttenteDesCartes(cardId?: string): { proposalId: string; messageId: string; agentId: string; cardId: string }[] {
+  const filtre = cardId ? 'a.card_id = ?' : "c.column_key IN ('to_deploy', 'archived')";
+  return getDb()
+    .prepare(
+      `SELECT p.id AS proposalId, p.message_id AS messageId, a.id AS agentId, a.card_id AS cardId
+         FROM proposals p
+         JOIN messages m ON m.id = p.message_id
+         JOIN agents a ON a.id = m.agent_id
+         JOIN cards c ON c.id = a.card_id
+        WHERE p.decision = 'pending' AND ${filtre}
+        ORDER BY p.created_at`,
+    )
+    .all(...(cardId ? [cardId] : [])) as { proposalId: string; messageId: string; agentId: string; cardId: string }[];
+}
+
+/** LA CARTE EST-ELLE NÉE D'UNE CRÉATION D'OFFICE PAR AUTO (`parAuto`) ? Une seule génération : elle n'en crée pas d'autre. */
+export function carteNeeDUneCreationAuto(cardId: string): boolean {
+  return !!getDb()
+    .prepare(`SELECT 1 FROM proposals WHERE json_extract(data, '$.cardId') = ? AND json_extract(data, '$.parAuto') = 1 LIMIT 1`)
+    .get(cardId);
 }
 
 export function decideProposal(proposalId: string, decision: 'accepted' | 'refused' | 'integrated', cardId?: string): TaskProposal | null {
@@ -3597,10 +3940,24 @@ export function pieceJointeDesignee(ref: unknown, projectId?: string): Attachmen
   return pieces.find((p) => p.projectId === projectId) ?? pieces[0] ?? null;
 }
 
+/**
+ * CE QUI SUIT L'ENREGISTREMENT D'UNE PIÈCE JOINTE : le rangement des fichiers (`server/src/fichiers-ranges.ts`) s'y
+ * inscrit pour que la pièce arrive tout de suite à sa place `<Projet>/<Service>/…`. Une liste, pas un import : le
+ * dépôt ne dépend pas du rangement.
+ */
+export const apresUnePieceEnregistree: ((id: string) => void)[] = [];
+
 export function saveAttachment(attachment: Attachment): Attachment {
   getDb()
     .prepare('INSERT INTO attachments (id, project_id, sha, data, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(attachment.id, attachment.projectId, attachment.sha, JSON.stringify(attachment), attachment.createdAt);
+  for (const ecouteur of apresUnePieceEnregistree) {
+    try {
+      ecouteur(attachment.id);
+    } catch {
+      /* un écouteur ne fait jamais échouer un dépôt */
+    }
+  }
   return attachment;
 }
 
@@ -3632,6 +3989,18 @@ export function ecrireApercuDePiece(id: string, seconde: number | null, manuel: 
     apercuSeconde: seconde === null ? undefined : Math.max(0, seconde),
     apercuManuel: seconde === null ? undefined : manuel || undefined,
   });
+  getDb().prepare('UPDATE attachments SET data = ? WHERE id = ?').run(JSON.stringify(suite), id);
+  return suite;
+}
+
+/**
+ * LE REPÈRE « PLAQUETTE » D'UN PDF (carte « Refonte de l'espace Plaquettes ») : posé une fois par `fabriquerLePdf`,
+ * juste après le dépôt, pour que le fil montre la carte d'aperçu au lieu de la pastille.
+ */
+export function ecrireLaPlaquetteDeLaPiece(id: string, plaquette: NonNullable<Attachment['plaquette']>): Attachment | null {
+  const piece = getAttachment(id);
+  if (!piece) return null;
+  const suite = Attachment.parse({ ...piece, plaquette });
   getDb().prepare('UPDATE attachments SET data = ? WHERE id = ?').run(JSON.stringify(suite), id);
   return suite;
 }
@@ -3695,7 +4064,7 @@ export interface UsageRow {
    * Jamais compté dans `tokens` ni dans le quota : la hausse de quota mesurée
    * sur le compte les contient déjà, une seule fois.
    */
-  aides?: { tokens: number; sortie: number; modeles: string[] };
+  aides?: { tokens: number; sortie: number; entree?: number; relu?: number; modeles: string[] };
 }
 
 export function recordUsage(row: UsageRow): void {
@@ -3707,8 +4076,8 @@ export function recordUsage(row: UsageRow): void {
     : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens, tokens_in, tokens_out, input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, aides_tokens, aides_sortie, aides_modeles, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens, tokens_in, tokens_out, input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, aides_tokens, aides_sortie, aides_entree, aides_relu, aides_modeles, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
@@ -3730,6 +4099,8 @@ export function recordUsage(row: UsageRow): void {
       row.seconds ?? 0,
       Math.round(row.aides?.tokens ?? 0),
       Math.round(row.aides?.sortie ?? 0),
+      Math.round(row.aides?.entree ?? 0),
+      Math.round(row.aides?.relu ?? 0),
       row.aides?.modeles.length ? row.aides.modeles.join(',') : null,
       now(),
     );
@@ -3859,6 +4230,42 @@ export function latestDeploy(projectId: string): DeployRun | null {
 }
 
 /**
+ * LES MISES EN LIGNE PAR DATE (décision du 31/10/2026) : chaque déploiement et chaque mise en production est une
+ * ligne du flux de son projet. Rangées par dernière modification (`COALESCE(ended_at, started_at)`, puis `id`),
+ * sous le curseur `avant`, d'un projet ou de tous (`shared/src/mises-en-ligne-du-flux.ts`).
+ */
+export function misesEnLigneParDate(options: {
+  projectId?: string;
+  avant?: CurseurDeMiseEnLigne;
+  limite?: number;
+}): { runs: DeployRun[]; reste: boolean } {
+  const limite = Math.max(1, Math.min(options.limite ?? 5, 100));
+  const conditions: string[] = [];
+  const valeurs: (string | number)[] = [];
+  if (options.projectId) {
+    conditions.push('project_id = ?');
+    valeurs.push(options.projectId);
+  }
+  if (options.avant) {
+    conditions.push('(COALESCE(ended_at, started_at) < ? OR (COALESCE(ended_at, started_at) = ? AND id < ?))');
+    valeurs.push(options.avant.at, options.avant.at, options.avant.id);
+  }
+  const ou = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const rows = getDb()
+    .prepare(`SELECT data FROM deploys ${ou} ORDER BY COALESCE(ended_at, started_at) DESC, id DESC LIMIT ?`)
+    .all(...valeurs, limite + 1) as { data: string }[];
+  const runs: DeployRun[] = [];
+  for (const row of rows.slice(0, limite)) {
+    try {
+      runs.push(DeployRun.parse(JSON.parse(row.data)));
+    } catch {
+      /* Une ligne illisible ne coupe pas la liste. */
+    }
+  }
+  return { runs, reste: rows.length > limite };
+}
+
+/**
  * Les dernières publications d'un projet, de la plus récente à la plus
  * ancienne. C'est là-dedans que la règle pure va chercher le dernier résultat
  * de CHAQUE environnement — vingt suffisent largement, et l'on ne relit pas
@@ -3868,6 +4275,22 @@ export function recentDeploys(projectId: string, limit = 20): DeployRun[] {
   const rows = getDb()
     .prepare('SELECT data FROM deploys WHERE project_id = ? ORDER BY started_at DESC LIMIT ?')
     .all(projectId, limit) as { data: string }[];
+  return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
+}
+
+/**
+ * LES DERNIÈRES PUBLICATIONS D'UNE SEULE ÉTAPE (une publication sans étape est
+ * un déploiement). `recentDeploys` mêle les deux étapes : sur un projet qui
+ * déploie souvent, ses cinquante dernières lignes ne contenaient plus aucune
+ * mise en production, et l'écran disait « Jamais mise en production » à tort.
+ */
+export function deploysDeLEtape(projectId: string, cible: 'dev' | 'production', limit = 20): DeployRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT data FROM deploys WHERE project_id = ? AND COALESCE(cible, 'dev') = ?
+       ORDER BY started_at DESC LIMIT ?`,
+    )
+    .all(projectId, cible, limit) as { data: string }[];
   return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
 }
 
@@ -3955,9 +4378,9 @@ export function recordCapacity(loadPct: number, memUsedMb: number, running: numb
   getDb().prepare('DELETE FROM capacity_samples WHERE at < ?').run(now() - 26 * 3600 * 1000);
 }
 
-export function capacityHistory(): { at: number; loadPct: number; running: number }[] {
+export function capacityHistory(): { at: number; loadPct: number; memUsedMb: number; running: number }[] {
   return getDb()
-    .prepare('SELECT at, load_pct AS loadPct, running FROM capacity_samples ORDER BY at')
+    .prepare('SELECT at, load_pct AS loadPct, mem_used_mb AS memUsedMb, running FROM capacity_samples ORDER BY at')
     .all() as any;
 }
 

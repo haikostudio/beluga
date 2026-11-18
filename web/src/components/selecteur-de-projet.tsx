@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, Search } from '@/components/ui/icones';
 import { filtrerLesSites } from '@beluga/shared';
 import {
   DialogTitle,
@@ -58,8 +58,15 @@ export function SelecteurDeProjet({
   libelleFiltre,
   libelleVide,
   dansLeFil = false,
+  onNom,
 }: {
   dansLeFil?: boolean;
+  /**
+   * LE NOM MÈNE À LA BASE, LE CHEVRON OUVRE LA LISTE (03/11/2026) : dans le fil d'Ariane, un appui sur le nom revient à
+   * l'accueil de la marque ou du projet ; seul le chevron, à côté, ouvre la liste des autres. Absent : tout le cran
+   * ouvre la liste, comme avant.
+   */
+  onNom?: () => void;
   id: string;
   nom: string;
   icone: React.ReactNode;
@@ -81,9 +88,36 @@ export function SelecteurDeProjet({
   );
   const retenus = filtrerLesSites(choix, filtre);
   const marque = (suffixe: string, valeur = '') => ({ [`data-${repere}-${suffixe}`]: valeur });
+  const nomSepare = dansLeFil && !!onNom;
   return (
+    <span className={nomSepare ? 'flex min-w-0 items-center gap-0.5' : 'contents'} data-cran-nom-et-liste={nomSepare ? '' : undefined}>
+    {nomSepare ? (
+      <button
+        type="button"
+        onClick={onNom}
+        className="-ml-1 flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-raised sm:px-1 sm:py-1"
+        title={t('Revenir à l’accueil de {nom}', { nom })}
+        {...marque('nom')}
+      >
+        {icone}
+        <EmplacementDuTitreDePage.Provider value={null}>
+          <DialogTitle className="min-w-0 truncate text-[14.5px] font-medium">{nom}</DialogTitle>
+        </EmplacementDuTitreDePage.Provider>
+      </button>
+    ) : null}
     <DropdownMenu onOpenChange={(ouvert) => !ouvert && setFiltre('')}>
       <DropdownMenuTrigger asChild>
+        {nomSepare ? (
+          <button
+            type="button"
+            className="flex h-6 shrink-0 items-center justify-center rounded-md px-1 text-faint transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text"
+            title={libelleFiltre}
+            aria-label={libelleFiltre}
+            {...marque('selecteur')}
+          >
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        ) : (
         <button
           type="button"
           className={
@@ -101,6 +135,7 @@ export function SelecteurDeProjet({
           </EmplacementDuTitreDePage.Provider>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" />
         </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[60vh] sm:w-64">
         <div className="sticky top-0 z-10 bg-surface pb-1">
@@ -137,5 +172,6 @@ export function SelecteurDeProjet({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    </span>
   );
 }

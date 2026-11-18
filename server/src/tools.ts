@@ -3,6 +3,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  numeroDeDiscussion,
+  CONSIGNE_DES_FICHES_PROTEGEES,
   ETATS_DE_L_ANALYSE,
   GENRES_DE_SOURCE,
   MODES_DE_CLONAGE,
@@ -35,9 +37,14 @@ import {
   jugerDescription,
   jugerSynthese,
   jugerTitre,
+  estModeDeLaCarte,
+  estTypeDeMedia,
   MAX_SIGNES_TITRE,
   MIN_SIGNES_SYNTHESE,
   MAX_SIGNES_SYNTHESE,
+  refusDeQuestionSansPrix,
+  refusDExemplesOublies,
+  verdictDuLot,
   lireDateDeDepart,
   momentDeDepart,
   MAX_SIGNES_DESCRIPTION,
@@ -139,6 +146,9 @@ import {
   MAX_PISTES_D_EXEMPLE,
   aliasDe as aliasDeLaPiece,
   lettreDeLExemple,
+  relectureDuBrouillon,
+  issueDePropositionEnAuto,
+  REFUS_AUTO_MEME_PROJET,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -158,6 +168,8 @@ import {
   supprimerAcces,
   supprimerDossier,
 } from './coffre-fort.js';
+import { OUTIL_SERVICES, outilServices } from './services-des-agents.js';
+import { OUTIL_COMMUNICATION, estAgentDirecteur as estAgentDirecteurMarketing } from './directeur-marketing.js';
 import * as store from './store.js';
 
 /** L'image d'une option d'« ask_user » : l'identifiant d'une pièce jointe IMAGE connue, sinon rien. */
@@ -171,7 +183,7 @@ function mediaDOption(valeur: unknown): string | undefined {
   const piece = store.pieceJointeDesignee(valeur);
   return piece && /^(audio|video)\//.test(piece.mime) ? piece.id : undefined;
 }
-import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
+import { REFUS_SORTIE_GROUPE_LOCAL, REGLE_DE_LA_MAQUETTE_DU_CADRAGE, REGLE_DE_LA_MAQUETTE_REALISTE } from '@beluga/shared';
 import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
@@ -188,6 +200,7 @@ import {
   lireUnite,
   lusDansLaSession,
   markdownDeLaFiche,
+  lireLeBrouillon,
   noterAuBrouillon,
   noterUneLecture,
   proposerUniteAvecSens,
@@ -241,6 +254,7 @@ import {
   resultatsDuProjet,
   rythmeDuProjet,
 } from './marketing.js';
+import { estAgentDUnMontage, estAgentStudio } from './studio.js';
 import { visuelsDuContenu } from './visuels-marketing.js';
 import {
   compterMessagesNonLus,
@@ -253,6 +267,7 @@ import { ecrireLeCahier, estAgentDuCahier, ouvrirLeCahierDesCharges } from './ca
 import { ecrireLaRealisation, estAgentDuQuestionnaireDeRealisation, lireLeDocumentDeRealisation } from './realisation-questionnaire.js';
 import type { ServeurMcp } from './rea.js';
 import {
+  DEFINITION_OUTIL_STUDIO,
   LABEL_MARKETING,
   jugerParcours,
   jugerReperes,
@@ -284,6 +299,7 @@ import {
   recetteProposee,
   CLES_CANAUX,
   RESEAUX_SOCIAUX,
+  estReseauSocial,
   type IssueDArchive,
 } from '@beluga/shared';
 import { log } from './logger.js';
@@ -300,6 +316,11 @@ import {
 } from './competences.js';
 import { synchroniserSansEchec } from './competences-memoire.js';
 import { importerUneBibliotheque } from './bibliotheques-competences.js';
+import { cheminDansUnDechiffrement, ouvrirLaFicheProtegee } from './lot-competences-clients.js';
+
+/** Un fichier d'une compétence protégée ouverte ne sort jamais de la machine. */
+const REFUS_D_UNE_FICHE_PROTEGEE =
+  'Refusé : ce fichier appartient à une compétence protégée (licence d’autrui). Elle s’applique, elle ne se transmet pas.';
 
 /** Une liste écrite en une ligne : « mobile, interface » → deux entrées. */
 function decouperListe(valeur?: string): string[] | undefined {
@@ -313,7 +334,6 @@ function decouperListe(valeur?: string): string[] | undefined {
 import { creneauPourUneCarte } from './heure-de-lancement.js';
 import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
-import { deleguer, evaluer, suggererModele } from './mode-creation.js';
 import { fabriquerUnApercu, realiser } from './realisation.js';
 import { estAgentDeProduction, production } from './responsable-creatif.js';
 import { chercherUnDoublon, proposerUnNiveau } from './jugement-rapide.js';
@@ -321,6 +341,13 @@ import { UNITES_RECUES_PAR_L_AGENT, garderLesUnitesPertinentes } from './recherc
 
 const execFileAsync = promisify(execFile);
 
+
+import { OUTIL_CAPTURE, outilCapture } from './outil-capture.js';
+import { OUTIL_CHROME, outilChrome } from './outil-chrome.js';
+import { unChromeEstRelie } from './extension-chrome.js';
+import { OUTIL_IPHONE, outilIphone } from './outil-iphone.js';
+import { OUTIL_ORDINATEUR, outilOrdinateur } from './outil-ordinateur.js';
+import { unRelaisEstRelie } from './relais-mac.js';
 
 export interface ToolDef {
   name: string;
@@ -494,9 +521,36 @@ function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analy
  * Ce qu'on exige de la description, selon QUI propose. Le chef d'orchestre
  * trie : sa carte est courte, et c'est voulu. Tout autre rôle qui propose une
  * carte vient d'étudier le projet : il garde les quatre parties.
+ *
+ * L'ASSISTANT GLOBAL (chef d'orchestre / Jarvis, au clavier comme à la voix)
+ * porte le rôle 'task' mais n'étudie pas le code : il relève de l'exigence
+ * COURTE (16/11/2026 — il refusait toute création de carte, faute de
+ * « constats précis », et l'annonçait comme un manque de droits).
  */
-function exigenceDuRole(role: ToolContext['role']): ExigenceDescription {
-  return role === 'cadrage' ? 'courte' : 'complete';
+function exigenceDuRole(ctx: Pick<ToolContext, 'role' | 'agentId' | 'voix'>): ExigenceDescription {
+  if (ctx.role === 'cadrage') return 'courte';
+  return estAssistantGlobal(ctx) ? 'courte' : 'complete';
+}
+
+function estAssistantGlobal(ctx: Pick<ToolContext, 'agentId' | 'voix'>): boolean {
+  return !!ctx.voix || !!store.getAgent(ctx.agentId)?.assistantGlobal;
+}
+
+/**
+ * La description d'une proposition, avec la retombée propre à l'assistant
+ * global : sans description ni parties, sa SYNTHÈSE (`contexte`) en tient lieu
+ * — la consigne de la voix ne donne que titre, niveau, contexte et projet.
+ * Aucun autre agent n'a cette retombée.
+ */
+function descriptionDuProposant(args: any, ctx: Pick<ToolContext, 'role' | 'agentId' | 'voix'>): { description: string } | { refus: string } {
+  const exigence = exigenceDuRole(ctx);
+  const sansTexte =
+    !(typeof args?.description === 'string' && args.description.trim()) &&
+    !['intro', 'constat', 'attendu', 'limites', 'verification'].some((cle) => typeof args?.[cle] === 'string' && args[cle].trim());
+  if (sansTexte && estAssistantGlobal(ctx) && typeof args?.contexte === 'string' && args.contexte.trim()) {
+    return descriptionDeProposition({ ...args, description: args.contexte }, exigence);
+  }
+  return descriptionDeProposition(args, exigence);
 }
 
 /**
@@ -556,7 +610,7 @@ async function etapesDeProposition(
     if (!brute || typeof brute !== 'object') return { refus: `${nom} : une étape est un objet (title, description, contexte, niveau). Rien n'a été proposé.` };
     const verdictTitre = jugerTitre(brute.title);
     if (!verdictTitre.ok) return { refus: `${nom} : ${verdictTitre.message}` };
-    const texte = descriptionDeProposition(brute, exigenceDuRole(ctx.role));
+    const texte = descriptionDuProposant(brute, ctx);
     if ('refus' in texte) return { refus: `${nom} : ${texte.refus}` };
     const synthese = syntheseDeProposition(brute);
     if ('refus' in synthese) return { refus: `${nom} : ${synthese.refus}` };
@@ -630,6 +684,8 @@ function descriptionDeProposition(
  * niveau de l'outil, pas dans la consigne (PLAN §2 principe 3).
  */
 export const TOOL_DEFS: ToolDef[] = [
+  // LE STUDIO : servi à l'agent d'une création et aux agents d'une carte qui a un montage (`outilServiA`).
+  DEFINITION_OUTIL_STUDIO as ToolDef,
   {
     name: 'board_list_cards',
     description: 'Liste les cartes du tableau du projet, avec leur colonne et leur état.',
@@ -650,11 +706,33 @@ export const TOOL_DEFS: ToolDef[] = [
         title: CHAMP_TITRE,
         description: { type: 'string', description: CHAMP_DESCRIPTION },
         contexte: CHAMP_SYNTHESE,
+        points_securite: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            "SEULEMENT pour l'agent de sécurité d'un projet suivi (service « Sécurité ») : les empreintes entre crochets des points du rapport que cette carte corrige. Ils passeront « En correction » à la création de la carte, et un audit repassera seul à sa mise en ligne.",
+        },
         constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
         attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
         verification: { type: 'string', description: "Comment savoir que c'est fait" },
         niveau: CHAMP_NIVEAU,
+        moteur: {
+          type: 'string',
+          description:
+            "Facultatif : le MOTEUR qui exécutera la carte (« claude », « codex »…), quand l'utilisateur l'a choisi — à la voix notamment. Sans lui, le moteur de la conversation.",
+        },
+        modele: {
+          type: 'string',
+          description:
+            "Facultatif, avec « moteur » : l'identifiant du MODÈLE choisi par l'utilisateur. Absent ou inconnu du moteur : le niveau choisit le modèle.",
+        },
+        reflexion: {
+          type: 'string',
+          enum: ['low', 'medium', 'high', 'xhigh', 'max'],
+          description:
+            "Facultatif, avec « moteur » et « modele » : la RÉFLEXION de l'agent qui exécutera la carte (« low » basse, « high » haute). Inconnue du modèle : sa réflexion par défaut.",
+        },
         labels: { type: 'array', items: { type: 'string' } },
         depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
@@ -687,6 +765,13 @@ export const TOOL_DEFS: ToolDef[] = [
          * réels (`shared/src/niveau-agent.ts`).
          */
         niveau: CHAMP_NIVEAU,
+        /* LE MODE CHOISI PAR L'AGENT DE CADRAGE (12/11/2026) — question seulement dans le vrai doute. */
+        mode: {
+          type: 'string',
+          enum: ['plan', 'studio', 'aucun'],
+          description: 'Cadrage : le mode que TU choisis pour la carte (plan = gros travail, studio = média à fabriquer, aucun = défaut). La consigne du mode te revient dans la réponse.',
+        },
+        media: { type: 'string', enum: ['video', 'image', 'son', 'musique', 'voix', 'bruitages'], description: 'Avec mode « studio » : le type de média confirmé' },
       },
     },
   },
@@ -880,6 +965,15 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  /* L'OUTIL DE CAPTURES D'ÉCRAN, DE MAQUETTES ET DE PLAQUETTE CLIENT (`server/src/outil-capture.ts`). */
+  OUTIL_CAPTURE,
+  /* LE PILOTAGE DU CHROME DE LA PERSONNE (`server/src/outil-chrome.ts`) — servi seulement si un Chrome est relié. */
+  OUTIL_CHROME,
+  /* LE VRAI IPHONE PAR LA RECOPIE DU MAC (`server/src/outil-iphone.ts`) — servi seulement si un relais du Mac est relié. */
+  OUTIL_IPHONE,
+  /* LES ORDINATEURS DE LA PERSONNE, ET LES APPLICATIONS DU MAC (`server/src/outil-ordinateur.ts`) — servi seulement si un
+     navigateur ou un programme du Mac est relié. */
+  OUTIL_ORDINATEUR,
   {
     name: 'media_en_cours',
     description:
@@ -964,12 +1058,13 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'exemple_de_choix',
     description:
-      "FABRIQUE LES EXEMPLES D'UN CHOIX qui se voit ou s'entend, après que l'utilisateur a dit oui aux exemples : une pièce jointe par piste (4 au plus), à passer ensuite dans « image » (ou « media » pour une voix) des options d'ask_user. « nature » : « page » — pour un élément d'interface, un encadré, des couleurs en situation, une mise en page, une typographie : écris pour chaque piste une page HTML COMPLÈTE et autonome (styles en ligne, aucune ressource extérieure, l'élément montré en grand dans un cadre de 960×640), photographiée par le serveur, sans frais ; « image » — une illustration, un logo, une ambiance : « consigne » décrit l'image, fabriquée par Codex du serveur sans frais, sinon par un service externe plafonné à 1 $ par carte (au-delà : refus, continue en mots et dis-le) ; « voix » — « texte » à faire entendre, voix d'essai du serveur, sans frais. Un refus de service se dit tel quel à l'utilisateur.",
+      "FABRIQUE LES EXEMPLES D'UN CHOIX qui se voit ou s'entend, après que l'utilisateur a dit oui aux exemples (ou, au cadrage, LA MAQUETTE DE L'ÉCRAN FINAL, d'office, une seule piste) : une pièce jointe par piste (4 au plus), à passer ensuite dans « image » (ou « media » pour une voix) des options d'ask_user. « nature » : « page » — pour un élément d'interface, un encadré, des couleurs en situation, une mise en page, une typographie : écris pour chaque piste une page HTML COMPLÈTE et autonome (styles en ligne, aucune ressource extérieure ; la zone montrée à sa taille réelle, « largeur » × « hauteur », 960×640 par défaut), photographiée par le serveur, sans frais ; « image » — une illustration, un logo, une ambiance : « consigne » décrit l'image, fabriquée par Codex du serveur sans frais, sinon par un service externe plafonné à 1 $ par carte (au-delà : refus, continue en mots et dis-le) ; « voix » — « texte » à faire entendre, voix d'essai du serveur, sans frais. Un refus de service se dit tel quel à l'utilisateur. " + REGLE_DE_LA_MAQUETTE_REALISTE,
     inputSchema: {
       type: 'object',
       required: ['nature', 'pistes'],
       properties: {
         nature: { type: 'string', enum: [...NATURES_D_EXEMPLE] },
+        theme: { type: 'string', enum: ['sombre', 'clair'], description: 'Nature « page » : le thème des jetons posés d’office (sombre par défaut)' },
         pistes: {
           type: 'array',
           maxItems: MAX_PISTES_D_EXEMPLE,
@@ -979,6 +1074,8 @@ export const TOOL_DEFS: ToolDef[] = [
             properties: {
               titre: { type: 'string', description: 'Le libellé de la piste, tel qu’il sera dans l’option' },
               html: { type: 'string', description: 'Nature « page » : la page entière' },
+              largeur: { type: 'number', description: 'Nature « page » : la largeur réelle de la zone montrée, en pixels (240 à 1600)' },
+              hauteur: { type: 'number', description: 'Nature « page » : sa hauteur réelle, en pixels (120 à 1400)' },
               consigne: { type: 'string', description: 'Nature « image » : la description de l’image' },
               texte: { type: 'string', description: 'Nature « voix » : la phrase à faire entendre' },
             },
@@ -996,6 +1093,19 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         projet: { type: 'string', description: "Le NOM exact (ou l'identifiant) du projet d'accueil" },
         raison: { type: 'string', description: 'Pourquoi cette carte appartient à ce projet, en une phrase simple' },
+      },
+    },
+  },
+  {
+    name: 'bilan_du_travail',
+    description:
+      "MODE AUTO DE LA CARTE : l'utilisateur ne relira pas avant la suite. JUSTE AVANT ta réponse finale, déclare honnêtement l'état de ton travail : « abouti » vrai seulement si TOUT ce qui était demandé est fait, vérifié, enregistré et sauvegardé ; sinon faux, et « restes » liste ce qui manque ou ce qui échoue (une ligne par point, en mots simples). Un travail inachevé est relancé automatiquement sur ces points (deux fois au plus), puis la carte s'arrête et l'utilisateur est prévenu.",
+    inputSchema: {
+      type: 'object',
+      required: ['abouti'],
+      properties: {
+        abouti: { type: 'boolean', description: 'Vrai seulement si tout est fait, vérifié, enregistré et sauvegardé' },
+        restes: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à faire ou ce qui échoue, une ligne par point' },
       },
     },
   },
@@ -1026,7 +1136,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'rendre_comprehension',
     description:
-      `CADRAGE — rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est le MESSAGE affiché à l'utilisateur, en mots courants, à la longueur que la situation appelle : au premier rendu ce qui sera fait, ensuite seulement ce qui change. Le second (« partieTechnique ») n'est PAS affiché : il part à l'agent qui exécutera, c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé, et il se reprend EN ENTIER à chaque appel. Le démon écrit le tout sur la carte ; ne le recopie pas en texte.`,
+      `CADRAGE — rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est le MESSAGE affiché à l'utilisateur, en mots courants, à la longueur que la situation appelle : à CHAQUE rendu la compréhension COMPLÈTE et à jour (la réponse à la question éventuelle en premier point), jamais un différentiel — l'écran marque lui-même en violet ce qui a changé depuis la précédente. Le second (« partieTechnique ») n'est PAS affiché : il part à l'agent qui exécutera, c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé, et il se reprend EN ENTIER à chaque appel. Le démon écrit le tout sur la carte ; ne le recopie pas en texte. ${REGLE_DE_LA_MAQUETTE_DU_CADRAGE}`,
     inputSchema: {
       type: 'object',
       required: ['texte', 'resumeDemande', 'resumeComprehension', 'partieTechnique'],
@@ -1313,7 +1423,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "LES TYPES — ce qui entre, et ce qui n'y entre pas : " +
       TYPES_UNITE.map((t) => `${t} = ${DEFINITION_TYPE[t]}`).join(' ') +
       " Le moteur choisit la fiche et l'identifiant, fusionne un doublon, et REFUSE avec sa raison un journal, un raisonnement, une commande triviale, une hypothèse ou le récit d'une tâche. " +
-      "« changelog » écrit l'entrée de ta carte au journal des changements, lu par quelqu'un qui ne programme pas : « titre » (ce qui a changé, en mots courants, jamais un nom de branche), « explication » (deux à quatre phrases : ce qui a changé, puis à quoi ça sert) et « poids » (grande-nouveaute pour une fonctionnalité entière qu'on annoncerait à un client, amelioration, correction, retrait, detail pour le bruit). Une entrée trop pauvre est refusée avec sa raison. « brouillon » garde une note de travail liée à ta carte (WORKING) : jamais servie comme mémoire, effacée à la fermeture de la carte.",
+      "« changelog » écrit l'entrée de ta carte au journal des changements, lu par quelqu'un qui ne programme pas : « titre » (ce qui a changé, en mots courants, jamais un nom de branche), « explication » (deux à quatre phrases : ce qui a changé, puis à quoi ça sert) et « poids » (grande-nouveaute pour une fonctionnalité entière qu'on annoncerait à un client, amelioration, correction, retrait, detail pour le bruit). Une entrée trop pauvre est refusée avec sa raison. « brouillon » garde une note de travail liée à ta carte (WORKING) : jamais servie comme mémoire, effacée à la fermeture de la carte ; sans « texte », il RELIT les notes de ta carte dans l'ordre.",
     inputSchema: {
       type: 'object',
       required: ['geste'],
@@ -1340,7 +1450,7 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             'Pour « proposer », facultatif : un second titre pour la PERSONNE qui lit la mémoire à l’écran — 4 à 9 mots en français courant, ce que ça fait pour l’utilisateur, aucun nom de fichier, de fonction ni de technologie. Ton « titre » technique reste celui des agents.',
         },
-        texte: { type: 'string', description: 'La note de « brouillon »' },
+        texte: { type: 'string', description: 'La note de « brouillon » (absente : relecture du brouillon de la carte)' },
         classeur: { type: 'string', enum: ['projet', 'global'], description: 'La portée de « lire » et de « proposer » : le projet (défaut) ou le global' },
       },
     },
@@ -1350,7 +1460,8 @@ export const TOOL_DEFS: ToolDef[] = [
     description:
       "Le POOL DE COMPÉTENCES : des fiches COMMUNES (valables partout) et des fiches PROPRES À UN PROJET (son interface, " +
       "son fonctionnement, sa structure, ses technologies). Chaque fiche est aussi une unité de la mémoire : l'outil " +
-      "« memoire », geste « chercher », les trouve. Six actions. « lister » rend les fiches communes et celles de TON projet " +
+      "« memoire », geste « chercher », les trouve. Sept actions. « ouvrir » (« nom ») rend le chemin du mode d'emploi d'une fiche — " +
+      "c'est la SEULE façon de lire une compétence PROTÉGÉE, dont le contenu n'existe en clair que le temps de ton tour. « lister » rend les fiches communes et celles de TON projet " +
       "(« tous » : vrai pour le pool entier), leur portée, leur état et leur confiance. « ecrire » crée ou COMPLÈTE une fiche " +
       "— « projets » = le nom EXACT du projet pour une fiche propre, absent ou « tous » pour une commune ; compléter une fiche " +
       "sans redonner « projets » garde sa portée, et l'écriture REMPLACE son texte : relis-la, puis redonne-la entière. Une " +
@@ -1369,7 +1480,7 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         action: {
           type: 'string',
-          enum: ['lister', 'ecrire', 'retour', 'importer', 'etat', 'rattrapage'],
+          enum: ['lister', 'ecrire', 'retour', 'importer', 'etat', 'rattrapage', 'ouvrir'],
           description: 'Ce que tu veux faire',
         },
         tous: { type: 'boolean', description: 'Pour « lister » : le pool entier, fiches des autres projets comprises' },
@@ -1581,15 +1692,27 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER RÉSEAUX SOCIAUX DE CE PROJET (outil « marketing ») — réservé à l'agent des réseaux sociaux du projet et à l'assistant de l'application (qui nomme le projet visé). « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER RÉSEAUX SOCIAUX DE CE PROJET (outil « marketing ») — réservé à l'agent des réseaux sociaux du projet et à l'assistant de l'application (qui nomme le projet visé). « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre) ; « connexion » (pour l'agent de connexion : reseau, etat en_cours|connecte|bloque, mode officiel|chrome, compte, note — l'état que la page Connexion montre) ; « lien_officiel » (reseau : l'adresse de la connexion officielle, à ouvrir dans Chrome) ; « publication » (pour l'agent qui publie par Chrome : contenuId, compteId, url ou echec — clôt l'envoi, une seule fois). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['lire', 'configurer', 'fiche', 'canaux', 'action', 'contenu', 'poser_suivi', 'rapport', 'messages', 'reponse', 'application'] },
+        action: { type: 'string', enum: ['lire', 'configurer', 'fiche', 'canaux', 'action', 'contenu', 'poser_suivi', 'rapport', 'messages', 'reponse', 'application', 'connexion', 'lien_officiel', 'publication'] },
+        projet: { type: 'string', description: 'Le projet visé, par son nom (directeur marketing et assistant de l’application)' },
         canaux: { type: 'array', items: { type: 'string', enum: [...CLES_CANAUX, 'autre'] }, description: 'Pour « contenu » : TOUS les canaux du contenu (le premier devient le principal)' },
         messageId: { type: 'string', description: 'Pour « reponse » : le message auquel tu proposes une réponse' },
-        reseau: { type: 'string', enum: [...RESEAUX_SOCIAUX], description: 'Pour « application »' },
+        reseau: { type: 'string', enum: [...RESEAUX_SOCIAUX], description: 'Pour « application », « connexion » et « lien_officiel »' },
+        etat: { type: 'string', description: 'Pour « application » : en_validation | validee. Pour « connexion » : en_cours | connecte | bloque' },
+        mode: { type: 'string', enum: ['officiel', 'chrome'], description: 'Pour « connexion » avec etat « connecte » : comment le réseau publiera' },
+        compte: { type: 'string', description: 'Pour « connexion » : le nom affiché du compte (@marque, nom de la page)' },
+        contenuId: { type: 'string', description: 'Pour « publication » : le contenu publié par Chrome' },
+        compteId: { type: 'string', description: 'Pour « publication » : le compte sur lequel il est parti' },
+        url: { type: 'string', description: 'Pour « publication » : l’adresse du post publié' },
+        echec: { type: 'string', description: 'Pour « publication » : ce qui a empêché de publier, en une phrase' },
         clientId: { type: 'string', description: 'Pour « application » : l’identifiant public de l’application développeur' },
+        configConnexion: {
+          type: 'string',
+          description: 'Pour « application » (Meta) : l’« ID de configuration » de la connexion unifiée Instagram (Cas d’utilisation Instagram → API setup with Unified login). Réglé, « Relier » Instagram relie aussi un compte sans page Facebook ; vide pour le retirer.',
+        },
         secret: { type: 'string', description: 'Pour « application » : le secret de l’application (rangé au coffre)' },
         note: { type: 'string', description: 'Pour « application » : ce qui reste à faire, en une ou deux phrases' },
         rapport: { type: 'string', description: 'Pour « rapport » : le rapport entier, en Markdown' },
@@ -1627,6 +1750,9 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['action'],
     },
   },
+  /* TOUS LES SERVICES POUR TOUT AGENT, avec les droits de son interlocuteur (`services-des-agents.ts`). */
+  OUTIL_SERVICES,
+  OUTIL_COMMUNICATION as ToolDef,
   {
     name: 'statistiques',
     description:
@@ -1726,7 +1852,9 @@ export const TOOL_DEFS: ToolDef[] = [
       "La recette a le format des surveillances (« appel » ou « parcours ») et ne porte JAMAIS de secret (« acces » référence une fiche du coffre). " +
       "Pour lire une page où l'on est CONNECTÉ, nomme le « profil » du navigateur d'essai (compétence dev-browser) : seules les étapes aller, attendre (ms) et verifierTexte y sont permises. " +
       "L'outil ESSAIE la recette : « pas encore » est le résultat attendu ; une panne du contrôle est refusée ; un blocage déjà levé aussi (poursuis alors). " +
-      "« essai: true » essaie sans rien poser. Posée, la carte passe en pause sur place : termine ton tour par une phrase courte. " +
+      "« essai: true » essaie sans rien poser. « moment » : « pour-continuer » (défaut) quand tu attends un tiers pour POURSUIVRE ton travail — la carte passe en pause sur place et la levée te relance ; " +
+      "« apres-deploiement » quand ton travail est FINI et que la veille ne fait que CONTRÔLER son résultat une fois en ligne — la carte part « À déployer », la veille démarre au déploiement et sa levée est notée sans te relancer. " +
+      "Posée, termine ton tour par une phrase courte. " +
       "48 h au plus ; à l'échéance, l'utilisateur choisit de prolonger, te relancer ou abandonner.",
     inputSchema: {
       type: 'object',
@@ -1743,6 +1871,7 @@ export const TOOL_DEFS: ToolDef[] = [
         intervalleMinutes: { type: 'number', description: 'Tous les combien de minutes (15 au plus souvent, 360 au plus rarement, 60 par défaut)' },
         dureeHeures: { type: 'number', description: 'Échéance en heures (48 au plus, 48 par défaut)' },
         essai: { type: 'boolean', description: 'Essayer la recette sans rien poser' },
+        moment: { type: 'string', enum: ['pour-continuer', 'apres-deploiement'], description: "« pour-continuer » (défaut) : tu attends un tiers pour poursuivre ; « apres-deploiement » : ton travail est fini, la veille contrôle le résultat une fois en ligne" },
       },
       required: ['raison', 'url'],
     },
@@ -1847,34 +1976,6 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   /*
-   * LES OUTILS DU MODE « CRÉATION ». Ils ne sont servis qu'à l'agent d'une
-   * carte où l'interrupteur est allumé (`toolsFor(role, { creation })`) : les
-   * autres tours n'en paient pas la description.
-   */
-  {
-    name: 'deleguer',
-    description:
-      "MODE CRÉATION — confie une contribution PONCTUELLE à un autre modèle du serveur, selon la répartition réglée : « texte » (rédaction), « code » (programmation) ou « avis » (regard neuf). Le modèle consulté LIT la copie de travail mais n'écrit rien ; sa réponse te revient en texte, à toi d'assembler et d'appliquer. Borné dans le temps ; les avis sont plafonnés par tour.",
-    inputSchema: {
-      type: 'object',
-      required: ['role', 'consigne'],
-      properties: {
-        role: { type: 'string', enum: ['texte', 'code', 'avis'], description: 'Le rôle consulté' },
-        consigne: { type: 'string', description: 'Ce que tu attends, précisément : le but, les contraintes, la forme du rendu' },
-        fichiers: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Chemins utiles, relatifs à la copie de travail (facultatif)',
-        },
-        moteur: {
-          type: 'string',
-          enum: [...IDS_MOTEURS],
-          description: 'Rôle « avis » seulement : viser un des moteurs d’avis réglés (facultatif)',
-        },
-      },
-    },
-  },
-  /*
    * L'OUTIL DU RESPONSABLE CRÉATIF (studio créatif, carte 2, 24/10/2026) : la
    * chaîne d'écriture d'une production, EN TEXTE et SANS DÉPENSE. Servi au
    * cadrage ET à la tâche d'une carte caméra (`estAgentDeProduction`) ;
@@ -1955,12 +2056,12 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'realiser',
     description:
-      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget tenu par le serveur. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « brancher » (aucun service ne sait faire une capacité : pose la question avec l'encadré où l'utilisateur colle sa clé, fal.ai d'abord ; ATTEND sa réponse), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (une génération : modèle, prix, raison, étape — puis écris l'annonce dans ta réponse), « lot » (regroupe des devis : validé D'OFFICE s'il tient dans le prix accordé à l'arrêt 2, marge comprise ; sinon UN devis validé d'un clic dans la conversation, qui ATTEND la réponse), « generer » (lance un devis, ou tout un « lot » validé ; un devis hors lot repose la question), « suivre » (attend le résultat, qui paraît dans le fil et le volet de suivi), « lister » (médias, lots et total dépensé), « noter » (range une pièce écrite de la production — brief, concept, script, scène, plan, personnage, référence — en gardant ses versions), « retenir » (« id » : ajoute toi-même au suivi une image réussie, qui peut alors s'animer), « composer » (FABRICATION SUR LE SERVEUR, SANS FRAIS NI DEVIS : « geste » preparer → le dossier d'une composition HyperFrames avec ses bibliothèques locales et les « medias » copiés ; controler → déterminisme, lint, validate ; apercu → des images aux « instants », à regarder ; rendre → MP4 ou PNG par « formats », suivi par « suivre », rangé à 0 $ ; « html » écrit la page), « mots » (les temps de chaque mot d'une voix, pour les sous-titres au mot), « sons » (bruitages et musique synthétisés par Tone.js hors temps réel, en WAV, sans frais), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » et dit comment monter en composition), « ajouter » (range un fichier monté hors composition, ex. ffmpeg), « fixer_budget » (pose la question du budget ; après « Accepter », rappelle avec les mêmes montants), « methodes » (méthodes en service et leur note ; « methode » pour en lire une), « proposer_methode » (nouvelle version, activée seulement après l'accord : rappelle avec « version »), « avis » (demande si un média fini est gardé ; rappelle avec le même « id »), « decliner » (plan pour une autre « langue » : quoi réutiliser, refaire, resynchroniser), « media » (le détail complet d'un média : consigne, modèle, réglages, prix — pour le refaire ou le relancer), « lumiere » (APRÈS le choix du modèle de lumière : pose la sphère où l'utilisateur oriente la lumière, libre ou bloquée selon le modèle ; ATTEND sa réponse). UN DEVIS PEUT PORTER 1 À 4 PROPOSITIONS (« variantes »), jamais plus. ANIMER un plan (capacité « animation ») part de son image AJOUTÉE AU SUIVI (« source »), et va jusqu'à une IMAGE DE FIN (« fin ») quand l'utilisateur en choisit une ; le CONTRÔLE DU MOUVEMENT (« mouvement ») fait reprendre au personnage de « source » les gestes d'une vidéo de référence (« mouvement ») ; REFAIRE une image d'après elle-même (« retouche ») part de « source » avec la nouvelle consigne ; « modeles » avec « en_direct » (et « recherche ») lit TOUT le catalogue publié par fal.ai et Higgsfield, chaque modèle avec ses entrées, commandable au devis avec « parametres ». Les RETOUCHES d'une image (« angles », « lumiere », « visage ») partent de « source » avec « angle », « lumiere » ou « photos » + « cible ».",
+      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget tenu par le serveur. Actions : « chiffrer » (le prix TOTAL de chaque choix, en euros et en dollars, par « capacite », « modele », « duree » ou « texte », et « quantites » : sans frais, à toute étape, à recopier dans la description de chaque option d'une question de génération), « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « brancher » (aucun service ne sait faire une capacité : pose la question avec l'encadré où l'utilisateur colle sa clé, fal.ai d'abord ; ATTEND sa réponse), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (une génération : modèle, prix, raison, étape — puis écris l'annonce dans ta réponse), « lot » (regroupe des devis : validé D'OFFICE s'il tient dans le prix accordé à l'arrêt 2, marge comprise ; sinon UN devis validé d'un clic dans la conversation, qui ATTEND la réponse), « generer » (lance un devis, ou tout un « lot » validé ; un devis hors lot repose la question), « suivre » (attend le résultat, qui paraît dans le fil et le volet de suivi), « lister » (médias, lots et total dépensé), « noter » (range une pièce écrite de la production — brief, concept, script, scène, plan, personnage, référence — en gardant ses versions), « retenir » (« id » : ajoute toi-même au suivi une image réussie, qui peut alors s'animer), « choisir » (« lot » ou « plan » : QUAND LES VERSIONS D'UN LOT SONT PRÊTES, pose la question « Quelle version gardez-vous ? », versions lettrées A, B… et jouables ; la réponse valide la version et la pose sur sa piste du montage ; ATTEND sa réponse), « composer » (FABRICATION SUR LE SERVEUR, SANS FRAIS NI DEVIS : « geste » preparer → le dossier d'une composition HyperFrames avec ses bibliothèques locales et les « medias » copiés ; controler → déterminisme, lint, validate ; apercu → des images aux « instants », à regarder ; rendre → MP4 ou PNG par « formats », suivi par « suivre », rangé à 0 $ ; « html » écrit la page), « mots » (les temps de chaque mot d'une voix, pour les sous-titres au mot), « sons » (bruitages et musique synthétisés par Tone.js hors temps réel, en WAV, sans frais), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » et dit comment monter en composition), « ajouter » (range un fichier monté hors composition, ex. ffmpeg), « fixer_budget » (pose la question du budget ; après « Accepter », rappelle avec les mêmes montants), « methodes » (méthodes en service et leur note ; « methode » pour en lire une), « proposer_methode » (nouvelle version, activée seulement après l'accord : rappelle avec « version »), « avis » (demande si un média fini est gardé ; rappelle avec le même « id »), « decliner » (plan pour une autre « langue » : quoi réutiliser, refaire, resynchroniser), « media » (le détail complet d'un média : consigne, modèle, réglages, prix — pour le refaire ou le relancer), « lumiere » (APRÈS le choix du modèle de lumière : pose la sphère où l'utilisateur oriente la lumière, libre ou bloquée selon le modèle ; ATTEND sa réponse). UN DEVIS PEUT PORTER 1 À 4 PROPOSITIONS (« variantes »), jamais plus. ANIMER un plan (capacité « animation ») part de son image AJOUTÉE AU SUIVI (« source »), et va jusqu'à une IMAGE DE FIN (« fin ») quand l'utilisateur en choisit une ; le CONTRÔLE DU MOUVEMENT (« mouvement ») fait reprendre au personnage de « source » les gestes d'une vidéo de référence (« mouvement ») ; REFAIRE une image d'après elle-même (« retouche ») part de « source » avec la nouvelle consigne ; « modeles » avec « en_direct » (et « recherche ») lit TOUT le catalogue publié par fal.ai et Higgsfield, chaque modèle avec ses entrées, commandable au devis avec « parametres ». Les RETOUCHES d'une image (« angles », « lumiere », « visage ») partent de « source » avec « angle », « lumiere » ou « photos » + « cible ».",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['modeles', 'brancher', 'voix', 'devis', 'lot', 'generer', 'suivre', 'lister', 'noter', 'retenir', 'composer', 'mots', 'sons', 'monter', 'ajouter', 'fixer_budget', 'methodes', 'proposer_methode', 'avis', 'decliner', 'media', 'lumiere'] },
+        action: { type: 'string', enum: ['chiffrer', 'modeles', 'brancher', 'voix', 'devis', 'lot', 'generer', 'suivre', 'lister', 'noter', 'retenir', 'choisir', 'composer', 'mots', 'sons', 'monter', 'ajouter', 'fixer_budget', 'methodes', 'proposer_methode', 'avis', 'decliner', 'media', 'lumiere'] },
         geste: { type: 'string', enum: ['preparer', 'controler', 'apercu', 'rendre'], description: '« composer » : préparer le dossier, contrôler la page, en tirer des images, ou la rendre (vidéo ou image) sur le serveur, sans frais' },
         html: { type: 'string', description: '« composer » : la page ENTIÈRE de la composition (écrit index.html avant le geste)' },
         bibliotheques: { type: 'array', items: { type: 'string', enum: [...BIBLIOTHEQUES_DE_COMPOSITION.map((b) => b.id)] }, description: '« composer » preparer : les bibliothèques servies en local à copier (GSAP toujours)' },
@@ -1975,12 +2076,13 @@ export const TOOL_DEFS: ToolDef[] = [
         texte: { type: 'string', description: '« mots » : le texte connu de la voix (l’affichage le garde, la reconnaissance ne donne que les temps)' },
         capacite: {
           type: 'string',
-          enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'],
-          description: '« modeles » : filtrer par capacité (« synchro » : synchronisation labiale ; « animation » : une image retenue devient le plan vidéo, avec image de fin si le modèle la prend ; « mouvement » : le personnage d’une image reprend les gestes d’une vidéo ; « retouche » : refaire une image d’après elle-même ; « angles », « lumiere », « visage » : les retouches d’une image — la liste donne TOUS les modèles, branchés ou à brancher, avec leur prix) ; « devis » : la capacité voulue quand un même modèle en sert plusieurs',
+          enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche', 'visage-video', 'clonage-voix'],
+          description: '« modeles » : filtrer par capacité (« avatar » chez kie : un portrait « source » dit une voix « audio » ; « visage-video » : la personne de la photo « source » remplace celle de la vidéo « video » ; « clonage-voix » : la voix de l’enregistrement « audio » dit la consigne, par OpenRouter ; « synchro » : synchronisation labiale ; « animation » : une image retenue devient le plan vidéo, avec image de fin si le modèle la prend ; « mouvement » : le personnage d’une image reprend les gestes d’une vidéo ; « retouche » : refaire une image d’après elle-même ; « angles », « lumiere », « visage » : les retouches d’une image — la liste donne TOUS les modèles, branchés ou à brancher, avec leur prix) ; « devis » : la capacité voulue quand un même modèle en sert plusieurs',
         },
+        quantites: { type: 'array', items: { type: 'number' }, description: '« chiffrer » : les quantités proposées à l’utilisateur (défaut 1, 2 et 4)' },
         capacites: {
           type: 'array',
-          items: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'] },
+          items: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche', 'visage-video', 'clonage-voix'] },
           description: '« brancher » : ce qu’il faut pouvoir fabriquer (par défaut : les types de média de la carte)',
         },
         etape: {
@@ -1989,7 +2091,7 @@ export const TOOL_DEFS: ToolDef[] = [
           description: '« devis » / « lot » : l’étape du volet de suivi que la génération sert',
         },
         devis_du_lot: { type: 'array', items: { type: 'string' }, description: '« lot » : les identifiants des devis réunis dans ce lot' },
-        lot: { type: 'string', description: '« generer » : l’identifiant d’un lot validé, pour lancer toutes ses générations' },
+        lot: { type: 'string', description: '« generer » : l’identifiant d’un lot validé, pour lancer toutes ses générations ; « choisir » : le lot dont les versions sont prêtes' },
         titre: { type: 'string', description: '« lot » : ce que le lot fabrique (« Plans finaux ») ; « noter » : le titre de la pièce' },
         genre: { type: 'string', enum: ['brief', 'concept', 'script', 'scene', 'plan', 'personnage', 'reference'], description: '« noter » : la sorte de pièce' },
         cle: { type: 'string', description: '« noter » : la clé stable de la pièce (« plan-2 ») ; la même clé écrit la version suivante' },
@@ -2014,7 +2116,7 @@ export const TOOL_DEFS: ToolDef[] = [
         methodes: { type: 'string', description: '« devis » : les méthodes suivies, par nom, séparées par des virgules' },
         methode: { type: 'string', description: '« methodes » / « proposer_methode » : le nom de la méthode' },
         domaine: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'montage', 'direction'], description: '« proposer_methode »' },
-        source: { type: 'string', description: '« devis » animation ou retouche, « lumiere » : l’identifiant du média IMAGE de départ (« lister ») ; « proposer_methode » : le dépôt évalué qui l’inspire (facultatif)' },
+        source: { type: 'string', description: '« devis » animation ou retouche, « lumiere » : l’identifiant du média IMAGE de départ (« lister ») ; « avatar » chez kie : le portrait (image finie ou jointe) ; « visage-video » : la photo du visage à poser ; « proposer_methode » : le dépôt évalué qui l’inspire (facultatif)' },
         variantes: { type: 'number', description: '« devis » : le nombre de propositions à fabriquer, de 1 à 4, CHOISI PAR L’UTILISATEUR (demande-le avant chaque génération)' },
         angle: {
           description: '« devis » angles : un angle de la liste (face, trois-quarts-gauche, trois-quarts-droite, profil-gauche, profil-droit, dos, plongee, contre-plongee, gros-plan, plan-large) ou { horizontal (0–360, 90 = côté droit), vertical (caméra basse < 0 < haute), zoom (0 large – 10 serré) }',
@@ -2031,42 +2133,21 @@ export const TOOL_DEFS: ToolDef[] = [
         en_direct: { type: 'boolean', description: '« modeles » : lire le catalogue COMPLET publié par fal.ai et Higgsfield (avec « service » et « modele » : les entrées exactes d’un modèle)' },
         recherche: { type: 'string', description: '« modeles » en direct : des mots de l’identifiant ou du nom (« kling », « seedance », « motion »)' },
         parametres: { type: 'object', description: '« devis » d’un modèle lu en direct : ses autres réglages, { nom: valeur }, vérifiés contre son schéma (jamais les adresses de fichiers, posées par le serveur)' },
+        place: {
+          type: 'object',
+          description: '« devis » / « ajouter » DANS LE STUDIO : OÙ IRA LE MÉDIA quand une version sera choisie, à annoncer DANS TA PROPOSITION et à dire en mots à l’utilisateur. { pisteId (facultatif, une piste de SON type), debut (s), duree (s), cadre: { x, y, largeur, hauteur } en pixels de la composition, pour un élément qui ne couvre pas toute l’image }. Sans place, le média va à la tête de lecture.',
+          properties: { pisteId: { type: 'string' }, debut: { type: 'number' }, duree: { type: 'number' }, cadre: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, largeur: { type: 'number' }, hauteur: { type: 'number' } } } },
+        },
+        fond: { type: 'string', description: '« devis » / « ajouter » : le fond UNI à retirer de la version choisie, sans frais et sur le serveur : « auto » (lu aux coins de l’image) ou « #rrggbb ». Fabrique alors sur un fond uni franc, éloigné des couleurs du sujet, et n’annonce jamais un détourage sans ce champ. Dans le Studio, un fond uni part de toute façon : « aucun » protège un décor plein cadre voulu.' },
+        role: { type: 'string', enum: ['preparation', 'livraison'], description: '« devis » / « ajouter » : « preparation » pour une image qui sert seulement de base à la suite (l’image de départ d’une animation) : la question propose Utiliser, Poser ou Aucune. « ajouter » : « livraison » pour un film terminé, qui n’appelle aucun choix.' },
         sans_image: { type: 'boolean', description: '« devis » vidéo : un plan SANS image de départ (texte vers vidéo), seulement avec l’accord écrit de l’utilisateur' },
         media: { type: 'string', description: '« media » : l’identifiant du média à détailler' },
         version: { type: 'string', description: '« proposer_methode » : l’identifiant de la version proposée, au rappel' },
         langue: { type: 'string', description: '« decliner » : la langue visée ; « devis » : la langue parlée (fr, en, de, es, it, pt, nl)' },
         langue_source: { type: 'string', description: '« decliner » : la langue d’origine (fr par défaut)' },
         carte: { type: 'string', description: '« decliner » : la carte de la production d’origine (celle-ci par défaut)' },
-        video: { type: 'string', description: '« devis » synchro : le média vidéo fini à resynchroniser' },
-        audio: { type: 'string', description: '« devis » synchro : la voix finie à poser' },
-      },
-    },
-  },
-  {
-    name: 'evaluer',
-    description:
-      "MODE CRÉATION — fait départager 2 à 5 propositions par le juge rapide (Jev), selon un critère. Son verdict est un CONSEIL : tu gardes le dernier mot. S'il n'est pas disponible ou pas assez sûr, il le dit et tu tranches.",
-    inputSchema: {
-      type: 'object',
-      required: ['propositions'],
-      properties: {
-        propositions: { type: 'array', items: { type: 'string' }, description: 'Les propositions, dans l’ordre' },
-        critere: { type: 'string', description: 'Sur quoi juger (facultatif) : clarté, justesse, originalité…' },
-      },
-    },
-  },
-  {
-    name: 'suggerer_modele',
-    description:
-      "MODE CRÉATION — propose à l'utilisateur de confier un rôle à un autre modèle que celui réglé, pour CETTE carte seulement. Pose une question Accepter / Refuser et ATTEND la réponse ; acceptée, la suggestion s'applique aux délégations suivantes du rôle. À réserver aux cas où le gain est net.",
-    inputSchema: {
-      type: 'object',
-      required: ['role', 'moteur', 'raison'],
-      properties: {
-        role: { type: 'string', enum: ['texte', 'code', 'avis'] },
-        moteur: { type: 'string', enum: [...IDS_MOTEURS] },
-        modele: { type: 'string', description: 'Un modèle réel de ce moteur (facultatif : son modèle par défaut)' },
-        raison: { type: 'string', description: 'Pourquoi ce modèle servirait mieux, en une ou deux phrases' },
+        video: { type: 'string', description: '« devis » synchro : le média vidéo fini à resynchroniser ; « visage-video » : la vidéo (média fini ou pièce jointe, 10 Mo au plus) dont la personne est remplacée' },
+        audio: { type: 'string', description: '« devis » synchro : la voix finie à poser ; « avatar » chez kie : la voix (finie ou jointe) que dit le présentateur ; « clonage-voix » : l’enregistrement joint de la voix à cloner (10 à 30 s)' },
       },
     },
   },
@@ -2164,6 +2245,7 @@ function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
 
 export const TASK_ONLY_TOOLS = new Set([
   'remember',
+  'bilan_du_travail',
   'relancer_publication',
   'rendre_reparation',
   'backup_recette',
@@ -2181,7 +2263,11 @@ export const TASK_ONLY_TOOLS = new Set([
  * agent ne le voit — ni ne repaie sa description à chaque tour.
  */
 export function outilServiA(nom: string, agentId: string): boolean {
-  if (nom === 'marketing') return estAgentMarketing(agentId);
+  /* LE DIRECTEUR MARKETING a l'outil des réseaux, en nommant le projet, et son outil à lui. */
+  if (nom === 'marketing') return estAgentMarketing(agentId) || estAgentDirecteurMarketing(agentId);
+  if (nom === 'communication') return estAgentDirecteurMarketing(agentId);
+  // LE STUDIO : l'agent d'une création, et le directeur d'une carte qui a un montage (la retouche demandée en mots passe par les mêmes opérations).
+  if (nom === 'studio') return estAgentStudio(agentId) || estAgentDUnMontage(agentId);
   // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
   if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
   // Le cahier de réalisation : le seul cadrage d'une carte dont la caméra est allumée.
@@ -2200,9 +2286,46 @@ export function outilServiA(nom: string, agentId: string): boolean {
     const agent = store.getAgent(agentId);
     return !!agent && agent.role === 'task' && !!agent.cardId && !agent.assistantGlobal;
   }
+  /* LE BILAN DU MODE AUTO : le seul agent de TÂCHE d'une carte dont l'interrupteur « Auto » est allumé (`mode-auto.ts`).
+     Aucun autre agent ne le voit — ni ne repaie sa description. */
+  if (nom === 'bilan_du_travail') {
+    const agent = store.getAgent(agentId);
+    return !!agent && agent.role === 'task' && !!agent.cardId && !!store.getCard(agent.cardId)?.parcours?.lancementAutomatique;
+  }
   // Le verdict d'une réparation silencieuse : le seul agent qui la mène (`server/src/reparation-publication.ts`).
   if (nom === 'rendre_reparation') return Boolean(store.getAgent(agentId)?.reparationPublication);
   return true;
+}
+
+/**
+ * EN AUTO, TOUT SE FAIT DANS LA MÊME CARTE (`issueDePropositionEnAuto`, `shared/src/mode-auto.ts`, 15/11/2026) : ce que
+ * devient une carte proposée par l'agent d'une carte — ordinaire hors Auto, refusée pour le même projet, créée d'office
+ * pour un autre projet (une seule génération).
+ */
+function issueEnAutoDeLaProposition(agentId: string, projetDAccueil: string): ReturnType<typeof issueDePropositionEnAuto> {
+  const carteId = store.getAgent(agentId)?.cardId;
+  const carte = carteId ? store.getCard(carteId) : null;
+  if (!carte) return 'ordinaire';
+  return issueDePropositionEnAuto({
+    carteEnAuto: !!carte.parcours?.lancementAutomatique,
+    projetDeLaCarte: carte.projectId,
+    projetDAccueil,
+    carteNeeDAuto: store.carteNeeDUneCreationAuto(carte.id),
+  });
+}
+
+/** La proposition part au fil comme d'ordinaire ; Auto l'accepte juste après (`planifierLaCreationAuto`). */
+async function creationDOfficeEnAuto(agentId: string, proposal: TaskProposal, projetDAccueil: string): Promise<ToolResult> {
+  const { planifierLaCreationAuto } = await import('./mode-auto.js');
+  planifierLaCreationAuto(agentId, proposal.id);
+  const projet = store.getProject(projetDAccueil);
+  return {
+    ok: true,
+    text:
+      `Mode Auto : ${proposal.etapes?.length ? 'la suite' : 'la carte'} « ${proposal.title} » naît d'office dans le projet « ${projet?.name ?? 'visé'} », ` +
+      `elle-même en Auto : elle se cadrera et partira seule, sans clic. Rien n'est publié. Continue ici ce qui concerne ce projet-ci.`,
+    proposal,
+  };
 }
 
 /**
@@ -2242,9 +2365,6 @@ export const CADRAGE_ONLY_TOOLS = new Set([
   'apercu_de_realisation',
 ]);
 
-/** Les outils du mode « Création » : servis seulement quand la carte l'a allumé. */
-export const CREATION_TOOLS = new Set(['deleguer', 'evaluer', 'suggerer_modele']);
-
 /**
  * L'outil du mode « Réalisation » : servi à l'agent d'une carte où la caméra
  * est allumée — au CADRAGE aussi depuis le 26/10/2026 : le directeur artistique
@@ -2254,11 +2374,16 @@ export const CREATION_TOOLS = new Set(['deleguer', 'evaluer', 'suggerer_modele']
  */
 export const REALISATION_TOOLS = new Set(['realiser']);
 
-export function toolsFor(role: ToolContext['role'], options: { creation?: boolean; realisation?: boolean } = {}): ToolDef[] {
+export function toolsFor(role: ToolContext['role'], options: { realisation?: boolean } = {}): ToolDef[] {
+  /* L'OUTIL « chrome » NE COÛTE AUCUN JETON TANT QU'AUCUN CHROME N'EST RELIÉ (09/11/2026). */
+  const chromeRelie = unChromeEstRelie();
+  const relaisRelie = unRelaisEstRelie();
   const servis = TOOL_DEFS.filter(
     (t) =>
-      (options.creation || !CREATION_TOOLS.has(t.name)) &&
-      (options.realisation || !REALISATION_TOOLS.has(t.name)),
+      (options.realisation || !REALISATION_TOOLS.has(t.name)) &&
+      (t.name !== 'chrome' || chromeRelie) &&
+      (t.name !== 'iphone' || relaisRelie) &&
+      (t.name !== 'ordinateur' || chromeRelie || relaisRelie),
   );
   if (role === 'cadrage') return servis.filter((t) => !CADRAGE_BLOCKED_TOOLS.has(t.name));
   return servis.filter((t) => !CADRAGE_ONLY_TOOLS.has(t.name));
@@ -2310,6 +2435,12 @@ export interface ToolContext {
    * discuter avec Codex et se voir proposer du Claude n'a aucun sens.
    */
   run?: SouhaitReglages;
+  /**
+   * L'APPEL VIENT DE LA CONVERSATION VOCALE (Jarvis, `voix-directe.ts`) : quel que soit l'agent porteur — l'assistant
+   * ou une carte —, il propose comme l'assistant global (description courte, synthèse en `contexte`) et une carte en
+   * Auto ne détourne pas sa proposition (17/11/2026).
+   */
+  voix?: boolean;
 }
 
 /**
@@ -2329,6 +2460,22 @@ export interface ToolContext {
  * l'utilisateur plutôt que la conversation, avec un repli sur quota qui
  * n'atteint jamais Cursor tout seul (`moteurDuTriAutomatique`, DEC-156).
  */
+/**
+ * LE MOTEUR ET LE MODÈLE CHOISIS PAR L'UTILISATEUR (création d'une tâche à la voix, 15/11/2026) : « passe-la en
+ * approfondi, avec Codex » se traduit en « moteur » et « modele » sur la proposition. Le catalogue tranche ensuite
+ * comme pour tout souhait (`reglagesDeLaProposition`) : un moteur absent se DIT, un modèle d'un autre moteur est
+ * jeté et le niveau choisit. Sans « moteur », le souhait reste celui de la conversation.
+ */
+export function souhaitDeMoteurChoisi(args: Record<string, any>, run: SouhaitReglages | undefined): SouhaitReglages | undefined {
+  const moteur = typeof args.moteur === 'string' ? args.moteur.trim().toLowerCase() : '';
+  if (!moteur) return run;
+  const modele = typeof args.modele === 'string' && args.modele.trim() ? args.modele.trim() : undefined;
+  /* LA RÉFLEXION CHOISIE (règles de moteur de la voix, 16/11/2026) : « Opus en réflexion haute / basse ». Le catalogue
+     la garde si le modèle la connaît (`reglagesDeLaProposition`), sinon la réflexion par défaut du modèle. */
+  const reflexion = typeof args.reflexion === 'string' && /^(minimal|low|medium|high|xhigh|max)$/.test(args.reflexion.trim()) ? args.reflexion.trim() : undefined;
+  return { engine: moteur, ...(modele ? { model: modele } : {}), ...(reflexion ? { thinking: reflexion } : {}) };
+}
+
 async function reglagesProposes(
   souhait: SouhaitReglages | undefined,
   niveau: NiveauAgent | undefined,
@@ -2434,6 +2581,11 @@ export interface ToolResult {
   question?: AgentQuestion;
   download?: { id: string; label: string; size: number; expiresAt: number };
   attachment?: Attachment;
+  /**
+   * LA SUITE D'UNE QUESTION BLOQUANTE (accord de site, geste lourd, prise de main dans Chrome) : exécutée une fois
+   * la réponse donnée, son texte REMPLACE la réponse brute que reçoit le moteur (`attente-question.ts`).
+   */
+  suite?: (reponse: string) => Promise<string>;
 }
 
 /**
@@ -2564,7 +2716,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * Et rien ne s'affiche tant que la DESCRIPTION ne tient pas debout :
        * une carte pauvre condamne l'agent qui l'exécutera.
        */
-      const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
+      const texte = descriptionDuProposant(args, ctx);
       if ('refus' in texte) return { ok: false, text: texte.refus };
       /*
        * …et rien ne part non plus sans la SYNTHÈSE du besoin : c'est elle qui
@@ -2581,6 +2733,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const accueil = accueilDeLaProposition(ctx, args.projet);
       if ('refus' in accueil) return { ok: false, text: accueil.refus };
+      /*
+       * EN AUTO, TOUT SE FAIT DANS LA MÊME CARTE (`issueDePropositionEnAuto`, 15/11/2026) : une carte proposée pour le
+       * même projet est refusée — l'agent fait le travail ici ; pour un autre projet, elle y naîtra d'office, en Auto.
+       */
+      const issueEnAuto = ctx.voix ? 'ordinaire' : issueEnAutoDeLaProposition(ctx.agentId, accueil.projectId ?? ctx.projectId);
+      if (issueEnAuto === 'refus-meme-projet') return { ok: false, text: REFUS_AUTO_MEME_PROJET };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
       /*
@@ -2592,7 +2750,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (suite && 'refus' in suite) return { ok: false, text: suite.refus };
 
       const reglages = await reglagesProposes(
-        ctx.run,
+        souhaitDeMoteurChoisi(args, ctx.run),
         niveauDemande(args.niveau),
         ctx.role === 'analysis' ? { titre: String(args.title), description: texte.description, projectId: ctx.projectId } : undefined,
       );
@@ -2616,6 +2774,17 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...(accueil.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
+      /*
+       * UNE CARTE DE CORRECTION DE SÉCURITÉ EMPORTE SES POINTS (`server/src/service-securite.ts`) : notés contre la
+       * proposition, ils passeront « en correction » au clic « Créer la carte ». Seul l'agent de sécurité d'un projet
+       * suivi peut le demander, et seulement pour des points « à traiter ».
+       */
+      if (Array.isArray(args.points_securite) && args.points_securite.length) {
+        const { noterPropositionDeCorrection } = await import('./service-securite.js');
+        const lien = noterPropositionDeCorrection(ctx.agentId, proposal.id, args.points_securite.map(String));
+        if (!lien.ok) return { ok: false, text: lien.raison };
+      }
+      if (issueEnAuto === 'creation-d-office') return await creationDOfficeEnAuto(ctx.agentId, proposal, accueil.projectId ?? ctx.projectId);
       if (proposal.etapes?.length) {
         return {
           ok: true,
@@ -2672,6 +2841,19 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         const verdictTitre = jugerTitre(args.title);
         if (!verdictTitre.ok) return { ok: false, text: verdictTitre.message };
       }
+      /* LE MODE CONFIRMÉ DANS LA DISCUSSION (`mode-de-la-carte.ts`) : écrit d'abord, sa consigne rendue avec la réponse. */
+      let annonceMode = '';
+      if (args.mode !== undefined) {
+        if (!estModeDeLaCarte(args.mode)) return { ok: false, text: 'Mode inconnu : plan, studio ou aucun.' };
+        if (args.media !== undefined && !estTypeDeMedia(args.media)) return { ok: false, text: 'Type de média inconnu : video, image, son, musique, voix ou bruitages.' };
+        const { poserLeModeDeLaCarte } = await import('./mode-de-la-carte.js');
+        const pose = await poserLeModeDeLaCarte(card.id, ctx.agentId, args.mode, estTypeDeMedia(args.media) ? args.media : undefined);
+        if (!pose.ok) return { ok: false, text: pose.raison };
+        annonceMode = pose.texte;
+        const autres = Object.keys(args).filter((champ) => !['cardId', 'mode', 'media'].includes(champ) && args[champ] !== undefined);
+        if (!autres.length) return { ok: true, text: annonceMode };
+      }
+      const carteAJour = store.getCard(card.id) ?? card;
       const title = typeof args.title === 'string' ? args.title : card.title;
       const description = typeof args.description === 'string' ? args.description : card.description;
       /*
@@ -2718,7 +2900,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const titreProvisoire = typeof args.title === 'string' ? undefined : card.titreProvisoire;
       const updated = store.saveCard({
-        ...card,
+        ...carteAJour,
         title,
         titreProvisoire,
         description,
@@ -2777,7 +2959,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
       return {
         ok: true,
-        text: `Carte mise à jour : ${updated.title}.${annonceModele}${annonceSynthese}${annonceNiveau}`,
+        text: `Carte mise à jour : ${updated.title}.${annonceModele}${annonceSynthese}${annonceNiveau}${annonceMode ? `\n\n${annonceMode}` : ''}`,
       };
     }
 
@@ -2819,7 +3001,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!verdictTitre.ok) return { ok: false, text: verdictTitre.message };
       // Même exigence que board_create_card : une proposition sans description
       // solide n'est pas affichée, elle est rendue à réécrire.
-      const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
+      const texte = descriptionDuProposant(args, ctx);
       if ('refus' in texte) return { ok: false, text: texte.refus };
       // Même exigence de SYNTHÈSE que board_create_card : le fil de l'agent
       // s'ouvre sur ce texte, quel que soit l'outil qui a proposé la carte.
@@ -2833,6 +3015,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const accueil = accueilDeLaProposition(ctx, args.projet);
       if ('refus' in accueil) return { ok: false, text: accueil.refus };
+      /* EN AUTO, TOUT SE FAIT DANS LA MÊME CARTE — même règle que `board_create_card`. */
+      const issueEnAuto = issueEnAutoDeLaProposition(ctx.agentId, accueil.projectId ?? ctx.projectId);
+      if (issueEnAuto === 'refus-meme-projet') return { ok: false, text: REFUS_AUTO_MEME_PROJET };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
 
@@ -2859,6 +3044,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...(accueil.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
+      if (issueEnAuto === 'creation-d-office') return await creationDOfficeEnAuto(ctx.agentId, proposal, accueil.projectId ?? ctx.projectId);
       return {
         ok: true,
         text:
@@ -3101,6 +3287,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'make_archive': {
       const paths: string[] = Array.isArray(args.paths) ? args.paths.map(String) : [];
       if (!paths.length) return { ok: false, text: 'Aucun fichier demandé.' };
+      if (paths.some((p) => cheminDansUnDechiffrement(path.resolve(project.path, p)))) {
+        return { ok: false, text: REFUS_D_UNE_FICHE_PROTEGEE };
+      }
       try {
         const label = String(args.label ?? 'fichiers');
         const zip = await makeZip(project.path, paths, label);
@@ -3126,6 +3315,18 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return await fabriquerLesExemples({ agentId: ctx.agentId, projectId: ctx.projectId, cardId: ctx.cardId }, args);
     }
 
+    case 'capture':
+      return outilCapture(ctx, args);
+
+    case 'chrome':
+      return outilChrome(ctx, args);
+
+    case 'iphone':
+      return outilIphone(ctx, args);
+
+    case 'ordinateur':
+      return outilOrdinateur(ctx, args);
+
     case 'attach_file':
     case 'attach_screenshot': {
       const demande = String(args.path ?? '').trim();
@@ -3134,6 +3335,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const racines = racinesDeLAgent(ctx.agentId, project);
       const full = fichierPermis(demande, racines);
       if (!full) return { ok: false, text: refusDeChemin(demande, racines) };
+      if (cheminDansUnDechiffrement(full)) return { ok: false, text: REFUS_D_UNE_FICHE_PROTEGEE };
       /*
        * PLUS AUCUN REFUS SUR L'EXTENSION, ET LE SEUL REFUS QUI RESTE EST LE
        * POIDS : la mécanique (type, plafond de 200 Mo, empreinte, dédoublonnage,
@@ -3154,7 +3356,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const data = { length: jointure.taille };
       return {
         ok: true,
-        text: `Fichier joint à la conversation : ${attachment.name} (${Math.round(data.length / 1024)} ko). Il se télécharge d'un clic.`,
+        text:
+          `Fichier joint à la conversation : ${attachment.name} (${Math.round(data.length / 1024)} ko). Il se télécharge d'un clic.` +
+          (attachment.mime?.startsWith('image/') ? ` Pour le montrer dans ta réponse, pose seule sur une ligne : ![légende](piece:${attachment.id})` : ''),
         attachment,
       };
     }
@@ -3164,6 +3368,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
      * annoncé par l'agent, refermé par lui — ou en échec à la fin de son tour.
      * La fin range le fichier par `joindreUnFichier`, comme « attach_file ».
      */
+    case 'studio': {
+      if (!estAgentStudio(ctx.agentId) && !estAgentDUnMontage(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent d’une création du Studio, ou au directeur d’une carte qui a un montage.' };
+      // Chargé à l'appel : le module tire le rendu et la voix, inutiles à tout autre outil.
+      const { outilStudio } = await import('./outil-studio.js');
+      return outilStudio({ agentId: ctx.agentId, ...(ctx.cardId ? { cardId: ctx.cardId } : {}) }, project, args);
+    }
+
     case 'media_en_cours': {
       const action = String(args.action ?? '');
       if (action === 'debut') {
@@ -3199,29 +3410,23 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return { ok: true, text: `Aperçu posé dans le fil : ${jointure.attachment.name}.`, attachment: jointure.attachment };
     }
 
-    /*
-     * LE MODE « CRÉATION » : la mécanique vit dans `server/src/mode-creation.ts`.
-     * La suggestion de modèle rend une QUESTION, et suit donc exactement le
-     * chemin d'« ask_user » : l'appel reste ouvert jusqu'à la réponse.
-     */
-    case 'deleguer':
-      return deleguer(ctx, args);
     /* LE MODE « RÉALISATION » : la mécanique vit dans `server/src/realisation.ts`.
        Une question d'accord suit le chemin d'« ask_user » et ARRÊTE l'agent. */
     case 'realiser':
       return realiser(ctx, args);
     case 'production':
       return production(ctx, args);
-    case 'evaluer':
-      return evaluer(ctx, args);
-    case 'suggerer_modele': {
-      const suggestion = await suggererModele(ctx, args);
-      return suggestion.question ? { ok: true, text: texteSansAttente(), question: suggestion.question } : suggestion;
-    }
 
     case 'ask_user': {
       const libelle = String(args.question ?? '').trim();
       if (!libelle) return { ok: false, text: 'La question est vide.' };
+      /* LE CHEF DE MARQUE EN COULISSES NE QUESTIONNE PERSONNE (Communication 2) : personne ne lit son fil, une
+         question bloquerait son tour sans réponse. La règle est tenue par ce refus, pas seulement par sa consigne. */
+      {
+        const { questionRefuseeEnCoulisses } = await import('./communication-coulisses.js');
+        const refus = questionRefuseeEnCoulisses(ctx.agentId);
+        if (refus) return { ok: false, text: refus };
+      }
       const kind = ['single', 'multiple', 'text'].includes(args.kind) ? args.kind : 'single';
       const options = Array.isArray(args.options)
         ? args.options.slice(0, 8).map((opt: any, index: number) => ({
@@ -3246,6 +3451,33 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         typeof args.description === 'string' && args.description.trim()
           ? args.description.trim().slice(0, 1200)
           : undefined;
+
+      /* UN AGENT CRÉATIF NE PROPOSE PAS UNE GÉNÉRATION SANS SON PRIX (demande du 31/10/2026). */
+      if (ctx.cardId && store.getCard(ctx.cardId)?.parcours?.realisationSouhaitee) {
+        const refus = refusDeQuestionSansPrix({ question: libelle, ...(eclairage ? { description: eclairage } : {}), options });
+        if (refus) return { ok: false, text: refus };
+      }
+
+      /* AUCUN EXEMPLE FABRIQUÉ NE DISPARAÎT (décision du 04/11/2026,
+         `shared/src/exemples-oublies.ts`) : une question qui reprend une partie
+         du dernier lot d'exemples de l'agent et en oublie le reste est refusée
+         — l'utilisateur voyait quatre images dans le fil et deux cases vides
+         dans la question. Le refus repart au moteur sans poser d'attente. */
+      const { lotDExemplesEnAttente, oublierLeLot } = await import('./exemples-de-choix.js');
+      const lot = lotDExemplesEnAttente(ctx.agentId);
+      if (lot) {
+        const verdict = verdictDuLot(lot.pieces, options);
+        if (verdict.etat === 'incomplet') return { ok: false, text: refusDExemplesOublies(verdict.oublies, lot.champ, 8) };
+        if (verdict.etat === 'complet') {
+          /* La lettre de chaque exemple voyage sur son option : une image de
+             secours du service externe n'a pas de lettre dans son nom. */
+          for (const o of options as { image?: string; media?: string; lettre?: string }[]) {
+            const piece = lot.pieces.find((p) => p.id === o.image || p.id === o.media);
+            if (piece) o.lettre = piece.lettre;
+          }
+          oublierLeLot(ctx.agentId);
+        }
+      }
 
       const question = AgentQuestion.parse({
         id: store.newId(),
@@ -3321,6 +3553,20 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return {
         ok: true,
         text: consigneDArretApresDeplacement(vise.projet.name),
+      };
+    }
+
+    case 'bilan_du_travail': {
+      /* LE BILAN DÉCLARÉ EN MODE AUTO s'écrit sur la carte ; la fin du tour le relit (`apresLeTourDeTache`). */
+      const carte = ctx.cardId ? store.getCard(ctx.cardId) : null;
+      if (!carte?.parcours?.lancementAutomatique) return { ok: false, text: 'Cette carte n’est pas en mode Auto : aucun bilan à déclarer.' };
+      const abouti = args.abouti === true;
+      const restes = (Array.isArray(args.restes) ? args.restes : []).map((r: unknown) => String(r ?? '').trim()).filter(Boolean).slice(0, 12);
+      const ecrite = store.saveCard({ ...carte, parcours: { ...carte.parcours, bilanAuto: { abouti, restes, at: Date.now() } } });
+      bus.emit({ type: 'card.upsert', card: ecrite });
+      return {
+        ok: true,
+        text: abouti && !restes.length ? 'Bilan noté : travail abouti. Rends maintenant ta réponse finale.' : `Bilan noté : ${restes.length || 1} point(s) restant(s). Rends ta réponse finale : le mode Auto relancera le travail sur ces points.`,
       };
     }
 
@@ -3640,6 +3886,25 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const nom = String(args.nom ?? '').trim();
       if (!nom) return { ok: false, text: 'Le nom de la fiche est requis.' };
 
+      /*
+       * OUVRIR UNE FICHE. Une fiche PROTÉGÉE (lot fourni d'un serveur loué) est
+       * déchiffrée pour CET agent, hors de sa copie de travail, et effacée à la
+       * fin de son tour (`server/src/lot-competences-clients.ts`).
+       */
+      if (action === 'ouvrir') {
+        const fiche = lirePool().fiches.find((f) => f.nom === nom || path.basename(f.dossier) === nom);
+        if (!fiche) return { ok: false, text: `Aucune fiche « ${nom} » dans le pool.` };
+        if (!fiche.protegee) return { ok: true, text: `Mode d'emploi de « ${fiche.nom} » : ${fiche.fichier}` };
+        try {
+          const ouverte = ouvrirLaFicheProtegee(path.dirname(fiche.dossier), path.basename(fiche.dossier), ctx.agentId);
+          if (!ouverte) return { ok: false, text: `« ${fiche.nom} » ne s'ouvre pas sur ce serveur.` };
+          compter(fiche.nom, 'servie');
+          return { ok: true, text: `${CONSIGNE_DES_FICHES_PROTEGEES}\n\nMode d'emploi de « ${fiche.nom} » (ouvert pour ce tour seulement) : ${ouverte.fichier}\nSes fichiers de détail sont dans ${ouverte.dossier}.` };
+        } catch (err) {
+          return { ok: false, text: `« ${fiche.nom} » ne s'ouvre pas : ${(err as Error).message}` };
+        }
+      }
+
       if (action === 'etat') {
         const etat = String(args.etat ?? '').trim() as EtatDeFiche;
         if (!(ETATS_DE_FICHE as readonly string[]).includes(etat)) return { ok: false, text: 'Donne l’« etat » : active, depreciee ou archivee.' };
@@ -3762,13 +4027,25 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
          * pour que l'écran allume exactement ce que l'agent reçoit.
          */
         const trouvees = await garderLesUnitesPertinentes(contexte ? `${mots}\n${contexte}` : mots, brutes, { cardId: ctx.cardId, projectId: project.id });
-        const rendu = rendreUnitesTrouvees(mots, trouvees, lus);
-        consigner(mots, trouvees.length ? rendu : '');
+        /* LE FLUX « DISCUSSIONS » (conversations vocales en direct, `server/src/discussions-vocales.ts`) suit les
+           unités : général, la marque du projet ne fait que passer devant. */
+        const { rendreDiscussionsTrouvees } = await import('./discussions-vocales.js');
+        const discussions = rendreDiscussionsTrouvees(contexte ? `${mots} ${contexte}` : mots, project.id);
+        const rendu = rendreUnitesTrouvees(mots, trouvees, lus) + discussions;
+        consigner(mots, trouvees.length || discussions ? rendu : '');
         return { ok: true, text: rendu };
       }
 
       if (geste === 'lire') {
         const id = texte(args.id) ?? texte(args.code);
+        const numeroDisc = id ? numeroDeDiscussion(id) : null;
+        if (numeroDisc != null) {
+          const { texteDUneDiscussion } = await import('./discussions-vocales.js');
+          const rendu = texteDUneDiscussion(numeroDisc);
+          if (!rendu) return { ok: false, text: `Aucune discussion « ${id} » : cherche-la avec « chercher ».` };
+          consigner(id!, rendu);
+          return { ok: true, text: rendu };
+        }
         if (id && estIdentifiantDUnite(id)) {
           const unite = lireUnite(id);
           if (!unite || (unite.portee !== project.id && unite.portee !== PORTEE_GLOBALE)) {
@@ -3854,6 +4131,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       if (geste === 'brouillon') {
         if (!ctx.cardId) return { ok: false, text: 'Le brouillon appartient à une carte, et ce tour n’en a pas : garde ta note dans ta réponse.' };
+        // Sans « texte » : la RELECTURE du carnet, avant le compte rendu (cette carte seule).
+        if (!(texte(args.texte) ?? '').trim()) return { ok: true, text: relectureDuBrouillon(lireLeBrouillon(ctx.cardId)) };
         const note = noterAuBrouillon({ cardId: ctx.cardId, projectId: project.id, agentId: ctx.agentId, texte: texte(args.texte) ?? '' });
         if (!note.ok) return { ok: false, text: note.raison };
         return { ok: true, text: `Note gardée au brouillon de la carte (${note.nombre} au total) : effacée à la fermeture de la carte, jamais servie comme mémoire. Promeus ce qui doit durer avec « proposer ».` };
@@ -3952,14 +4231,33 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'marketing': {
       // L'assistant global y a accès aussi, pour TOUT projet (`assistant-global.ts`).
+      /* LE DIRECTEUR N'A PAS DE PROJET À LUI : il nomme celui qu'il vise, et les droits suivent son interlocuteur. */
+      if (estAgentDirecteurMarketing(ctx.agentId)) {
+        const voulu = typeof args.projet === 'string' ? args.projet.trim() : '';
+        const vise = trouverLeProjetVise(store.listProjects(true).map((p) => ({ id: p.id, name: p.name, archive: p.archived })), voulu);
+        if (!voulu || !vise.ok) return { ok: false, text: 'Dis quel projet viser (« projet », son nom) : l’atelier est propre à chaque projet.' };
+        const refus = await (await import('./services-des-agents.js')).refusParLesDroits(ctx, 'marketing', args, vise.projet.id);
+        if (refus) return { ok: false, text: refus };
+        const cible = store.getProject(vise.projet.id);
+        if (!cible) return { ok: false, text: 'Projet introuvable.' };
+        return outilMarketing({ ...ctx, projectId: cible.id }, cible, args);
+      }
       if (!estAgentMarketing(ctx.agentId) && !store.getAgent(ctx.agentId)?.assistantGlobal) {
         return { ok: false, text: 'Cet outil est réservé à l’agent des réseaux sociaux du projet.' };
       }
       return outilMarketing(ctx, project, args);
     }
 
+    case 'communication': {
+      const { outilCommunication } = await import('./directeur-marketing.js');
+      return outilCommunication(ctx, args);
+    }
+
     case 'statistiques':
       return outilStatistiques(ctx, project, args);
+
+    case 'services':
+      return outilServices(ctx, args);
 
     case 'veille_poser': {
       const { poserVeille } = await import('./veille-de-carte.js');
@@ -4244,9 +4542,19 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         const tout = archives ? listerArchives() : listerAcces();
         const recherche = typeof args.recherche === 'string' ? args.recherche.trim() : '';
         const filtres = recherche ? filtrerAcces(tout, recherche, nomDuProjet, nomDuDossier) : tout;
+        /*
+         * LES COFFRES DE BELUGA PASS, quand l'utilisateur en a ouvert l'accès aux agents (`server/src/belugapass.ts`) :
+         * lus en direct, déposés dans un fichier temporaire — la réponse ne porte qu'un chemin, jamais une valeur.
+         */
+        const lectureBelugaPass = async (r: string): Promise<string> => {
+          const { lectureDesAgentsPourLOutil } = await import('./belugapass.js');
+          const agent = ctx.agentId ? store.getAgent(ctx.agentId) : undefined;
+          return (await lectureDesAgentsPourLOutil(agent?.title || project?.name || 'agent', r)) ?? '';
+        };
         if (!filtres.length) {
           if (archives) return { ok: true, text: recherche ? `Aucune archive ne correspond à « ${recherche} ».` : 'Aucune fiche archivée.' };
-          return { ok: true, text: recherche ? `Aucun accès ne correspond à « ${recherche} ».` : 'Le coffre-fort est vide.' };
+          const enPlus = await lectureBelugaPass(recherche);
+          return { ok: true, text: (recherche ? `Aucun accès ne correspond à « ${recherche} ».` : 'Le coffre-fort est vide.') + enPlus };
         }
         const lignes = filtres.map((a) => {
           const valeurs = [
@@ -4275,7 +4583,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             .join('');
           return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type] ?? a.type}${portee}${dossierDit}${archive}${aCompleter})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
-        return { ok: true, text: lignes.join('\n') };
+        return { ok: true, text: lignes.join('\n') + (archives ? '' : await lectureBelugaPass(recherche)) };
       }
 
       if (action === 'enregistrer') {
@@ -4520,6 +4828,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
 
+
     default:
       return { ok: false, text: `Outil inconnu : ${name}.` };
   }
@@ -4752,9 +5061,7 @@ export const CADRAGE_DENIED_NATIVE = [
 export function cadrageAllowList(): string[] {
   return [
     ...CADRAGE_ALLOWED_NATIVE,
-    // Les outils du mode Création y figurent toujours : le pont ne les SERT
-    // qu'à une carte où il est allumé, la liste blanche n'a donc rien à trier.
-    ...toolsFor('cadrage', { creation: true, realisation: true }).map((t) => `mcp__beluga__${t.name}`),
+    ...toolsFor('cadrage', { realisation: true }).map((t) => `mcp__beluga__${t.name}`),
   ];
 }
 
@@ -4807,7 +5114,7 @@ function centimes(n: number | null | undefined): string {
  * réponse se lit comme une phrase : c'est l'agent qui la reçoit. L'interdit
  * « l'agent ne valide ni ne publie » est tenu ICI, pas dans sa consigne.
  */
-function outilMarketing(ctx: ToolContext, project: Project, args: Record<string, any>): ToolResult | Promise<ToolResult> {
+async function outilMarketing(ctx: ToolContext, project: Project, args: Record<string, any>): Promise<ToolResult> {
   const action = String(args.action ?? '');
   const espace = assurerEspace(project.id);
   switch (action) {
@@ -4940,17 +5247,73 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
     }
     case 'application': {
       const etat = args.etat === 'validee' || args.etat === 'en_validation' ? args.etat : undefined;
-      const r = ecrireApplicationSociale({ reseau: args.reseau, clientId: args.clientId, secret: args.secret, etat, note: args.note });
+      const r = ecrireApplicationSociale({ reseau: args.reseau, clientId: args.clientId, secret: args.secret, etat, note: args.note, configConnexion: args.configConnexion });
       if (!r.ok) return { ok: false, text: r.raison };
       const a = r.application;
       return {
         ok: true,
-        text: `Application ${a.application} enregistrée : état ${a.etat}, identifiant ${a.clientId ?? 'manquant'}, secret ${a.aUnSecret ? 'au coffre' : 'manquant'}. L’utilisateur peut ${a.clientId && a.aUnSecret ? 'désormais relier ses comptes (bouton « Relier » de l’onglet Comptes)' : 'relier ses comptes dès que l’identifiant et le secret sont là'}.`,
+        text: `Application ${a.application} enregistrée : état ${a.etat}, identifiant ${a.clientId ?? 'manquant'}, secret ${a.aUnSecret ? 'au coffre' : 'manquant'}${a.configConnexion ? `, connexion unifiée Instagram ${a.configConnexion}` : ''}. L’utilisateur peut ${a.clientId && a.aUnSecret ? 'désormais relier ses comptes (bouton « Relier » de l’onglet Comptes)' : 'relier ses comptes dès que l’identifiant et le secret sont là'}.`,
       };
     }
+    case 'connexion':
+      return outilConnexionDUnReseau(ctx, project, args);
+    case 'lien_officiel': {
+      if (!estReseauSocial(args.reseau)) return { ok: false, text: 'Donne « reseau ».' };
+      try {
+        const { commencerConnexion } = await import('./publication-sociale.js');
+        const { url } = commencerConnexion(project.id, args.reseau);
+        return { ok: true, text: `Ouvre cette adresse dans Chrome (geste « aller ») et accepte les droits : ${url} — le retour arrive seul à Beluga, puis vérifie avec « lire » que le compte est relié.` };
+      } catch (err: any) {
+        return { ok: false, text: `Connexion officielle impossible : ${err?.message ?? err}. Crée d’abord l’application développeur (action « application »), ou passe le réseau en mode « chrome ».` };
+      }
+    }
+    case 'publication': {
+      const contenuId = String(args.contenuId ?? '');
+      const compteId = String(args.compteId ?? '');
+      if (!contenuId || !compteId) return { ok: false, text: 'Donne « contenuId » et « compteId », puis « url » (publié) ou « echec ».' };
+      const { rendreEnvoiParChrome } = await import('./publication-sociale.js');
+      const r = rendreEnvoiParChrome(project.id, contenuId, compteId, { url: args.url, echec: args.echec });
+      if (!r.ok) return { ok: false, text: r.raison };
+      return { ok: true, text: typeof args.url === 'string' && args.url ? 'Publication enregistrée : ne republie pas ce post.' : 'Échec enregistré : l’utilisateur le verra au calendrier.' };
+    }
     default:
-      return { ok: false, text: `Action inconnue : « ${action} ». Choisis lire, configurer, fiche, canaux, action, contenu, poser_suivi, rapport, messages, reponse ou application.` };
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis lire, configurer, fiche, canaux, action, contenu, poser_suivi, rapport, messages, reponse, application, connexion, lien_officiel ou publication.` };
   }
+}
+
+/**
+ * L'AGENT DE CONNEXION ÉCRIT L'ÉTAT D'UN RÉSEAU (carte « Réseaux sociaux reliés par Chrome », 09/11/2026). « connecte »
+ * n'est cru que sur une preuve : par la voie officielle, un compte relié EN BASE ; par Chrome, le compte est relié
+ * ici, au nom de la personne dont le Chrome publiera (l'interlocuteur de l'agent) et de ce Chrome.
+ */
+async function outilConnexionDUnReseau(ctx: ToolContext, project: Project, args: Record<string, any>): Promise<ToolResult> {
+  if (!estReseauSocial(args.reseau)) return { ok: false, text: 'Donne « reseau ».' };
+  const reseau = args.reseau;
+  const etat = args.etat;
+  if (etat !== 'en_cours' && etat !== 'connecte' && etat !== 'bloque') return { ok: false, text: '« etat » : en_cours, connecte ou bloque.' };
+  const { ecrireConnexion } = await import('./connexion-des-reseaux.js');
+  const compte = typeof args.compte === 'string' ? args.compte : undefined;
+  const note = typeof args.note === 'string' ? args.note : undefined;
+  if (etat !== 'connecte') {
+    ecrireConnexion(project.id, reseau, { etat, compte, note });
+    return { ok: true, text: etat === 'bloque' ? 'Blocage noté : la ligne le dit. Passe au réseau suivant.' : 'Noté : la ligne montre que tu y travailles.' };
+  }
+  if (args.mode === 'officiel') {
+    const relie = listerComptesSociaux(project.id).some((c) => c.reseau === reseau && c.etat === 'relie' && c.mode !== 'chrome');
+    if (!relie) return { ok: false, text: 'Aucun compte relié par la voie officielle sur ce réseau : termine la connexion (action « lien_officiel »), ou passe en mode « chrome ».' };
+    ecrireConnexion(project.id, reseau, { etat, mode: 'officiel', compte, note });
+    return { ok: true, text: 'Connecté par la voie officielle : ses posts partiront par l’interface du réseau.' };
+  }
+  if (args.mode !== 'chrome') return { ok: false, text: '« mode » : officiel ou chrome.' };
+  if (!compte?.trim()) return { ok: false, text: 'Donne « compte » : le nom affiché du compte (@marque, nom de la page).' };
+  const { interlocuteurDeLAgent } = await import('./interlocuteur.js');
+  const personne = await interlocuteurDeLAgent(ctx.agentId);
+  if (!personne?.id) return { ok: false, text: 'Je ne sais pas dans quel Chrome les posts partiront : aucune personne ne te parle.' };
+  const { chromeRetenu } = await import('./extension-chrome.js');
+  const { relierParChrome } = await import('./publication-sociale.js');
+  relierParChrome(project.id, reseau, { nom: compte, compteBeluga: personne.id, appareilId: chromeRetenu(ctx.agentId, ctx.cardId) });
+  ecrireConnexion(project.id, reseau, { etat, mode: 'chrome', compte, note });
+  return { ok: true, text: `Connecté par Chrome : les posts sur ce compte partiront dans ce Chrome, par un agent, à l’heure prévue.` };
 }
 
 /**

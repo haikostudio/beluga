@@ -15,7 +15,7 @@
  * ouvertures, et le bouton qui referme.
  */
 import * as React from 'react';
-import { KeyRound, Loader2, Lock, LockOpen, ShieldAlert, X } from 'lucide-react';
+import { KeyRound, Loader2, Lock, LockOpen, ShieldAlert, X } from '@/components/ui/icones';
 import {
   BOUTON_OUVRIR_ACCES,
   CONFIRMATION_ACCES,

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DIMENSIONS_VECTEURS,
+  type NoteDeBrouillon,
   EXPLICATION_CHANGELOG_MAX,
   FICHES_GLOBAL,
   FICHES_PROJET,
@@ -37,6 +38,7 @@ import {
   rendreChangelog,
   rendreFicheNumerotee,
   ressemblanceDeTextes,
+  titreEnglobe,
   requetePleinTexte,
   requeteTrigrammes,
   scoreDUnite,
@@ -305,10 +307,24 @@ function numeroSuivant(type: TypeUnite): number {
   return (db.prepare('SELECT dernier FROM connaissance_compteurs WHERE prefixe = ?').get(prefixe) as { dernier: number }).dernier;
 }
 
+/** Nombre d'anciennes versions gardées par fiche : l'écriture purge au-delà, la lecture n'en montre pas plus. */
+export const VERSIONS_GARDEES_PAR_UNITE = 50;
+
 function garderLaVersion(avant: Unite, auteur: string, motif: string): void {
-  getDb()
-    .prepare('INSERT INTO connaissance_versions (unite_id, version, instantane, auteur, motif, at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(avant.id, avant.version, JSON.stringify(avant), auteur, motif, Date.now());
+  const db = getDb();
+  db.prepare('INSERT INTO connaissance_versions (unite_id, version, instantane, auteur, motif, at) VALUES (?, ?, ?, ?, ?, ?)').run(
+    avant.id,
+    avant.version,
+    JSON.stringify(avant),
+    auteur,
+    motif,
+    Date.now(),
+  );
+  // Même ordre que la lecture (`versionsDeLUnite`) : on n'efface jamais une version encore affichée.
+  db.prepare(
+    `DELETE FROM connaissance_versions WHERE unite_id = ?
+       AND id NOT IN (SELECT id FROM connaissance_versions WHERE unite_id = ? ORDER BY at DESC, id DESC LIMIT ?)`,
+  ).run(avant.id, avant.id, VERSIONS_GARDEES_PAR_UNITE);
 }
 
 function refuser(portee: string, proposition: PropositionUnite, raisons: string[], auteur: string): ResultatDeProposition {
@@ -530,6 +546,68 @@ export function deprecierEnFaveurDe(id: string, remplacePar: string, auteur: str
 }
 
 /**
+ * BAISSER (ou rendre) L'IMPORTANCE D'UNE UNITÉ — le geste du ménage de nuit
+ * (`server/src/menage-memoire.ts`). `proposerUnite` ne baisse jamais une
+ * importance (une mise à jour garde la plus haute) : le ménage passe donc par
+ * ici, dans la même porte, version gardée.
+ */
+export function changerLImportance(id: string, importance: Unite['importance'], auteur: string, motif: string): ResultatDeProposition {
+  const cible = lireUnite(id);
+  if (!cible) return { ok: false, raisons: [`Aucune unité « ${id} ».`] };
+  if (cible.importance === importance) return { ok: true, geste: 'deja-la', unite: cible };
+  const db = getDb();
+  db.transaction(() => {
+    garderLaVersion(cible, auteur, motif);
+    db.prepare('UPDATE connaissances SET importance = ?, version = version + 1, auteur = ?, modifie_le = ? WHERE id = ?').run(importance, auteur, Date.now(), cible.id);
+  })();
+  apresEcriture(cible.portee);
+  return { ok: true, geste: 'mis-a-jour', unite: lireUnite(cible.id)! };
+}
+
+/**
+ * REMETTRE UNE UNITÉ COMME ELLE ÉTAIT (importance, statut, remplacement) —
+ * l'annulation d'un ménage dont l'essai a fait baisser le rappel. L'état
+ * défait est lui-même gardé en version : rien ne se perd, dans un sens ni
+ * dans l'autre.
+ */
+export function restaurerLUnite(avant: Unite, auteur: string, motif: string): boolean {
+  const actuelle = lireUnite(avant.id);
+  if (!actuelle) return false;
+  const db = getDb();
+  db.transaction(() => {
+    garderLaVersion(actuelle, auteur, motif);
+    db.prepare('UPDATE connaissances SET importance = ?, statut = ?, superseded_by = ?, version = version + 1, auteur = ?, modifie_le = ? WHERE id = ?').run(
+      avant.importance,
+      avant.statut,
+      avant.supersededBy,
+      auteur,
+      Date.now(),
+      avant.id,
+    );
+  })();
+  apresEcriture(actuelle.portee);
+  return true;
+}
+
+/** La dernière lecture de chaque unité par un agent (identifiant en majuscules → instant). */
+export function dernieresLectures(): Map<string, number> {
+  try {
+    return new Map(
+      (getDb().prepare('SELECT UPPER(cle) AS cle, MAX(at) AS at FROM connaissance_lectures GROUP BY UPPER(cle)').all() as { cle: string; at: number }[]).map((l) => [l.cle, l.at]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+/** Les titres normalisés d'une portée (le ménage repère les doublons exacts par eux). */
+export function titresNormesDeLaPortee(portee: string): Map<string, string> {
+  return new Map(
+    (getDb().prepare("SELECT id, titre_norme FROM connaissances WHERE portee = ? AND statut = 'active'").all(portee) as { id: string; titre_norme: string }[]).map((l) => [l.id, l.titre_norme]),
+  );
+}
+
+/**
  * RECLASSER : un « update » qui donne un autre type. L'ancienne version est
  * gardée avec le motif « reclassée ». Tant que le préfixe ne change pas, l'unité
  * garde son identifiant ; vers ou depuis « decision » (DEC ↔ MEM), une unité
@@ -667,6 +745,11 @@ async function procheDuMemeSujet(portee: string, sujet: string, p: { titre: stri
   const parLeTexte = memeMarqueurs.find((c) => ressemblanceDeTextes(c.titre, p.titre) >= SEUIL_DOUBLON_SUJET);
   if (parLeTexte) return parLeTexte;
 
+  // Un titre contenu en entier dans l'autre pèse moins au Dice que son seuil :
+  // l'inclusion complète la fiche au lieu d'en créer une jumelle.
+  const parInclusion = memeMarqueurs.find((c) => titreEnglobe(c.titre, p.titre));
+  if (parInclusion) return parInclusion;
+
   if (!vectoriseurDisponible()) return undefined;
   try {
     const [v] = await vectoriser([texteDUniteAVectoriser(p)], 6_000);
@@ -685,28 +768,67 @@ async function procheDuMemeSujet(portee: string, sujet: string, p: { titre: stri
 }
 
 /**
+ * Recolle les lignes consécutives d'un même paragraphe (un agent peut couper son corps à la main).
+ * Restent séparés : lignes vides, titres « # », puces (« - », « * », « 1. »), blocs de code.
+ */
+export function recollerLesParagraphes(texte: string): string[] {
+  const sorties: string[] = [];
+  let enCode = false;
+  let ouvert = false; // la dernière sortie est un paragraphe encore recollable
+  for (const brute of texte.split('\n')) {
+    const ligne = brute.trim();
+    if (/^```/.test(ligne)) {
+      enCode = !enCode;
+      sorties.push(brute);
+      ouvert = false;
+      continue;
+    }
+    if (enCode) {
+      sorties.push(brute);
+      continue;
+    }
+    if (!ligne) {
+      sorties.push('');
+      ouvert = false;
+      continue;
+    }
+    if (/^(#{1,6}\s|[-*+]\s|\d+[.)]\s)/.test(ligne)) {
+      sorties.push(ligne);
+      ouvert = false;
+      continue;
+    }
+    if (ouvert) sorties[sorties.length - 1] += ` ${ligne}`;
+    else {
+      sorties.push(ligne);
+      ouvert = true;
+    }
+  }
+  return sorties;
+}
+
+/**
  * Ancien détail + les lignes de la règle déposée (son résumé compris) que la
  * fiche ne porte ni dans son détail ni dans son résumé. Sans rien de neuf, le
  * détail ancien revient tel quel : un rejeu ne change donc jamais la fiche.
  */
 function detailCompleteParLaRegle(proche: Unite, regle: { resume: string; detail: string }): string {
-  // Dédoublonnage par PHRASE : le rangement pose le corps d'une règle sur une seule ligne.
+  // Dédoublonnage par PHRASE : les lignes d'un même paragraphe sont d'abord recollées (le corps peut être coupé sur plusieurs lignes).
   // Jamais de coupure AVANT un guillemet ou une parenthèse fermante (« … ? » … »), sinon la seconde
   // moitié, sans jumelle connue, serait collée seule dans la fiche. La coupure se fait après eux.
   const phrases = (ligne: string): string[] => ligne.split(/(?<=[.!?…](?:\s?[»”"’)])*)\s+(?![»”"’)])/).filter((x) => titreNormalise(x));
-  const connues = new Set(`${proche.resume}\n${proche.detail}`.split('\n').flatMap(phrases).map(titreNormalise));
+  const connues = new Set(recollerLesParagraphes(`${proche.resume}\n${proche.detail}`).flatMap(phrases).map(titreNormalise));
   const neuves: string[] = [];
   // Une REFORMULATION n'a pas de phrase jumelle : si l'essentiel de ses mots est déjà dans la fiche
   // (titre + résumé + détail), la ligne est une redite. Comparée à la fiche seule, jamais aux lignes
   // gardées dans ce tour, pour ne pas dépendre de l'ordre.
   const racinesConnues = racinesSignificatives(`${proche.titre}\n${proche.resume}\n${proche.detail}`);
-  // Le résumé de nuit est le corps aplati, coupé à 599 signes + « … » : sa dernière phrase tronquée
+  // Le résumé de nuit est le début du corps (première phrase, ou ancienne copie coupée à 599 signes + « … ») : sa dernière phrase tronquée
   // n'a pas de jumeau connu et se collerait AVANT la phrase entière du détail. Un résumé qui n'est
   // que le début du détail n'apporte rien : on ne parcourt alors que le détail.
   const aplati = regle.detail.replace(/\s+/g, ' ').trim();
   const debutDuResume = regle.resume.replace(/\s+/g, ' ').trim().replace(/…$/, '').trim();
-  const resumeTronque = regle.resume.trim().endsWith('…') && debutDuResume.length > 0 && aplati.startsWith(debutDuResume);
-  for (const brute of (resumeTronque ? regle.detail : `${regle.resume}\n\n${regle.detail}`).split('\n')) {
+  const resumeTronque = debutDuResume.length > 0 && aplati.startsWith(debutDuResume);
+  for (const brute of recollerLesParagraphes(resumeTronque ? regle.detail : `${regle.resume}\n\n${regle.detail}`)) {
     if (!titreNormalise(brute)) {
       if (neuves.length && neuves[neuves.length - 1] !== '') neuves.push('');
       continue;
@@ -818,8 +940,8 @@ export function compterUnitesPeuSures(seuil = 0.6): number {
 export function versionsDeLUnite(id: string): { version: number; auteur: string; motif: string; at: number; unite: Unite }[] {
   return (
     getDb()
-      .prepare('SELECT version, instantane, auteur, motif, at FROM connaissance_versions WHERE unite_id = ? ORDER BY at DESC, id DESC LIMIT 50')
-      .all(String(id).toUpperCase()) as { version: number; instantane: string; auteur: string; motif: string; at: number }[]
+      .prepare('SELECT version, instantane, auteur, motif, at FROM connaissance_versions WHERE unite_id = ? ORDER BY at DESC, id DESC LIMIT ?')
+      .all(String(id).toUpperCase(), VERSIONS_GARDEES_PAR_UNITE) as { version: number; instantane: string; auteur: string; motif: string; at: number }[]
   ).map((l) => ({ version: l.version, auteur: l.auteur, motif: l.motif, at: l.at, unite: json<Unite>(l.instantane, null as unknown as Unite) }));
 }
 
@@ -1963,6 +2085,11 @@ export function noterAuBrouillon(n: { cardId: string; projectId: string; agentId
   const db = getDb();
   db.prepare('INSERT INTO working_notes (card_id, project_id, agent_id, texte, at) VALUES (?, ?, ?, ?, ?)').run(n.cardId, n.projectId, n.agentId ?? null, texte, Date.now());
   return { ok: true, nombre: (db.prepare('SELECT COUNT(*) AS n FROM working_notes WHERE card_id = ?').get(n.cardId) as { n: number }).n };
+}
+
+/** Les notes du brouillon de CETTE carte seule, dans l'ordre d'écriture : la relecture du carnet avant le compte rendu. */
+export function lireLeBrouillon(cardId: string): NoteDeBrouillon[] {
+  return getDb().prepare('SELECT texte, at FROM working_notes WHERE card_id = ? ORDER BY at, id').all(cardId) as NoteDeBrouillon[];
 }
 
 /** La carte se ferme : son brouillon disparaît. Ce qui méritait de durer a dû être promu. */

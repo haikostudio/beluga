@@ -14,18 +14,34 @@
  *
  * Le clic ne crée AUCUNE pièce jointe : la fiche du fichier (type, poids) est
  * demandée à la route en lecture seule, puis la visionneuse s'ouvre sur une
- * pièce de circonstance qui se lit par son adresse. Un fichier absent ou hors
- * des dossiers du projet ouvre la même fenêtre, qui le DIT.
+ * pièce de circonstance qui se lit par son adresse. Un fichier qui ne s'ouvre
+ * pas ouvre la même fenêtre, qui dit la VRAIE raison (le motif de la route). Chaque
+ * clic réinterroge : un fichier annoncé trop tôt peut être apparu entre-temps.
  *
  * C'est un VRAI lien : on peut l'ouvrir dans un autre onglet (clic du milieu,
  * Ctrl/Cmd + clic), le copier, ou s'en servir au clavier.
  */
 import * as React from 'react';
-import { adresseDeFichierCite, nomDuChemin, type Attachment } from '@beluga/shared';
+import { adresseDeFichierCite, nomDuChemin, type Attachment, type MotifDeFichierAbsent } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { ContexteDesFichiersCites as Contexte } from '@/lib/chemin-cliquable';
-import { t } from '@/lib/langue';
+import { formatRegional, t } from '@/lib/langue';
 
+/** La phrase qui dit pourquoi ce fichier ne s'ouvre pas. */
+function raisonDeLAbsence(chemin: string, motif?: MotifDeFichierAbsent, date?: number): string {
+  switch (motif) {
+    case 'pas-encore-cree':
+      return t('Ce fichier n’existe pas, ou pas encore, et aucune copie n’en a été gardée. S’il vient d’être annoncé, réessayez dans un instant : {v0}', { v0: chemin });
+    case 'expire':
+      return t('La copie de ce fichier a été supprimée le {v1}, 3 mois après sa création : {v0}', { v0: chemin, v1: date ? new Date(date).toLocaleDateString(formatRegional()) : '?' });
+    case 'hors-dossiers':
+      return t('Ce fichier existe, mais il se trouve hors des dossiers autorisés : {v0}', { v0: chemin });
+    case 'stockage-absent':
+      return t('Ce fichier est gardé sur le disque de stockage, qui ne répond pas pour le moment. Réessayez plus tard : {v0}', { v0: chemin });
+    default:
+      return t('Le serveur n’a pas pu rendre ce fichier. Réessayez dans un instant : {v0}', { v0: chemin });
+  }
+}
 
 interface Ouverture {
   piece: Attachment;
@@ -60,18 +76,22 @@ export function FichiersCites({
         createdAt: 0,
       });
       void fetch(adresseDeFichierCite({ projectId, agentId, chemin, info: true }))
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then(async (r) => {
+          if (r.ok) return r.json();
+          const refus = (await r.json().catch(() => null)) as { motif?: MotifDeFichierAbsent; date?: number } | null;
+          throw refus ?? {};
+        })
         .then((fiche: { nom: string; chemin: string; mime: string; taille: number }) =>
           setOuverture({
             piece: circonstance(fiche.nom, fiche.mime, fiche.taille, fiche.chemin),
             source: adresseDeFichierCite({ projectId, agentId, chemin: fiche.chemin }),
           }),
         )
-        .catch(() =>
+        .catch((refus: { motif?: MotifDeFichierAbsent; date?: number }) =>
           setOuverture({
             piece: circonstance(nomDuChemin(chemin), '', 0, chemin),
             source: '',
-            erreur: t('Ce fichier est introuvable, ou il se trouve hors des dossiers du projet : {v0}', { v0: chemin }),
+            erreur: raisonDeLAbsence(chemin, refus?.motif, refus?.date),
           }),
         );
     },

@@ -1,10 +1,13 @@
+import { LienInterne } from '@/components/ui/lien-interne';
+import { CLASSE_CHEVRON_AU_SURVOL, ChevronDesVoisins, type VoisinsDuCran } from '@/components/voisins-du-fil';
 import * as React from 'react';
+import { useBarreDuProjet } from '@/components/barre-du-projet';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ChevronDown, ChevronRight, EllipsisVertical, Loader2, Menu } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronRight, EllipsisVertical, Loader2, Menu } from '@/components/ui/icones';
 import {
   Button,
-  CLASSE_POINT_DE_BOUTON,
   CLASSE_RANGEE_DE_BOUTONS,
+  CLASSE_SEGMENT_DE_GROUPE,
   CibleDesGestesDePage,
   DansUneBarreDEnTete,
   CibleDuBasDePage,
@@ -14,6 +17,8 @@ import {
   DropdownMenuTrigger,
   Tooltip,
   type ButtonProps,
+  DansUneFenetreDeService,
+  DansUnePageDeService,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -43,27 +48,121 @@ const MARGE_HAUTE_DE_LA_BARRE = 'var(--zone-sure-entete, var(--zone-sure-haut, 0
  */
 export interface MenuPrincipalDuTelephone {
   ouvrir: () => void;
-  /** Ce qui attend ailleurs (liaison rompue, un projet qui attend). */
-  point?: { classe: string; texte: string } | null;
+  /*
+   * PLUS AUCUN POINT D'ÉTAT SUR CE BOUTON (décision du 06/11/2026) : il « ne servait à rien ». Les alertes des services
+   * restent sur leurs tuiles de la grille (`data-alerte-de-tuile`).
+   */
+  /* L'ANCIENNE GRILLE DES SERVICES (`services`), que le titre centré d'une tâche ouvrait, a disparu du téléphone
+     (13/11/2026) : le nom centré ouvre désormais ce menu principal, et les outils du projet sont dans les trois points. */
 }
 const MenuPrincipal = React.createContext<MenuPrincipalDuTelephone | null>(null);
 export const FournirLeMenuPrincipal = MenuPrincipal.Provider;
 
-/** Le bouton du menu principal : il ouvre la colonne des projets, sur téléphone. */
-function BoutonDuMenuPrincipal({ ouvrir, point }: MenuPrincipalDuTelephone) {
+/**
+ * LE PREMIER CRAN DE TOUS LES FILS D'ARIANE : « Tableaux de bord » (demande du
+ * 31/10/2026). L'application le fournit, `null` pour un accès tiers qui ne les a pas.
+ */
+const CranDesTableauxDeBord = React.createContext<CranDuChemin | null>(null);
+export const FournirLeCranDesTableauxDeBord = CranDesTableauxDeBord.Provider;
+export const useCranDesTableauxDeBord = () => React.useContext(CranDesTableauxDeBord);
+
+/**
+ * Le bouton du menu principal : il ouvre la colonne des projets, sur téléphone. Dans une tâche, le logo du projet se
+ * pose dans son angle haut droit (`insigne`, demande du 06/11/2026), là où vivait l'ancien point d'état.
+ */
+export function BoutonDuMenuPrincipal({ ouvrir, insigne }: { ouvrir: () => void; insigne?: React.ReactNode }) {
   return (
     <Button
-      variant="ghost"
-      size="icon-barre"
-      className="relative shrink-0 text-muted sm:hidden"
+      variant="doux"
+      size="pastille"
+      className="relative shrink-0 sm:hidden"
       aria-label="Projets"
-      title={point ? `${t('Projets')} · ${point.texte}` : t('Projets')}
+      title={t('Projets')}
       data-menu-principal
       onClick={ouvrir}
     >
       <Menu className="h-4 w-4" />
-      {point ? <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, point.classe)} /> : null}
+      {insigne ? (
+        <span className="pointer-events-none absolute right-0.5 top-0.5 flex items-center justify-center" data-insigne-du-menu>
+          {insigne}
+        </span>
+      ) : null}
     </Button>
+  );
+}
+
+/**
+ * LE NOM CENTRÉ DU TÉLÉPHONE, QUI OUVRE LE MENU PRINCIPAL (décision du 13/11/2026) : le ☰ a disparu, le nom du
+ * projet (ou de l'écran) suivi d'un chevron est la seule porte vers la colonne des projets, sur tous les écrans.
+ * Il garde le repère `data-menu-principal` du ☰ qu'il remplace.
+ */
+export function BoutonDuNomQuiOuvreLeMenu({
+  libelle,
+  icone,
+  ouvrir,
+}: {
+  libelle: React.ReactNode;
+  icone?: React.ReactNode;
+  ouvrir: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={ouvrir}
+      aria-label="Menu principal"
+      title={t('Menu principal')}
+      className="pointer-events-auto flex h-[38px] min-w-0 max-w-full items-center justify-center gap-1 rounded-[11px] px-2 text-[17px] font-semibold text-text transition-colors active:bg-raised"
+      data-menu-principal
+      data-titre-bandeau
+      data-haut-titre
+      data-haut-liste="menu"
+    >
+      {icone ? <span className="flex shrink-0 items-center">{icone}</span> : null}
+      <span className="min-w-0 truncate">{libelle}</span>
+      <ChevronDown className="h-[17px] w-[17px] shrink-0 text-muted" aria-hidden data-chevron-du-haut />
+    </button>
+  );
+}
+
+/**
+ * LE NOM DU PROJET, CENTRÉ, QUI OUVRE SES TÂCHES (carte « Services homogènes et centrés », 14/11/2026, capture #bf3e3 :
+ * « quand on clique sur le titre ça ouvre le drawer des tâches du projet, et à gauche il faut remettre le menu
+ * principal »). Le chevron se retourne et le nom passe en violet tant que la feuille des tâches est ouverte. Le menu
+ * principal, lui, est revenu au coin gauche (`BoutonDuMenuPrincipal`). Repère `data-taches-du-haut` (gardé du bouton
+ * « Tâches » qu'il remplace).
+ */
+export function BoutonDuNomQuiOuvreLesTaches({
+  libelle,
+  icone,
+  ouvrir,
+  actif = false,
+}: {
+  libelle: React.ReactNode;
+  icone?: React.ReactNode;
+  ouvrir: () => void;
+  actif?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={ouvrir}
+      aria-label="Tâches du projet"
+      aria-expanded={actif}
+      title={t('Tâches du projet')}
+      className={cn(
+        'pointer-events-auto flex h-[38px] min-w-0 max-w-full items-center justify-center gap-1 rounded-[11px] px-2 text-[17px] font-semibold transition-colors active:bg-raised',
+        actif ? 'text-teinte' : 'text-text',
+      )}
+      data-taches-du-haut
+      data-actif-du-haut={actif ? '' : undefined}
+      data-titre-bandeau
+      data-haut-titre
+      data-haut-liste="taches"
+    >
+      {icone ? <span className="flex shrink-0 items-center">{icone}</span> : null}
+      <span className="min-w-0 truncate">{libelle}</span>
+      <ChevronDown className={cn('h-[17px] w-[17px] shrink-0 transition-transform', actif ? 'rotate-180 text-teinte' : 'text-muted')} aria-hidden data-chevron-du-haut />
+    </button>
   );
 }
 
@@ -86,6 +185,8 @@ export interface LieuDeLaZone {
   titre: string;
   /** Ce qui ouvre le fil, tout à gauche : le bouton des services. */
   avant?: React.ReactNode;
+  /** La liste des services, derrière le chevron du lieu (le même que dans la barre de la zone). */
+  menuDuTitre?: (declencheur: React.ReactElement) => React.ReactNode;
 }
 const Lieu = React.createContext<LieuDeLaZone | null>(null);
 export const FournirLeLieu = Lieu.Provider;
@@ -109,6 +210,8 @@ interface SuiteDuFilDeZone {
 }
 const Suite = React.createContext<SuiteDuFilDeZone | null>(null);
 export const FournirLaSuiteDuFil = Suite.Provider;
+/** La suite du fil fournie plus haut (une feuille de service la reprend pour savoir qu'une sous-page est ouverte). */
+export const useSuiteDuFilFournie = () => React.useContext(Suite);
 
 /** Les repères `data-*` que porte la flèche de retour, pour les contrôles. */
 export type ReperesDeRetour = Record<`data-${string}`, string>;
@@ -132,6 +235,8 @@ export function SuiteDuFil({
   children: React.ReactNode;
 }) {
   const suite = React.useContext(Suite);
+  const enFenetre = React.useContext(DansUneFenetreDeService);
+  const enPage = React.useContext(DansUnePageDeService);
   const retour = suite?.retour;
   const signaler = suite?.signaler;
   const retourDUnCran = suite?.retourDUnCran;
@@ -159,6 +264,9 @@ export function SuiteDuFil({
       if (retourDUnCran) retourDUnCran.current = null;
     };
   }, [signalerLeRetour, retourDUnCran, aUnRetour, reperes]);
+  /* DANS UNE FENÊTRE DE SERVICE, pas de fil : le menu de gauche de la fenêtre dit déjà où l'on est. Dans une PAGE de
+     service (14/11/2026), si : la sous-page s'écrit « Service / titre » en haut de la page. */
+  if (enFenetre && !enPage) return null;
   /* Hors de l'application (une page ouverte par-dessus), la suite reste en tête
      du contenu : elle ne se perd jamais. */
   if (!suite?.cible) {
@@ -171,9 +279,23 @@ export function SuiteDuFil({
   return createPortal(children, suite.cible);
 }
 
+/**
+ * LE DOUBLE CLIC D'UN CRAN À MENU MÈNE À SA SECTION (16/11/2026) : le menu ouvert par le premier clic se referme (Échap,
+ * que Radix écoute), puis la destination du cran s'ouvre.
+ */
+function fermerLeMenuPuis(destination: () => void) {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  destination();
+}
+
 /** Le chevron qui sépare deux crans du fil d'Ariane. */
 export function SeparateurDuFil() {
-  return <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:block" aria-hidden data-separateur-du-fil />;
+  /* « / » ENTRE DEUX CRANS (14/11/2026) : le même séparateur que le fil d'un projet (`FilDuProjet`). */
+  return (
+    <span className="hidden shrink-0 text-faint sm:inline" aria-hidden data-separateur-du-fil>
+      /
+    </span>
+  );
 }
 
 /**
@@ -184,12 +306,27 @@ export function SeparateurDuFil() {
 export function CranDuFil({
   children,
   onClick,
+  adresse,
   dernier = true,
   sousTitre,
+  voisins,
+  voisinsSurLeDernier = false,
   ...attributs
 }: {
   children: React.ReactNode;
   onClick?: () => void;
+  /**
+   * LE DERNIER CRAN PORTE AUSSI SA LISTE (15/11/2026, capture #f46c1) : le site surveillé ouvert dans son tiroir est le
+   * dernier cran, et son chevron liste les autres sites pour basculer de l'un à l'autre.
+   */
+  voisinsSurLeDernier?: boolean;
+  /**
+   * LES ÉLÉMENTS DU MÊME NIVEAU (14/11/2026) : un cran d'avant (`dernier={false}`) pose un petit chevron qui ouvre leur
+   * liste ; « Ouvrir <nom> », en tête, joue `onClick`. Sans effet sur le dernier cran (son menu est la page elle-même).
+   */
+  voisins?: VoisinsDuCran;
+  /** L'adresse du cran (sans « # ») : un vrai lien, ouvrable dans un nouvel onglet. */
+  adresse?: string;
   dernier?: boolean;
   /** Une précision discrète après le nom (le projet d'une création). */
   sousTitre?: React.ReactNode;
@@ -197,11 +334,14 @@ export function CranDuFil({
   /* SUR TÉLÉPHONE, SEUL LE DERNIER CRAN SE LIT : les séparateurs y sont cachés,
      et deux noms collés sans rien entre eux ne disaient plus un chemin. La
      flèche de retour de la barre remonte d'un cran (`SuiteDuFil retour`). */
-  const classe = cn('min-w-0 truncate', dernier ? 'font-medium text-text' : 'text-muted transition-colors hover:text-text max-sm:hidden');
-  return (
-    <>
-      <SeparateurDuFil />
-      {onClick ? (
+  const avecVoisins = !!voisins && (!dernier || voisinsSurLeDernier);
+  const classe = cn('min-w-0 truncate', dernier ? 'font-medium text-text' : 'text-muted transition-colors hover:text-text', !dernier && !avecVoisins && 'max-sm:hidden');
+  const nom =
+    onClick && adresse ? (
+        <LienInterne adresse={adresse} onClick={onClick} className={cn(classe, 'rounded-md text-left')} data-cran-du-fil {...attributs}>
+          {children}
+        </LienInterne>
+      ) : onClick ? (
         <button type="button" onClick={onClick} className={cn(classe, 'rounded-md text-left')} data-cran-du-fil {...attributs}>
           {children}
         </button>
@@ -209,6 +349,17 @@ export function CranDuFil({
         <span className={classe} data-cran-du-fil {...attributs}>
           {children}
         </span>
+      );
+  return (
+    <>
+      <SeparateurDuFil />
+      {avecVoisins ? (
+        <span className="group/cran flex min-w-0 items-center max-sm:hidden" data-cran-a-voisins={voisins.repere}>
+          {nom}
+          <ChevronDesVoisins voisins={voisins} onOuvrir={onClick} />
+        </span>
+      ) : (
+        nom
       )}
       {sousTitre ? <span className="hidden min-w-0 shrink-0 truncate text-[12.5px] text-faint md:block">{sousTitre}</span> : null}
     </>
@@ -249,6 +400,11 @@ const CLASSE_RANGEE_DE_PAGE = 'flex shrink-0 flex-wrap items-center justify-end 
 
 export function GestesDePage({ children, className }: { children: React.ReactNode; className?: string }) {
   const cible = React.useContext(CibleDesGestes);
+  const telephone = useTelephone();
+  /* SUR TÉLÉPHONE, LES GESTES D'UNE PAGE VONT DANS LES TROIS POINTS DU HAUT (03/11/2026), en rangée en tête du menu :
+     le haut garde un bouton à gauche, deux à droite. */
+  const dansLeMenu = useDeclarerDansLeMenuDuHaut(telephone && estLaBarreDuHaut(cible) && React.Children.toArray(children).length > 0, { genre: 'gestes', noeud: children });
+  if (dansLeMenu) return null;
   if (cible) return createPortal(<DansUneBarreDEnTete.Provider value>{children}</DansUneBarreDEnTete.Provider>, cible);
   return (
     <div data-gestes-de-page="page" className={cn(CLASSE_RANGEE_DE_PAGE, className)}>
@@ -263,7 +419,96 @@ export function GestesDePage({ children, className }: { children: React.ReactNod
  * interrupteur, un sous-menu) la lit ici.
  */
 const TenueDesOptions = React.createContext<'bouton' | 'ligne'>('bouton');
+
+/**
+ * LE MENU À TROIS POINTS DU HAUT DU TÉLÉPHONE (décision de l'utilisateur, 03/11/2026) : au plus un bouton à gauche
+ * (menu ou retour) et deux à droite — l'agent, puis ces trois points. Les options d'une page (`OptionsDePage`) et son
+ * geste principal quand le bas n'en a pas (`GestePrincipal`) ne posent donc plus leurs propres boutons dans le haut :
+ * ils se DÉCLARENT ici, et le menu à trois points (`MenuDuHautTelephone`) les montre, avec la cloche.
+ *
+ * Un petit magasin à part, et non un état de l'application : écrire ici ne redessine que le menu, jamais la page qui
+ * déclare (sinon chaque rendu de la page en relançait un autre).
+ */
+export interface EntreeDuMenuDuHaut {
+  genre: 'principal' | 'gestes' | 'options';
+  noeud: React.ReactNode;
+  enCours?: boolean;
+}
+export interface RegistreDuMenuDuHaut {
+  lire: () => ReadonlyMap<string, EntreeDuMenuDuHaut>;
+  ecrire: (cle: string, entree: EntreeDuMenuDuHaut | null) => void;
+  abonner: (ecouteur: () => void) => () => void;
+}
+export function creerLeRegistreDuMenuDuHaut(): RegistreDuMenuDuHaut {
+  let contenu: ReadonlyMap<string, EntreeDuMenuDuHaut> = new Map();
+  const ecouteurs = new Set<() => void>();
+  return {
+    lire: () => contenu,
+    ecrire: (cle, entree) => {
+      if (!entree && !contenu.has(cle)) return;
+      const suivant = new Map(contenu);
+      if (entree) suivant.set(cle, entree);
+      else suivant.delete(cle);
+      contenu = suivant;
+      ecouteurs.forEach((f) => f());
+    },
+    abonner: (ecouteur) => {
+      ecouteurs.add(ecouteur);
+      return () => ecouteurs.delete(ecouteur);
+    },
+  };
+}
+const RegistreDuMenu = React.createContext<RegistreDuMenuDuHaut | null>(null);
+export const FournirLeRegistreDuMenuDuHaut = RegistreDuMenu.Provider;
+export function useContenuDuMenuDuHaut(registre: RegistreDuMenuDuHaut): ReadonlyMap<string, EntreeDuMenuDuHaut> {
+  return React.useSyncExternalStore(registre.abonner, registre.lire, registre.lire);
+}
+/** La cible des gestes est-elle la barre du HAUT de l'écran (et non le rang d'une feuille du bas) ? */
+function estLaBarreDuHaut(cible: HTMLElement | null): boolean {
+  return cible?.getAttribute('data-gestes-de-page') === 'barre';
+}
+/**
+ * SUR ORDINATEUR, LES OPTIONS D'UNE PAGE VIVENT DANS LE CHEVRON DU COIN HAUT DROIT DE LA ZONE (13/11/2026,
+ * `bande-de-zone.tsx`) : `OptionsDePage` s'y déclare comme sur téléphone dans les trois points, et le chevron les
+ * montre avec les gestes du menu du service — un seul bouton d'options, jamais deux.
+ */
+export interface CoinDeLaZone {
+  registre: RegistreDuMenuDuHaut;
+  /** La cible des gestes du coin : seules les options qui y visent s'y rangent (une page posée par-dessus a la sienne). */
+  cible: HTMLElement | null;
+}
+const RegistreDuCoin = React.createContext<CoinDeLaZone | null>(null);
+export const FournirLeRegistreDuCoin = RegistreDuCoin.Provider;
+/**
+ * LA FEUILLE D'UN SERVICE AU TÉLÉPHONE A SON PROPRE COIN (carte « Services homogènes et centrés », 14/11/2026) : ses
+ * options se rangent dans le chevron de sa rangée, comme sur ordinateur, au lieu de s'empiler en rangées de boutons.
+ */
+const CoinDeFeuille = React.createContext(false);
+export const FournirLeCoinDeFeuille = CoinDeFeuille.Provider;
+/** …et son geste principal descend en bas de la feuille, pleine largeur. */
+const CibleDuPrincipalDeFeuille = React.createContext<HTMLElement | null>(null);
+export const FournirLaCibleDuPrincipalDeFeuille = CibleDuPrincipalDeFeuille.Provider;
+
+/** Déclarer une entrée du menu du haut tant que `actif` ; rend `true` quand elle y est (la page ne pose rien d'autre). */
+function useDeclarerDansLeMenuDuHaut(actif: boolean, entree: EntreeDuMenuDuHaut, registreDuCoin = false): boolean {
+  const registreDuHaut = React.useContext(RegistreDuMenu);
+  const coin = React.useContext(RegistreDuCoin);
+  const registre = registreDuCoin ? (coin?.registre ?? null) : registreDuHaut;
+  const cle = React.useId();
+  const dedans = actif && !!registre;
+  React.useLayoutEffect(() => {
+    if (registre) registre.ecrire(cle, dedans ? entree : null);
+  });
+  React.useLayoutEffect(() => () => registre?.ecrire(cle, null), [registre, cle]);
+  return dedans;
+}
+
+
 export const useTenueDesOptions = () => React.useContext(TenueDesOptions);
+/** Les options d'une page, dessinées en lignes de menu (le menu à trois points du haut du téléphone). */
+export function EnLignesDeMenu({ children }: { children: React.ReactNode }) {
+  return <TenueDesOptions.Provider value="ligne">{children}</TenueDesOptions.Provider>;
+}
 
 export function OptionsDePage({
   children,
@@ -289,8 +534,14 @@ export function OptionsDePage({
 }) {
   const cible = React.useContext(CibleDesGestes);
   const telephone = useTelephone();
+  const vide = !React.Children.toArray(children).length;
+  /* SUR TÉLÉPHONE, DANS LES TROIS POINTS DU HAUT : la page ne pose plus son propre bouton (03/11/2026). */
+  const dansLeMenu = useDeclarerDansLeMenuDuHaut(telephone && estLaBarreDuHaut(cible) && !vide, { genre: 'options', noeud: children, enCours });
+  const coin = React.useContext(RegistreDuCoin);
+  const coinDeFeuille = React.useContext(CoinDeFeuille);
+  const dansLeCoin = useDeclarerDansLeMenuDuHaut((!telephone || coinDeFeuille) && !!cible && coin?.cible === cible && !vide, { genre: 'options', noeud: children, enCours }, true);
   /* Rien à ranger : pas de trois points. */
-  if (!React.Children.toArray(children).length) return null;
+  if (vide || dansLeMenu || dansLeCoin) return null;
   if (!cible) {
     return (
       <div data-gestes-de-page="page" className={cn(CLASSE_RANGEE_DE_PAGE, className)}>
@@ -299,12 +550,31 @@ export function OptionsDePage({
     );
   }
   if (!telephone && !enMenu) {
-    /* L'enveloppe fixe la place des options dans la barre, quel que soit
-       l'ordre où les portails se montent : après les gestes posés tels quels,
-       avant le geste principal. */
+    /*
+     * SUR ORDINATEUR, LES OPTIONS SE RANGENT DERRIÈRE UN CHEVRON COLLÉ AU GESTE PRINCIPAL (décision du 03/11/2026 :
+     * « réduire le nombre de boutons ; les boutons secondaires derrière un chevron à droite du bouton principal »).
+     * Le geste principal et ce chevron forment le BOUTON GROUPÉ commun — une pilule coupée en deux (`styles.css`,
+     * `[data-options-de-page="chevron"]`). Sans geste principal, le chevron reste seul, en bouton entier.
+     */
     return createPortal(
-      <div className={cn('order-[9000] min-w-0', CLASSE_RANGEE_DE_BOUTONS)} data-options-de-page="barre" data-rangee-de-boutons>
-        <DansUneBarreDEnTete.Provider value>{children}</DansUneBarreDEnTete.Provider>
+      <div className="order-[10000] -ml-0.5 flex shrink-0" data-options-de-page="chevron">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(CLASSE_SEGMENT_DE_GROUPE, 'rounded-lg px-2')}
+              aria-label="Plus d’options"
+              title={t('Plus d’options')}
+              data-options-de-page-chevron
+              data-options-en-cours={enCours ? '' : undefined}
+            >
+              {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" data-options-de-page-menu>
+            <TenueDesOptions.Provider value="ligne">{children}</TenueDesOptions.Provider>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>,
       cible,
     );
@@ -314,9 +584,9 @@ export function OptionsDePage({
       {/* Pas de `Tooltip` autour du déclencheur d'un menu : `title`. */}
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon-barre"
-          className="order-[9000] shrink-0 text-muted"
+          variant="doux"
+          size="pastille"
+          className="order-[9000] shrink-0"
           aria-label="Plus d’options"
           title={t('Plus d’options')}
           data-options-de-page="menu"
@@ -407,20 +677,41 @@ export function OptionDePage({
   );
 }
 
+/**
+ * SUR ORDINATEUR AUSSI, LE GESTE PRINCIPAL D'UNE PAGE DESCEND EN BAS, PLEINE LARGEUR DU CONTENU (décision du
+ * 13/11/2026, maquette #94fc6 : « Installer le suivi » quitte la barre du haut). L'application fournit l'emplacement,
+ * sous l'écran affiché ; un écran gardé caché n'en reçoit pas.
+ */
+const CibleDuPrincipalOrdinateur = React.createContext<HTMLElement | null>(null);
+export const FournirLaCibleDuPrincipalOrdinateur = CibleDuPrincipalOrdinateur.Provider;
+
 /** Le geste principal est-il posé en bas de l'écran (téléphone) ? `BoutonPrincipal` le lit. */
 const PrincipalEnBas = React.createContext(false);
+/** Le geste principal est-il posé dans le haut du téléphone ? Il n'y est qu'une icône. */
+const PrincipalEnIcone = React.createContext(false);
 
 /**
- * LE GESTE PRINCIPAL D'UNE PAGE. Sur téléphone il descend en bas de l'écran,
- * centré, sur toute la largeur — au même endroit et avec la même allure que
- * « Nouvelle tâche » dans un projet (`menuBasTelephone`, `geste-de-page`). UN
- * SEUL par page : le bas de l'écran ne porte jamais deux choses. La page le
- * démonte quand elle ouvre un enfant sur place (un site, une note).
+ * LE GESTE PRINCIPAL D'UNE PAGE. Sur téléphone, quand le bas de l'écran est un bouton PLEINE LARGEUR fourni par la
+ * page (`menuDuBas` → `page` : Notes, l'accueil du Studio), il EST ce bouton. Sur un écran sans bas (Backup,
+ * Surveillance…), il reste dans la barre du haut. UN SEUL par page. La page le démonte quand elle ouvre un enfant
+ * sur place (un site, une note).
  */
 export function GestePrincipal({ children }: { children: React.ReactNode }) {
   const cible = React.useContext(CibleDesGestes);
   const bas = React.useContext(CibleDuBasDePage);
+  const basOrdinateur = React.useContext(CibleDuPrincipalOrdinateur);
   const telephone = useTelephone();
+  /* SUR TÉLÉPHONE, SANS BAS QUI LE PORTE, LE GESTE PRINCIPAL VA EN TÊTE DES TROIS POINTS (03/11/2026) : le haut n'a
+     plus que l'agent et les trois points à droite. */
+  const dansLeMenu = useDeclarerDansLeMenuDuHaut(telephone && !bas && estLaBarreDuHaut(cible), { genre: 'principal', noeud: children });
+  const basDeFeuille = React.useContext(CibleDuPrincipalDeFeuille);
+  if (dansLeMenu) return null;
+  if (telephone && basDeFeuille) {
+    return createPortal(<PrincipalEnBas.Provider value>{children}</PrincipalEnBas.Provider>, basDeFeuille);
+  }
+  if (!telephone && basOrdinateur) {
+    return createPortal(<PrincipalEnBas.Provider value>{children}</PrincipalEnBas.Provider>, basOrdinateur);
+  }
   if (telephone && bas) {
     /* La bande n'est pas encore montée : rien ce tour-ci, plutôt qu'un bouton
        qui passerait une image dans la barre. */
@@ -428,9 +719,11 @@ export function GestePrincipal({ children }: { children: React.ReactNode }) {
     return createPortal(<PrincipalEnBas.Provider value>{children}</PrincipalEnBas.Provider>, bas.cible);
   }
   if (cible) {
+    /* SUR TÉLÉPHONE, DANS LE HAUT, LE GESTE N'EST QU'UNE ICÔNE (03/11/2026) : le nom du haut reste centré et lisible
+       entre les boutons ; le libellé reste son nom lu à voix haute et sa bulle. */
     return createPortal(
       <div className={cn('order-last shrink-0', CLASSE_RANGEE_DE_BOUTONS)} data-geste-principal="barre">
-        {children}
+        <PrincipalEnIcone.Provider value={telephone}>{children}</PrincipalEnIcone.Provider>
       </div>,
       cible,
     );
@@ -458,20 +751,46 @@ export const BoutonPrincipal = React.forwardRef<HTMLButtonElement, Omit<ButtonPr
   ref,
 ) {
   const enBas = React.useContext(PrincipalEnBas);
+  const enIcone = React.useContext(PrincipalEnIcone);
   if (enBas) {
+    return (
+      /* LE BOUTON PLEINE LARGEUR DU BAS DU TÉLÉPHONE (03/11/2026) : gris, jamais l'aplat blanc en sombre. */
+      <Button
+        ref={ref}
+        variant="subtle"
+        size="lg"
+        data-bouton-principal-du-bas
+        data-bouton-pleine-largeur="page"
+        className={cn('h-12 w-full justify-center gap-2 rounded-[13px] text-[15px] font-semibold [&>svg]:h-[18px] [&>svg]:w-[18px] [&>svg]:shrink-0', className)}
+        {...props}
+      />
+    );
+  }
+  if (enIcone) {
+    const libelle = typeof props.title === 'string' ? props.title : props['aria-label'];
     return (
       <Button
         ref={ref}
-        variant="creation"
-        size="lg"
-        data-bouton-principal-du-bas
-        className={cn('h-11 w-full justify-center gap-2 rounded-lg text-[14.5px] [&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0', className)}
+        variant="subtle"
+        size="sm"
+        data-principal-en-icone
+        title={libelle ?? textePlat(props.children)}
+        aria-label={libelle ?? textePlat(props.children)}
+        className={cn('h-[38px] w-[38px] justify-center gap-0 rounded-[11px] px-0 text-[0px] [&>svg]:h-[18px] [&>svg]:w-[18px] [&>svg:not(:first-child)]:hidden', className)}
         {...props}
       />
     );
   }
   return <Button ref={ref} variant={variant} size="sm" className={className} {...props} />;
 });
+
+/** Le texte d'un libellé React, pour la bulle et la lecture à voix haute d'un bouton réduit à son icône. */
+function textePlat(noeud: React.ReactNode): string {
+  if (typeof noeud === 'string' || typeof noeud === 'number') return String(noeud);
+  if (Array.isArray(noeud)) return noeud.map(textePlat).join('').trim();
+  if (React.isValidElement(noeud)) return textePlat((noeud.props as { children?: React.ReactNode }).children);
+  return '';
+}
 
 /**
  * L'EMPLACEMENT DES GESTES DANS UNE BARRE D'EN-TÊTE. Sur téléphone il ne prend
@@ -496,7 +815,22 @@ export interface CranDuChemin {
    * Elle se clique comme le cran (`onClick`), sans second geste à écrire.
    */
   icone?: React.ReactNode;
+  /**
+   * LE CRAN SE CLIQUE ET PORTE SA LISTE (le service d'une page ouverte par-dessus, 31/10/2026) : son nom ramène au
+   * lieu (`onClick`), et un chevron qui paraît au survol ouvre la liste des services, comme le titre d'un service.
+   */
+  menuApres?: (declencheur: React.ReactElement) => React.ReactNode;
+  /** L'ADRESSE DU CRAN (sans « # ») : le cran devient un vrai lien, qui s'ouvre aussi dans un nouvel onglet. */
+  adresse?: string;
+  /**
+   * UN CRAN QUI EST SON PROPRE BOUTON (la grille des services, premier cran de tous les fils, 06/11/2026) : posé tel
+   * quel, sans nom écrit ; `libelle` ne sert qu'aux lecteurs d'écran.
+   */
+  element?: React.ReactNode;
 }
+
+/* LE CHEVRON D'UNE LISTE NE PARAÎT QU'AU SURVOL : `CLASSE_CHEVRON_AU_SURVOL` vit dans `voisins-du-fil.tsx`, partagé avec les
+   crans du milieu du fil. */
 
 /**
  * LA BARRE D'EN-TÊTE D'UNE PAGE — la même partout, sur ordinateur comme sur
@@ -521,6 +855,7 @@ export function EnteteDeZone({
   titre,
   onTitre,
   menuDuTitre,
+  infobulleDuMenu,
   titreEnCran = false,
   emplacementDuTitre,
   suite,
@@ -529,38 +864,62 @@ export function EnteteDeZone({
   retourDePage = false,
   reperesDeRetour,
   retourDansLaColonne = false,
-  onOuvrirColonne,
-  pointDeColonne,
+  onOuvrirColonne: _ouvrirColonne,
   avantTitre,
   children,
   menu,
   deuxRangsSurPetitEcran = false,
-  rangDuHautMasque = false,
   finDuRangDuTitre,
+  insigneDuMenu,
+  etagesTelephone,
+  hautEnLigne = false,
+  ongletsDuProjet = false,
+  insigneAGauche,
+  apresLeMenu,
   className,
   ...attributs
 }: {
+  /** DANS LA BARRE DU PROJET (ordinateur), CE QUI SE POSE JUSTE APRÈS LES TROIS POINTS : le bouton Aperçu d'une tâche. */
+  apresLeMenu?: React.ReactNode;
   /**
-   * SUR TÉLÉPHONE ET SUR TABLETTE (moins de 1024 px), DEUX RANGS (la page d'une
-   * tâche, demandes du 14/10/2026 puis du 15/10/2026) : en haut, l'EN-TÊTE
-   * MAÎTRE — le menu principal (la colonne des projets) à gauche, les gestes et
-   * le menu à droite ; dessous, le fil d'Ariane lui-même, qui s'ouvre sur le
-   * BOUTON DES SERVICES (plus de flèche de retour : on remonte par le menu
-   * principal ou par l'icône du projet). Sur ordinateur, un seul rang.
+   * SUR TÉLÉPHONE, CE QUI TIENT LE COIN GAUCHE QUAND IL N'Y A PAS DE FLÈCHE DE RETOUR : le logo du projet, sur
+   * l'accueil d'un projet (13/11/2026). Le ☰ a disparu : le nom centré ouvre le menu principal.
+   */
+  insigneAGauche?: React.ReactNode;
+  /**
+   * DANS UN PROJET, SUR ORDINATEUR, LA BARRE UNIQUE À ONGLETS (refonte du 13/11/2026) prend la place du fil
+   * d'Ariane : l'icône du projet, les onglets, puis à droite les trois points, les outils du projet et « Publier »
+   * (`barre-du-projet.tsx`). Le fil reste monté, caché : la suite qu'une page y écrit garde son emplacement.
+   */
+  ongletsDuProjet?: boolean;
+  /**
+   * SUR TÉLÉPHONE, LES DEUX ÉTAGES SERVICE / PROJET (`EtagesDuTelephone`, maquette A du 03/11/2026) prennent la place
+   * du fil d'Ariane, à droite du bouton ☰. Le fil reste monté, caché : la suite qu'une page y écrit et le titre
+   * qu'une page y loge gardent leur emplacement.
+   */
+  etagesTelephone?: React.ReactNode;
+  /**
+   * LE HAUT DU TÉLÉPHONE N'EST PAS UN NOM MAIS UN CONTENU (la recherche de la Mémoire) : il occupe toute la place
+   * entre les boutons, au lieu du calque centré.
+   */
+  hautEnLigne?: boolean;
+  /**
+   * SUR TÉLÉPHONE ET SUR TABLETTE (moins de 1024 px), LA PAGE D'UNE TÂCHE (le nom est resté de l'époque des deux
+   * rangs, 14/10/2026) : UNE rangée depuis le 01/11/2026 (capture #d6cd) — le menu principal (la colonne des
+   * projets) à gauche, puis le fil d'Ariane (projet, titre, branche ; aucune flèche de retour : on remonte par le
+   * menu principal ou par l'icône du projet), puis les options à droite. Sur ordinateur, la barre ordinaire.
    */
   deuxRangsSurPetitEcran?: boolean;
   /**
-   * LE RANG DU HAUT SE REPLIE (on descend dans la page, demande du 24/10/2026) :
-   * il rend sa hauteur à la lecture, avec la barre des étapes. Le rang du titre
-   * (projet, branche, titre) reste.
-   */
-  rangDuHautMasque?: boolean;
-  /**
-   * EN DEUX RANGS SEULEMENT, CE QUI SE POSE AU BOUT DU RANG DU TITRE, collé au
-   * bord droit — le bouton du volet de droite d'une carte sur téléphone
-   * (demande du 30/10/2026, capture #cffe).
+   * SUR PETIT ÉCRAN SEULEMENT, CE QUI SE POSE APRÈS LE FIL, avant les options — le bouton du volet de droite d'une
+   * carte sur téléphone (demande du 30/10/2026, capture #cffe).
    */
   finDuRangDuTitre?: React.ReactNode;
+  /**
+   * SUR TÉLÉPHONE, DANS UNE TÂCHE, CE QUI SE POSE DANS L'ANGLE DU BOUTON MENU : le logo du projet (demande du
+   * 06/11/2026). Le cran du projet n'y montre alors plus son icône.
+   */
+  insigneDuMenu?: React.ReactNode;
   /** Les lieux qui mènent à la page, du plus large au plus proche. */
   chemin?: CranDuChemin[];
   titre: React.ReactNode;
@@ -568,6 +927,8 @@ export function EnteteDeZone({
   onTitre?: () => void;
   /** Le titre ouvre une liste déroulante : il reçoit son bouton et rend le menu. */
   menuDuTitre?: (declencheur: React.ReactElement) => React.ReactNode;
+  /** La bulle du bouton qui ouvre cette liste. */
+  infobulleDuMenu?: string;
   /**
    * LE TITRE N'EST PLUS LE DERNIER CRAN : la page a écrit une suite (l'enfant
    * où l'on se trouve). Il se lit alors en gris, et `onTitre` y ramène.
@@ -601,8 +962,6 @@ export function EnteteDeZone({
   retourDansLaColonne?: boolean;
   /** Sur téléphone : ouvre la colonne des projets, qui vit dans un panneau. */
   onOuvrirColonne?: () => void;
-  /** Le point d'état posé sur ce bouton (liaison rompue, un projet qui attend). */
-  pointDeColonne?: { classe: string; texte: string } | null;
   /** Un repère posé devant le titre (l'icône du projet). */
   avantTitre?: React.ReactNode;
   /** Les gestes de la page, à droite. */
@@ -612,8 +971,32 @@ export function EnteteDeZone({
   className?: string;
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
   const petitEcran = useTabletteOuTelephone();
+  const telephone = useTelephone();
   const menuPrincipal = React.useContext(MenuPrincipal);
+  const barreDuProjet = useBarreDuProjet();
   const deuxRangs = deuxRangsSurPetitEcran && petitEcran;
+  /*
+   * SUR TÉLÉPHONE, LE TITRE D'UNE TÂCHE EST CENTRÉ SUR L'AXE DE L'ÉCRAN, ET UN APPUI OUVRE LA GRILLE DES SERVICES
+   * (demande du 06/11/2026) — la même technique que le nom centré des autres pages. Sur tablette, la rangée reste.
+   */
+  const titreCentre = deuxRangs && telephone;
+  const nomCentre = telephone && !!etagesTelephone;
+    const refGauche = React.useRef<HTMLDivElement | null>(null);
+  const refDroite = React.useRef<HTMLDivElement | null>(null);
+  const [cote, setCote] = React.useState(56);
+  React.useLayoutEffect(() => {
+    if (!nomCentre && !titreCentre) return;
+    const mesurer = () => {
+      const gauche = refGauche.current?.getBoundingClientRect().width ?? 0;
+      const droite = refDroite.current?.getBoundingClientRect().width ?? 0;
+      setCote(Math.ceil(12 + Math.max(gauche, droite) + 6));
+    };
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    if (refGauche.current) observateur.observe(refGauche.current);
+    if (refDroite.current) observateur.observe(refDroite.current);
+    return () => observateur.disconnect();
+  }, [nomCentre, titreCentre]);
   /*
    * SUR ORDINATEUR, LE FIL D'ARIANE N'A PLUS DE FLÈCHE (demande du 20/10/2026) :
    * on remonte en cliquant un cran. Elle ne reste que là où aucun cran ne se
@@ -626,9 +1009,9 @@ export function EnteteDeZone({
       {onRetour ? (
         <Tooltip label={t('Retour')}>
           <Button
-            variant="ghost"
-            size="icon-barre"
-            className={cn('shrink-0 text-muted', !avant && 'sm:-ml-1.5', (retourDansLaColonne || filQuiSeRemonte) && 'sm:hidden')}
+            variant="doux"
+            size="pastille"
+            className={cn('shrink-0', !avant && 'sm:-ml-1.5', (retourDansLaColonne || filQuiSeRemonte) && 'sm:hidden')}
             aria-label="Retour"
             {...(reperesDeRetour ? { 'data-retour-du-fil': '', ...reperesDeRetour } : { 'data-retour-carte': '' })}
             {...(retourDePage ? { 'data-retour-de-page': '', 'data-poignee-tiroir': '' } : {})}
@@ -637,24 +1020,26 @@ export function EnteteDeZone({
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Tooltip>
-      ) : onOuvrirColonne ? (
-        <Button
-          variant="ghost"
-          size="icon-barre"
-          className="relative shrink-0 text-muted sm:hidden"
-          aria-label="Projets"
-          title={pointDeColonne ? `${t('Projets')} · ${pointDeColonne.texte}` : t('Projets')}
-          onClick={onOuvrirColonne}
-        >
-          <Menu className="h-4 w-4" />
-          {pointDeColonne ? <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, pointDeColonne.classe)} /> : null}
-        </Button>
+      ) : insigneAGauche ? (
+        /* PLUS DE ☰ SUR TÉLÉPHONE (décision du 13/11/2026) : le nom centré ouvre le menu principal ; sans flèche de
+           retour, le coin gauche montre le logo du projet. */
+        <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center sm:hidden" data-insigne-du-haut>
+          {insigneAGauche}
+        </span>
       ) : null}
     </>
   );
   const fil = (
       <nav aria-label="Fil d'Ariane" data-fil-d-ariane className={cn('min-w-0 flex-1 text-[14.5px]', CLASSE_RANGEE_DE_BOUTONS)}>
-        {chemin.map((cran, rang) => (
+        {chemin.map((cran, rang) =>
+          cran.element ? (
+            <React.Fragment key={`${rang}-${cran.libelle}`}>
+              <span className="hidden shrink-0 items-center sm:flex sm:-ml-1.5" data-cran-grille>
+                {cran.element}
+              </span>
+              <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:block" aria-hidden />
+            </React.Fragment>
+          ) : (
           <React.Fragment key={`${rang}-${cran.libelle}`}>
             {cran.icone ? (
               cran.onClick ? (
@@ -676,31 +1061,52 @@ export function EnteteDeZone({
             ) : null}
             {cran.menu ? (
               /* UN CRAN QUI OUVRE UNE LISTE LE DIT AU SURVOL : son fond paraît,
-                 et le chevron qui le sépare du cran suivant bascule vers le
-                 bas. Le séparateur vit donc DANS le bouton — rien ne bouge
-                 d'un pixel entre le repos et le survol. */
+                 et un chevron bas s'ouvre une place à droite du nom
+                 (`CLASSE_CHEVRON_AU_SURVOL`). Le séparateur « › » reste après
+                 le cran, au repos comme au survol : « Messagerie ⌄ › ». */
               cran.menu(
                 <button
                   type="button"
                   data-chemin-de-zone
                   data-chemin-a-menu
+                  onDoubleClick={cran.onClick ? () => fermerLeMenuPuis(cran.onClick!) : undefined}
                   className={cn(
                     CLASSE_CRAN_CLIQUABLE,
-                    'group/cran hidden items-center gap-1.5 data-[state=open]:bg-raised data-[state=open]:text-text sm:flex',
+                    'group/cran hidden items-center data-[state=open]:bg-raised data-[state=open]:text-text sm:flex',
                   )}
                 >
                   <span className="min-w-0 truncate">{cran.libelle}</span>
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 text-faint group-hover/cran:hidden group-data-[state=open]/cran:hidden"
-                    aria-hidden
-                  />
-                  <ChevronDown
-                    className="hidden h-3.5 w-3.5 shrink-0 group-hover/cran:block group-data-[state=open]/cran:block"
-                    aria-hidden
-                    data-chevron-de-cran
-                  />
+                  <ChevronDown className={CLASSE_CHEVRON_AU_SURVOL} aria-hidden data-chevron-de-cran />
                 </button>,
               )
+            ) : cran.onClick && cran.menuApres ? (
+              <span className="group/cran hidden min-w-0 items-center sm:flex" data-cran-a-menu-apres>
+                {cran.adresse ? (
+                  <LienInterne adresse={cran.adresse} data-chemin-de-zone onClick={cran.onClick} className={cn(CLASSE_CRAN_CLIQUABLE, 'truncate')}>
+                    {cran.libelle}
+                  </LienInterne>
+                ) : (
+                  <button type="button" data-chemin-de-zone onClick={cran.onClick} className={cn(CLASSE_CRAN_CLIQUABLE, 'truncate')}>
+                    {cran.libelle}
+                  </button>
+                )}
+                {cran.menuApres(
+                  <button
+                    type="button"
+                    data-chevron-du-titre
+                    onDoubleClick={() => fermerLeMenuPuis(cran.onClick!)}
+                    aria-label="Changer de service"
+                    title={t('Changer de service')}
+                    className="ml-1.5 flex h-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text [&[data-state=open]>svg]:w-3.5 [&[data-state=open]>svg]:opacity-100"
+                  >
+                    <ChevronDown className={cn(CLASSE_CHEVRON_AU_SURVOL, 'mx-1 group-hover/cran:ml-1 [@media(hover:none)]:ml-1')} aria-hidden data-chevron-de-cran />
+                  </button>,
+                )}
+              </span>
+            ) : cran.onClick && cran.adresse ? (
+              <LienInterne adresse={cran.adresse} data-chemin-de-zone onClick={cran.onClick} className={cn(CLASSE_CRAN_CLIQUABLE, 'hidden truncate sm:block')}>
+                {cran.libelle}
+              </LienInterne>
             ) : cran.onClick ? (
               <button
                 type="button"
@@ -715,9 +1121,10 @@ export function EnteteDeZone({
                 {cran.libelle}
               </span>
             )}
-            {cran.menu ? null : <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:block" aria-hidden />}
+            <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-faint sm:block" aria-hidden />
           </React.Fragment>
-        ))}
+          ),
+        )}
         {avantTitre}
         {emplacementDuTitre ? (
           /* VIDE TANT QUE LA PAGE N'A PAS ÉCRIT SON TITRE : le chevron qui le
@@ -730,34 +1137,48 @@ export function EnteteDeZone({
             data-titre-de-page-ici
           />
         ) : titreEnCran ? (
-          <button
-            type="button"
-            data-chemin-de-zone
-            data-titre-bandeau
-            onClick={onTitre}
-            className={cn(CLASSE_CRAN_CLIQUABLE, 'hidden truncate sm:block')}
-          >
-            {titre}
-          </button>
+          <span className="group/cran hidden min-w-0 items-center sm:flex">
+            <button
+              type="button"
+              data-chemin-de-zone
+              data-titre-bandeau
+              onClick={onTitre}
+              className={cn(CLASSE_CRAN_CLIQUABLE, 'truncate')}
+            >
+              {titre}
+            </button>
+            {/* DANS UN ENFANT DU SERVICE, le nom remonte à son accueil : la liste des
+                services reste au bout, derrière son chevron, qui paraît au survol du cran. */}
+            {menuDuTitre
+              ? menuDuTitre(
+                  <button
+                    type="button"
+                    data-chevron-du-titre
+                    onDoubleClick={onTitre ? () => fermerLeMenuPuis(onTitre) : undefined}
+                    aria-label={infobulleDuMenu}
+                    title={infobulleDuMenu}
+                    className="ml-1.5 flex h-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-raised hover:text-text data-[state=open]:bg-raised data-[state=open]:text-text [&[data-state=open]>svg]:w-3.5 [&[data-state=open]>svg]:opacity-100"
+                  >
+                    <ChevronDown className={cn(CLASSE_CHEVRON_AU_SURVOL, 'mx-1 group-hover/cran:ml-1 [@media(hover:none)]:ml-1')} aria-hidden data-chevron-de-cran />
+                  </button>,
+                )
+              : null}
+          </span>
         ) : menuDuTitre ? (
           menuDuTitre(
             /* Pas de `Tooltip` ici : imbriqué dans le déclencheur d'un menu, il
                se dispute le même bouton. La bulle maison lit `title`. */
             <button
               type="button"
-              className="group/cran -mx-1.5 flex min-w-0 items-center gap-1 rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-left font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised"
+              className="group/cran -mx-1.5 flex min-w-0 items-center rounded-md px-2 sm:px-1.5 py-1.5 sm:py-1 text-left font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised"
               data-titre-bandeau
-              title={t('Changer de projet')}
+              title={infobulleDuMenu}
             >
               <span className="min-w-0 truncate">{titre}</span>
-              {/* Le chevron est visible EN PERMANENCE : c'est lui qui dit que le
-                  nom du projet ouvre la liste des autres projets (le groupe
-                  n'est plus un cran du fil). Il s'assombrit au survol. */}
-              <ChevronDown
-                className="h-3.5 w-3.5 shrink-0 text-muted transition-colors group-hover/cran:text-text group-data-[state=open]/cran:text-text"
-                aria-hidden
-                data-chevron-de-cran
-              />
+              {/* Le chevron ne paraît qu'au survol (demande du 31/10/2026) : le
+                  fond du cran et son chevron disent ensemble qu'il ouvre une
+                  liste. Toujours visible sur écran tactile. */}
+              <ChevronDown className={cn(CLASSE_CHEVRON_AU_SURVOL, 'text-muted group-hover/cran:text-text group-data-[state=open]/cran:text-text')} aria-hidden data-chevron-de-cran />
             </button>,
           )
         ) : onTitre ? (
@@ -773,9 +1194,11 @@ export function EnteteDeZone({
             </button>
           </Tooltip>
         ) : (
-          <span className="min-w-0 truncate font-medium text-text" data-titre-bandeau data-titre-de-zone>
-            {titre}
-          </span>
+          titreCentre ? null : (
+            <span className="min-w-0 truncate font-medium text-text" data-titre-bandeau data-titre-de-zone>
+              {titre}
+            </span>
+          )
         )}
         {suite}
       </nav>
@@ -791,49 +1214,137 @@ export function EnteteDeZone({
     </>
   );
 
+  if (ongletsDuProjet && barreDuProjet && !telephone && !deuxRangs) {
+    return (
+      <header
+        data-entete-de-zone
+        data-barre-du-projet
+        {...attributs}
+        className={cn('flex h-[52px] shrink-0 items-stretch gap-1 pl-3 pr-3', className)}
+        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE, height: `calc(52px + ${MARGE_HAUTE_DE_LA_BARRE})` }}
+      >
+        {/* Le fil reste monté, caché : la suite qu'une page y écrit et le titre qu'une page y loge gardent leur place. */}
+        <div className="hidden">{fil}</div>
+        {barreDuProjet.onglets}
+        <div className={cn('shrink-0 self-center pl-2', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="droite">
+          {children}
+          {menu}
+          {apresLeMenu}
+          {barreDuProjet.droite}
+        </div>
+      </header>
+    );
+  }
+
+  if (titreCentre) {
+    /*
+     * LA TÂCHE OUVERTE SUR TÉLÉPHONE A LE MÊME HAUT QUE L'ACCUEIL DU PROJET (13/11/2026) : la flèche de retour à
+     * gauche, le NOM DU PROJET centré, suivi d'un chevron, qui ouvre le menu principal — plus aucune grille des
+     * services —, les trois points seuls à droite (la branche est leur première ligne), puis la rangée d'onglets du
+     * projet, l'onglet de la tâche en violet.
+     */
+    const nom = barreDuProjet?.nom ?? null;
+    const ouvrirLeMenu = menuPrincipal?.ouvrir;
+    return (
+      <div
+        data-entete-de-zone
+        data-entete-une-rangee
+        data-titre-centre
+        {...attributs}
+        className={cn('shrink-0', className)}
+        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE }}
+      >
+        <div className="relative flex h-12 items-center gap-1 px-3" data-rang-du-titre>
+          <div ref={refGauche} className="flex shrink-0 items-center gap-1" data-cote-du-haut="gauche">
+            {retour}
+            {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
+          </div>
+          {/* Le fil reste monté, caché : la suite qu'une page y écrit garde sa place. */}
+          <div className="hidden">{fil}</div>
+          <div className="min-w-0 flex-1" />
+          <div ref={refDroite} className="flex shrink-0 items-center gap-1" data-cote-du-haut="droite">
+            {finDuRangDuTitre}
+            {droite}
+          </div>
+          <div
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+            style={{ paddingLeft: cote, paddingRight: cote }}
+            data-calque-du-nom
+          >
+            {ouvrirLeMenu ? (
+              <BoutonDuNomQuiOuvreLeMenu libelle={nom ?? titre} ouvrir={ouvrirLeMenu} />
+            ) : (
+              <span className="pointer-events-auto min-w-0 truncate text-[17px] font-semibold text-text" data-titre-bandeau data-titre-de-zone>
+                {nom ?? titre}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* PLUS DE RANGÉE D'ONGLETS SOUS LE NOM (14/11/2026) : le haut du téléphone garde « Tâches », le nom, ⋮, Publier. */}
+      </div>
+    );
+  }
+
   if (deuxRangs) {
     return (
       <div
         data-entete-de-zone
-        data-entete-deux-rangs
+        data-entete-une-rangee
         {...attributs}
         className={cn('shrink-0', className)}
         /* La marge de la barre d'état se compte une fois, sur le bloc entier. */
         style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE }}
       >
-        {/* L'EN-TÊTE MAÎTRE : les boutons globaux. Il se replie AVEC la barre
-            des étapes quand on descend dans la conversation, et revient dès
-            qu'on remonte (demande du 24/10/2026, qui remplace celle du 15/10
-            où il restait toujours affiché). */}
-        <div
-          data-entete-maitre={rangDuHautMasque ? 'masque' : 'visible'}
-          aria-hidden={rangDuHautMasque || undefined}
-          {...(rangDuHautMasque ? { inert: '' } : {})}
-          className={cn(
-            'grid transition-[grid-template-rows,opacity] duration-200 ease-out',
-            rangDuHautMasque ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
-          )}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="flex h-12 items-center gap-1 px-3">
-              {/* LE MENU PRINCIPAL, TOUT EN HAUT : toujours à portée, sur chaque page. */}
-              {menuPrincipal ? <BoutonDuMenuPrincipal {...menuPrincipal} /> : null}
-              {/* LE BOUTON DES SERVICES, JUSTE À DROITE DU MENU : menu / services
-                  à gauche, les options de la page à droite (demande du 15/10/2026). */}
-              {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
-              <span className="flex-1" />
-              {droite}
-            </div>
-          </div>
-        </div>
-        {/* LE FIL D'ARIANE : « Tableaux de bord », le projet, la branche et le
-            titre. Le bouton des services est monté dans le rang du haut. Ce
-            rang-là reste toujours. */}
+        {/* UNE SEULE RANGÉE DANS LA DISCUSSION D'UN AGENT (demande du 01/11/2026, capture #d6cd) : l'ancien en-tête
+            maître (le menu à gauche, les trois points à droite, seuls sur leur bande) disparaît. Le menu principal
+            se pose à GAUCHE du fil (projet, titre, branche), les options à DROITE : la conversation gagne une bande
+            entière, et plus rien ne se replie au défilement — seule la barre des étapes le fait. */}
         <div className="flex h-12 items-center gap-1 px-3" data-rang-du-titre>
+          {menuPrincipal ? <BoutonDuMenuPrincipal ouvrir={menuPrincipal.ouvrir} /> : null}
+          {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
           {fil}
-          {finDuRangDuTitre ? <div className="ml-auto flex shrink-0 items-center">{finDuRangDuTitre}</div> : null}
+          {finDuRangDuTitre ? <div className="flex shrink-0 items-center">{finDuRangDuTitre}</div> : null}
+          {droite}
         </div>
       </div>
+    );
+  }
+
+  /*
+   * SUR TÉLÉPHONE, LE NOM DU HAUT EST CENTRÉ SUR L'AXE DE L'ÉCRAN (décision du 03/11/2026, maquette « 0 · Le haut de
+   * l'écran »), quel que soit le nombre de boutons de chaque côté : il se pose en CALQUE sur toute la largeur de la
+   * barre, et ce calque s'écarte des deux bords de la largeur du côté le plus chargé (`--cote-du-haut`, mesurée) —
+   * un nom trop long se coupe donc avant de toucher un bouton, sans jamais se décentrer.
+   */
+  if (nomCentre) {
+    return (
+      <header
+        data-entete-de-zone
+        data-haut-un-rang
+        {...attributs}
+        className={cn('relative flex shrink-0 items-center gap-1 px-3', className)}
+        /* UN HAUT COMPACT (13/11/2026, captures #0175 et #cda3 : « un gap de trop entre l'heure et la barre des
+           onglets ») : 44 px, la hauteur d'une barre de navigation iOS, au lieu de 56. */
+        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE, height: `calc(2.75rem + ${MARGE_HAUTE_DE_LA_BARRE})` }}
+      >
+        <div ref={refGauche} className="flex shrink-0 items-center gap-1" data-cote-du-haut="gauche">
+          {retour}
+          {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
+        </div>
+        {/* Le fil reste monté, caché : la suite qu'une page y écrit et le titre qu'une page y loge gardent leur place. */}
+        <div className="hidden">{fil}</div>
+        {hautEnLigne ? <div className="flex min-w-0 flex-1 items-center pl-1">{etagesTelephone}</div> : <div className="min-w-0 flex-1" />}
+        <div ref={refDroite} className="flex shrink-0 items-center" data-cote-du-haut="droite">
+          {droite}
+        </div>
+        {hautEnLigne ? null : <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 flex h-11 items-center justify-center"
+          style={{ paddingLeft: cote, paddingRight: cote }}
+          data-calque-du-nom
+        >
+          <div className="pointer-events-auto flex min-w-0 max-w-full flex-1 justify-center">{etagesTelephone}</div>
+        </div>}
+      </header>
     );
   }
 
@@ -894,7 +1405,9 @@ export function EnteteDePage({
       avant={lieu?.avant}
       onRetour={fermer}
       retourDePage
-      chemin={lieu ? [...lieu.chemin, { libelle: lieu.titre, onClick: fermer }] : []}
+      /* LE MÊME FIL PARTOUT (31/10/2026, capture #6c26) : « Tableaux de bord › Service ⌄ › page ». Le nom du
+         service referme la page, son chevron ouvre la liste des services. */
+      chemin={lieu ? [...lieu.chemin, { libelle: lieu.titre, onClick: fermer, menuApres: lieu.menuDuTitre }] : []}
       titre=""
       emplacementDuTitre={onCibleDuTitre}
     >

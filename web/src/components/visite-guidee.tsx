@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { X } from '@/components/ui/icones';
 import {
   CLE_DE_LA_VISITE,
   ETAPES_DE_LA_VISITE,
@@ -47,7 +47,7 @@ function texteDeLEtape(id: IdDEtapeDeVisite): { titre: string; texte: string } {
     case 'agent':
       return {
         titre: t('Confier une demande'),
-        texte: t('« Nouvel agent » ouvre une conversation : décrivez ce que vous voulez, l’agent en fait une carte.'),
+        texte: t('« Nouvel artefact » ouvre une conversation : décrivez ce que vous voulez, l’agent en fait une carte.'),
       };
     case 'tableau':
       return {
@@ -149,7 +149,7 @@ export function VisiteGuidee() {
   const dessous = rect.bottom + 10 + HAUTEUR_BULLE < window.innerHeight;
   const dessus = rect.top - 10 - HAUTEUR_BULLE > 0;
   const place: React.CSSProperties = telephone
-    ? { left: MARGE, right: MARGE, bottom: `max(${MARGE}px, env(safe-area-inset-bottom))` }
+    ? { left: MARGE, right: MARGE, bottom: `calc(max(${MARGE}px, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px))` }
     : dessous
       ? { left: gauche, top: rect.bottom + 10, width: largeur }
       : dessus

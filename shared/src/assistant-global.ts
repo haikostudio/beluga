@@ -73,24 +73,47 @@ export const OUTILS_DE_L_ASSISTANT = [
   'backup_essai',
   'backup_recette',
   'assistant_resume',
-  'assistant_notes',
   'assistant_messagerie',
   'assistant_surveillances',
   'assistant_backups',
   'assistant_base_serveur',
   'assistant_gestes',
+  'assistant_ecran',
+  'carte_demande',
+  'beluga_commande',
 ] as const;
 
 /** Les outils créés pour l'assistant : aucun autre agent ne les reçoit. */
 export const OUTILS_PROPRES_A_L_ASSISTANT: ReadonlySet<string> = new Set([
   'assistant_resume',
-  'assistant_notes',
   'assistant_messagerie',
   'assistant_surveillances',
   'assistant_backups',
   'assistant_base_serveur',
   'assistant_gestes',
+  'assistant_ecran',
+  'carte_demande',
+  'beluga_commande',
 ]);
+
+/**
+ * CE QUE LA VOIX NE REÇOIT PAS (décision du 17/11/2026 : « Jarvis a TOUS les outils ») : seuls les outils qui n'ont de
+ * sens que dans le tour d'une carte — rendre une compréhension, un plan, une réparation, un bilan, le cahier des
+ * charges. Tout le reste du démon lui est servi.
+ */
+export const OUTILS_HORS_DE_LA_VOIX: ReadonlySet<string> = new Set([
+  'rendre_comprehension',
+  'rendre_plan',
+  'rendre_reparation',
+  'bilan_du_travail',
+  'deplacer_vers_projet',
+  'relancer_publication',
+]);
+
+/** Un outil du démon est-il servi à la conversation vocale ? (Les `cahier_*` sont propres au cahier des charges.) */
+export function outilServiALaVoix(nom: string): boolean {
+  return !OUTILS_HORS_DE_LA_VOIX.has(nom) && !nom.startsWith('cahier_');
+}
 
 
 function texte(valeur: unknown): string {
@@ -108,10 +131,11 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'board_list_cards':
     case 'assistant_resume':
     case 'surveillance_essai':
-    case 'deleguer':
-    case 'evaluer':
-    case 'suggerer_modele':
       return 'lecture';
+    case 'carte_demande':
+      return 'ecriture';
+    case 'beluga_commande':
+      return action === 'lister' ? 'lecture' : 'ecriture';
     case 'exemple_de_choix':
     case 'board_create_card':
     case 'board_update_card':
@@ -128,6 +152,10 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
       return 'ecriture';
     case 'board_delete_card':
       return 'suppression';
+    /* LES SERVICES DE TOUT AGENT (02/11/2026) : rien n'y part dehors sans clic — envoi et programmation sont des propositions. */
+    case 'services':
+      if (['lister', 'lire', 'fil_lire', 'historique', 'points', 'suivre'].includes(action)) return 'lecture';
+      return action === 'supprimer' ? 'suppression' : 'ecriture';
     case 'project_manage':
       if (action === 'lister') return 'lecture';
       if (action === 'retirer') return 'suppression';
@@ -164,10 +192,10 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'statistiques':
       if (action === 'etat' || action === 'lire') return 'lecture';
       return ['activer', 'reperes', 'parcours'].includes(action) ? 'ecriture' : 'suppression';
-    case 'assistant_notes':
-      if (action === 'lister' || action === 'lire') return 'lecture';
-      if (action === 'creer' || action === 'modifier') return 'ecriture';
-      return 'suppression';
+    /* LES CAPTURES ET LA PLAQUETTE CLIENT (05/11/2026) : rien n'y part au client — le lien privé est copié et envoyé
+       par l'utilisateur lui-même ; rien ne s'y efface. */
+    case 'capture':
+      return ['plaquette_lire', 'plaquette_marques', 'proposer'].includes(texte(args.geste)) ? 'lecture' : 'ecriture';
     case 'assistant_messagerie':
       if (['lister', 'lire', 'en_attente', 'fil_lire'].includes(action)) return 'lecture';
       // Tout ce qui s'écrit dans l'espace client prévient le client : c'est un envoi.
@@ -183,6 +211,10 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'assistant_gestes':
       if (action === 'trouver') return 'lecture';
       return ['lancer', 'valider_proposition', 'changer_de_projet', 'deployer', 'redemarrer'].includes(action) ? 'ecriture' : 'suppression';
+    /* LES GESTES DE JARVIS À L'ÉCRAN (16/11/2026) : ce qui engage y est refusé sans confirmation vocale, par l'outil. */
+    case 'assistant_ecran':
+      if (action === 'chemins' || action === 'lire') return 'lecture';
+      return ['jouer', 'reprendre', 'annuler'].includes(action) ? 'ecriture' : 'suppression';
     case 'assistant_base_serveur':
       if (texte(args.mode) === 'lecture') return 'lecture';
       return requeteDestructive(args.requete) ? 'ecriture-serveur' : 'ecriture';
@@ -326,11 +358,68 @@ export function chatDeLAssistant(etat: ChatAssistant, fenetre: FenetreChat, marg
   return { ouvert: etat.ouvert, droite, bas, largeur, hauteur };
 }
 
+/**
+ * LE VOLET OUVERT PAR LE BOUTON DU BORD (carte « Jarvis : volet, voix et rapidité », 16/11/2026) : le robot du bas à
+ * droite a disparu, le bouton du bord est la SEULE entrée de l'assistant. Le volet s'ouvre DU CÔTÉ du bouton :
+ * contre le bord gauche ou droit (posé en bas, comme avant), au-dessus du bouton posé en bas, sous l'entête pour un
+ * bouton posé en haut — centré sur lui et ramené dans l'écran. Sa taille reste celle qu'on lui a donnée, bornée
+ * comme avant. Sur téléphone, il garde sa place sous l'entête, pleine largeur, quel que soit le bord.
+ *
+ * `poignee` dit le coin où se tire la taille : toujours le coin OPPOSÉ à l'ancrage ; `sens` multiplie le
+ * déplacement du pointeur (−1 quand tirer vers la gauche, ou le haut, agrandit).
+ */
+export interface VoletAuBord {
+  ouvert: boolean;
+  largeur: number;
+  hauteur: number;
+  gauche?: number;
+  droite?: number;
+  haut?: number;
+  bas?: number;
+  poignee: { horizontal: 'gauche' | 'droite'; vertical: 'haut' | 'bas'; sensX: 1 | -1; sensY: 1 | -1 };
+}
+
+/**
+ * LA DISTANCE AU BORD DROIT DE LA BULLE VOCALE ET DU VOLET DE JARVIS, sur ordinateur : la MÊME marge qu'en bas
+ * (décision de l'utilisateur du 17/11/2026 : « collé à la bordure de l'écran avec la même marge qu'en bas »). Le rond
+ * du terminal ne garde plus le coin : quand Jarvis est ouvert, il remonte au-dessus de lui (`rangee-des-ronds.tsx`).
+ */
+export const DROITE_DE_JARVIS = BAS_ROBOT;
+
+export function voletDeLAssistant(
+  etat: ChatAssistant,
+  fenetre: FenetreChat,
+  bouton: { bord: 'gauche' | 'droite' | 'haut' | 'bas'; centre: number },
+  marge = MARGE_CHAT,
+): VoletAuBord {
+  if (estTelephoneChat(fenetre)) {
+    const vu = chatDeLAssistant(etat, fenetre, marge);
+    return {
+      ouvert: etat.ouvert,
+      largeur: vu.largeur,
+      hauteur: vu.hauteur,
+      gauche: marge,
+      droite: marge,
+      haut: vu.haut,
+      bas: vu.bas,
+      poignee: { horizontal: 'gauche', vertical: 'haut', sensX: -1, sensY: -1 },
+    };
+  }
+  /* SUR ORDINATEUR, TOUJOURS EN BAS À DROITE (décision de l'utilisateur, 17/11/2026 : « il faut que le tchat soit
+     toujours en bas à droite sur desktop ») : le bouton reste déplaçable, mais le volet ne le suit plus. Il ne laisse
+     plus de place au bouton : celui-ci SE TRANSFORME en volet et disparaît tant qu'il est ouvert (morphing,
+     `morphing-du-bord.tsx`). Collé en bas à droite, à 16 px des deux bords ; le rond du terminal remonte au-dessus. */
+  void bouton;
+  const borner = (v: number, min: number, max: number) => (max < min ? min : Math.min(max, Math.max(min, v)));
+  const largeur = borner(etat.largeur, LARGEUR_CHAT_MIN, Math.min(LARGEUR_CHAT_MAX, fenetre.width - marge - DROITE_DE_JARVIS));
+  const hauteurLibre = Math.max(0, fenetre.height - HAUT_ENTETE - marge - BAS_ROBOT);
+  const hauteur = borner(etat.hauteur, Math.min(HAUTEUR_CHAT_MIN, hauteurLibre), hauteurLibre);
+  return { ouvert: etat.ouvert, largeur, hauteur, droite: DROITE_DE_JARVIS, bas: BAS_ROBOT, poignee: { horizontal: 'gauche', vertical: 'haut', sensX: -1, sensY: -1 } };
+}
+
 /* ------------------------------------------------------------------ */
 /* La consigne                                                          */
 /* ------------------------------------------------------------------ */
-
-export const TITRE_ASSISTANT_GLOBAL = 'Assistant Beluga';
 
 /**
  * Ce que la consigne dit de la facturation : rien dans le dépôt public, où
@@ -346,9 +435,9 @@ const MENTION_FACTURATION = [
  * cache). Elle décrit son rôle, ses droits entiers et ses outils propres ; la
  * confirmation de l'irréversible est la sienne, par question (29/10/2026).
  */
-export const CONSIGNE_ASSISTANT_GLOBAL = `TU ES L'ASSISTANT DE BELUGA BUILD, ouvert depuis le robot en bas à droite de l'application (sur téléphone, depuis un bouton du haut de l'écran). L'utilisateur te parle depuis n'importe quel écran : réponds-lui directement, comme un collègue. Tu n'as ni carte ni branche.
+export const CONSIGNE_ASSISTANT_GLOBAL = `TU ES L'ASSISTANT DE BELUGA BUILD, ouvert depuis le bouton du bord de l'écran (en texte ou à la voix, « Jarvis »). L'utilisateur te parle depuis n'importe quel écran : réponds-lui directement, comme un collègue. Tu n'as ni carte ni branche.
 
-TU AS TOUS LES DROITS ET L'ACCÈS COMPLET, sur cette machine et dans Beluga : tu lis, tu écris, tu lances des commandes, tu administres, sans demander la permission au coup par coup et sans jamais répondre qu'un geste est réservé à l'utilisateur ou que tu n'en as pas le droit. Tu ressors une carte d'« Archivé » ou d'« À déployer » (board_move_card agit comme son geste), tu crées une carte et la valides, tu la lances, tu la changes de projet, tu supprimes. Pour MODIFIER LE CODE d'un projet, tu proposes la carte (board_create_card), tu la valides (assistant_gestes « valider_proposition ») et tu la lances (« lancer ») : elle a sa branche et sa copie de travail, et son travail arrive dans « À déployer ». Tu n'écris jamais dans le dossier publié (data/live) ni dans le dossier servi d'un projet ; dans un dossier partagé, git add NOMMÉ, jamais -A. Un travail en étapes ordonnées se propose en UNE suite (champ « etapes »). Tu DÉPLOIES ou mets EN PRODUCTION (assistant_gestes « deployer ») seulement quand l'utilisateur te l'a demandé dans cette conversation, jamais de toi-même. Tu REDÉMARRES Beluga (« redemarrer ») sur sa demande : le redémarrage attend tout seul qu'aucun agent ni publication ne tourne, dis-le.
+TU AS TOUS LES DROITS ET L'ACCÈS COMPLET, sur cette machine et dans Beluga : tu lis, tu écris, tu lances des commandes, tu administres, sans demander la permission au coup par coup et sans jamais répondre qu'un geste est réservé à l'utilisateur ou que tu n'en as pas le droit. Tu ressors une carte d'« Archivé » ou d'« À déployer » (board_move_card agit comme son geste), tu crées une carte et la valides, tu la lances, tu la changes de projet, tu supprimes. Pour MODIFIER LE CODE d'un projet, tu proposes la carte (board_create_card), tu la valides (assistant_gestes « valider_proposition ») et tu la lances (« lancer ») : elle a sa branche et sa copie de travail, et son travail arrive dans « À déployer ». Tu n'écris jamais dans le dossier publié (data/live) ni dans le dossier servi d'un projet ; dans un dossier partagé, git add NOMMÉ, jamais -A. Un travail en étapes ordonnées se propose en UNE suite (champ « etapes »). Tu DÉPLOIES ou mets EN PRODUCTION (assistant_gestes « deployer ») seulement quand l'utilisateur te l'a demandé dans cette conversation, jamais de toi-même. Tu REDÉMARRES Beluga (« redemarrer ») sur sa demande : le redémarrage attend tout seul qu'aucun agent ni publication ne tourne, dis-le. UN OUTIL QUI REFUSE DIT POURQUOI : reprends SA raison (« la description est trop courte », « projet introuvable »…), corrige l'appel et réessaie ; ne transforme JAMAIS un refus d'outil en « je n'ai pas les droits » ou « je n'y ai pas accès » — c'est toujours faux ici.
 
 OÙ EST UNE CARTE : assistant_gestes « trouver » (quelques mots du titre, tous projets si tu ne sais pas lequel). Réponds par son projet, sa colonne, son rang dans la colonne et sa date, puis le LIEN rendu par l'outil, recopié tel quel (« [ouvrir la carte](#projet/…/tache/…) »).
 
@@ -359,9 +448,9 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil Beluga accep
 - l'atelier RÉSEAUX SOCIAUX de chaque projet (son outil s'appelle encore « marketing ») — calendrier, plan, contenus, canaux, comptes, rapport : marketing, TOUJOURS avec « projet » (l'écran Réseaux sociaux n'a plus d'agent à lui : c'est toi qu'on y appelle, et un message qui commence par « Réseaux sociaux de « X » : » — ou l'ancienne amorce « Marketing de « X » : » — vise le projet X ; les longues analyses restent à l'agent des réseaux sociaux du projet, lancées depuis son écran) ; les STATISTIQUES : statistiques ;
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
 - les BACKUPS : assistant_backups, backup_essai, backup_recette ;
-- les NOTES : assistant_notes ;${MENTION_FACTURATION}
-- les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier) ;
-- les GESTES DE L'ÉCRAN — trouver une carte, lancer, valider une proposition, changer de projet, déployer, redémarrer : assistant_gestes.
+${MENTION_FACTURATION}- les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier) ;
+- les GESTES DE L'ÉCRAN — trouver une carte, lancer, valider une proposition, changer de projet, déployer, redémarrer : assistant_gestes ;
+- AGIR DEVANT L'UTILISATEUR, avec ton curseur, pendant une conversation vocale (ouvrir, cliquer, remplir) : assistant_ecran.
 
 ${REGLE_DEMANDE_DE_CLONAGE}
 

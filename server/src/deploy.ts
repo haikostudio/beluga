@@ -27,6 +27,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { ZodError } from 'zod';
+import { attendreLaPlaceDesTravauxLourds } from './porte-des-travaux-lourds.js';
 import {
   Card,
   CiblePublication,
@@ -75,6 +76,8 @@ import {
   estUnEnregistrement,
   planDeRapatriement,
   raisonDeLAbsence,
+  raisonDuLotSansTravail,
+  natureDeLaMention,
   raisonDeLaNonArrivee,
   mentionDeLEcartement,
   rattrapagesAPoser,
@@ -108,8 +111,17 @@ import {
   type DepotsDeCarte,
   agentRetientLaPublication,
   raisonLancementEnPreparation,
+  raisonFileEnAttenteAuDeploiement,
   processusJoueAuDeploiement,
   horsDuLotDeDeploiement,
+  estUnRegroupement,
+  ligneADeployer,
+  trierLesPublicationsEnAttente,
+  type LigneADeployer,
+  type LigneAProduire,
+  type PublicationsEnAttente,
+  depannageAutomatiquePermis,
+  natureDePublication,
 } from '@beluga/shared';
 import * as store from './store.js';
 // LE DÉPÔT PUBLIC DE BELUGA SE LIT, IL NE SE POUSSE JAMAIS (lecture OU envoi vers lui).
@@ -118,6 +130,7 @@ import { bus } from './bus.js';
 import { lancementsEnRouteDuProjet } from './lancements-en-route.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
+import { getDb } from './db.js';
 import { garderLesMorceauxPrecedents } from './morceaux-precedents.js';
 import { lancerCommandeBornee } from './commande-bornee.js';
 import { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } from './recollage-documentaire.js';
@@ -129,6 +142,14 @@ import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from '.
 import { branchePrincipale } from './git.js';
 import { remonterLeDossierDuProjet } from './remontage.js';
 import { fusionnerVersLaProduction } from './fusion-vers-production.js';
+import {
+  apportsEnAttenteDeProduction,
+  noterLaProduction,
+  produireLaSelection,
+  retenirLApport as noterLApportDeLaCarte,
+  verifierLaSelection,
+  type VerdictDeSelection,
+} from './production-partielle.js';
 import { garderLEnvoi } from './garde-contenu.js';
 import { portServi, serviceDuProjet } from './services-du-projet.js';
 import { estAgentAttitre } from './agent-attitre.js';
@@ -239,7 +260,7 @@ export function deployableCards(projectId: string, source: ColumnKey = 'to_deplo
 }
 
 export type ConflitPrevu = { cardId: string; title: string; branch: string; files: string[] };
-export type AgentOccupe = { id: string; title: string; enPreparation?: boolean };
+export type AgentOccupe = { id: string; title: string; enPreparation?: boolean; fileEnAttente?: boolean };
 
 /** Les agents qui écrivent dans le dossier PARTAGÉ du projet : publier dessous est refusé. */
 export function agentsOccupes(projectId: string): AgentOccupe[] {
@@ -259,6 +280,21 @@ export function agentsOccupes(projectId: string): AgentOccupe[] {
     const card = store.getCard(cardId);
     if (!card || (card.agentId && dejaVues.has(card.agentId))) continue;
     agents.push({ id: cardId, title: card.title || 'carte sans titre', enPreparation: true });
+  }
+  /*
+   * ET LES CARTES QU'UN MESSAGE EN ATTENTE RETIENT (04/11/2026). Le tour de
+   * l'agent est fini, mais un message attend encore derrière lui — souvent
+   * ouvert en modification. Déployer maintenant mettrait la carte en ligne
+   * sous ce message, qui serait alors refusé : c'est ainsi qu'un long message
+   * a été perdu. Seules les cartes encore ouvertes ou prêtes comptent ; un
+   * agent de volet sans carte ne retient rien.
+   */
+  for (const agent of store.agentsAvecFileDuProjet(projectId)) {
+    if (dejaVues.has(agent.id)) continue;
+    const card = agent.cardId ? store.getCard(agent.cardId) : null;
+    if (!card || (card.column !== 'running' && card.column !== 'to_deploy')) continue;
+    dejaVues.add(agent.id);
+    agents.push({ id: agent.id, title: card.title || 'carte sans titre', fileEnAttente: true });
   }
   return agents;
 }
@@ -389,7 +425,9 @@ export async function etatDeLaProduction(projectId: string): Promise<EtatProduct
   if (!project) return { raison: 'projet introuvable' };
   const quand = (run: DeployRun) => run.endedAt ?? run.startedAt;
   const essais = store
-    .recentDeploys(projectId, 50)
+    // Lues À PART : une fenêtre commune aux deux étapes se remplit de
+    // déploiements et finit par ne plus contenir aucune mise en production.
+    .deploysDeLEtape(projectId, 'production', 20)
     .filter((run) => run.cible === 'production')
     .sort((a, b) => quand(b) - quand(a));
   const derniere = essais.find((run) => run.state === 'success');
@@ -425,6 +463,86 @@ export async function etatDeLaProduction(projectId: string): Promise<EtatProduct
   const n = Number.parseInt(compte.out.trim(), 10);
   if (compte.ok && Number.isFinite(n)) etat.ecart = n;
   return etat;
+}
+
+/**
+ * LES TÂCHES DÉPLOYÉES QUI ATTENDENT LA PRODUCTION (menu « Publier », 13/11/2026), de la plus récente à la plus
+ * ancienne. Celles dont l'apport est connu se cochent une par une (`separable`) ; celles déployées AVANT que les
+ * apports soient retenus — postérieures à la dernière mise en production réussie — ne partent qu'avec toutes.
+ * Lecture seule : la base, rien d'autre.
+ */
+export async function tachesAMettreEnProduction(
+  projectId: string,
+): Promise<{ cardId: string; titre: string; deployeeLe: number; separable: boolean }[]> {
+  const apports = apportsEnAttenteDeProduction(projectId);
+  const connues = new Set(apports.map((a) => a.cardId));
+  const derniere = store
+    .deploysDeLEtape(projectId, 'production', 20)
+    .filter((run) => run.cible === 'production' && run.state === 'success')
+    .map((run) => run.endedAt ?? run.startedAt)
+    .sort((a, b) => b - a)[0] ?? 0;
+  const anciennes = (getDb()
+    .prepare('SELECT id, title, deployed_at FROM cards WHERE project_id = ? AND deployed_at IS NOT NULL AND deployed_at > ?')
+    .all(projectId, derniere) as { id: string; title: string; deployed_at: number }[])
+    .filter((ligne) => !connues.has(ligne.id))
+    .map((ligne) => ({ cardId: ligne.id, titre: ligne.title, deployeeLe: ligne.deployed_at, separable: false }));
+  const avecApport = apports.map((a) => {
+    const card = store.getCard(a.cardId);
+    return { cardId: a.cardId, titre: card?.title ?? a.branche ?? a.cardId, deployeeLe: card?.deployedAt ?? a.fusionneLe, separable: true };
+  });
+  return [...avecApport, ...anciennes].sort((a, b) => b.deployeeLe - a.deployeeLe);
+}
+
+/**
+ * LES PUBLICATIONS EN ATTENTE, TOUS PROJETS (16/11/2026, en tête des « Tableaux de bord ») : les projets qui ont des
+ * tâches « À déployer », puis ceux dont des tâches déployées attendent la mise en production. Des lectures en BASE
+ * seulement — jamais git — avec les règles du menu « Publier » (`estADeployer`, `tachesAMettreEnProduction`). Un projet
+ * léger ou un regroupement n'a rien à publier lui-même ; seul un projet qui a une procédure de production peut attendre
+ * la production.
+ */
+export async function publicationsEnAttente(): Promise<PublicationsEnAttente> {
+  const aDeployer: LigneADeployer[] = [];
+  const aProduire: LigneAProduire[] = [];
+  for (const project of store.listProjects()) {
+    if (project.leger || estUnRegroupement(project)) continue;
+    const reussites = store.dernieresReussitesDePublication(project.id);
+    const ligne = ligneADeployer(project.id, store.listCardsInColumn(project.id, 'to_deploy'), reussites.dev ?? null);
+    if (ligne) aDeployer.push(ligne);
+    if (!procedureEnPlace(project, 'production')) continue;
+    const taches = await tachesAMettreEnProduction(project.id);
+    if (!taches.length) continue;
+    const derniere = store.deploysDeLEtape(project.id, 'production', 1)[0];
+    aProduire.push({
+      projectId: project.id,
+      taches: taches.length,
+      dernierDeploiement: reussites.dev ?? null,
+      derniereProduction: reussites.production ?? null,
+      echec: derniere?.state === 'failed' || derniere?.state === 'stopped',
+    });
+  }
+  return trierLesPublicationsEnAttente({ aDeployer, aProduire });
+}
+
+/** L'ESSAI À BLANC d'une mise en production partielle : quelles tâches cochées ont besoin d'une tâche décochée. */
+export async function verifierLaMiseEnProductionPartielle(projectId: string, cardIds: string[]): Promise<VerdictDeSelection> {
+  const project = store.getProject(projectId);
+  if (!project || !cardIds.length) return { ok: true, manques: [] };
+  const taches = await tachesAMettreEnProduction(projectId);
+  /* Tout coché : la branche entière part, comme avant — rien à vérifier. */
+  if (taches.every((tache) => cardIds.includes(tache.cardId))) return { ok: true, manques: [] };
+  const cwd = project.path;
+  const production = (await brancheDeLEtape(project, 'production')).branche;
+  const tete =
+    (await runCommand(cwd, `git rev-parse --verify --quiet refs/remotes/origin/${production}`, 20000)).out.trim() ||
+    (await runCommand(cwd, `git rev-parse --verify --quiet refs/heads/${production}`, 20000)).out.trim();
+  if (!/^[0-9a-f]{40}$/.test(tete)) return { ok: true, manques: [] };
+  const verdict = await verifierLaSelection(cwd, tete, projectId, cardIds);
+  /* Une tâche cochée SANS apport connu ne part qu'avec toutes : elle a besoin de chaque tâche décochée. */
+  const decochees = taches.filter((tache) => !cardIds.includes(tache.cardId)).map((tache) => tache.cardId);
+  return {
+    ok: verdict.ok,
+    manques: verdict.manques.map((m) => (m.raison === 'sans-apport' && !m.besoinDe.length ? { ...m, besoinDe: decochees } : m)),
+  };
 }
 
 /**
@@ -1023,6 +1141,34 @@ export async function depotsTouchesParLesCartes(project: Project, cards: Card[])
 }
 
 
+/**
+ * LES CARTES DONT LA BRANCHE N'EXISTE NULLE PART — ni dans un dépôt du projet, ni sur GitHub. Lecture seule : aucun
+ * `fetch`, aucune branche créée (le rapatriement reste l'affaire de la fusion). Une lecture qui échoue compte comme
+ * « trouvée » : dans le doute, la publication part comme avant.
+ */
+export async function cartesSansTravailRetrouvable(project: Project, cards: Card[]): Promise<Card[]> {
+  const vides: Card[] = [];
+  for (const card of cards) {
+    const branch = card.github?.branch;
+    if (!branch || !/^[A-Za-z0-9._\/-]+$/.test(branch)) continue;
+    let trouvee = false;
+    for (const depot of depotsDuProjet(project)) {
+      if (!(await runCommand(depot.path, 'git rev-parse --git-dir', 20000)).ok) continue;
+      if ((await runCommand(depot.path, `git rev-parse --verify --quiet refs/heads/${branch}`, 20000)).ok) {
+        trouvee = true;
+        break;
+      }
+      const distante = await runCommand(depot.path, `git ls-remote --heads origin ${branch}`, 30000);
+      if (!distante.ok || distante.out.trim()) {
+        trouvee = true;
+        break;
+      }
+    }
+    if (!trouvee) vides.push(card);
+  }
+  return vides;
+}
+
 /* ------------------------------------------------------------------ */
 /* L'état d'une publication en vol                                     */
 /* ------------------------------------------------------------------ */
@@ -1109,6 +1255,27 @@ function noter(run: DeployRun, etape: DeployStepKey, texte: string, genre: Genre
   const fil = journalDuRun(run);
   fil.set(etape, ajouterAuJournal(fil.get(etape), { at: Date.now(), genre, texte, ...(etat ? { etat } : {}) }));
   return emit(run);
+}
+
+/**
+ * UNE CONSTRUCTION DE LA PUBLICATION REGARDE LA MÉMOIRE AVANT DE PARTIR (18/11/2026).
+ *
+ * Le 17/11 à 21:58, une mise en production a lancé `nuxt build` (898 Mo) et
+ * `npm ci` (304 Mo + 279 Mo d'échange) sur une machine pleine : le démon s'est
+ * figé 24 s. Machine pleine, l'étape ATTEND donc la place et le DIT dans son
+ * fil — une phrase stable, une fois —, puis part dès qu'elle se libère, ou au
+ * bout de l'attente bornée QUAND MÊME : une publication ne reste jamais
+ * bloquée sans rien dire (`attendreLaPlaceDesTravauxLourds`).
+ */
+async function attendreLaMemoire(acces: AccesAuRun, cle: DeployStepKey, quoi: string, signal: AbortSignal): Promise<void> {
+  const issue = await attendreLaPlaceDesTravauxLourds({
+    quoi,
+    signal,
+    surAttente: (phrase) => acces.ecrire(progresser(acces.lire(), cle, phrase)),
+  });
+  if (issue === 'arrete') throw new ArretDeLaPublication('arrêt demandé');
+  if (issue === 'apres-attente') acces.ecrire(noter(acces.lire(), cle, 'La mémoire s’est libérée : la suite part.'));
+  if (issue === 'force') acces.ecrire(noter(acces.lire(), cle, 'La mémoire est toujours pleine : la suite part quand même, pour ne pas bloquer la publication.'));
 }
 
 function premiereLigne(texte: string): string {
@@ -1210,6 +1377,16 @@ function tomber(acces: AccesAuRun, cle: DeployStepKey, texte: string, blocage?: 
   throw new ArretDeLaPublication(blocage?.explication ?? raisonCourteDeLEchec(texte));
 }
 
+/**
+ * L'ABANDON D'UNE ÉTAPE APRÈS SES RÉPARATIONS : l'échec, avec son encadré. PLUS DE CARTE « RÉPARER LE DÉPLOIEMENT »
+ * (décision de l'utilisateur, 17/11/2026) : la ligne tombée reste active dans la colonne, et un dépanneur s'ouvre de
+ * lui-même à la chute (`ouvrirLeDepanneurAutomatique`), puis la MÊME publication reprend à la fin de son tour.
+ */
+async function abandonner(acces: AccesAuRun, project: Project, cle: DeployStepKey, texte: string, blocage: BlocageDEtape): Promise<never> {
+  void project;
+  return tomber(acces, cle, texte, blocage);
+}
+
 /** Le titre de l'agent de réparation, lisible dans sa conversation. */
 function titreDeLaReparation(cible: CiblePublication | undefined, etape: string): string {
   return `${cible === 'production' ? 'Réparation de la mise en production' : 'Réparation du déploiement'} — ${etape}`;
@@ -1248,7 +1425,7 @@ async function jouerAvecReparation(
       const essais = avant?.essais ?? 0;
       const decision = decisionDeReparation({ essais, motif: err.texte, cle: err.cle });
       if (decision === 'hors-champ') tomber(acces, err.cle, err.texte);
-      if (decision === 'abandon') tomber(acces, err.cle, err.texte, await redigerLEncadre(acces, project, err, avant?.agentId, essais, signal));
+      if (decision === 'abandon') await abandonner(acces, project, err.cle, err.texte, await redigerLEncadre(acces, project, err, avant?.agentId, essais, signal));
 
       const essai = essais + 1;
       acces.ecrire(
@@ -1285,15 +1462,16 @@ async function jouerAvecReparation(
       }
       acces.ecrire(noterLaReparation(acces.lire(), err.cle, recitDeLEssai({ essai }), issue.agentId));
       if (issue.issue === 'sans-moteur') {
-        tomber(
+        await abandonner(
           acces,
+          project,
           err.cle,
           err.texte,
           essais ? blocageApresLesEssais({ etape: libelle, essais, raison: err.message, agentId: issue.agentId }) : blocageSansMoteur(libelle, err.message),
         );
       }
       if (issue.issue === 'abandon') {
-        tomber(acces, err.cle, err.texte, { explication: issue.explication, marcheASuivre: issue.marcheASuivre, agentId: issue.agentId, essais: essai });
+        await abandonner(acces, project, err.cle, err.texte, { explication: issue.explication, marcheASuivre: issue.marcheASuivre, agentId: issue.agentId, essais: essai });
       }
       log.info(`publication ${acces.lire().id} : « ${libelle} » réparée en silence (essai ${essai}), l’étape est rejouée`);
       // reparee, tentee, delai : l'étape est rejouée, elle dira elle-même si elle passe.
@@ -1478,7 +1656,14 @@ async function adresseRepond(url: string): Promise<{ ok: boolean; detail: string
 
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication; selectedCardIds?: string[]; depot?: string; reprises?: number } = {},
+  options: {
+    cible?: CiblePublication;
+    selectedCardIds?: string[];
+    depot?: string;
+    reprises?: number;
+    /** LA MÊME publication, reprise après son dépannage (17/11/2026) : même identifiant, même ligne, ses étapes faites gardées. */
+    reprendre?: DeployRun;
+  } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -1513,6 +1698,10 @@ export async function startDeploy(
   if (enPreparation.length) {
     return { ok: false, error: raisonLancementEnPreparation(enPreparation.map((a) => a.title)) };
   }
+  const retenusParLaFile = occupes.filter((a) => a.fileEnAttente);
+  if (retenusParLaFile.length) {
+    return { ok: false, error: raisonFileEnAttenteAuDeploiement(retenusParLaFile.map((a) => a.title)) };
+  }
   if (occupes.length) {
     return {
       ok: false,
@@ -1520,8 +1709,38 @@ export async function startDeploy(
     };
   }
 
-  const cards = deployableCards(projectId, etape.source, options.selectedCardIds);
-  const run: DeployRun = DeployRun.parse({
+  const reprise = options.reprendre;
+  const cards = deployableCards(projectId, etape.source, reprise ? reprise.cardIds : options.selectedCardIds);
+  /* RIEN À METTRE EN LIGNE, AUCUNE PUBLICATION (`raisonDuLotSansTravail`) : aucune ligne d'échec ne s'empile. */
+  if (!reprise && etape.cible === 'dev' && cards.length && cards.every((c) => !!c.github?.branch)) {
+    const vides = await cartesSansTravailRetrouvable(project, cards);
+    if (vides.length === cards.length) {
+      let rangees = 0;
+      for (const card of vides) {
+        if (natureDeLaMention(card.sansModification) !== 'information') continue;
+        if ((await archiveCard(card.id)).ok) rangees += 1;
+      }
+      return { ok: false, error: raisonDuLotSansTravail(rangees, vides.length - rangees) };
+    }
+  }
+  /* LA REPRISE APRÈS DÉPANNAGE REPART DANS LA MÊME PUBLICATION : même ligne (rouge → violette), étapes déjà faites
+     gardées cochées ; le déroulé se rejoue en entier (une étape faite se refait sans rien changer), l'étape tombée
+     repart de zéro. */
+  const run: DeployRun = reprise
+    ? DeployRun.parse({
+        ...reprise,
+        state: 'running',
+        error: undefined,
+        endedAt: undefined,
+        currentStep: undefined,
+        queued: false,
+        reprisA: Date.now(),
+        steps: reprise.steps.map((step) =>
+          step.state === 'failed' ? { ...step, state: 'todo' as const, progress: undefined, endedAt: undefined, blocage: undefined } : step,
+        ),
+        depannage: reprise.depannage ? { ...reprise.depannage, relanceDemandee: undefined, refusAuto: undefined, enAttenteDeVous: undefined } : undefined,
+      })
+    : DeployRun.parse({
     id: store.newId(),
     projectId,
     state: 'running',
@@ -1535,6 +1754,7 @@ export async function startDeploy(
     queued: false,
   });
   emit(run);
+  if (reprise) noter(run, (reprise.steps.find((st) => st.state === 'failed')?.key ?? STEP_ORDER[0]) as DeployStepKey, 'Reprise après le dépannage : la publication repart.', 'progression');
   const controleur = new AbortController();
   active.set(projectId, { controleur });
 
@@ -1544,7 +1764,7 @@ export async function startDeploy(
     const ecartees = new Set<string>();
     try {
       if (etape.cible === 'production') {
-        current = await mettreEnProduction(current, project, controleur.signal);
+        current = await mettreEnProduction(current, project, controleur.signal, options.selectedCardIds);
         /* La surveillance du site suit ce qui vient d'arriver EN LIGNE, et
            seulement maintenant (MEM-4501) : jamais une phrase de carte. */
         void alignerLaSurveillanceApresProduction(project.id);
@@ -1568,10 +1788,23 @@ export async function startDeploy(
             const rangee = await archiveCard(cardId);
             if (!rangee.ok) nonRangees.push(`« ${card.title} » (${rangee.error ?? 'raison inconnue'})`);
           }
+          /* LA VEILLE D'UN TRAVAIL FINI DÉMARRE MAINTENANT QUE LA CARTE EST EN LIGNE (`veille-de-carte.ts`) : sans
+             attendre la tournée de la minute. Une veille qui ne s'arme pas ne fait jamais échouer la mise en ligne. */
+          try {
+            (await import('./veille-de-carte.js')).armerLesVeillesEnLigne(Date.now(), cardId);
+          } catch (err) {
+            log.warn(`veille de la carte ${cardId} : armement après déploiement impossible`, err);
+          }
         } catch (err) {
           nonRangees.push(`${cardId} (${raisonDe(err)})`);
         }
       }
+      /* LA PREUVE D'UNE CORRECTION DE SÉCURITÉ (`service-securite.ts`) : une carte mise en ligne qui porte des points
+         « en correction » relance l'audit de son projet. Hors du chemin de la publication : rien ici ne la fait
+         échouer, une erreur se journalise. Même boucle pour le déploiement et la mise en production. */
+      void import('./service-securite.js')
+        .then(({ apresMiseEnLigne }) => apresMiseEnLigne(current.cardIds.filter((id) => !ecartees.has(id))))
+        .catch((err) => log.warn('sécurité : contrôle après mise en ligne impossible', err));
 
       current = emit({
         ...current,
@@ -1632,10 +1865,11 @@ export async function startDeploy(
           element: `Publication en échec — ${raison}`,
           projectId,
         });
-        /* PLUS DE DÉPANNEUR APRÈS LA CHUTE : l'étape a déjà eu ses trois
-           réparations silencieuses DANS le déroulé (`jouerAvecReparation`), et
-           son encadré dit ce qui reste à faire. « Résoudre le problème » reste
-           offert à la main. */
+        /* UN DÉPANNEUR S'OUVRE DE LUI-MÊME À LA CHUTE (décision de l'utilisateur, 17/11/2026 : « une fois le débogage
+           terminé, il doit relancer l'étape ») — après les trois réparations silencieuses de l'étape, deux cycles au
+           plus (`MAX_DEPANNAGES_AUTOMATIQUES`), jamais sur une machine saturée. Au-delà, la ligne attend le clic. */
+        const saturee = natureDePublication({ etat: 'failed', etapeTombee: etapeTombee ?? 'etape', motif: raison }) === 'saturee';
+        if (!saturee) ouvrirLeDepanneurAutomatique(current);
       }
     } finally {
       journaux.delete(current.id);
@@ -1844,6 +2078,14 @@ async function deployer(
         const avant = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
         const fusion = await runCommand(cwd, `git merge --no-edit ${cible}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
         const retenirLApport = async () => {
+          /* L'APPORT DE LA CARTE, GARDÉ POUR LA MISE EN PRODUCTION PARTIELLE (`production-partielle.ts`) : la tête
+             de la branche juste avant et juste après sa fusion. Sa branche disparaîtra à l'archivage. */
+          const apres = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
+          try {
+            if (!multi || d.principal) noterLApportDeLaCarte({ cardId: card.id, projectId: project.id, avant: avant || null, apres, branche: branch });
+          } catch (err) {
+            log.warn(`apport de la carte ${card.id} non retenu`, err);
+          }
           const apport = avant ? await runCommand(cwd, `git diff --name-only ${avant} HEAD`, 20000) : null;
           fusionnees.push({
             cardId: card.id,
@@ -2044,6 +2286,7 @@ async function deployer(
         current = setStep(current, 'build', 'running');
         current = progresser(current, 'build', 'Outils de construction et module natif…');
         const outils = await poserLesOutilsDeConstruction(cwd);
+        await attendreLaMemoire(acces, 'build', 'construction de Beluga', signal);
         current = progresser(current, 'build', '$ npm run build');
         const build = await runCommand(cwd, 'npm run build', DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
         if (!build.ok) arreter('build', `${outils}La construction a échoué${build.delaiDepasse ? ' (délai dépassé)' : ''} :\n${dernieresLignes(build.out, 2500)}`);
@@ -2101,6 +2344,7 @@ async function deployer(
           }
           for (const [rang, etape] of processusEcrit.etapes.entries()) {
             verifierArret();
+            await attendreLaMemoire(acces, 'build', `${project.name} · ${etape.libelle}`, signal);
             const entete = `${prefixe(d)}${rang + 1}/${processusEcrit.etapes.length} · ${etape.libelle}`;
             current = progresser(current, 'build', entete);
             current = noter(current, 'build', `$ ${etape.commande}`, 'commande');
@@ -2125,6 +2369,7 @@ async function deployer(
           continue;
         }
         verifierArret();
+        await attendreLaMemoire(acces, 'build', `${project.name} · ${commande}`, signal);
         current = progresser(current, 'build', `${prefixe(d)}$ ${commande}`);
         const sortie = await runCommand(d.projet.path, commande, DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
         if (!sortie.ok) {
@@ -2265,7 +2510,14 @@ async function deployer(
 /* La mise en production                                               */
 /* ------------------------------------------------------------------ */
 
-async function mettreEnProduction(depart: DeployRun, project: Project, signal: AbortSignal): Promise<DeployRun> {
+async function mettreEnProduction(
+  depart: DeployRun,
+  project: Project,
+  signal: AbortSignal,
+  /* LES TÂCHES COCHÉES DANS LE MENU « PUBLIER » (13/11/2026) : absentes, ou toutes celles qui attendent, la branche
+     entière part comme avant ; sinon, seuls leurs apports sont rejoués (`production-partielle.ts`). */
+  selection?: string[],
+): Promise<DeployRun> {
   let current = depart;
   const cwd = project.path;
   const processus = project.miseEnProduction?.processus;
@@ -2282,12 +2534,23 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
     const production = (await brancheDeLEtape(project, 'production')).branche;
     if (dev === production) {
       current = setStep(current, 'merge', 'skipped', `Le déploiement et la production partagent la branche « ${production} ».`);
+      noterLaProduction(project.id);
     } else {
+      const enAttente = apportsEnAttenteDeProduction(project.id).map((a) => a.cardId);
+      const partielle = !!selection?.length && enAttente.some((id) => !selection.includes(id));
       await jouerAvecReparation(acces, project, 'merge', signal, async () => {
         current = setStep(current, 'merge', 'running');
+        if (partielle && selection) {
+          current = progresser(current, 'merge', `Envoi de ${selection.length} tâche(s) choisie(s) dans « ${production} »…`);
+          const issue = await produireLaSelection(cwd, production, project.id, selection, (id) => store.getCard(id)?.title ?? id);
+          if (!issue.ok) throw new EchecDEtape('merge', issue.recit);
+          current = setStep(current, 'merge', 'done', issue.recit);
+          return;
+        }
         current = progresser(current, 'merge', `Fusion de « ${dev} » dans « ${production} » et envoi…`);
         const fusion = await fusionnerVersLaProduction(cwd, dev, production);
         if (!fusion.ok) throw new EchecDEtape('merge', fusion.recit);
+        noterLaProduction(project.id);
         current = setStep(current, 'merge', fusion.geste === 'deja-a-jour' ? 'skipped' : 'done', fusion.recit);
       });
     }
@@ -2308,6 +2571,7 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
     const joue: string[] = [];
     for (const [rang, etape] of processus.etapes.entries()) {
       if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
+      await attendreLaMemoire(acces, 'publish', `${project.name} · ${etape.libelle}`, signal);
       const entete = `${rang + 1}/${processus.etapes.length} · ${etape.libelle}`;
       current = progresser(current, 'publish', entete);
       current = noter(current, 'publish', `$ ${etape.commande}`, 'commande');
@@ -2375,6 +2639,51 @@ export function stopDeploy(runId: string): boolean {
 }
 
 /** Relancer, c'est refaire LA MÊME publication : ses étapes, et trois essais de réparation neufs pour chacune. */
+/**
+ * LE DÉPANNEUR AUTOMATIQUE D'UNE CHUTE (17/11/2026) : sous le plafond, il s'ouvre seul et la publication reprendra à la
+ * fin de son tour ; au-delà, la ligne attend le clic (`enAttenteDeVous`). Faute de compte, la ligne le dit (`refusAuto`).
+ */
+function ouvrirLeDepanneurAutomatique(run: DeployRun): void {
+  const noterSurLaPublication = (patch: Partial<NonNullable<DeployRun['depannage']>>) => {
+    const actuel = store.getDeploy(run.id);
+    if (!actuel) return;
+    const depannage = { agentId: actuel.depannage?.agentId ?? '', at: actuel.depannage?.at ?? Date.now(), ...actuel.depannage, ...patch };
+    emit({ ...actuel, depannage });
+  };
+  if (!depannageAutomatiquePermis(run)) {
+    noterSurLaPublication({ enAttenteDeVous: true });
+    return;
+  }
+  void Promise.all([import('./depannage-publication.js'), import('./reparation-publication.js')])
+    .then(([{ depannerLaPublication }, { outilsDeReparationImposes }]) => {
+      const { envoyer, catalogue } = outilsDeReparationImposes();
+      return depannerLaPublication(run.id, { ...(envoyer ? { envoyer } : {}), ...(catalogue ? { catalogue } : {}) }, { automatique: true });
+    })
+    .then(() => {
+      const actuel = store.getDeploy(run.id);
+      if (actuel) emit({ ...actuel, depannagesAuto: (actuel.depannagesAuto ?? 0) + 1 });
+    })
+    .catch((err) => {
+      const raison = raisonDe(err);
+      log.warn(`publication ${run.id} : dépanneur automatique non ouvert (${raison})`);
+      noterSurLaPublication({ refusAuto: { at: Date.now(), raison } });
+    });
+}
+
+/**
+ * REPRENDRE LA MÊME PUBLICATION APRÈS SON DÉPANNAGE (17/11/2026) : par les MÊMES gardes que tout lancement
+ * (`startDeploy` : dossier, procédure, agents occupés, file), jamais en recréant une ligne. Refusée si une autre
+ * publication du projet est partie depuis.
+ */
+export async function reprendreLaPublication(runId: string): Promise<{ ok: boolean; error?: string }> {
+  const run = store.getDeploy(runId);
+  if (!run) return { ok: false, error: 'publication introuvable' };
+  if (run.state !== 'failed' && run.state !== 'stopped') return { ok: false, error: 'la publication n’est plus tombée' };
+  if (store.latestDeploy(run.projectId)?.id !== run.id) return { ok: false, error: 'une autre publication est partie depuis' };
+  const issue = await startDeploy(run.projectId, { cible: run.cible, reprendre: run });
+  return { ok: issue.ok && !issue.error, error: issue.error };
+}
+
 export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?: string }> {
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };

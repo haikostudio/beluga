@@ -99,7 +99,7 @@ export function semerAuDemarrage(): void {
     const bilan = semerLesCompetencesPubliees();
     if (!bilan.ajoutees.length && !bilan.misesAJour.length) return;
     reecrireLesFichiersDEntree();
-    enregistrerLePool(dossierDesCompetences(), 'sème les compétences publiées avec Beluga Build');
+    void enregistrerLePool(dossierDesCompetences(), 'sème les compétences publiées avec Beluga Build');
   } catch (err: any) {
     log.warn('semis des compétences publiées impossible', err?.message ?? err);
   }

@@ -28,6 +28,13 @@ export const MediaLivre = z.object({
   /** La phrase de l'agent : ce qu'il a rendu et pourquoi. Vide : elle s'écrit d'après le sujet. */
   legende: z.string().default(''),
   livreLe: z.number(),
+  /**
+   * PRIX AVANT, COÛT RÉEL APRÈS (demande du 01/11/2026) : le prix annoncé au
+   * devis et ce que le service a réellement débité, lus à la fabrication
+   * (`medias_realisation`, ou la dépense du Studio). Absents : rien de payant.
+   */
+  prixAnnonce: z.number().nullable().optional(),
+  coutReel: z.number().nullable().optional(),
 });
 export type MediaLivre = z.infer<typeof MediaLivre>;
 
@@ -152,4 +159,22 @@ export function formatLePlusProche<D extends '16:9' | '9:16' | '1:1' | '4:5'>(
   if (!largeur || !hauteur || largeur <= 0 || hauteur <= 0) return defaut;
   const r = Math.log(largeur / hauteur);
   return [...FORMATS_DU_FIL].sort((a, b) => Math.abs(Math.log(a.ratio) - r) - Math.abs(Math.log(b.ratio) - r))[0]!.format;
+}
+
+/**
+ * LA LIGNE DE COÛT SOUS UN MÉDIA LIVRÉ : « Coût réel : 0,12 $ · annoncé 0,15 $ »
+ * quand le service l'a rendu, « Annoncé : 0,15 $ » sinon ; `null` pour ce qui
+ * n'a rien coûté (dessin, voix d'essai, montage).
+ */
+export function ligneDeCoutDuMedia(m: Pick<MediaLivre, 'prixAnnonce' | 'coutReel'>): { motif: string; valeurs: Record<string, string> } | null {
+  const montant = (n: number) => `${(Math.round(n * 1000) / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 3 })} $`;
+  const reel = typeof m.coutReel === 'number' && Number.isFinite(m.coutReel) ? m.coutReel : null;
+  const annonce = typeof m.prixAnnonce === 'number' && Number.isFinite(m.prixAnnonce) ? m.prixAnnonce : null;
+  if (reel !== null && reel > 0) {
+    return annonce !== null && annonce > 0
+      ? { motif: 'Coût réel : {reel} · annoncé {annonce}', valeurs: { reel: montant(reel), annonce: montant(annonce) } }
+      : { motif: 'Coût réel : {reel}', valeurs: { reel: montant(reel) } };
+  }
+  if (annonce !== null && annonce > 0) return { motif: 'Annoncé : {annonce} · coût réel non rendu par le service', valeurs: { annonce: montant(annonce) } };
+  return null;
 }

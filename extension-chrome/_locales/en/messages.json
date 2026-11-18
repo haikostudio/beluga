@@ -1,0 +1,11 @@
+{
+ "nom": {
+  "message": "Beluga for Chrome"
+ },
+ "description": {
+  "message": "Links Chrome to Beluga: agents open their tabs, read, click and type with your consent."
+ },
+ "demander": {
+  "message": "Ask Beluga"
+ }
+}

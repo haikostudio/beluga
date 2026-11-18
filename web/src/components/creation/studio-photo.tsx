@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Eye, Loader2, Redo2, RotateCcw, RotateCw, Undo2 } from 'lucide-react';
+import { Check, Eye, Loader2, Redo2, RotateCcw, RotateCw, Undo2 } from '@/components/ui/icones';
 import {
   CURSEURS_DE_LA_PHOTO,
   FORMATS_DE_RECADRAGE,

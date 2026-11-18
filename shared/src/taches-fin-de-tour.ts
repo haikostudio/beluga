@@ -93,8 +93,43 @@ export function progressionDesTaches(
 }
 
 /** Ce que l'en-tête du volet annonce en plus du décompte des lignes cochées. */
-export function mentionTachesNonFaites(todos: readonly TodoItem[]): string | null {
+export function mentionTachesNonFaites(
+  todos: readonly TodoItem[],
+  options: { enAttenteDeReponse?: boolean } = {},
+): string | null {
   const nombre = todos.filter((todo) => todo.state === 'unfinished').length;
   if (!nombre) return null;
+  /* UNE QUESTION RESTÉE OUVERTE N'EST PAS UN ABANDON (31/10/2026) : le tour
+     s'est refermé faute de réponse dans le délai (`PLAFOND_ATTENTE_MS`), mais la
+     question reste répondable et le travail reprendra avec la réponse. Dire
+     « 6 non faites » laissait croire à un travail perdu. */
+  if (options.enAttenteDeReponse) return `${nombre} en attente de votre réponse`;
   return `${nombre} non faite${nombre > 1 ? 's' : ''}`;
+}
+
+/** Ce qu'il faut savoir du dernier message du fil pour choisir la liste montrée. */
+export interface DernierMessagePourListe {
+  role: string;
+  streaming?: boolean;
+  todos?: readonly unknown[];
+}
+
+/**
+ * UN TOUR CLOS SANS LISTE RANGE LA LISTE D'AVANT (31/10/2026, capture #2df40).
+ *
+ * L'agent pose une question, le tour se ferme, ses lignes passent « non
+ * faites » ; la réponse arrive, un NOUVEAU tour fait tout le travail sans
+ * réannoncer de liste, et rend son rapport. Le repère gardait pourtant la liste
+ * du tour d'avant comme liste courante : « 0/6 faite · 6 non faites », sous un
+ * rapport complet. Dès que le dernier message est une réponse d'agent FINIE et
+ * sans liste, la liste d'avant n'est plus la courante : elle rejoint les
+ * procédures précédentes, consultables aux flèches.
+ *
+ * Tant qu'un tour tourne (message de l'utilisateur en dernier, ou réponse en
+ * cours d'écriture), on garde la plus récente sous les yeux : la règle « la
+ * dernière liste ne disparaît jamais toute seule » vaut toujours.
+ */
+export function tourClosSansListe(dernier: DernierMessagePourListe | undefined, travaille: boolean): boolean {
+  if (!dernier || travaille) return false;
+  return dernier.role === 'assistant' && !dernier.streaming && !dernier.todos?.length;
 }

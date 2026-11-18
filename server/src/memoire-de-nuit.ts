@@ -4,6 +4,7 @@ import { log } from './logger.js';
 import { listProjects } from './store.js';
 import { completerLesVecteurs, importerLesLots, lireUnite, rendreLesFichiers, unitesARelire } from './connaissances.js';
 import { unitesIndecisesPourLaNuit } from './relecture-memoire.js';
+import { menageDeNuit } from './menage-memoire.js';
 
 /**
  * LE PASSAGE DE NUIT DE LA BASE DE CONNAISSANCES, ET SA REPRISE AU DÉMARRAGE.
@@ -42,6 +43,17 @@ export async function passageDeNuit(maintenant = new Date()): Promise<boolean> {
   const aRelire = [...ecritesDuJour, ...indecises].map((u) => ({ id: u.id, portee: u.portee, titre: u.titre, auteur: u.auteur }));
   setMeta(CLE_A_RELIRE, JSON.stringify(aRelire));
   log.info(`base de connaissances, nuit : ${vecteurs} unité(s) vectorisée(s), ${aRelire.length} unité(s) à relire`);
+  /*
+   * LE MÉNAGE QUAND LA MÉMOIRE DEVIENT FLOUE (décision du 05/11/2026) : appliqué
+   * seul, vérifié par un essai de rappel avant / après, annulé s'il dégrade
+   * (`server/src/menage-memoire.ts`). Après les vecteurs : l'essai cherche sur
+   * une base à jour.
+   */
+  try {
+    menageDeNuit([...projetsActifs().map((p) => p.id), PORTEE_GLOBALE], maintenant.getTime());
+  } catch (err) {
+    log.warn(`base de connaissances, nuit : ménage sauté — ${(err as Error).message}`);
+  }
   return true;
 }
 

@@ -1,51 +1,11 @@
 /**
- * LES VOIX GEMINI — troisième moteur de synthèse, À CÔTÉ de Piper et Kokoro.
- *
- * Piper reste la voix par défaut : il tourne sur le serveur, sans réseau ni
- * coût. Une voix Gemini se nomme « gemini:<voix> » et part chez Google avec la
- * clé « Google Gemini API » du coffre. Si Google refuse (clé absente, quota,
- * réseau), le serveur retombe sur Piper — jamais de silence.
- *
- * Tout ce qui se décide sans réseau vit ici : la liste des voix proposées, la
- * consigne de débit, et la mise en WAV du son rendu.
+ * LES VOIX GEMINI DU STUDIO (voix off des vidéos). La voix parlante de Beluga, qui pouvait aussi passer par Gemini,
+ * a été retirée le 17/11/2026 : ne restent ici que le modèle, l'accent imposé et la mise en WAV du son rendu.
  */
-
-export const PREFIXE_VOIX_GEMINI = 'gemini:';
 
 /** Le modèle de synthèse, vérifié ouvert par la clé du coffre le 28/09/2026. */
 export const MODELE_TTS_GEMINI = 'gemini-3.8-flash-tts';
 
-export const URL_TTS_GEMINI = `https://generativelanguage.googleapis.com/v1beta/models/${MODELE_TTS_GEMINI}:generateContent`;
-
-/**
- * Les voix proposées : quatre des voix préenregistrées de Google, deux de femme
- * et deux d'homme. Elles parlent français d'elles-mêmes — la langue suit le
- * texte. La liste est COURTE exprès : trente voix noieraient le réglage.
- */
-export const VOIX_GEMINI: Readonly<Record<string, { label: string; description: string }>> = {
-  Kore: { label: 'Kore', description: 'Voix de femme, ferme et claire. Moteur Gemini, chez Google.' },
-  Aoede: { label: 'Aoede', description: 'Voix de femme, légère et aérée. Moteur Gemini, chez Google.' },
-  Charon: { label: 'Charon', description: 'Voix d\'homme, posée et informative. Moteur Gemini, chez Google.' },
-  Puck: { label: 'Puck', description: 'Voix d\'homme, enjouée. Moteur Gemini, chez Google.' },
-};
-
-/** Le nom de la voix Gemini d'un identifiant de réglage, ou null s'il n'en est pas une connue. */
-export function voixGeminiDeLId(id: string): string | null {
-  if (!id.startsWith(PREFIXE_VOIX_GEMINI)) return null;
-  const voix = id.slice(PREFIXE_VOIX_GEMINI.length);
-  return Object.prototype.hasOwnProperty.call(VOIX_GEMINI, voix) ? voix : null;
-}
-
-/**
- * Gemini n'a pas de réglage de débit : on le lui DIT, en tête du texte. Même
- * échelle que Piper (> 1 ralentit, < 1 accélère) ; au débit normal, le texte
- * part nu.
- */
-export function texteGeminiAvecDebit(texte: string, echelle: number): string {
-  if (echelle > 1.1) return `Lis lentement, en détachant chaque mot : ${texte}`;
-  if (echelle < 0.9) return `Lis d'un débit rapide et enlevé : ${texte}`;
-  return texte;
-}
 
 /**
  * L'ACCENT DE LA VOIX FINALE DU STUDIO : une balise entre crochets en tête

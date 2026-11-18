@@ -28,8 +28,6 @@ export type DocumentDeCarte =
    * `volet-de-suivi.tsx`).
    */
   | { cardId: string; genre: 'suivi'; numero: number }
-  /* Le montage vidéo d'une création de média : l'éditeur du Studio a été retiré, aucun volet ne l'affiche pour l'instant. */
-  | { cardId: string; genre: 'montage' }
   /**
    * LES STUDIOS ET LA PAGE DE FIN D'UNE CRÉATION DE MÉDIA (26/10/2026) : le
    * studio photo (cadrage, couleurs), le studio son (pistes, coupes, fondus) et

@@ -1,0 +1,11 @@
+{
+ "nom": {
+  "message": "Beluga für Chrome"
+ },
+ "description": {
+  "message": "Verbindet Chrome mit Beluga: Agenten öffnen ihre Tabs, lesen, klicken und schreiben mit Ihrer Zustimmung."
+ },
+ "demander": {
+  "message": "Beluga fragen"
+ }
+}

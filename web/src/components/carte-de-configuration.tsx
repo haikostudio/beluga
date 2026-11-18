@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, Cpu, Loader2 } from 'lucide-react';
+import { ChevronDown, Cpu, Loader2 } from '@/components/ui/icones';
 import { MOT_CONFIGURATION, libellesDuRun, type Card, type EngineInfo } from '@beluga/shared';
 import { BulleInfo, Button, Drawer, EnteteDeFeuille, ZoneDefilement } from '@/components/ui';
 import { RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';

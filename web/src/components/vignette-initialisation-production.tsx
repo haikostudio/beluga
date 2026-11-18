@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { UploadCloud } from 'lucide-react';
+import { UploadCloud } from '@/components/ui/icones';
 import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';

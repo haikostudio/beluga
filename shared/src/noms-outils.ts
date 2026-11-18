@@ -49,6 +49,7 @@ const LIBELLES: Record<string, string> = {
   make_archive: 'Préparation d’une archive',
   competences: 'Lecture des compétences partagées',
   coffre_fort: 'Ouverture du coffre-fort',
+  chrome: 'Pilotage de Chrome',
   attach_file: 'Fichier joint à la réponse',
   attach_screenshot: 'Fichier joint à la réponse',
   backup_recette: 'Aperçu du site',
@@ -59,7 +60,6 @@ const LIBELLES: Record<string, string> = {
   surveillance_recette: 'Enregistrement d’une surveillance',
   deleguer: 'Consultation d’un autre modèle',
   evaluer: 'Évaluation par le juge rapide',
-  suggerer_modele: 'Suggestion d’un autre modèle',
   proposer_suites: 'Suites proposées',
   realiser: 'Réalisation audiovisuelle',
   marketing: 'Réseaux sociaux',
@@ -67,7 +67,6 @@ const LIBELLES: Record<string, string> = {
 
   /* Les outils propres à l'assistant Beluga */
   assistant_resume: 'Résumé de Beluga',
-  assistant_notes: 'Notes',
   assistant_messagerie: 'Messagerie de l’espace client',
   assistant_surveillances: 'Surveillance des sites',
   assistant_backups: 'Backups des sites',

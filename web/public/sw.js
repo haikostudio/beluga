@@ -44,16 +44,22 @@ const ICONES = {
   'espace-archivage': 'termine',
   'espace-avancement': 'termine',
   'espace-en-ligne': 'publication',
+  // La plaquette client : ouverte par le client (étape franchie), remarque laissée (on attend une réponse).
+  'plaquette-ouverte': 'termine',
+  'plaquette-remarque': 'attention',
   'publication-terminee': 'publication',
   'publication-echec': 'erreur',
   // Une étape qui traîne prévient AU CONSTAT, sans attendre qu'un dépanneur
   // parte : c'est un blocage, donc l'image d'un blocage.
   'publication-en-retard': 'erreur',
+  'chrome-ferme': 'erreur',
   // Les deux BLOCAGES : une limite atteinte, un identifiant qui ne répond plus.
   // Le redémarrage du serveur et les paliers 70 % / 90 % du quota n'alertent
   // plus — ils n'ont donc plus rien à traduire ici.
   // Un site surveillé qui tombe : une panne, donc l'image d'une erreur.
   'site-indisponible': 'erreur',
+  // Un service d'IA à sec : la prochaine génération échouera, donc une erreur.
+  'service-ia-a-sec': 'erreur',
   'compte-sature': 'quota',
   'amorcage-impossible': 'quota',
   'jeton-claude-bloque': 'quota',

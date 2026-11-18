@@ -70,6 +70,8 @@ export interface CompteUtilisateur {
   role: RoleCompte;
   /** Le nom montré dans une bulle, un commentaire, la liste des comptes. */
   nomAffiche: string;
+  /** Le PRÉNOM que l'assistant emploie en parlant à cette personne (Réglages › Voix). Vide : il s'en passe. */
+  prenom?: string;
   actif: boolean;
   creeLe: number;
   derniereEntree?: number;

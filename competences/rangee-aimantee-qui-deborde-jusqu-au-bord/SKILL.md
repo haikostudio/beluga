@@ -22,7 +22,7 @@ Avec `scroll-snap-type: x mandatory` et `scroll-snap-align: start`, le navigateu
 
 ## Vérification
 
-Dans un vrai navigateur à 390 px : bord gauche de la première case = bord gauche du bouton du dessus (±1 px) au repos ; après `scrollTo({ left: largeur d'une case × 0,75 })` et 700 ms, une case a son bord gauche sur ce même bord. Preuve : carte Beluga « File d'attente et mise au point » (29/10/2026), contrôle ajouté à scripts/verif-marketing-strategique.mjs.
+Dans un vrai navigateur à 390 px : bord gauche de la première case = bord gauche du bouton du dessus (±1 px) au repos ; après `scrollTo({ left: largeur d'une case × 0,75 })` et 700 ms, une case a son bord gauche sur ce même bord. Preuve d'origine : carte Beluga « File d'attente et mise au point » (29/10/2026) ; son contrôle vivait dans scripts/verif-marketing-strategique.mjs, retiré avec l'ancien Marketing (commit 58fe7a23) — sur un écran neuf, écrire ces deux mesures dans le contrôle navigateur de l'écran concerné.
 
 ## Pièges
 

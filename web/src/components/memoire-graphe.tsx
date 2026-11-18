@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { CalendarClock, ChevronDown, Crosshair, GripHorizontal, Layers, List, Loader2, Minus, Plus, Search, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { CalendarClock, ChevronDown, Crosshair, GripHorizontal, Layers, List, Loader2, Minus, Plus, Search, X } from '@/components/ui/icones';
 import {
   FAMILLES_DU_GRAPHE,
   PORTEE_GLOBALE,
@@ -1215,12 +1216,18 @@ export function PageDuGraphe({
   onFocus,
   telephone,
   onOuvrirDansLaListe,
+  cibleDeLaRecherche,
 }: {
   /** La portée mise en avant : « global », un projet, ou `null` pour la vue d'ensemble. */
   focus: string | null;
   onFocus: (portee: string | null) => void;
   telephone: boolean;
   onOuvrirDansLaListe: (cible: CibleDeLaListe) => void;
+  /**
+   * SUR TÉLÉPHONE, LA RECHERCHE MONTE DANS LE HAUT DE L'ÉCRAN (03/11/2026), sur toute la largeur et à la hauteur
+   * des boutons ; le choix du projet regardé descend dans le bouton « Vue d'ensemble » du bas (page Mémoire).
+   */
+  cibleDeLaRecherche?: HTMLElement | null;
 }) {
   const { donnees, arbre } = useGrapheDeLaMemoire(true);
   const toile = React.useRef<ToileDuGrapheRef>(null);
@@ -1377,6 +1384,37 @@ export function PageDuGraphe({
     focus == null ? t('Vue d’ensemble') : focus === PORTEE_GLOBALE ? t('Global') : donnees.portees.find((p) => p.id === focus)?.nom ?? focus;
   const recuesListe = (resultat?.recues ?? []).filter((id) => visible(arbre.index.get(id))).map((id) => arbre.noeuds[arbre.index.get(id)!]!);
 
+  const rechercheEnHaut = telephone && cibleDeLaRecherche !== undefined;
+  const champDeRecherche = (
+          <div className="relative min-w-0 flex-1">
+            {enCours ? (
+              <Loader2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-faint" data-graphe-recherche-en-cours />
+            ) : (
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            )}
+            <input
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder={rechercheEnHaut ? t('Chercher dans la mémoire') : telephone ? t('Chercher comme un agent…') : t('Chercher comme un agent : « déployer une application sur l’App Store »')}
+              className={cn('w-full bg-surface pl-10 pr-10', rechercheEnHaut ? 'h-[38px] rounded-[11px] bg-raised' : 'h-10 rounded-xl shadow-sm', 'text-[14px] text-text outline-none placeholder:text-faint focus-visible:ring-1 focus-visible:ring-faint')}
+              autoComplete="off"
+              spellCheck={false}
+              data-graphe-recherche
+            />
+            {recherche ? (
+              <button
+                type="button"
+                onClick={() => setRecherche('')}
+                aria-label="Effacer la recherche"
+                title={t('Effacer la recherche')}
+                className="absolute right-2 top-1/2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
+                data-graphe-recherche-effacer
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+  );
   return (
     <div
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-bg"
@@ -1419,13 +1457,14 @@ export function PageDuGraphe({
         }
       />
 
+      {rechercheEnHaut && cibleDeLaRecherche ? createPortal(champDeRecherche, cibleDeLaRecherche) : null}
       {/* LA RECHERCHE EN TÊTE : une phrase, comme l'agent la poserait. */}
       <div
         ref={enTete}
         className={cn('pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center gap-2 px-3 pt-3', !telephone && selection && 'pr-[384px]')}
       >
         <div className="pointer-events-auto flex w-full max-w-[600px] items-center gap-1.5">
-          {telephone ? (
+          {telephone && !rechercheEnHaut ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="subtle" size="sm" className="h-12 sm:h-10 max-w-[38%] shrink-0 gap-1 rounded-xl px-2.5" data-graphe-choix-focus title={t('Choisir un projet')}>
@@ -1446,34 +1485,7 @@ export function PageDuGraphe({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
-          <div className="relative min-w-0 flex-1">
-            {enCours ? (
-              <Loader2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-faint" data-graphe-recherche-en-cours />
-            ) : (
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            )}
-            <input
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder={telephone ? t('Chercher comme un agent…') : t('Chercher comme un agent : « déployer une application sur l’App Store »')}
-              className="h-10 w-full rounded-xl bg-surface pl-10 pr-10 text-[14px] text-text shadow-sm outline-none placeholder:text-faint focus-visible:ring-1 focus-visible:ring-faint"
-              autoComplete="off"
-              spellCheck={false}
-              data-graphe-recherche
-            />
-            {recherche ? (
-              <button
-                type="button"
-                onClick={() => setRecherche('')}
-                aria-label="Effacer la recherche"
-                title={t('Effacer la recherche')}
-                className="absolute right-2 top-1/2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
-                data-graphe-recherche-effacer
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
+          {rechercheEnHaut ? null : champDeRecherche}
           {premierJour ? (
             <TempsDuGraphe
               periode={periode}
@@ -1784,7 +1796,7 @@ function TempsDuGraphe({
   };
 
   const ongletClasse = (actif: boolean) =>
-    cn('h-7 flex-1 rounded-[6px] px-3 text-[12.5px] transition-colors', actif ? 'bg-raised text-teinte shadow-sm' : 'text-muted hover:text-text');
+    cn('h-[34px] flex-1 rounded-[6px] px-3 text-[12.5px] transition-colors sm:h-7', actif ? 'bg-raised text-teinte shadow-sm' : 'text-muted hover:text-text');
 
   return (
     <div className="flex shrink-0 items-center gap-1" data-graphe-temps={periode ? 'passe' : 'aujourdhui'}>

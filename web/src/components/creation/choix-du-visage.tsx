@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ImagePlus, Images, Loader2, Upload, X } from 'lucide-react';
+import { Check, ImagePlus, Images, Loader2, Upload, X } from '@/components/ui/icones';
 import type { BoiteDeVisage } from '@beluga/shared';
 import { ActionTiroir, Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, ZoneDefilement, ouvertureAuClic } from '@/components/ui';
 import { adresseDePiece, ImageDePiece } from '@/components/pastille-de-fichier';

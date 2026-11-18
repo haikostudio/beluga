@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
@@ -16,11 +15,11 @@ import {
   type FormatDeMedia,
 } from '@beluga/shared';
 import { CONFIG } from './config.js';
-import { lancerCommandeBornee } from './commande-bornee.js';
+import { commandeHyperframesPermise, hyperframes, jsonDeLaSortie, lireFichierVideo, outilsDeRendu } from './outils-hyperframes.js';
+export { commandeHyperframesPermise, lireFichierVideo, outilsDeRendu };
 import { dansLaFileLourde } from './file-lourde.js';
 
 const execFileAsync = promisify(execFile);
-const require = createRequire(import.meta.url);
 
 /**
  * LA FABRICATION SUR LE SERVEUR — HyperFrames (npm `hyperframes`, Apache-2.0,
@@ -43,89 +42,10 @@ const require = createRequire(import.meta.url);
  *    vit sur le disque de stockage, en réseau), effacée ensuite.
  */
 
-const COMMANDES_PERMISES = new Set(['lint', 'validate', 'snapshot', 'render']);
-
-export function commandeHyperframesPermise(sousCommande: string): boolean {
-  return COMMANDES_PERMISES.has(sousCommande);
-}
-
-function cheminDuPaquet(nom: string, fichier: string): string | null {
-  try {
-    return path.join(path.dirname(require.resolve(`${nom}/package.json`)), fichier);
-  } catch {
-    return null;
-  }
-}
-
-/** Les outils du rendu : le moteur, GSAP, les polices embarquées et les bibliothèques locales. */
-export function outilsDeRendu(): { hyperframes: string | null; gsap: string | null; polices: string; bibliotheques: string } {
-  const hyperframes = cheminDuPaquet('hyperframes', 'bin/hyperframes.mjs');
-  const gsap = cheminDuPaquet('gsap', 'dist/gsap.min.js');
-  return {
-    hyperframes: hyperframes && fs.existsSync(hyperframes) ? hyperframes : null,
-    gsap: gsap && fs.existsSync(gsap) ? gsap : null,
-    polices: path.join(CONFIG.selfPath, 'outils', 'polices-de-composition'),
-    bibliotheques: path.join(CONFIG.selfPath, 'outils', 'bibliotheques-de-composition'),
-  };
-}
-
 /** Le moteur est-il en place ? C'est ce qui « branche » la capacité « composition ». */
 export function compositionDisponible(): boolean {
   const o = outilsDeRendu();
   return !!o.hyperframes && !!o.gsap;
-}
-
-function q(chemin: string): string {
-  return `'${chemin.replace(/'/g, `'\\''`)}'`;
-}
-
-async function hyperframes(
-  sousCommande: string,
-  args: string[],
-  options: { timeout: number; surLigne?: (l: string) => void; signal?: AbortSignal },
-): Promise<{ ok: boolean; sortie: string; delaiDepasse?: boolean }> {
-  if (!commandeHyperframesPermise(sousCommande)) throw new Error(`commande HyperFrames refusée : « ${sousCommande} »`);
-  const { hyperframes: cli } = outilsDeRendu();
-  if (!cli) throw new Error('HyperFrames n’est pas installé (dépendance « hyperframes » du serveur)');
-  const commande = [
-    'env -u GEMINI_API_KEY -u GOOGLE_API_KEY DO_NOT_TRACK=1 HYPERFRAMES_SKIP_SKILLS=1 HYPERFRAMES_NO_UPDATE_CHECK=1 NO_COLOR=1',
-    q(process.execPath),
-    q(cli),
-    sousCommande,
-    ...args.map(q),
-  ].join(' ');
-  const r = await lancerCommandeBornee(CONFIG.dataDir, commande, {
-    timeout: options.timeout,
-    signesGardes: 200_000,
-    ...(options.surLigne ? { surLigne: options.surLigne } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
-  return { ok: r.ok, sortie: r.out, ...(r.delaiDepasse ? { delaiDepasse: true } : {}) };
-}
-
-/** Le premier objet JSON d'une sortie (les lignes d'avertissement le précèdent parfois). */
-function jsonDeLaSortie(sortie: string): any {
-  const debut = sortie.indexOf('{\n');
-  const i = debut >= 0 ? debut : sortie.indexOf('{');
-  if (i < 0) return null;
-  try {
-    return JSON.parse(sortie.slice(i, sortie.lastIndexOf('}') + 1));
-  } catch {
-    return null;
-  }
-}
-
-/** Ce que dit ffprobe d'un fichier : durée, flux image et son. */
-export async function lireFichierVideo(fichier: string): Promise<{ duree: number; image: boolean; son: boolean; largeur?: number; hauteur?: number }> {
-  const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height:format=duration', '-of', 'json', fichier], { timeout: 30_000 });
-  const j = JSON.parse(stdout) as { streams?: { codec_type: string; width?: number; height?: number }[]; format?: { duration?: string } };
-  const video = j.streams?.find((s) => s.codec_type === 'video');
-  return {
-    duree: Number(j.format?.duration ?? 0),
-    image: !!video,
-    son: !!j.streams?.some((s) => s.codec_type === 'audio'),
-    ...(video?.width ? { largeur: video.width, hauteur: video.height } : {}),
-  };
 }
 
 /* ------------------------------------------------------------------ */

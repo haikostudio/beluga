@@ -1,4 +1,4 @@
-import { Archive } from 'lucide-react';
+import { Archive } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { TeteDeRubrique, type ContexteConfig } from './communs';

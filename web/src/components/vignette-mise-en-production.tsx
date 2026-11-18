@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Rocket } from 'lucide-react';
+import { Rocket } from '@/components/ui/icones';
 import {
   descriptionDeLEtape,
   suiviDeLaPublication,
@@ -53,18 +53,20 @@ export function VignetteMiseEnProduction({
   const enCours = suivi.etat === 'en-cours';
   const tombee = suivi.etat === 'en-echec';
   const ouvrir = onOpen;
-  const etape = suivi.etape ? t(descriptionDeLEtape(suivi.etape, 'production').libelle) : null;
+  /* « MISES EN LIGNE » (31/10/2026) : la même carte dit aussi un déploiement sur ce serveur. */
+  const production = run.cible === 'production';
+  const etape = suivi.etape ? t(descriptionDeLEtape(suivi.etape, production ? 'production' : 'dev').libelle) : null;
   const titre = enCours
-    ? t('Mise en production en cours')
+    ? production ? t('Mise en production en cours') : t('Déploiement en cours')
     : suivi.etat === 'reussie'
-      ? t('Mise en production terminée')
+      ? production ? t('Mise en production terminée') : t('Déploiement terminé')
       : tombee
-        ? t('Mise en production en échec')
-        : t('Mise en production arrêtée');
+        ? production ? t('Mise en production en échec') : t('Déploiement en échec')
+        : production ? t('Mise en production arrêtée') : t('Déploiement arrêté');
   const description = enCours
-    ? (etape ?? t('La version déjà déployée part chez le client.'))
+    ? (etape ?? (production ? t('La version déjà déployée part chez le client.') : t('Le lot part sur ce serveur.')))
     : suivi.etat === 'reussie'
-      ? t('La version est partie chez le client.')
+      ? production ? t('La version est partie chez le client.') : t('Le lot est en ligne sur ce serveur.')
       : etape
         ? t('Arrêtée à l’étape « {etape} » : ouvrez le suivi pour voir pourquoi.', { etape })
         : t('Ouvrez le suivi pour voir ce qui s’est passé.');
@@ -127,7 +129,7 @@ export function VignetteMiseEnProduction({
                 <span className="shrink-0 text-faint">·</span>
               </>
             ) : null}
-            <span className="min-w-0 truncate text-publie">{t('Mise en production')}</span>
+            <span className="min-w-0 truncate text-publie">{production ? t('Mise en production') : t('Déploiement')}</span>
           </div>
           <span className="flex shrink-0 items-center gap-1" data-temoin-production={suivi.etat}>
             {enCours ? (

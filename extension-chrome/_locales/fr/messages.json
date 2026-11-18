@@ -1,0 +1,11 @@
+{
+ "nom": {
+  "message": "Beluga pour Chrome"
+ },
+ "description": {
+  "message": "Relie Chrome à Beluga : les agents ouvrent leurs onglets, lisent, cliquent et écrivent sous votre accord."
+ },
+ "demander": {
+  "message": "Demander à Beluga"
+ }
+}

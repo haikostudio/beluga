@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Camera, ChevronDown, Eye, FileText, Play } from 'lucide-react';
+import { Camera, ChevronDown, Eye, FileText, Play } from '@/components/ui/icones';
 import {
   captureDuChemin,
   capturesArriveesDepuis,
@@ -17,6 +17,7 @@ import {
   type RunStep,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { legendeNotee } from '@/components/cadre-de-media';
 import { LecteurSon } from '@/components/lecteur-son';
 import { VignetteVideo } from '@/components/lecteur-video';
 import { EtiquetteDeVignette, LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
@@ -101,6 +102,8 @@ export interface GalerieDesCaptures {
   repereDePiece: (p: Attachment) => string | null;
   /** Le même, pour une image vue dans le fil par son seul chemin. */
   repereDuChemin: (chemin: string) => string | null;
+  /** Le chemin d'origine de la capture montrée (sa légende y est notée). */
+  cheminDePiece: (piece: Attachment) => string | null;
   /** L'identifiant de la pièce jointe qu'un chemin désigne, sinon null (son menu « … »). */
   pieceDuChemin: (chemin: string) => string | null;
   fermer: () => void;
@@ -238,9 +241,11 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
     },
     [captureDePiece, repere],
   );
+  const cheminDePiece = React.useCallback((p: Attachment) => captureDePiece(p)?.chemin ?? null, [captureDePiece]);
   return {
     repere,
     repereDePiece,
+    cheminDePiece,
     repereDuChemin: repereParChemin,
     pieceDuChemin: pieceParChemin,
     captures,
@@ -294,6 +299,11 @@ export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
       quandDe={g.quandDePiece}
       dejaVue={g.pieceDejaVue}
       repereDe={g.repereDePiece}
+      legendeDe={(p) => {
+        /* SOUS LE MÉDIA, SA LÉGENDE (17/11/2026) : la légende écrite dans le texte, ou la phrase de la capture. */
+        const titre = legendeNotee(p.id) ?? legendeNotee(g.cheminDePiece(p));
+        return titre ? { reference: g.repereDePiece(p), titre } : null;
+      }}
     />
   );
 }
@@ -305,24 +315,42 @@ export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
  * l'écran : on croyait que l'agent n'avait rien vu. Elle se redemande donc
  * deux fois, de plus en plus tard et sans le cache, avant d'être dite perdue.
  */
-const ESSAIS_D_UNE_VIGNETTE = 3;
+const ESSAIS_D_UNE_VIGNETTE = 6;
+/** Le délai avant l'essai n (1,5 s, 3 s, 4,5 s, puis 6 s au plus) : on ne martèle jamais le serveur. */
+const delaiDeLEssai = (essai: number) => Math.min(1500 * (essai + 1), 6000);
+/**
+ * TANT QU'ELLE N'EST PAS CHARGÉE, LA VIGNETTE BALAIE (03/11/2026) : l'image n'est montrée qu'une fois arrivée.
+ * Avant, le navigateur peignait son icône d'image cassée et le texte de remplacement (« Capture jointe : … »)
+ * pendant chaque essai — on croyait l'agent en panne. À la place, la lumière douce des médias en fabrication
+ * (`.media-en-fabrication`, MEM-5372, figée en veille et pour qui demande moins d'animation).
+ */
 function VignetteQuiReessaie({ src, alt, onPerdue }: { src: string; alt: string; onPerdue: () => void }) {
   const [essai, setEssai] = React.useState(0);
+  const [chargee, setChargee] = React.useState(false);
   const minuteur = React.useRef<number | undefined>(undefined);
   React.useEffect(() => () => window.clearTimeout(minuteur.current), []);
+  React.useEffect(() => setChargee(false), [src]);
   return (
-    <img
-      src={essai ? `${src}&essai=${essai}` : src}
-      alt={alt}
-      loading="lazy"
-      draggable={false}
-      data-vignette-essai={essai}
-      onError={() => {
-        if (essai + 1 >= ESSAIS_D_UNE_VIGNETTE) return onPerdue();
-        minuteur.current = window.setTimeout(() => setEssai((n) => n + 1), 1500 * (essai + 1));
-      }}
-      className="max-h-full max-w-full rounded object-contain"
-    />
+    <>
+      {chargee ? null : (
+        <span aria-hidden className="media-en-fabrication pointer-events-none absolute inset-0 overflow-hidden rounded bg-raised/60" data-vignette-en-chargement />
+      )}
+      <img
+        src={essai ? `${src}&essai=${essai}` : src}
+        alt={chargee ? alt : ''}
+        loading="lazy"
+        draggable={false}
+        data-vignette-essai={essai}
+        data-vignette-chargee={chargee ? 'oui' : 'non'}
+        onLoad={() => setChargee(true)}
+        onError={() => {
+          setChargee(false);
+          if (essai + 1 >= ESSAIS_D_UNE_VIGNETTE) return onPerdue();
+          minuteur.current = window.setTimeout(() => setEssai((n) => n + 1), delaiDeLEssai(essai));
+        }}
+        className={cn('max-h-full max-w-full rounded object-contain', !chargee && 'invisible')}
+      />
+    </>
   );
 }
 
@@ -348,7 +376,7 @@ function VignetteDePdf({ src, nom }: { src: string; nom: string }) {
         className="pointer-events-none absolute left-0.5 top-0.5 rounded-sm bg-surface/85 px-1 text-[10px] font-medium leading-4 text-text"
         data-capture-pdf
       >
-        PDF
+        {t('PDF')}
       </span>
     </>
   );
@@ -716,7 +744,7 @@ const moinsDeMouvement = () =>
  * de son en-tête, par Échap, ou par un appui hors de lui (jamais quand la
  * visionneuse est ouverte par-dessus).
  */
-export function BoutonDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures }) {
+export function BoutonDesCaptures({ galerie: g, fermerAuSignal = false }: { galerie: GalerieDesCaptures; /** La fin du tour referme le volet ouvert (`useRepliDeFinDeTour`). */ fermerAuSignal?: boolean }) {
   const { captures } = g;
   const [fermeDepuis, setFermeDepuis] = usePref<number>(CLE_VOLET_FERME_DEPUIS, 0);
   /* `monte` : le volet est dans la page ; `ouvert` : sa découpe est grande ouverte. */
@@ -751,6 +779,11 @@ export function BoutonDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
     /* Un battement de plus que le morphing : la découpe finit SUR le cercle avant que le rond ne revienne. */
     minuteur.current = window.setTimeout(() => setMonte(false), moinsDeMouvement() ? 0 : DUREE_DU_MORPHING_MS + 60);
   }, [setFermeDepuis]);
+  /* LA FIN D'UN TRAVAIL REFERME LE VOLET OUVERT (décision du 06/11/2026) : seulement au moment où elle arrive. */
+  React.useEffect(() => {
+    if (fermerAuSignal && monte) fermer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fermerAuSignal]);
 
   /* UN APPUI HORS DU VOLET LE REFERME — sauf par-dessus la visionneuse, ou
      dans une fenêtre posée au-dessus (menu « … » d'une pièce). */
@@ -805,12 +838,14 @@ export function BoutonDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
         type="button"
         onClick={ouvrir}
         aria-expanded={ouvert}
-        aria-label={t('Ce que l’agent a vu')}
+        aria-label="Ce que l’agent a vu"
         title={t('Ce que l’agent a vu')}
         tabIndex={monte ? -1 : 0}
         className={cn(
           'absolute bottom-full right-4 z-30 mb-2 flex items-center justify-center rounded-full bg-raised text-text shadow-md transition-opacity motion-reduce:transition-none',
           monte ? 'pointer-events-none opacity-0' : 'opacity-100',
+          // Pendant une conversation vocale, les bulles flottantes tiennent cette place (17/11/2026).
+          '[[data-pied-de-conversation]:has([data-zone-vocale])_&]:hidden',
         )}
         style={{ width: COTE_DU_BOUTON_PX, height: COTE_DU_BOUTON_PX, transitionDuration: monte ? '120ms' : '150ms' }}
         data-captures-bouton={captures.length}
@@ -830,25 +865,5 @@ export function BoutonDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
         ) : null}
       </button>
     </div>
-  );
-}
-
-export function CapturesDuFlux({
-  steps,
-  idsJointes,
-  projectId,
-}: {
-  steps: RunStep[];
-  /** Les pièces jointes du message de l'agent : ses images entrent dans la bande. */
-  idsJointes: string[];
-  projectId?: string;
-}) {
-  const galerie = useGalerieDesCaptures(steps, idsJointes, projectId);
-  if (!projectId || !galerie.captures.length) return null;
-  return (
-    <>
-      <BandeDesCaptures galerie={galerie} />
-      <ApercuDesCaptures galerie={galerie} />
-    </>
   );
 }

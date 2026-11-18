@@ -1,12 +1,14 @@
 import * as React from 'react';
-import { Clapperboard, Image as ImageIcon, Music, Play, type LucideIcon } from 'lucide-react';
-import { etiquetteDePiece, heureExacte, phraseDuMediaLivre, type Attachment, type MediaLivre } from '@beluga/shared';
+import { Clapperboard, Image as ImageIcon, Music, Play, type LucideIcon } from '@/components/ui/icones';
+import { etiquetteDePiece, heureExacte, ligneDeCoutDuMedia, phraseDuMediaLivre, type Attachment, type MediaLivre } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { LecteurSon } from '@/components/lecteur-son';
 import { VignetteVideo } from '@/components/lecteur-video';
-import { adresseDePiece, EtiquetteDeVignette, estUnPdf } from '@/components/pastille-de-fichier';
+import { adresseDePiece, estUnPdf } from '@/components/pastille-de-fichier';
+import { ImageDeVignette, poserLaLargeurDeVignette, ReferenceSousLeMedia } from '@/components/cadre-de-media';
 import { MenuDuMediaDuFil } from '@/components/menu-du-media';
 import { useSourceDuGlisser } from '@/components/glisser-vers-un-plan';
+import { PriseDUnMedia, useSourceVersUnePiste } from '@/components/pose-sur-piste';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
@@ -130,6 +132,7 @@ export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
   const [seule, setSeule] = React.useState(false);
   const piece = pieceDuMedia(media, state.attachments[media.projectId]);
   const phrase = phraseDuMediaLivre(media);
+  const cout = ligneDeCoutDuMedia(media);
   const texte = phrase.texte ?? t(phrase.motif!, phrase.valeurs);
   const quand = media.livreLe || piece.createdAt || undefined;
   const heure = media.cardId ? null : heureEtDuree(quand);
@@ -139,7 +142,10 @@ export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
   const ouvrir = () => (ouvrirDansLaGalerie ? ouvrirDansLaGalerie(media.attachmentId) : setSeule(true));
   const genre = media.genre === 'video' ? 'video' : media.genre === 'son' ? 'son' : estUnPdf(piece.mime) ? 'pdf' : 'image';
   /* À LA SOURIS, LE MÉDIA SE GLISSE VERS UNE CASE DU SUIVI (28/10/2026) ; inconnu de la production, il y est inscrit au dépôt. */
-  const sourceDuGlisser = useSourceDuGlisser(genre === 'image' || genre === 'video' ? { attachmentId: media.attachmentId, genre, nom: libelle } : null);
+  const sourceVersUnPlan = useSourceDuGlisser(genre === 'image' || genre === 'video' ? { attachmentId: media.attachmentId, genre, nom: libelle } : null);
+  /* DANS LE STUDIO, IL SE GLISSE SUR UNE PISTE. */
+  const sourceVersUnePiste = useSourceVersUnePiste(genre === 'image' || genre === 'video' ? { attachmentId: media.attachmentId, genre, nom: libelle } : null);
+  const sourceDuGlisser = { ...sourceVersUnPlan, ...sourceVersUnePiste };
   return (
     <div className="min-w-0" data-media-livre={media.attachmentId} data-media-livre-genre={media.genre} data-media-livre-version={media.version}>
       <p className="min-w-0 break-words text-[14.5px] leading-relaxed text-text texte-copiable" data-media-livre-phrase={phrase.texte ? 'agent' : 'construite'}>
@@ -148,17 +154,23 @@ export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
       {/* Un son garde son menu À DROITE du lecteur : posé dessus, il couvrait le bouton « agrandir ». */}
       <div className={cn('relative mt-1 w-fit max-w-full', genre === 'son' && 'flex items-center gap-1')}>
         {genre === 'son' ? (
-          <div className="w-72 max-w-full rounded-md bg-raised p-1" title={infobulle}>
-            <LecteurSon id={media.attachmentId} nom={libelle} compact className="bg-surface" onAgrandir={ouvrir} />
-          </div>
+          <>
+            <PriseDUnMedia source={{ attachmentId: media.attachmentId, genre: 'son', nom: libelle }} />
+            <div className="w-72 max-w-full rounded-md bg-raised p-1" title={infobulle}>
+              <LecteurSon id={media.attachmentId} nom={libelle} compact className="bg-surface" onAgrandir={ouvrir} />
+            </div>
+          </>
         ) : (
+          /* LE FOND ÉPOUSE LE MÉDIA, SA RÉFÉRENCE DESSOUS (17/11/2026, #820bb) : largeur posée en pixels au chargement,
+             référence hors du bouton pour se copier (`cadre-de-media.tsx`). */
+          <div className="overflow-hidden rounded-md bg-raised p-1 sm:p-0.5" data-fond-de-vignette>
           <button
             type="button"
             onClick={ouvrir}
             title={infobulle}
             {...sourceDuGlisser}
             data-media-livre-ouvrir={media.attachmentId}
-            className="relative block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
+            className="relative block max-w-full"
           >
             {genre === 'video' ? (
               <>
@@ -166,7 +178,8 @@ export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
                   id={media.attachmentId}
                   nom={libelle}
                   seconde={piece.apercuSeconde}
-                  className="pointer-events-none max-h-40 max-w-[min(320px,100%)] rounded object-contain"
+                  onDimensions={poserLaLargeurDeVignette}
+                  className="pointer-events-none block h-auto max-h-40 max-w-full rounded object-contain"
                 />
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
@@ -175,19 +188,21 @@ export function LigneDeMediaLivre({ media }: { media: MediaLivre }) {
                 </span>
               </>
             ) : (
-              <img
-                src={adresseDePiece(media.attachmentId, false, 640)}
-                alt={texte}
-                loading="lazy"
-                className="max-h-40 max-w-[min(320px,100%)] rounded object-contain object-left-top"
-              />
+              <ImageDeVignette src={adresseDePiece(media.attachmentId, false, 640)} alt={texte} />
             )}
-            {repere ? <EtiquetteDeVignette texte={repere} /> : null}
           </button>
+          {repere ? <ReferenceSousLeMedia texte={repere} /> : null}
+          </div>
         )}
         {/* LE MENU « … » SE POSE SUR CHAQUE MÉDIA LIVRÉ, même rendu par un autre outil que la production (#dca9) : inscrit au premier geste. */}
         <MenuDuMediaDuFil cardId={media.cardId} attachmentId={media.attachmentId} genre={media.genre} nom={media.sujet} className={genre === 'son' ? 'static' : undefined} />
       </div>
+      {/* PRIX AVANT, COÛT RÉEL APRÈS (01/11/2026) : ce que la fabrication a vraiment coûté, sous le média. */}
+      {cout ? (
+        <span className="mt-1 block text-[12.5px] leading-snug text-muted tabular-nums" data-media-livre-cout={media.coutReel ?? ''}>
+          {t(cout.motif, cout.valeurs)}
+        </span>
+      ) : null}
       {/* L'HEURE SOUS LE MÉDIA, JAMAIS ENTRE LA PHRASE ET LUI (captures #ae52 et #3c8a). */}
       {media.cardId ? (
         <HeureDuFil at={quand} data-media-livre-heure={quand} />

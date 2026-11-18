@@ -65,6 +65,14 @@ export type NatureJournal = z.infer<typeof NatureJournal>;
  * texte tronqué en silence, qui ferait croire à un résultat complet.
  */
 export const PLAFOND_RESULTAT = 8000;
+
+/**
+ * COMBIEN DE TEMPS LE TEXTE BRUT D'UN JOURNAL DE CARTE ET LES TRACES DU JUGE
+ * RAPIDE RESTENT DANS LA BASE : 7 jours (décision de l'utilisateur). Au-delà,
+ * le ménage quotidien les copie sur le disque externe, puis vide le texte du
+ * journal (la LIGNE reste, MEM-0307) et efface les traces.
+ */
+export const CONSERVATION_JOURNAUX_MS = 7 * 24 * 60 * 60 * 1000;
 export const PLAFOND_PARAMS = 2000;
 
 /**
@@ -77,7 +85,7 @@ export const PLAFOND_PARAMS = 2000;
  * gardent leur résultat jusqu'à la borne du journal, et seulement eux.
  */
 export const PLAFOND_DETAIL_D_ETAPE = 400;
-const OUTILS_A_REPONSE_ENTIERE = /(?:^|__)(ask_user|suggerer_modele|realiser)$/;
+const OUTILS_A_REPONSE_ENTIERE = /(?:^|__)(ask_user|realiser)$/;
 
 export function plafondDuDetailDEtape(outil: string | undefined): number {
   return outil && OUTILS_A_REPONSE_ENTIERE.test(outil) ? PLAFOND_RESULTAT : PLAFOND_DETAIL_D_ETAPE;
@@ -535,28 +543,6 @@ export function genreDAction(entree: Pick<EntreeJournal, 'nature' | 'outil' | 'l
  * le rapprochement sans que rien ne le dise.
  */
 /**
- * LES TOURS QUI ONT RENDU UN PLAN.
- *
- * Un tour de cadrage qui rend un plan écrit DEUX entrées portant le même
- * texte : le jalon « Plan proposé » et le jalon « Réponse rendue ». L'écran a
- * donc besoin de savoir, pour chaque tour, si sa réponse porte un plan —
- * pour n'afficher le plan qu'À LA DEMANDE et ne pas le redire deux fois.
- *
- * Règle pure : ni base, ni disque. Elle rend l'ensemble des identifiants de
- * tour concernés ; un tour sans identifiant ne peut pas être rapproché, il est
- * simplement absent.
- */
-export function toursAvecPlan(entrees: readonly EntreeJournal[]): Set<string> {
-  const tours = new Set<string>();
-  for (const entree of entrees) {
-    if (entree.nature === 'jalon' && entree.libelle === JALON_PLAN_PROPOSE && entree.tourId) {
-      tours.add(entree.tourId);
-    }
-  }
-  return tours;
-}
-
-/**
  * LE MONTAGE DU FLUX : LA SUITE D'ÉVÉNEMENTS QUE L'ÉCRAN DESSINE.
  *
  * Le parcours d'une carte n'est pas une simple liste d'entrées : il porte les
@@ -649,7 +635,7 @@ export function montageDuFlux(
     reponseId?: string;
     /** La compréhension la plus récente : la seule ouverte d'office. */
     comprehensionId?: string;
-    /** Les tours dont la réponse porte un plan (`toursAvecPlan`). */
+    /** Les tours dont la réponse porte un plan. */
     toursDePlan?: ReadonlySet<string>;
     /** À partir de combien de commandes consécutives on regroupe. */
     seuil?: number;
@@ -1031,4 +1017,28 @@ function reunirDeuxTraces(a: EntreeJournal, b: EntreeJournal): EntreeJournal {
     reussie: a.reussie === false || b.reussie === false ? false : (a.reussie ?? b.reussie),
     dureeMs: durees.length ? Math.max(...durees) : undefined,
   };
+}
+
+/** Les statuts d'un agent dont le tour est en vol. */
+const STATUTS_EN_TOUR: readonly string[] = ['starting', 'running'];
+
+/**
+ * UN TOUR QUI SE TERMINE RELIT LE JOURNAL DE LA CARTE AFFICHÉE (carte 71e1006a,
+ * 14/11/2026, capture #251f). Les dernières lignes d'un tour — la compréhension,
+ * la réponse rendue — partent par `journal.entree` ; si le canal les perd, rien
+ * ne le signale : `journalATrou` ne se déclenche qu'à l'arrivée d'une ligne
+ * SUIVANTE, et la reprise après coupure seulement si l'écran a VU la coupure. Un
+ * téléphone resté ouvert gardait donc un fil arrêté avant la compréhension.
+ *
+ * Vrai au seul PASSAGE d'un agent de la carte affichée d'un statut en tour à un
+ * statut hors tour : une fois par tour, jamais à chaque mise à jour de l'agent,
+ * jamais pour une carte qu'on ne regarde pas.
+ */
+export function finDeTourARelire(
+  avant: { status: string } | undefined,
+  apres: { status: string; cardId?: string },
+  carteAffichee: string | null | undefined,
+): boolean {
+  if (!carteAffichee || apres.cardId !== carteAffichee || !avant) return false;
+  return STATUTS_EN_TOUR.includes(avant.status) && !STATUTS_EN_TOUR.includes(apres.status);
 }

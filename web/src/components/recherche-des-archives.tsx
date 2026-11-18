@@ -11,7 +11,7 @@
  * ouvre la carte, même hors du paquet chargé.
  */
 import * as React from 'react';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search } from '@/components/ui/icones';
 import { COLUMN_LABELS, type Card, type ColumnKey } from '@beluga/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, Input } from '@/components/ui';
 import { client } from '@/lib/client';

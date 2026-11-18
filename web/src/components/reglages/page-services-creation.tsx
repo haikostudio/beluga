@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ExternalLink, Loader2, RefreshCw, Trash2, TriangleAlert } from 'lucide-react';
+import { Check, ExternalLink, Loader2, RefreshCw, Trash2, TriangleAlert } from '@/components/ui/icones';
 import { Button, ChampMotDePasse, ConfirmDialog } from '@/components/ui';
 import { client } from '@/lib/client';
 import { relativeTime } from '@/lib/utils';

@@ -5,7 +5,7 @@
  * l'interface d'administration.
  */
 import * as React from 'react';
-import { AlertCircle, Check, MessageSquare, RotateCcw, Route, TriangleAlert, UploadCloud, Zap } from 'lucide-react';
+import { AlertCircle, Check, MessageSquare, RotateCcw, Route, TriangleAlert, UploadCloud, Zap } from '@/components/ui/icones';
 import type { IconeNotification } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 

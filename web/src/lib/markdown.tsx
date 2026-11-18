@@ -18,8 +18,10 @@ import {
   Hash,
   Sparkles,
   Loader2,
+  ExternalLink,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/components/ui/icones';
+import { buttonVariants } from '@/components/ui';
 import { CheminCliquable } from '@/lib/chemin-cliquable';
 import {
   cheminDeFichierCite,
@@ -29,15 +31,21 @@ import {
   SUITES_MAX_APRES_AJOUTS,
   ideeDejaEnvoyee,
   lireLigneDIllustration,
+  mediaDuLien,
   type SuiteProposee,
   ligneDeSuggestion,
   paragraphBreakAfter,
   titreSansEmoji,
+  MARQUE_ECART_FERME,
+  MARQUE_ECART_OUVRE,
+  sansMarquesDEcart,
 } from '@beluga/shared';
 import { cn } from './utils';
 import { t } from '@/lib/langue';
 import { ContexteTextesEnvoyes, useIdeeEnvoyee, useLignesDansLeChamp } from '@/lib/texte-du-champ';
 import { client } from '@/lib/client';
+import { ouvrirUnMedia } from '@/lib/ouvrir-un-media';
+import { ImageDeVignette, noterLaLegende, ReferenceSousLeMedia, useReferenceDeLaPiece } from '@/components/cadre-de-media';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -123,10 +131,18 @@ function morceauxEnLigne(text: string): MorceauEnLigne[] {
     const token = match[0];
     if (token.startsWith('**')) morceaux.push({ genre: 'gras', texte: token.slice(2, -2) });
     else if (token.startsWith('`')) morceaux.push({ genre: 'code', texte: token.slice(1, -1) });
-    else if (token.startsWith('_')) morceaux.push({ genre: 'italique', texte: token.slice(1, -1) });
+    else if (token.startsWith('_') || token.startsWith('*')) morceaux.push({ genre: 'italique', texte: token.slice(1, -1) });
     else {
       const linkMatch = token.match(/\[([^\]]+)\]\(([^)]+)\)/);
-      if (linkMatch) morceaux.push({ genre: 'lien', texte: linkMatch[1], href: linkMatch[2] });
+      if (linkMatch) {
+        /* UNE IMAGE « ![…](piece:…) » restée DANS une phrase : jamais un « ! » suivi d'un lien (capture #fbac0). */
+        const avant = morceaux[morceaux.length - 1];
+        if (linkMatch[2].startsWith('piece:') && avant?.genre === 'texte' && avant.texte.endsWith('!')) {
+          avant.texte = avant.texte.slice(0, -1);
+          if (!avant.texte) morceaux.pop();
+        }
+        morceaux.push({ genre: 'lien', texte: linkMatch[1], href: linkMatch[2] });
+      }
     }
     last = match.index + token.length;
   }
@@ -139,12 +155,82 @@ function morceauxEnLigne(text: string): MorceauEnLigne[] {
  * serait un second geste niché dans le premier : seul son libellé s'affiche.
  */
 function inline(text: string, key: string, sansLien = false): React.ReactNode {
+  if (text.includes(MARQUE_ECART_OUVRE) || text.includes(MARQUE_ECART_FERME)) return inlineAvecEcarts(text, key, sansLien);
+  return inlineSansEcarts(text, key, sansLien);
+}
+
+/**
+ * CE QUI A CHANGÉ DEPUIS LA COMPRÉHENSION PRÉCÉDENTE, EN VIOLET (13/11/2026) : les phrases neuves arrivent entourées
+ * des marques d'écart (`marquerLesEcarts`, shared). Chaque tronçon entre deux marques se rend normalement, et ceux
+ * qui sont « dedans » se posent dans un `span` violet (`text-teinte`, jamais un fond) — gras et liens compris.
+ */
+function inlineAvecEcarts(text: string, key: string, sansLien: boolean): React.ReactNode {
+  const troncons: { texte: string; neuf: boolean }[] = [];
+  let neuf = false;
+  let courant = '';
+  for (const caractere of text) {
+    if (caractere === MARQUE_ECART_OUVRE || caractere === MARQUE_ECART_FERME) {
+      if (courant) troncons.push({ texte: courant, neuf });
+      courant = '';
+      neuf = caractere === MARQUE_ECART_OUVRE;
+      continue;
+    }
+    courant += caractere;
+  }
+  if (courant) troncons.push({ texte: courant, neuf });
+  /* Un habillage (`**…**`) coupé par une marque se recolle : on rend le tronçon entier quand il est déséquilibré. */
+  return troncons.map((troncon, rang) =>
+    troncon.neuf ? (
+      <span key={`${key}-e${rang}`} className="text-teinte" data-ecart-de-comprehension>
+        {inlineSansEcarts(troncon.texte, `${key}-e${rang}`, sansLien)}
+      </span>
+    ) : (
+      <React.Fragment key={`${key}-e${rang}`}>{inlineSansEcarts(troncon.texte, `${key}-e${rang}`, sansLien)}</React.Fragment>
+    ),
+  );
+}
+
+function inlineSansEcarts(text: string, key: string, sansLien = false): React.ReactNode {
   let index = 0;
-  return morceauxEnLigne(text).map((morceau) => {
+  const morceaux = morceauxEnLigne(text);
+  /* UN LIEN SEUL SUR SA LIGNE (aucun autre mot autour) : c'est là, et là seulement, qu'un lien du Studio devient un bouton. */
+  const seulSurSaLigne = morceaux.filter((m) => m.genre !== 'texte' || m.texte.trim()).length === 1;
+  return morceaux.map((morceau) => {
     if (morceau.genre === 'texte') return morceau.texte;
     const id = `${key}-${index++}`;
     if (morceau.genre === 'lien') {
+      /* UNE COMMANDE « / » D'UN MESSAGE ENVOYÉ se lit en pastille violette, comme dans le champ qui l'a écrite
+         (`commandesEnPastilles`, contenu-journal.tsx). */
+      if (morceau.href.startsWith('commande:')) {
+        return (
+          <span
+            key={id}
+            data-commande-pastille={morceau.href.slice('commande:'.length)}
+            className="whitespace-nowrap rounded-[0.3em] bg-teinte-fond px-[0.3em] text-teinte"
+          >
+            {morceau.texte}
+          </span>
+        );
+      }
       if (sansLien) return morceau.texte;
+      if (morceau.href.startsWith('piece:')) {
+        return <ImageEnLigne key={id} piece={morceau.href.slice('piece:'.length)} libelle={morceau.texte} />;
+      }
+      /* UNE CRÉATION DU STUDIO (« #studio/<id> ») s'ouvre dans une NOUVELLE FENÊTRE, pour l'éditer sans quitter la
+         discussion (10/11/2026). SEUL SUR SA LIGNE, c'est un BOUTON ; cité DANS UNE PHRASE, un simple lien souligné —
+         un bouton posé au milieu du texte ne se comprenait pas (capture #b1ff, 11/11/2026). Les aperçus de médias,
+         eux, restent dans la visionneuse (MEM-6846). */
+      if (morceau.href.startsWith('#studio/')) {
+        return seulSurSaLigne ? (
+          <BoutonOuvrirLeStudio key={id} adresse={morceau.href}>
+            {morceau.texte}
+          </BoutonOuvrirLeStudio>
+        ) : (
+          <LienDuStudio key={id} adresse={morceau.href}>
+            {morceau.texte}
+          </LienDuStudio>
+        );
+      }
       /* UN LIEN VERS UN FICHIER s'ouvre dans la visionneuse ; un lien vers un
          SITE reste en nouvel onglet (décision de l'utilisateur). */
       if (cheminDeFichierCite(morceau.href)) {
@@ -155,9 +241,9 @@ function inline(text: string, key: string, sansLien = false): React.ReactNode {
         );
       }
       return (
-        <a key={id} href={morceau.href} target="_blank" rel="noreferrer">
+        <LienDuTexte key={id} href={morceau.href}>
           {morceau.texte}
-        </a>
+        </LienDuTexte>
       );
     }
     if (morceau.genre === 'gras') return <strong key={id}>{morceau.texte}</strong>;
@@ -182,9 +268,20 @@ function inline(text: string, key: string, sansLien = false): React.ReactNode {
  * d'écriture — personne n'envoie « **Titre** : … » à un agent.
  */
 export function texteEnLigne(text: string): string {
-  return morceauxEnLigne(text)
+  return morceauxEnLigne(sansMarquesDEcart(text))
     .map((morceau) => morceau.texte)
     .join('');
+}
+
+/**
+ * L'APERÇU REPLIÉ D'UNE DESCRIPTION, TEL QU'IL SE LIT (15/11/2026) : sans
+ * « ** », « # » ni puces — on lisait « **Constat** : … » dans la vignette.
+ */
+export function apercuSansMarques(description: string): string {
+  return description
+    .split('\n')
+    .map((ligne) => texteEnLigne(ligne.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s?)/, '')))
+    .join('\n');
 }
 
 /** La ligne qu'une idée écrit dans le champ : c'est aussi elle que sa case y cherche. */
@@ -314,13 +411,26 @@ export function SuitesProposees({
       .then((reponse) => setEtat(reponse?.ok || reponse?.enCours ? 'repos' : 'echec'))
       .catch(() => setEtat('echec'));
   }, [cible, etat]);
+  const idTitre = React.useId();
   if (!suites.length) return null;
   const bouton = cible && !figee && suites.length < SUITES_MAX_APRES_AJOUTS;
   /* LA TAILLE DU TEXTE DE LA RÉPONSE (14,5 px, MEM-3218), posée ici : les suites
      vivent HORS du texte de la réponse (`.texte-du-fil`) et prenaient sinon la
      taille du corps de la page, un cran au-dessus (capture #fa53f, 18/10/2026). */
   return (
-    <div role="group" className="-mx-2 mt-3 flex flex-col gap-0.5 text-[14.5px] leading-relaxed" data-suites-proposees={suites.length}>
+    /* UN BLOC QUI SE RECONNAÎT (capture #410a, 06/11/2026) : un titre « Suites
+       possibles » et son propre fond (`bg-raised` — `bg-surface` est celui du
+       fil, on ne le voyait pas ; les lignes survolées montent d'une marche,
+       `bg-fond-survol`), posé à la suite du texte, avant les images du tour. */
+    <div
+      role="group"
+      aria-labelledby={idTitre}
+      className="mt-3 flex w-full flex-col gap-0.5 rounded-xl bg-raised p-1.5 text-[14.5px] leading-relaxed [&_[data-suggestion-cliquable]:hover]:bg-fond-survol"
+      data-suites-proposees={suites.length}
+    >
+      <p id={idTitre} className="px-2.5 sm:px-2 pb-0.5 pt-1 text-[12.5px] font-semibold text-muted" data-suites-titre>
+        {t('Suites possibles')}
+      </p>
       {suites.map((suite, index) => (
         <IdeeACocher
           key={`${index}:${suite.titre}`}
@@ -338,7 +448,7 @@ export function SuitesProposees({
           disabled={etat === 'recherche'}
           aria-busy={etat === 'recherche'}
           className={cn(
-            'ml-2 mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-raised px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12.5px] transition-colors',
+            'ml-2 mb-1 mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-surface px-2.5 sm:px-2 py-1.5 sm:py-1 text-[12.5px] transition-colors',
             etat === 'recherche' ? 'cursor-default text-accent' : 'text-muted hover:text-text',
           )}
           data-autres-idees={etat}
@@ -397,6 +507,12 @@ function BoutonToutCocher({ idees, onBasculer }: { idees: string[]; onBasculer: 
 export interface MarkdownProps {
   content: string;
   /**
+   * UN TEXTE EN POINTS (compte rendu, compréhension — demande de l'utilisateur, carte « Retouches de la charte
+   * graphique ») : dès DEUX titres, un SOMMAIRE en tête dont chaque ligne mène à son point, puis chaque point
+   * aligné à gauche — titre en gras, texte normal dessous —, sans cadre ni icône.
+   */
+  enPoints?: boolean;
+  /**
    * Le clic sur une idée à cocher, et sur « Tout ajouter ». Ils reçoivent le
    * texte LISIBLE de l'idée (`texteEnLigne`), jamais son Markdown : c'est ce
    * texte-là qui s'écrit dans le champ d'écriture. Ce qui est coché ne se
@@ -438,6 +554,12 @@ export interface MarkdownProps {
   className?: string;
 }
 
+/**
+ * UN ÉCRAN PEUT RENDRE LUI-MÊME CERTAINS BLOCS DE CODE, d'après leur langage : c'est ainsi qu'un message
+ * structuré du directeur marketing se lit en bloc illustré (`bloc-du-directeur.tsx`), et non comme du code.
+ */
+export const ContexteBlocsDeCode = React.createContext<((langage: string, texte: string) => React.ReactNode) | null>(null);
+
 export function Markdown({
   content,
   onToggleEvolution,
@@ -447,10 +569,12 @@ export function Markdown({
   listesCliquables,
   streaming,
   enTexte,
+  enPoints,
   className,
 }: MarkdownProps) {
   /* Les messages déjà partis : une idée dont la ligne y figure se lit cochée. */
   const envoyes = React.useContext(ContexteTextesEnvoyes);
+  const rendreBlocDeCode = React.useContext(ContexteBlocsDeCode);
   /* LE REPÈRE DE L'ENCADRÉ DES SERVICES DE CRÉATION (agent du Studio) ne se lit
      pas : l'écran pose l'encadré au bout du fil, le texte ne garde que la phrase. */
   /* LE BLOC JSON DU CHIFFRAGE est lu par l'application, jamais affiché
@@ -462,8 +586,8 @@ export function Markdown({
     /évolutions possibles/i.test(titre) || !!autreTitreCliquable?.(titre);
 
   const titres = React.useMemo(
-    () => (streaming || enTexte ? [] : sommaire(blocks, content)),
-    [blocks, content, streaming, enTexte],
+    () => (streaming || enTexte ? [] : enPoints ? sommaireDesPoints(blocks) : sommaire(blocks, content)),
+    [blocks, content, streaming, enTexte, enPoints],
   );
   const ancres = React.useRef(new Map<number, HTMLHeadingElement>());
   const [cible, setCible] = React.useState<number | null>(null);
@@ -534,14 +658,18 @@ export function Markdown({
       }
 
       case 'image':
-        return <ImageDuTexte key={index} piece={block.piece} libelle={block.libelle} />;
+        return <ImageDuTexte key={index} piece={block.piece} libelle={block.libelle} neuf={block.neuf} />;
 
-      case 'code':
+      case 'code': {
+        /* UN BLOC QU'UN ÉCRAN SAIT RENDRE LUI-MÊME (le message structuré du directeur marketing) : rendu par lui, jamais comme du code. */
+        const rendu = block.langage && rendreBlocDeCode ? rendreBlocDeCode(block.langage, block.text) : null;
+        if (rendu) return <React.Fragment key={index}>{rendu}</React.Fragment>;
         return (
           <pre key={index}>
             <code>{block.text}</code>
           </pre>
         );
+      }
 
       case 'table':
         /* UN TABLEAU LARGE DÉFILE CHEZ LUI : l'enveloppe défile, le tableau garde
@@ -578,7 +706,31 @@ export function Markdown({
     <div className={cn('prose-hd', className)}>
       {/* Une entrée = une LIGNE pleine largeur : un sommaire se lit de haut en
           bas, pas comme une grappe de pastilles de tailles inégales. */}
-      {titres.length ? (
+      {enPoints && titres.length ? (
+        /* LE SOMMAIRE D'UN TEXTE EN POINTS : sans cadre, aligné sur le texte (le survol déborde de 8 px de chaque
+           côté), une ligne numérotée par point. */
+        <nav className="mb-5" aria-label="Sommaire" data-sommaire-en-points={titres.length}>
+          <div className="mb-1 text-[12px] uppercase tracking-wide text-faint" data-intitule-du-sommaire>{t('Sommaire')}</div>
+          {titres.map((titre, rang) => (
+            <button
+              key={titre.index}
+              type="button"
+              onClick={() => allerA(titre.index)}
+              className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-2 rounded-md px-2 py-1 text-left text-muted transition-colors hover:bg-raised hover:text-text"
+              data-ligne-du-sommaire={rang + 1}
+            >
+              {/* La colonne des numéros prend la largeur du PLUS GRAND rang (« 12. »), en
+                  chiffres de même largeur : « 10. » ne se coupe plus en « 1 » / « 0. »,
+                  et toutes les lignes restent alignées. */}
+              <span
+                className="shrink-0 whitespace-nowrap tabular-nums text-faint"
+                style={{ width: `${String(titres.length).length + 1}ch` }}
+              >{rang + 1}.</span>
+              <span className="min-w-0 flex-1 truncate">{titreSansEmoji(sansMarquesDEcart(titre.text))}</span>
+            </button>
+          ))}
+        </nav>
+      ) : titres.length ? (
         <nav className="mb-4 overflow-hidden rounded-xl bg-surface">
           <p className="border-b border-border/70 px-3 py-1.5 text-[12px] uppercase tracking-wide text-faint">
             {t('Sommaire')}</p>
@@ -590,7 +742,7 @@ export function Markdown({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-muted transition-colors hover:bg-surface hover:text-text"
             >
               <titre.icon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{titreSansEmoji(titre.text)}</span>
+              <span className="min-w-0 flex-1 truncate">{titreSansEmoji(sansMarquesDEcart(titre.text))}</span>
               <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
             </button>
           ))}
@@ -618,7 +770,7 @@ export function Markdown({
         const inEvolutions = sectionCliquable(headingText);
         const items = inEvolutions ? nextListItems(blocks, headingIndex) : [];
 
-        if (enTexte) {
+        if (enTexte || enPoints) {
           /* UN TITRE NU, puis son texte : pas de cadre, pas d'icône. Le niveau
              du titre reste lisible (le titre du plan, puis ses parties). */
           const Titre = section.heading.level <= 1 ? 'h1' : section.heading.level === 2 ? 'h2' : 'h3';
@@ -629,9 +781,18 @@ export function Markdown({
                   if (node) ancres.current.set(headingIndex, node);
                   else ancres.current.delete(headingIndex);
                 }}
-                data-titre-du-plan={section.heading.level}
+                data-titre-du-plan={enTexte ? section.heading.level : undefined}
+                data-titre-du-point={enPoints ? '' : undefined}
+                className={cn(enPoints && 'scroll-mt-12 font-semibold transition-colors', enPoints && cible === headingIndex && 'text-teinte')}
               >
-                <span>{titreSansEmoji(headingText)}</span>
+                {headingText.includes(MARQUE_ECART_OUVRE) ? (
+                  /* UN POINT NEUF depuis la compréhension précédente : son titre en violet aussi. */
+                  <span className="text-teinte" data-ecart-de-comprehension>
+                    {titreSansEmoji(sansMarquesDEcart(headingText))}
+                  </span>
+                ) : (
+                  <span>{titreSansEmoji(headingText)}</span>
+                )}
                 {inEvolutions && items.length > 1 && onToggleAll ? (
                   <BoutonToutCocher idees={items} onBasculer={onToggleAll} />
                 ) : null}
@@ -700,10 +861,10 @@ type Block =
   | { kind: 'heading'; text: string; level: number }
   | { kind: 'paragraph'; text: string }
   | { kind: 'list'; items: string[] }
-  | { kind: 'code'; text: string }
+  | { kind: 'code'; text: string; langage?: string }
   | { kind: 'callout'; variant: string; lines: string[] }
   | { kind: 'table'; head: string[]; rows: string[][] }
-  | { kind: 'image'; piece: string; libelle: string };
+  | { kind: 'image'; piece: string; libelle: string; neuf?: boolean };
 
 /**
  * L'OUVERTURE EN GRAND D'UNE IMAGE DU TEXTE (« ![…](piece:…) », un visuel de
@@ -712,19 +873,121 @@ type Block =
  */
 export const ContexteOuvrirUneImageDuTexte = React.createContext<((piece: string) => void) | null>(null);
 
-function ImageDuTexte({ piece, libelle }: { piece: string; libelle: string }) {
+/**
+ * UN LIEN DU TEXTE : un SITE s'ouvre dans un onglet, un MÉDIA (pièce jointe, image d'étape, fichier cité, adresse
+ * d'image, de vidéo, de son ou de PDF) dans l'aperçu de l'application — jamais dans un onglet (03/11/2026,
+ * `mediaDuLien`). Un clic modifié (Cmd, Ctrl, Maj, molette) garde le geste du navigateur.
+ */
+function LienDuTexte({ href, children }: { href: string; children: React.ReactNode }) {
+  const ouvrirLaPiece = React.useContext(ContexteOuvrirUneImageDuTexte);
+  const media = typeof window === 'undefined' ? null : mediaDuLien(href, window.location.origin);
+  return (
+    <a
+      href={media?.adresse ?? href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-important underline decoration-important-trait underline-offset-2"
+      data-lien-media={media ? media.genre : undefined}
+      onClick={
+        media
+          ? (event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (media.piece && ouvrirLaPiece) ouvrirLaPiece(media.piece);
+              else ouvrirUnMedia(media);
+            }
+          : undefined
+      }
+    >
+      {children}
+    </a>
+  );
+}
+
+/** Le Studio d'une création, ouvert dans une nouvelle fenêtre de l'application (même adresse, connectée). */
+export function ouvrirLeStudioAPart(adresse: string): void {
+  window.open(`${window.location.origin}${window.location.pathname}${adresse}`, '_blank', 'noopener');
+}
+
+/** Cité dans une phrase : un lien souligné, comme les autres liens du texte, qui ouvre la même fenêtre. */
+function LienDuStudio({ adresse, children }: { adresse: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={adresse}
+      data-lien-du-studio={adresse.slice('#studio/'.length)}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        ouvrirLeStudioAPart(adresse);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** Seul sur sa ligne : un bouton posé EN BLOC (jamais au fil du texte), sur sa propre ligne. */
+export function BoutonOuvrirLeStudio({ adresse, children }: { adresse: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-ouvrir-le-studio={adresse.slice('#studio/'.length)}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        ouvrirLeStudioAPart(adresse);
+      }}
+      className={cn(buttonVariants({ variant: 'contraste', size: 'sm' }), 'my-1 flex w-fit')}
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+      {children}
+    </button>
+  );
+}
+
+/** Une image citée au milieu d'une phrase : une petite vignette qui s'ouvre en grand, jamais un lien. */
+function ImageEnLigne({ piece, libelle }: { piece: string; libelle: string }) {
   const ouvrir = React.useContext(ContexteOuvrirUneImageDuTexte);
   const adresse = `/api/attachment?id=${encodeURIComponent(piece)}`;
   return (
+    <button
+      type="button"
+      data-image-en-ligne={piece}
+      onClick={() => (ouvrir ? ouvrir(piece) : ouvrirUnMedia({ adresse, piece, genre: 'image', nom: libelle || piece }))}
+      title={libelle || t('Ouvrir en grand')}
+      className="mx-0.5 inline-block overflow-hidden rounded bg-raised p-0.5 align-middle"
+    >
+      <img src={adresse} alt={libelle} loading="lazy" className="h-16 max-w-[160px] rounded object-contain" />
+    </button>
+  );
+}
+
+/** `neuf` : l'image fait partie de ce qui a changé depuis la compréhension précédente — un fin anneau violet, jamais un fond. */
+function ImageDuTexte({ piece, libelle, neuf }: { piece: string; libelle: string; neuf?: boolean }) {
+  const ouvrir = React.useContext(ContexteOuvrirUneImageDuTexte);
+  const adresse = `/api/attachment?id=${encodeURIComponent(piece)}`;
+  const reference = useReferenceDeLaPiece(piece);
+  noterLaLegende(piece, libelle);
+  return (
     <figure className="my-2" data-illustration-du-plan={piece}>
-      <button
-        type="button"
-        onClick={() => (ouvrir ? ouvrir(piece) : window.open(adresse, '_blank', 'noopener'))}
-        title={t('Ouvrir en grand')}
-        className="block overflow-hidden rounded-md bg-raised p-1 sm:p-0.5"
+      {/* LE FOND ÉPOUSE L'IMAGE, SA RÉFÉRENCE DESSOUS (17/11/2026, #820bb) — `cadre-de-media.tsx`. */}
+      <div
+        className={cn('w-fit max-w-full overflow-hidden rounded-md bg-raised p-1 sm:p-0.5', neuf && 'ring-1 ring-teinte')}
+        data-fond-de-vignette
+        {...(neuf ? { 'data-ecart-de-comprehension': '' } : {})}
       >
-        <img src={adresse} alt={libelle} loading="lazy" className="max-h-48 max-w-[min(320px,100%)] rounded object-contain object-left-top" />
-      </button>
+        <button
+          type="button"
+          /* SANS GALERIE AUTOUR, LA VISIONNEUSE COMMUNE : plus jamais un onglet en secours (03/11/2026). */
+          onClick={() => (ouvrir ? ouvrir(piece) : ouvrirUnMedia({ adresse, piece, genre: 'image', nom: libelle || piece }))}
+          title={t('Ouvrir en grand')}
+          className="block max-w-full"
+        >
+          <ImageDeVignette src={adresse} alt={libelle} hauteurMax={192} />
+        </button>
+        {reference ? <ReferenceSousLeMedia texte={reference} /> : null}
+      </div>
       {libelle ? <figcaption className="mt-1 text-[12.5px] leading-snug text-muted texte-copiable">{libelle}</figcaption> : null}
     </figure>
   );
@@ -741,6 +1004,14 @@ interface EntreeSommaire {
   index: number;
   text: string;
   icon: LucideIcon;
+}
+
+/** Le sommaire d'un texte en points : tous ses titres, dès qu'il en a deux. */
+function sommaireDesPoints(blocks: Block[]): EntreeSommaire[] {
+  const titres = blocks.flatMap((block, index) =>
+    block.kind === 'heading' ? [{ index, text: block.text, icon: styleFor(block.text, block.level).icon }] : [],
+  );
+  return titres.length >= 2 ? titres : [];
 }
 
 function sommaire(blocks: Block[], content: string): EntreeSommaire[] {
@@ -783,9 +1054,10 @@ function parse(content: string): Block[] {
     if (trimmed.startsWith('```')) {
       flushParagraph();
       const code: string[] = [];
+      const langage = trimmed.slice(3).trim() || undefined;
       i++;
       while (i < lines.length && !lines[i].trim().startsWith('```')) code.push(lines[i]), i++;
-      blocks.push({ kind: 'code', text: code.join('\n') });
+      blocks.push({ kind: 'code', text: code.join('\n'), ...(langage ? { langage } : {}) });
       continue;
     }
 
@@ -808,7 +1080,7 @@ function parse(content: string): Block[] {
     const illustration = lireLigneDIllustration(trimmed);
     if (illustration) {
       flushParagraph();
-      blocks.push({ kind: 'image', piece: illustration.piece, libelle: illustration.libelle });
+      blocks.push({ kind: 'image', piece: illustration.piece, libelle: illustration.libelle, neuf: illustration.neuf });
       continue;
     }
 

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Eye, Code2 } from 'lucide-react';
+import { Eye, Code2 } from '@/components/ui/icones';
 import { FormatApercu, estMarkdown, formatParDefaut } from '@beluga/shared';
 import { Markdown } from '@/lib/markdown';
 import { t } from '@/lib/langue';

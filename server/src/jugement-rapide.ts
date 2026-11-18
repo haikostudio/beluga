@@ -181,6 +181,20 @@ export function listerLesTraces(limite = 100, usage?: string): TraceDeJugement[]
 }
 
 /**
+ * EFFACE LES TRACES D'AVANT `avant` (ms). Le ménage quotidien l'appelle après
+ * les avoir copiées et résumées ; l'écran n'en lit que les 50 ou 100 dernières.
+ * Une erreur se note et rend 0 : le ménage ne fait rien tomber.
+ */
+export function purgerLesTracesAnciennes(avant: number): number {
+  try {
+    return getDb().prepare('DELETE FROM jugement_traces WHERE at < ?').run(avant).changes ?? 0;
+  } catch (err: any) {
+    log.warn(`traces du juge : purge impossible (${err?.message ?? err})`);
+    return 0;
+  }
+}
+
+/**
  * ÉCRIRE UNE TRACE NE PEUT PAS FAIRE TOMBER UN JUGEMENT. Une base verrouillée
  * ou une table absente (base partielle d'un contrôle) se tait : la trace est un
  * outil de relecture, pas une condition de fonctionnement.

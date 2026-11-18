@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Clapperboard, Music, Play } from 'lucide-react';
+import { Clapperboard, Music, Play } from '@/components/ui/icones';
 import {
   type Attachment,
   type Card,

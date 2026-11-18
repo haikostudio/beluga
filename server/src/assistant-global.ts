@@ -9,8 +9,8 @@
  * l'accès complet à la machine, comme un agent de tâche (18/10/2026).
  *
  * SES OUTILS : ceux d'un agent ordinaire, plus ceux du démon qu'il lui faut
- * (`OUTILS_DE_L_ASSISTANT`, dont le marketing) et six qui n'existent que pour
- * lui (résumé, notes, messagerie de l'espace client, surveillances,
+ * (`OUTILS_DE_L_ASSISTANT`, dont le marketing) et cinq qui n’existent que pour
+ * lui (résumé, messagerie de l’espace client, surveillances,
  * sauvegardes, bases des serveurs). Chacun accepte « projet » pour viser
  * n'importe quel projet. Son modèle se règle dans la barre d'écriture, comme
  * pour tout agent.
@@ -34,19 +34,33 @@ import {
   COLUMN_LABELS,
   OUTILS_DE_L_ASSISTANT,
   OUTILS_PROPRES_A_L_ASSISTANT,
-  TITRE_ASSISTANT_GLOBAL,
+  brouillonApresSynthese,
+  catalogueDesCommandes,
+  outilServiALaVoix,
+  verdictDeLaCommande,
+  motsInconnus,
+  nomDeLAssistant,
+  nomNettoye,
+  nomsProches,
+  titreDeLAssistant,
   genreDeLAppel,
   lienDeLaCarte,
   trouverLeProjetVise,
+  activiteRecente,
+  bornesDuJour,
+  dateEtHeureDActivite,
+  ligneDActivite,
+  limiteDActivite,
+  resoudreLeJour,
   type ColumnKey,
   type GenreDeGeste,
+  type Card,
 } from '@beluga/shared';
 import { getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
 import * as store from './store.js';
 import { TOOL_DEFS, callTool, outilServiA, toolsFor, type ToolContext, type ToolDef, type ToolResult } from './tools.js';
-import { enregistrerNote, listerNotes, supprimerNote } from './notes.js';
 import * as espace from './espace-client.js';
 import { commandeDeLEspaceClient } from './espace-commandes.js';
 import { listerComptes } from './comptes.js';
@@ -66,6 +80,7 @@ import {
 } from './backups.js';
 import { listerAcces } from './coffre-fort.js';
 import { log } from './logger.js';
+import { OUTIL_ECRAN, ongletDeLaVoix, outilEcran } from './gestes-de-jarvis.js';
 
 const CLE_AGENT = 'assistant.agent';
 
@@ -91,6 +106,48 @@ function atelier(): string {
   return dossier;
 }
 
+/**
+ * LE TITRE SUIT LE NOM DE L'ASSISTANT (17/11/2026) : réglé dans Réglages › Voix, le nom donne « Assistant <nom> ». Un
+ * agent déjà créé est RENOMMÉ (et tous les écrans le reçoivent) ; l'identification passe toujours par
+ * `assistantGlobal`, jamais par le titre.
+ */
+export function retitrerLAssistant(): void {
+  const id = getMeta(CLE_AGENT);
+  const agent = id ? store.getAgent(id) : null;
+  if (!agent || !estAssistantGlobal(agent)) return;
+  const titre = titreDeLAssistant(nomDeLAssistant(store.getSettings()));
+  if (agent.title === titre) return;
+  const renomme = store.saveAgent({ ...agent, title: titre, updatedAt: store.now() });
+  bus.emit({ type: 'agent.upsert', agent: renomme });
+}
+
+/** Le verdict sur un nom d'assistant : entendu par le micro ? Sinon, les mots inconnus et trois noms proches. */
+export interface VerdictDuNom {
+  nom: string;
+  entendu: boolean;
+  inconnus: string[];
+  suggestions: string[];
+}
+
+/**
+ * UN NOM D'ASSISTANT SERA-T-IL ENTENDU ? Chaque mot doit être dans le vocabulaire du modèle de réveil : sinon, refus
+ * et trois noms proches, tous entendus. Une panne de lecture du modèle LÈVE une erreur — jamais d'accord silencieux.
+ */
+export async function verifierLeNomDeLAssistant(saisi: string): Promise<VerdictDuNom> {
+  const nom = nomNettoye(saisi);
+  if (!nom) return { nom: '', entendu: false, inconnus: [], suggestions: nomsProches('') };
+  const { vocabulaireDuReveil } = await import('./modele-de-reveil.js');
+  let mots: Set<string>;
+  try {
+    mots = await vocabulaireDuReveil();
+  } catch (err) {
+    throw new Error(`Impossible de vérifier ce nom pour l’instant : ${(err as Error).message}. Le nom actuel est gardé.`);
+  }
+  const connu = (mot: string) => mots.has(mot);
+  const inconnus = motsInconnus(nom, connu);
+  return { nom, entendu: inconnus.length === 0, inconnus, suggestions: inconnus.length ? nomsProches(nom, 3, connu) : [] };
+}
+
 export function agentAssistantGlobal(neuf = false): Agent | null {
   const retenuId = neuf ? null : getMeta(CLE_AGENT);
   const retenu = retenuId ? store.getAgent(retenuId) : null;
@@ -102,7 +159,7 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
       id: store.newId(),
       projectId,
       role: 'deploy',
-      title: TITRE_ASSISTANT_GLOBAL,
+      title: titreDeLAssistant(nomDeLAssistant(store.getSettings())),
       workdir: atelier(),
       run: { engine: 'claude' },
       status: 'idle',
@@ -129,26 +186,46 @@ const CHAMP_PROJET = {
 };
 
 const OUTILS_PROPRES: ToolDef[] = [
+  OUTIL_ECRAN as ToolDef,
   {
-    name: 'assistant_resume',
+    name: 'carte_demande',
     description:
-      "Le RÉSUMÉ de Beluga : chaque projet avec ses cartes par colonne, les agents au travail, les décisions qui attendent l'utilisateur et les messages clients non lus. Avec « projet » : le détail des cartes de ce projet.",
-    inputSchema: { type: 'object', properties: {} },
+      "ÉCRIRE DANS LA DEMANDE D'UNE CARTE, ouverte à l'écran ou non. « carte » : son titre (ou un bout) ou son identifiant ; « projet » aide quand plusieurs cartes se ressemblent. Actions : « ajouter » (« texte » s'ajoute à la suite du champ d'écriture de la carte, SANS partir — l'utilisateur relit puis envoie) ; « envoyer » (« texte » part tout de suite comme message de l'utilisateur à l'agent de la carte — seulement si on te demande de l'envoyer). Préfère cet outil à « assistant_ecran » pour écrire dans une carte.",
+    inputSchema: {
+      type: 'object',
+      required: ['action', 'carte', 'texte'],
+      properties: {
+        action: { type: 'string', enum: ['ajouter', 'envoyer'] },
+        carte: { type: 'string', description: 'Le titre de la carte (ou un bout) ou son identifiant.' },
+        texte: { type: 'string', description: 'Le texte à ajouter ou à envoyer.' },
+      },
+    },
   },
   {
-    name: 'assistant_notes',
+    name: 'beluga_commande',
     description:
-      'Les NOTES (service Notes) de tous les projets. Actions : lister (« projet » facultatif), lire (id), creer (projet, titre, description?, echeance AAAA-MM-JJ?, importance haute|moyenne|basse|aucune), modifier (id + champs), supprimer (id).',
+      "LA COMMANDE GÉNÉRALE DE BELUGA : tout ce qu'un clic peut faire dans l'application, par la même porte que les boutons, au nom de l'administrateur. « lister » (« filtre » facultatif : un mot — « carte », « deploy », « studio »…) rend le catalogue : une ligne par commande, `type(champ, champ?)`. « executer » joue une commande : « type » (ex. « card.update ») et « donnees » (ses champs, sans « type » : ex. { id, patch }). Ce qui ne se défait pas (mise en production, paiement, message à un client, suppression) est refusé tant que « confirme » n'est pas vrai — redis-le d'abord et attends « oui » à voix haute. Cherche ici avant de dire que tu ne peux pas.",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['lister', 'lire', 'creer', 'modifier', 'supprimer'] },
-        id: { type: 'string' },
-        titre: { type: 'string' },
-        description: { type: 'string' },
-        echeance: { type: 'string', description: 'AAAA-MM-JJ, ou vide pour l’effacer' },
-        importance: { type: 'string', enum: ['haute', 'moyenne', 'basse', 'aucune'] },
+        action: { type: 'string', enum: ['lister', 'executer'] },
+        filtre: { type: 'string' },
+        type: { type: 'string', description: 'Le type de la commande à jouer.' },
+        donnees: { type: 'object', description: 'Les champs de la commande, sans « type ».' },
+        confirme: { type: 'boolean', description: 'Vrai seulement après le « oui » dit à voix haute, pour ce qui ne se défait pas.' },
+      },
+    },
+  },
+  {
+    name: 'assistant_resume',
+    description:
+      "Le RÉSUMÉ DATÉ de Beluga, en UN appel, tous projets, en sections titrées : d'abord les TÂCHES EN COURS (celles qui tournent maintenant, colonne « En cours »), puis les DERNIÈRES TÂCHES TERMINÉES avec leur date et heure (déjà finies, rangées en « Archivé » comprises, la plus récente d'abord — elles ne sont PAS en cours), les DÉCISIONS qui attendent l'utilisateur (datées), puis chaque projet avec ses cartes par colonne et ses messages clients non lus. « jour » filtre les terminées sur un jour (« hier », « aujourd'hui », « avant-hier », « 2026-11-15 » ou « 15/11 », heure de Paris) ; « limite » leur nombre (10 par défaut, 30 au plus) ; « projet » restreint à un projet et liste ses cartes. C'est LA réponse à « qu'est-ce qui est en cours » (section EN COURS seulement), « qu'est-ce qui a été fait », « les dernières tâches », « où en est-on » : inutile de chercher ailleurs.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        jour: { type: 'string', description: "Le jour des tâches terminées : « hier », « aujourd'hui », « avant-hier », « AAAA-MM-JJ » ou « JJ/MM »." },
+        limite: { type: 'number', description: 'Combien de tâches terminées (10 par défaut, 30 au plus).' },
       },
     },
   },
@@ -197,7 +274,7 @@ const OUTILS_PROPRES: ToolDef[] = [
   {
     name: 'assistant_gestes',
     description:
-      "Les GESTES DE L'ÉCRAN, joués comme si l'utilisateur cliquait lui-même (mêmes refus, mêmes effets). Actions : « trouver » (« texte » : quelques mots du titre ; « projet » facultatif — rend chaque carte trouvée avec son projet, sa colonne, son rang et le LIEN qui l'ouvre, à recopier tel quel dans ta réponse) ; « lancer » (« cardId » : le bouton « Lancer » d'une carte) ; « valider_proposition » (« proposalId » : la vignette « Créer la carte » d'une carte que tu viens de proposer, quand l'utilisateur t'a demandé de la créer) ; « changer_de_projet » (« cardId », « vers » : nom ou identifiant du projet d'arrivée) ; « deployer » (« projet », « cible » : dev = Déployer sur ce serveur, production = Mise en production — SEULEMENT quand l'utilisateur te l'a demandé dans cette conversation, jamais de toi-même) ; « redemarrer » (redémarre Beluga ; REFUSÉ et mis en attente tant qu'un agent ou une publication tourne — dis-le). Pour sortir une carte d'« Archivé » ou d'« À déployer », board_move_card suffit : il agit comme le geste de l'utilisateur.",
+      "Les GESTES DE L'ÉCRAN, joués comme si l'utilisateur cliquait lui-même (mêmes refus, mêmes effets). Actions : « trouver » (« texte » : quelques mots du titre ; « projet » facultatif — rend chaque carte trouvée avec son projet, sa colonne, son rang et le LIEN qui l'ouvre, à recopier tel quel dans ta réponse) ; « lancer » (« cardId » : le bouton « Lancer » d'une carte) ; « valider_proposition » (« proposalId » : la vignette « Créer la carte » d'une carte que tu viens de proposer, quand l'utilisateur t'a demandé de la créer) ; « changer_de_projet » (« cardId », « vers » : nom ou identifiant du projet d'arrivée) ; « deployer » (« projet », « cible » : dev = Déployer sur ce serveur, SANS confirmation dès que l'utilisateur te l'a demandé ; production = Mise en production, qui ne se défait pas : redis-le, attends son « oui » à voix haute, puis passe « confirme »: true — jamais de toi-même) ; « redemarrer » (redémarre Beluga ; REFUSÉ et mis en attente tant qu'un agent ou une publication tourne — dis-le). Pour sortir une carte d'« Archivé » ou d'« À déployer », board_move_card suffit : il agit comme le geste de l'utilisateur.",
     inputSchema: {
       type: 'object',
       required: ['action'],
@@ -208,6 +285,7 @@ const OUTILS_PROPRES: ToolDef[] = [
         proposalId: { type: 'string' },
         vers: { type: 'string' },
         cible: { type: 'string', enum: ['dev', 'production'] },
+        confirme: { type: 'boolean', description: 'Vrai seulement après le « oui » dit à voix haute (mise en production).' },
       },
     },
   },
@@ -240,15 +318,21 @@ function avecProjet(def: ToolDef): ToolDef {
  * LES OUTILS DE L'ASSISTANT : ceux d'un agent ordinaire du même rôle, plus ceux
  * du démon qu'il lui faut en propre (le marketing) et ses six outils à lui.
  */
-export function outilsDeLAssistant(agentId: string, options: { creation?: boolean; realisation?: boolean } = {}): ToolDef[] {
+export function outilsDeLAssistant(agentId: string, options: { realisation?: boolean; voix?: boolean } = {}): ToolDef[] {
   const voulus = new Set<string>(OUTILS_DE_L_ASSISTANT);
   const ordinaires = toolsFor('deploy', options).filter((t) => outilServiA(t.name, agentId));
   const vus = new Set(ordinaires.map((t) => t.name));
   const enPlus = TOOL_DEFS.filter((t) => voulus.has(t.name) && !vus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name));
-  return [...ordinaires, ...enPlus, ...OUTILS_PROPRES].map(avecProjet);
+  for (const t of enPlus) vus.add(t.name);
+  /* LA VOIX A TOUS LES OUTILS DU DÉMON (décision du 17/11/2026 : « je veux qu'il puisse tout faire ») — sauf ceux qui
+     n'ont de sens que dans le tour d'une carte (`outilServiALaVoix`). */
+  const pourLaVoix = options.voix
+    ? TOOL_DEFS.filter((t) => !vus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name) && outilServiALaVoix(t.name))
+    : [];
+  return [...ordinaires, ...enPlus, ...pourLaVoix, ...OUTILS_PROPRES].map(avecProjet);
 }
 
-export function outilServiALAssistant(nom: string, agentId: string, options: { creation?: boolean; realisation?: boolean } = {}): boolean {
+export function outilServiALAssistant(nom: string, agentId: string, options: { realisation?: boolean; voix?: boolean } = {}): boolean {
   return outilsDeLAssistant(agentId, options).some((t) => t.name === nom);
 }
 
@@ -296,9 +380,7 @@ export async function executerPourLAssistant(
   try {
     switch (nom) {
       case 'assistant_resume':
-        return { ok: true, text: resume(projetVise) };
-      case 'assistant_notes':
-        return notes(args, projetVise);
+        return resume(projetVise, args);
       case 'assistant_messagerie':
         return await messagerie(args, projetVise);
       case 'assistant_surveillances':
@@ -309,6 +391,12 @@ export async function executerPourLAssistant(
         return await baseServeur(args);
       case 'assistant_gestes':
         return await gestes(args, projetVise);
+      case 'assistant_ecran':
+        return await outilEcran(args, projetVise);
+      case 'carte_demande':
+        return await ecrireDansLaDemande(args, projetVise);
+      case 'beluga_commande':
+        return await commandeGenerale(args);
       /* L'ASSISTANT DÉPLACE COMME L'UTILISATEUR (29/10/2026) : sortir une carte
          d'« Archivé » ou d'« À déployer » est un geste humain quand il le fait
          à la demande de l'utilisateur. Les autres agents restent fermés aux fins
@@ -322,8 +410,15 @@ export async function executerPourLAssistant(
           return { ok: false, text: 'Dis quel projet viser (« projet », son nom) : l’atelier Réseaux sociaux est propre à chaque projet. Un message qui commence par « Réseaux sociaux de « … » : » le nomme.' };
         }
         return await callTool({ ...ctx, projectId: projetVise }, nom, args);
-      default:
-        return await callTool({ ...ctx, projectId: projetVise ?? ctx.projectId }, nom, args);
+      default: {
+        const resultat = await callTool({ ...ctx, projectId: projetVise ?? ctx.projectId }, nom, args);
+        /* L'IDENTIFIANT DE LA CARTE PROPOSÉE revient à l'assistant : c'est lui que « valider_proposition » attend
+           (création d'une tâche à la voix, 15/11/2026 — sans lui, le « oui » de l'utilisateur ne menait nulle part). */
+        if (nom === 'board_create_card' && resultat.ok && resultat.proposal) {
+          return { ...resultat, text: `${resultat.text} Identifiant de la proposition (pour « valider_proposition ») : ${resultat.proposal.id}.` };
+        }
+        return resultat;
+      }
     }
   } catch (err: any) {
     return { ok: false, text: `Échec : ${err?.message ?? String(err)}` };
@@ -333,6 +428,116 @@ export async function executerPourLAssistant(
 /* ------------------------------------------------------------------ */
 /* Les outils propres                                                   */
 /* ------------------------------------------------------------------ */
+
+/** Une carte nommée par Jarvis : son identifiant, sinon son titre (exact, puis le plus récent qui le contient). */
+function trouverLaCarte(voulue: string, projetVise?: string): { ok: true; card: NonNullable<ReturnType<typeof store.getCard>> } | { ok: false; text: string } {
+  const brute = voulue.trim();
+  if (!brute) return { ok: false, text: 'Dis quelle carte : son titre ou son identifiant (« carte »).' };
+  const parId = store.getCard(brute);
+  if (parId) return { ok: true, card: parId };
+  const plat = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[«»"'’]/g, '').replace(/\s+/g, ' ').trim();
+  const voulu = plat(brute);
+  const projets = projetVise ? [projetVise] : store.listProjects(false).map((p) => p.id);
+  const cartes = projets.flatMap((id) => store.listCards(id)).filter((c) => c.column !== 'archived');
+  const exactes = cartes.filter((c) => plat(c.title) === voulu);
+  const proches = exactes.length ? exactes : cartes.filter((c) => plat(c.title).includes(voulu) || voulu.includes(plat(c.title)));
+  if (!proches.length) return { ok: false, text: `Aucune carte ne s'appelle « ${brute} »${projetVise ? ` dans ${nomDuProjet(projetVise)}` : ''}. Cherche-la avec « board_list_cards » ou « assistant_resume ».` };
+  const card = [...proches].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  return { ok: true, card };
+}
+
+/**
+ * ÉCRIRE DANS LA DEMANDE D'UNE CARTE (décision du 17/11/2026 : « je veux qu'il arrive à ajouter du contenu dans une
+ * carte »). « ajouter » : le texte rejoint le BROUILLON du champ d'écriture de la carte — l'onglet de la voix l'ajoute
+ * au champ ouvert (comme la synthèse de fin), sinon au brouillon gardé ; sans onglet, le démon écrit le brouillon
+ * lui-même. « envoyer » : le message part à l'agent de la carte, par la même porte que le bouton d'envoi.
+ */
+async function ecrireDansLaDemande(args: Record<string, any>, projetVise?: string): Promise<ToolResult> {
+  const action = String(args.action ?? 'ajouter');
+  const texte = typeof args.texte === 'string' ? args.texte.trim() : '';
+  if (!texte) return { ok: false, text: 'Rien à écrire : donne le « texte ».' };
+  const trouvee = trouverLaCarte(String(args.carte ?? args.cardId ?? ''), projetVise);
+  if (!trouvee.ok) return trouvee;
+  const card = trouvee.card;
+  const agent = store.getLastAgentByCard(card.id);
+  const lien = `[ouvrir la carte](${lienDeLaCarte(card.projectId, card.id)})`;
+  if (action === 'envoyer') {
+    if (!agent) return { ok: false, text: `La carte « ${card.title} » n'a pas encore d'agent à qui écrire : ajoute plutôt le texte (« ajouter »), il partira à son lancement.` };
+    await commeLUtilisateur({ type: 'agent.prompt', agentId: agent.id, text: texte });
+    return { ok: true, text: `Envoyé à l'agent de la carte « ${card.title} » (${nomDuProjet(card.projectId)}) — ${lien}.` };
+  }
+  if (!agent) {
+    // Une carte sans agent encore : le texte rejoint sa description, que son premier agent lira.
+    const enregistree = store.saveCard({ ...card, description: brouillonApresSynthese(card.description ?? '', texte), updatedAt: Date.now() });
+    bus.emit({ type: 'card.upsert', card: enregistree });
+    return { ok: true, text: `Ajouté à la demande de la carte « ${card.title} » (${nomDuProjet(card.projectId)}) — ${lien}.` };
+  }
+  const onglet = ongletDeLaVoix();
+  if (onglet) {
+    bus.emit({ type: 'voix.direct.synthese', agentId: agent.id, texte, ajout: true, client: onglet });
+  } else {
+    const cle = `draft.${agent.id}`;
+    const avant = store.readPreference(cle);
+    store.writePreference(cle, brouillonApresSynthese(typeof avant === 'string' ? avant : '', texte));
+    bus.emit({ type: 'prefs', prefs: { [cle]: store.readPreference(cle) ?? null }, partiel: true });
+  }
+  return {
+    ok: true,
+    text: `Ajouté à la demande de la carte « ${card.title} » (${nomDuProjet(card.projectId)}), dans son champ d'écriture, sans l'envoyer — ${lien}.`,
+  };
+}
+
+/** La forme d'une commande de l'interface : son type et ses champs (« ? » : facultatif), lue sur le protocole. */
+async function formeDesCommandes(): Promise<{ type: string; champs: string[] }[]> {
+  const { ClientCommand } = await import('@beluga/shared');
+  const options = (ClientCommand as unknown as { options: { shape: Record<string, { isOptional?: () => boolean }> }[] }).options ?? [];
+  return options.map((o) => {
+    const shape = o.shape ?? {};
+    const type = String((shape.type as unknown as { value?: string })?.value ?? '');
+    const champs = Object.keys(shape)
+      .filter((k) => k !== 'type')
+      .map((k) => (shape[k]?.isOptional?.() ? `${k}?` : k));
+    return { type, champs };
+  }).filter((c) => c.type);
+}
+
+/**
+ * LA COMMANDE GÉNÉRALE (`beluga_commande`, 17/11/2026) : « lister » rend le catalogue, « executer » joue la commande par
+ * la même porte que les boutons (`commandeCommeLUtilisateur`, compte administrateur : mêmes gardes, mêmes refus).
+ */
+async function commandeGenerale(args: Record<string, any>): Promise<ToolResult> {
+  const action = String(args.action ?? 'lister');
+  if (action === 'lister') {
+    return { ok: true, text: catalogueDesCommandes(await formeDesCommandes(), typeof args.filtre === 'string' ? args.filtre : '') };
+  }
+  if (action !== 'executer') return { ok: false, text: 'Actions : « lister » ou « executer ».' };
+  const type = String(args.type ?? '').trim();
+  const donnees = args.donnees && typeof args.donnees === 'object' && !Array.isArray(args.donnees) ? { ...(args.donnees as Record<string, unknown>) } : {};
+  delete donnees.type;
+  const verdict = verdictDeLaCommande(type, donnees);
+  if (!verdict.ok) return { ok: false, text: verdict.raison };
+  if (verdict.aConfirmer && args.confirme !== true) {
+    return { ok: false, text: `Refusé sans confirmation : « ${type} » est ${verdict.aConfirmer}, qui ne se défait pas. Redis-le à l'utilisateur, attends son « oui » à voix haute, puis rejoue avec « confirme »: true.` };
+  }
+  const { ClientEnvelope } = await import('@beluga/shared');
+  const lue = ClientEnvelope.shape.cmd.safeParse({ type, ...donnees });
+  if (!lue.success) {
+    const forme = (await formeDesCommandes()).find((c) => c.type === type);
+    return {
+      ok: false,
+      text: forme
+        ? `Champs invalides pour « ${type} » : ${lue.error.issues.map((i) => `${i.path.join('.') || '(racine)'} — ${i.message}`).join(' ; ')}. Forme : ${type}(${forme.champs.join(', ')}).`
+        : `Commande inconnue : « ${type} ». Cherche-la avec « lister ».`,
+    };
+  }
+  try {
+    const rendu = await commeLUtilisateur(lue.data as Record<string, unknown>);
+    const texte = rendu === undefined ? 'Fait.' : JSON.stringify(rendu);
+    return { ok: true, text: `« ${type} » joué. Réponse : ${texte.length > 6000 ? `${texte.slice(0, 6000)}… (coupé)` : texte}` };
+  } catch (err: any) {
+    return { ok: false, text: `« ${type} » refusé : ${err?.message ?? String(err)}` };
+  }
+}
 
 /** Le compte au nom duquel l'assistant joue un geste d'écran : l'administrateur. */
 async function compteDuGeste() {
@@ -363,6 +568,60 @@ function ligneDeCarte(card: { id: string; projectId: string; title: string; colu
   return `- « ${card.title} » — projet ${nomDuProjet(card.projectId)}, colonne « ${colonne} »${place}, modifiée le ${jour(card.updatedAt)} — lien : [ouvrir la carte](${lienDeLaCarte(card.projectId, card.id)})`;
 }
 
+/** Les mots d'une recherche de carte parlée qui ne disent rien du titre (« la tâche de… », « ouvre… »). */
+const MOTS_HORS_DU_TITRE = new Set([
+  'la', 'le', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'ou', 'a', 'au', 'aux', 'en', 'sur', 'pour', 'dans', 'avec', 'qui', 'que',
+  'tache', 'taches', 'carte', 'cartes', 'ouvre', 'ouvrir', 'montre', 'trouve', 'cherche', 'projet', 'appelle', 'appelee', 'quelque', 'chose',
+  'celle', 'celui', 'truc', 'ce', 'cette', 'est', 'il', 'y', 'tu', 'vois', 'moi', 'me', 'peux',
+]);
+
+/**
+ * LES CARTES QUI APPROCHENT UNE DEMANDE PARLÉE (18/11/2026). « la tâche de Beluga 70% » ne trouvait RIEN : la recherche
+ * exige chaque mot tel quel, et « 70% » n'est pas « 70 % ». D'abord la recherche exacte ; sinon chaque mot utile (sans
+ * ponctuation, « 70% » → « 70 ») est cherché seul, et les cartes qui en portent le plus passent devant (la moitié au
+ * moins). Un projet visé qui n'a rien : tous les projets. Le titre pèse : il est cherché d'abord.
+ */
+export function trouverDesCartesApprochantes(texte: string, o: { projectId?: string; limite?: number } = {}): { card: Card; rang: number; ailleurs: boolean }[] {
+  const limite = o.limite ?? 15;
+  const exactes = store.rechercherDesCartes(texte, { projectId: o.projectId, limite });
+  if (exactes.length) return exactes.map((t) => ({ ...t, ailleurs: false }));
+  const mots = [
+    ...new Set(
+      texte
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((m) => (m.length >= 3 || /^\d+$/.test(m)) && !MOTS_HORS_DU_TITRE.has(m)),
+    ),
+  ].slice(0, 8);
+  if (!mots.length) return [];
+  const chercher = (projectId?: string) => {
+    const points = new Map<string, { trouvee: { card: Card; rang: number }; n: number }>();
+    for (const mot of mots) {
+      for (const trouvee of store.rechercherDesCartes(mot, { projectId, limite: 50 })) {
+        const avant = points.get(trouvee.card.id);
+        const poids = trouvee.card.title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(mot) ? 1 : 0.5;
+        points.set(trouvee.card.id, { trouvee, n: (avant?.n ?? 0) + poids });
+      }
+    }
+    const seuil = Math.max(1, Math.ceil(mots.length / 2));
+    return [...points.values()]
+      .filter((x) => x.n >= seuil)
+      .sort((a, b) => b.n - a.n || b.trouvee.card.updatedAt - a.trouvee.card.updatedAt)
+      .slice(0, limite)
+      .map((x) => x.trouvee);
+  };
+  const ici = chercher(o.projectId);
+  if (ici.length || !o.projectId) return ici.map((t) => ({ ...t, ailleurs: false }));
+  return chercher(undefined).map((t) => ({ ...t, ailleurs: true }));
+}
+
+/** Les cartes approchantes, en lignes (projet, colonne, lien) : la note glissée à la voix les cite. */
+export function cartesApprochantes(texte: string, limite = 4): string[] {
+  return trouverDesCartesApprochantes(texte, { limite }).map(({ card, rang }) => ligneDeCarte(card, rang));
+}
+
 export async function deplacerCommeLUtilisateur(cardId: string, column: string): Promise<ToolResult> {
   const card = store.getCard(cardId);
   if (!card) return { ok: false, text: 'Carte introuvable.' };
@@ -384,9 +643,14 @@ async function gestes(args: Record<string, any>, projetVise?: string): Promise<T
       case 'trouver': {
         const texte = String(args.texte ?? '').trim();
         if (!texte) return { ok: false, text: 'Donne quelques mots du titre (« texte »).' };
-        const trouvees = store.rechercherDesCartes(texte, { projectId: projetVise, limite: 15 });
-        if (!trouvees.length) return { ok: true, text: `Aucune carte ne correspond à « ${texte} »${projetVise ? ` dans ${nomDuProjet(projetVise)}` : ''}.` };
-        return { ok: true, text: trouvees.map(({ card, rang }) => ligneDeCarte(card, rang)).join('\n') };
+        // MOTS APPROCHANTS ET TOUS LES PROJETS (18/11/2026) : « Beluga 70% » trouve « Disque de Beluga à 70 % », dans HaikoInfra.
+        const trouvees = trouverDesCartesApprochantes(texte, { projectId: projetVise, limite: 15 });
+        if (!trouvees.length) return { ok: true, text: `Aucune carte ne correspond à « ${texte} », dans aucun projet.` };
+        const ailleurs = projetVise && trouvees[0]?.ailleurs ? `Rien dans ${nomDuProjet(projetVise)} ; trouvé dans les autres projets :\n` : '';
+        return {
+          ok: true,
+          text: `${ailleurs}${trouvees.map(({ card, rang }) => ligneDeCarte(card, rang)).join('\n')}\nPour l’ouvrir à l’écran : « assistant_ecran » « jouer », UN geste « ouvrir » avec l’adresse du lien (« #projet/…/tache/… »).`,
+        };
       }
       case 'lancer': {
         if (!store.getCard(cardId)) return { ok: false, text: 'Carte introuvable.' };
@@ -412,6 +676,10 @@ async function gestes(args: Record<string, any>, projetVise?: string): Promise<T
         const projectId = projetVise;
         if (!projectId) return { ok: false, text: 'Dis quel projet déployer (« projet »).' };
         const cible = args.cible === 'production' ? 'production' : 'dev';
+        // LA PRODUCTION NE SE DÉFAIT PAS (décision du 17/11/2026) : elle seule attend le « oui » dit à voix haute.
+        if (cible === 'production' && args.confirme !== true) {
+          return { ok: false, text: 'Refusé sans confirmation : la mise en production ne se défait pas. Redis-le à l’utilisateur, attends son « oui » à voix haute, puis rejoue avec « confirme »: true.' };
+        }
         await commeLUtilisateur({ type: 'deploy.start', projectId, cible });
         return {
           ok: true,
@@ -443,22 +711,46 @@ function compteAdmin() {
   return admin;
 }
 
-function resume(projetVise?: string): string {
+function resume(projetVise?: string, args: Record<string, any> = {}): ToolResult {
+  const maintenant = Date.now();
+  const jourVoulu = args.jour !== undefined && args.jour !== null && String(args.jour).trim() ? resoudreLeJour(args.jour, maintenant) : null;
+  if (args.jour && String(args.jour).trim() && !jourVoulu) {
+    return { ok: false, text: `« ${args.jour} » n'est pas un jour compris : « hier », « aujourd'hui », « avant-hier », « AAAA-MM-JJ » ou « JJ/MM ».` };
+  }
+  const limite = limiteDActivite(args.limite);
   const projets = store.listProjects().filter((p) => !projetVise || p.id === projetVise);
+  const nomParId = new Map(store.listProjects(true).map((p) => [p.id, p.name]));
   const agents = store.listAgents();
-  const decisions = store.decisionsEnAttente();
+  const decisions = store.decisionsEnAttente().filter((d) => !projetVise || d.projectId === projetVise);
   let admin: ReturnType<typeof compteAdmin> | null = null;
   try {
     admin = compteAdmin();
   } catch {
     admin = null;
   }
+
+  // 1. LES DERNIÈRES TÂCHES TERMINÉES, datées — une requête bornée (`shared/src/activite-recente.ts`).
+  const bornes = jourVoulu ? bornesDuJour(jourVoulu) : undefined;
+  const terminees = activiteRecente(
+    store
+      .cartesTermineesRecemment({ projectId: projetVise, depuis: bornes?.debut, avant: bornes?.fin, limite })
+      .map((c) => ({ id: c.id, titre: c.title, projet: nomParId.get(c.projectId) ?? c.projectId, colonne: c.column, doneAt: c.doneAt })),
+    { jour: jourVoulu, limite },
+  );
+  const libelle = (col: string) => COLUMN_LABELS[col as keyof typeof COLUMN_LABELS] ?? col;
+  const sections: string[] = [`Maintenant : ${dateEtHeureDActivite(maintenant)} (heure de Paris).`];
+
+  // 2. CE QUI TOURNE et CE QUI ATTEND, datés, puis 3. chaque projet.
+  const enCours: string[] = [];
   const lignes: string[] = [];
   for (const projet of projets) {
     const cartes = store.listCards(projet.id);
     const parColonne = (Object.keys(COLUMN_LABELS) as (keyof typeof COLUMN_LABELS)[])
       .map((col) => `${COLUMN_LABELS[col]} ${cartes.filter((c) => c.column === col).length}`)
       .join(' · ');
+    for (const c of cartes.filter((c) => c.column === 'running')) {
+      enCours.push(`- ${projet.name} — « ${c.title} » — depuis ${dateEtHeureDActivite(c.updatedAt)} [${c.id}]`);
+    }
     const auTravail = agents.filter((a) => a.projectId === projet.id && (a.status === 'running' || a.status === 'starting')).length;
     const attente = decisions.filter((d) => d.projectId === projet.id).length;
     const nonLus = admin ? espace.demandesAvecDuNouveau(projet.id, admin.id) : 0;
@@ -467,63 +759,39 @@ function resume(projetVise?: string): string {
     );
     if (projetVise) {
       for (const c of cartes.filter((c) => c.column !== 'archived')) {
-        lignes.push(`    · [${c.id}] « ${c.title} » — ${COLUMN_LABELS[c.column]}`);
+        lignes.push(`    · [${c.id}] « ${c.title} » — ${COLUMN_LABELS[c.column]} — modifiée ${dateEtHeureDActivite(c.updatedAt)}`);
       }
     }
   }
-  return lignes.join('\n') || 'Aucun projet.';
+  /* LES TÂCHES EN COURS D'ABORD, PUIS LES TERMINÉES, chacune sous un titre qui dit ce qu'elle est (carte « Raccourcis
+     libres et Jarvis vocal », 17/11/2026) : la voix lisait les terminées en premier et annonçait « en cours » une
+     tâche déjà déployée. */
+  sections.push(
+    enCours.length
+      ? `TÂCHES EN COURS (en ce moment) — En cours (${enCours.length}) :\n${enCours.join('\n')}`
+      : 'TÂCHES EN COURS (en ce moment) — Aucune tâche en cours.',
+  );
+  sections.push(
+    terminees.length
+      ? `DERNIÈRES TÂCHES TERMINÉES (déjà finies, ne sont PAS en cours) — Tâches terminées${jourVoulu ? ` le ${jourVoulu}` : ' récemment'} (la plus récente d'abord, ${terminees.length}) :\n${terminees.map((c) => ligneDActivite(c, libelle(c.colonne))).join('\n')}`
+      : `DERNIÈRES TÂCHES TERMINÉES (déjà finies, ne sont PAS en cours) — Aucune tâche terminée${jourVoulu ? ` le ${jourVoulu}` : ''}.`,
+  );
+  const attentes = [...decisions]
+    .sort((a, b) => (b.poseeA ?? 0) - (a.poseeA ?? 0))
+    .slice(0, LIMITE_DECISIONS_DU_RESUME)
+    .map(
+      (d) =>
+        `- ${d.poseeA ? dateEtHeureDActivite(d.poseeA) : '—'} — ${d.projectName ?? nomParId.get(d.projectId) ?? d.projectId} — ${d.lieuTitre ?? ''}${d.texte ? ` : ${d.texte.slice(0, 140)}` : ''}`,
+    );
+  sections.push(attentes.length ? `Décisions qui t'attendent (${decisions.length}) :\n${attentes.join('\n')}` : 'Aucune décision en attente.');
+  sections.push(`Projets :\n${lignes.join('\n') || 'Aucun projet.'}`);
+  return { ok: true, text: sections.join('\n\n') };
 }
 
-function notes(args: Record<string, any>, projetVise?: string): ToolResult {
-  const action = String(args.action ?? '');
-  const toutes = listerNotes();
-  const echeance = (v: unknown) => {
-    if (v === undefined) return undefined;
-    if (v === null || v === '') return null;
-    const t = Date.parse(String(v));
-    return Number.isFinite(t) ? t : undefined;
-  };
-  if (action === 'lister') {
-    const choisies = toutes.filter((n) => !projetVise || n.projectId === projetVise);
-    if (!choisies.length) return { ok: true, text: 'Aucune note.' };
-    return {
-      ok: true,
-      text: choisies
-        .map((n) => `- [${n.id}] « ${n.titre} » — ${nomDuProjet(n.projectId)}${n.echeance ? ` — échéance ${jour(n.echeance)}` : ''}${n.importance !== 'aucune' ? ` — ${n.importance}` : ''}`)
-        .join('\n'),
-    };
-  }
-  if (action === 'lire') {
-    const note = toutes.find((n) => n.id === args.id);
-    if (!note) return { ok: false, text: 'Note introuvable.' };
-    return { ok: true, text: `« ${note.titre} » — ${nomDuProjet(note.projectId)} — échéance ${jour(note.echeance)} — ${note.importance}\n\n${note.description}` };
-  }
-  if (action === 'creer' || action === 'modifier') {
-    const avant = action === 'modifier' ? toutes.find((n) => n.id === args.id) : undefined;
-    if (action === 'modifier' && !avant) return { ok: false, text: 'Note introuvable.' };
-    const projectId = projetVise ?? avant?.projectId;
-    if (!projectId) return { ok: false, text: 'Dis dans quel projet ranger la note (« projet »).' };
-    const r = enregistrerNote({
-      ...(avant ?? {}),
-      id: avant?.id,
-      projectId,
-      titre: args.titre ?? avant?.titre,
-      description: args.description ?? avant?.description,
-      echeance: echeance(args.echeance) === undefined ? avant?.echeance : echeance(args.echeance),
-      importance: args.importance ?? avant?.importance,
-      piecesJointes: avant?.piecesJointes ?? [],
-    });
-    if (!r.ok) return { ok: false, text: r.raison };
-    return { ok: true, text: `Note ${action === 'creer' ? 'créée' : 'modifiée'} : [${r.note.id}] « ${r.note.titre} » (${nomDuProjet(r.note.projectId)}).` };
-  }
-  if (action === 'supprimer') {
-    const r = supprimerNote(String(args.id ?? ''));
-    return r.ok ? { ok: true, text: 'Note supprimée.' } : { ok: false, text: 'Note introuvable.' };
-  }
-  return { ok: false, text: `Action inconnue : ${action}` };
-}
+/** Les décisions listées dans le résumé : au-delà, seul le compte est donné. */
+const LIMITE_DECISIONS_DU_RESUME = 10;
 
-async function messagerie(args: Record<string, any>, projetVise?: string): Promise<ToolResult> {
+export async function messagerie(args: Record<string, any>, projetVise?: string): Promise<ToolResult> {
   const action = String(args.action ?? '');
   const admin = compteAdmin();
   const projets = store.listProjects().filter((p) => !projetVise || p.id === projetVise);
@@ -591,7 +859,7 @@ async function messagerie(args: Record<string, any>, projetVise?: string): Promi
   return { ok: true, text: `Fait (${action}) dans la messagerie de l’espace client.` };
 }
 
-async function surveillances(args: Record<string, any>): Promise<ToolResult> {
+export async function surveillances(args: Record<string, any>): Promise<ToolResult> {
   const action = String(args.action ?? '');
   const id = String(args.id ?? '');
   if (action === 'lister') {
@@ -623,7 +891,7 @@ async function surveillances(args: Record<string, any>): Promise<ToolResult> {
   return { ok: false, text: `Action inconnue : ${action}` };
 }
 
-function backups(args: Record<string, any>): ToolResult {
+export function backups(args: Record<string, any>): ToolResult {
   const action = String(args.action ?? '');
   const id = String(args.id ?? '');
   if (action === 'lister') {

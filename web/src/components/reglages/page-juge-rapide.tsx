@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { CheckCircle2, KeyRound, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { CheckCircle2, KeyRound, Loader2 } from '@/components/ui/icones';
 import { type TraceDeJugement } from '@beluga/shared';
-import { BulleInfo, Badge, Button, Switch } from '@/components/ui';
+import { BulleInfo, Badge, Button, Switch, TELEPHONE_ENTRE_SECTIONS } from '@/components/ui';
 import { Groupe } from '@/components/reglages/communs';
 import { client } from '@/lib/client';
 import { relativeTime } from '@/lib/utils';
@@ -112,7 +113,7 @@ export function PageJugeRapide({ open }: { open: boolean }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={cn('space-y-6', TELEPHONE_ENTRE_SECTIONS)}>
       <Groupe
         titre={t('Le juge : Jev')}
         aide={t(

@@ -124,13 +124,8 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'consommation',
         titre: 'Consommation',
-        motsCles: ['dépense', 'coût', 'jetons', 'facture', 'usage'],
-      },
-      {
-        cle: 'mode-creation',
-        titre: 'Mode Création',
-        motsCles: ['création', 'créativité', 'orchestre', 'répartition', 'gpt', 'claude', 'cursor', 'avis', 'modèle'],
-        libelles: ['Qui fait quoi', 'Avis complémentaires'],
+        motsCles: ['dépense', 'coût', 'jetons', 'facture', 'usage', 'multiplicateur', 'coefficient', 'prix', 'tarif'],
+        libelles: ['Multiplicateur du coût des jetons'],
       },
       {
         cle: 'services-creation',
@@ -161,6 +156,14 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
       },
       {
+        // L'extension Beluga pour Chrome : téléchargement, installation, liaison
+        // par code, Chrome reliés, sites et gestes répétés (09/11/2026).
+        cle: 'extension',
+        titre: 'Extension',
+        motsCles: ['extension', 'chrome', 'navigateur', 'onglet', 'piloter', 'relier', 'code', 'site', 'lecture seule', 'geste répété', 'panneau latéral'],
+        libelles: ['Télécharger', 'Relier un Chrome', 'Chrome reliés', 'Sites', 'Gestes répétés'],
+      },
+      {
         // Le compte GitHub du serveur : qui est relié, d'où vient le jeton, les
         // projets récupérés, et la réinitialisation du jeton.
         cle: 'github',
@@ -169,9 +172,12 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         libelles: ['Réinitialiser le jeton'],
       },
       {
-        cle: 'capacite',
-        titre: 'Capacité du système',
-        motsCles: ['mémoire', 'charge', 'processus', 'place', 'disque', 'saturé'],
+        // La liaison avec Beluga Pass, le gestionnaire de mots de passe : un bouton qui ouvre Beluga Pass déjà rempli,
+        // trois étapes qui se cochent seules, puis l'accès des agents (16/11/2026 — elle vivait dans le coffre-fort).
+        cle: 'belugapass',
+        titre: 'Beluga Pass',
+        motsCles: ['beluga pass', 'belugapass', 'mots de passe', 'gestionnaire', 'relier', 'liaison', 'clé de liaison', 'sauvegarde chiffrée', 'accès des agents', 'coffre'],
+        libelles: ['Relier Beluga Pass', 'Accès des agents', 'Sauvegarde chiffrée', 'Délier Beluga Pass'],
       },
       {
         cle: 'erreurs',
@@ -230,8 +236,9 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'serveur',
         titre: 'Serveur',
-        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon'],
-        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents'],
+        // « Capacité du système » y a été réunie (06/11/2026) : ses mots-clés suivent.
+        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon', 'capacité', 'mémoire', 'charge', 'processus', 'place', 'disque', 'saturé', 'cpu', 'processeur', 'ram', 'ip', 'adresse ip', 'vcpu', 'stockage', 'explorateur', 'fichiers', 'dossiers', 'ménage'],
+        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents', 'Capacité du système', 'Ce qui pèse le plus', 'Parcourir les dossiers'],
       },
     ],
   },

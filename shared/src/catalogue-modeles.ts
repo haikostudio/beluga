@@ -1,5 +1,6 @@
 import { modeleBanni, remplacantDUnBanni, sansModelesBannis } from './modele-banni.js';
 import { EngineInfo, ModelInfo, RunConfig } from './models.js';
+import { minusculesSansAccents } from './mots.js';
 
 /**
  * Ce qui reste du catalogue rendu par un moteur, et ce qu'on en dit à l'écran.
@@ -191,11 +192,7 @@ export function messageDeRepli(engine: Pick<EngineInfo, 'installed' | 'live' | '
 /** Combien de modèles le menu montre avant « Afficher plus ». */
 export const MODELES_AFFICHES_D_ABORD = 10;
 
-const sansAccents = (texte: string) =>
-  (texte ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
+const sansAccents = (texte: string) => minusculesSansAccents(texte ?? '');
 
 /**
  * CE QUE LE MENU DES MODÈLES MONTRE. La liste arrive triée du plus récent au

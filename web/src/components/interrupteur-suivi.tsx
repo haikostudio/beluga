@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Activity } from 'lucide-react';
+import { Activity } from '@/components/ui/icones';
 import { DropdownMenuItem, Switch } from '@/components/ui';
 import { useTenueDesOptions } from '@/components/entete-de-zone';
 import { client } from '@/lib/client';

@@ -13,14 +13,16 @@ import { cn } from '@/lib/utils';
  * (`styles.css`) : on n'écrit jamais `bg-…/50`. La hauteur est celle de la tête
  * d'une carte de « Tableaux de bord » (18 px) pour ne rien faire bouger.
  */
-/* Les deux tons gris servent la liste des agents (`liste-des-agents.tsx`) :
-   « fort » — le texte plein — pour ce qui attend l'utilisateur, « neutre » pour
-   le reste. Aucun nouveau jeton coloré : la charte reste noir, gris, jaune et violet. */
-type TonDuBadge = TonDuBadgeDEtape | 'fort' | 'neutre';
+/* La liste des agents (`liste-des-agents.tsx`) colore ses badges en quatre
+   familles (demande du 01/11/2026, `familleDeCouleur`) : violet quand l'agent
+   agit, jaune quand c'est à l'utilisateur, VERT (« pret », le seul jeton
+   coloré ajouté depuis, réservé à ce badge et au rond de la colonne) quand le
+   travail est prêt, gris (« neutre ») au repos. */
+type TonDuBadge = TonDuBadgeDEtape | 'pret' | 'neutre';
 const CLASSE_PAR_TON: Record<TonDuBadge, string> = {
   comprehension: 'border-comprehension-trait bg-comprehension-fond text-comprehension',
   travail: 'border-teinte-trait bg-teinte-fond text-teinte',
-  fort: 'border-text bg-raised text-text',
+  pret: 'border-pret-trait bg-pret-fond text-pret',
   neutre: 'border-border bg-surface text-muted',
 };
 

@@ -66,6 +66,11 @@ export function imposerLesOutilsDeReparation(outils: OutilsDeReparation): void {
   outilsImposes = outils;
 }
 
+/** Les mêmes outils, pour le dépanneur automatique ouvert à la chute (`deploy.ts`) : un essai n'y lance aucun vrai moteur. */
+export function outilsDeReparationImposes(): OutilsDeReparation {
+  return outilsImposes;
+}
+
 function pause(ms: number): Promise<void> {
   return new Promise((fin) => setTimeout(fin, ms));
 }

@@ -13,7 +13,7 @@
  */
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, CheckCheck } from '@/components/ui/icones';
 import {
   MOTIFS,
   TITRES_COLONNES_DEMANDE,

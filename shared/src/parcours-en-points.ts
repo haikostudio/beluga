@@ -736,6 +736,13 @@ export interface ContexteDesPoints {
    * l'analyse jointe à sa proposition de compréhension.
    */
   descriptionDeLaCarte?: string;
+  /**
+   * LA DEMANDE ÉCRITE PAR UN AGENT (carte posée par l'agent de nuit, le chef, un autre agent : `card.briefing`).
+   * Préférée à la description pour la bulle de demande, et accompagnée de son AUTEUR (« l'agent de nuit ») :
+   * un premier tour automatique n'écrit pas toujours son jalon « Demande », et la bulle restait vide.
+   */
+  demandeDeLAgent?: string;
+  auteurDeLaDemande?: string;
   analyseDeLaCarte?: string;
   /** L'instant de création de la carte : la date de sa demande reconstituée. */
   creeeA?: number;
@@ -1232,7 +1239,7 @@ export function reponseDuPassage(
 }
 
 /** Le cadre qui referme un passage : ce que l'agent a RENDU, et qu'on vient lire. */
-export type BlocDeFin = 'reponse' | 'comprehension' | 'plan';
+export type BlocDeFin = 'reponse' | 'comprehension' | 'plan' | 'rapport';
 
 /**
  * LE BLOC DE FIN D'UN PASSAGE, s'il en porte un : la réponse d'un tour qui a
@@ -1253,17 +1260,14 @@ export function blocDeFinDuPassage(
     const plan = [...passage.moments].reverse().find((moment) => moment.sorte === 'plan');
     return plan ? { sorte: 'plan', cle: plan.entree.id } : null;
   }
+  /* LE RAPPORT SE LIT AUSSI PAR SON DÉBUT (31/10/2026, capture #2df40) : rendu
+     sous le carton de travail, il restait hors de vue, le fil arrêté sur
+     « Total : 1 min 28 s ». */
+  if (passage.etape === 'rapport') {
+    const rapport = [...passage.moments].reverse().find((moment) => moment.sorte === 'rapport');
+    return rapport ? { sorte: 'rapport', cle: rapport.entree.id } : null;
+  }
   return null;
-}
-
-/**
- * LA RÉFLEXION SE REPLIE DEVANT LA RÉPONSE. Quand un passage « Compréhension »
- * a rendu son bloc de fin, ses cartons d'actions passent derrière UNE ligne
- * « Réflexion » : la réponse se lit en tête, le détail reste à un clic.
- */
-export function reflexionRepliee(passage: Pick<PointDuParcours, 'etape' | 'moments' | 'reponse'>): boolean {
-  const bloc = blocDeFinDuPassage(passage);
-  return !!bloc && bloc.sorte !== 'plan';
 }
 
 /**
@@ -1371,7 +1375,14 @@ export function pointsDuParcours(
       /* UNE DEMANDE DÉPASSÉE EST UNE DEMANDE FAITE : quand le TRAVAIL tourne,
          le point « Demande » ne peut pas rester « en cours », même si le
          journal n'a pas (encore) livré son jalon. */
-      if (point.etape === 'demande') etat = aUneDemande || index < rang ? 'fait' : 'encours';
+      /* RIEN N'EST ENCORE PARTI : la demande ATTEND, elle ne tourne pas (15/11/2026, capture #589d — une
+         discussion qu'on vient d'ouvrir montrait un rond qui tournait). Elle reste l'étape où l'on est (« vous êtes
+         ici »), immobile ; seul un envoi en route (son écho local), un tour vivant ou une demande déjà ÉCRITE PAR UN
+         AGENT (carte de nuit, de marketing : son tour automatique la porte) la font tourner. */
+      if (point.etape === 'demande') {
+        const partie = ctx.tourEnCours || point.moments.length > 0 || !!ctx.demandeDeLAgent?.trim();
+        etat = aUneDemande || index < rang ? 'fait' : partie ? 'encours' : 'avenir';
+      }
       if (point.etape === 'comprehension' && courante === 'comprehension') {
         const rendue = !!ctx.parcours?.comprehension?.texte?.trim() || point.moments.some((m) => m.sorte === 'comprehension');
         /* UN TOUR QUI A RÉPONDU AU LIEU DE CADRER EST UN TOUR FINI. */
@@ -1580,7 +1591,7 @@ function avecLeParcoursDeLaNuit(points: PointDuParcours[], ctx: ContexteDesPoint
     const titre = TITRES_DE_LA_NUIT[point.etape];
     const base = { ...point, titre, sautee: undefined, annonce: undefined, mention: undefined };
     if (point.etape === 'demande') {
-      const etat: EtatDuPoint = point.moments.length || ctx.descriptionDeLaCarte?.trim() ? 'fait' : point.etat;
+      const etat: EtatDuPoint = point.moments.length || ctx.descriptionDeLaCarte?.trim() || ctx.demandeDeLAgent?.trim() ? 'fait' : point.etat;
       return { ...base, etat, phrase: point.phrase || PHRASES_DU_POINT.demande[etat] };
     }
     if (point.etape === 'travail') {
@@ -1852,12 +1863,28 @@ function avecLeContenuDeLaCarte(
     const brut = passages[index];
     return estVide(point) && (!brut || estVide(brut)) && !point.reponse && !point.memoire.length && !point.competences?.length;
   };
+  const demandeDeLaCarte = ctx.demandeDeLAgent?.trim() || ctx.descriptionDeLaCarte?.trim() || '';
+  const donneesDeLAuteur = ctx.auteurDeLaDemande ? JSON.stringify({ auteurDeLaDemande: ctx.auteurDeLaDemande }) : undefined;
   return points.map((point, index) => {
+    /* UNE DEMANDE SANS BULLE en reçoit une, même quand le point a d'autres contenus (les premiers gestes d'un
+       tour automatique, encore en cours ou fini) : la carte de nuit montrait un blanc au-dessus de son résumé
+       (capture #6e9b, 12/11/2026). */
+    if (
+      point.etape === 'demande' &&
+      !point.annonce &&
+      /* encore en cours : seulement pour une demande ÉCRITE PAR UN AGENT — la carte vide du « + » attend la sienne. */
+      (point.etat === 'fait' || (point.etat === 'encours' && !!ctx.demandeDeLAgent?.trim())) &&
+      demandeDeLaCarte &&
+      !point.moments.some((m) => m.sorte === 'demande')
+    ) {
+      const bulle: MomentDuPoint = { sorte: 'demande', entree: synthese('Demande', demandeDeLaCarte, ctx.creeeA, donneesDeLAuteur), premiere: true };
+      return { ...point, moments: [bulle, ...point.moments] };
+    }
     if (point.annonce || point.etat !== 'fait' || !ETAPES_A_CONTENU.includes(point.etape)) return point;
     if (!videIci(index)) return point;
     let moment: MomentDuPoint | undefined;
-    if (point.etape === 'demande' && ctx.descriptionDeLaCarte?.trim()) {
-      moment = { sorte: 'demande', entree: synthese('Demande', ctx.descriptionDeLaCarte.trim(), ctx.creeeA), premiere: true };
+    if (point.etape === 'demande' && demandeDeLaCarte) {
+      moment = { sorte: 'demande', entree: synthese('Demande', demandeDeLaCarte, ctx.creeeA, donneesDeLAuteur), premiere: true };
     }
     if (point.etape === 'comprehension') {
       const ecrite = ctx.parcours?.comprehension;

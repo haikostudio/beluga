@@ -47,6 +47,7 @@ export const CHAMPS_SORTIS_DU_JSON = [
   'rangDansLaSuite',
   'etapeFinieAt',
   'departDeLaSuiteAt',
+  'securiteProposee',
   'lastReadAt',
   'deployedAt',
   'createdAt',
@@ -82,6 +83,7 @@ export interface LigneCarte {
   rang_dans_la_suite?: number | null;
   etape_finie_at?: number | null;
   depart_de_la_suite_at?: number | null;
+  securite_proposee?: string | null;
   last_read_at?: number | null;
   run_engine?: string | null;
   run_model?: string | null;
@@ -125,6 +127,8 @@ export interface ColonnesCarte {
   rang_dans_la_suite: number | null;
   etape_finie_at: number | null;
   depart_de_la_suite_at: number | null;
+  /** Les genres sensibles déjà proposés au contrôle de sécurité, séparés par des virgules (`shared/src/proposition-securite.ts`). */
+  securite_proposee: string | null;
   last_read_at: number | null;
   run_engine: string;
   run_model: string | null;
@@ -187,6 +191,7 @@ export function colonnesDeLaCarte(card: Card): ColonnesCarte {
     rang_dans_la_suite: card.rangDansLaSuite ?? null,
     etape_finie_at: card.etapeFinieAt ?? null,
     depart_de_la_suite_at: card.departDeLaSuiteAt ?? null,
+    securite_proposee: card.securiteProposee?.length ? card.securiteProposee.join(',') : null,
     last_read_at: card.lastReadAt ?? null,
     run_engine: card.run.engine,
     run_model: card.run.model ?? null,
@@ -279,6 +284,12 @@ export function carteDepuisLigne(
     ...(nombre(ligne.depart_de_la_suite_at, 'departDeLaSuiteAt') != null
       ? { departDeLaSuiteAt: nombre(ligne.depart_de_la_suite_at, 'departDeLaSuiteAt') }
       : {}),
+    // Jamais proposé : aucune clé — une carte ordinaire se relit à l'identique.
+    ...(ligne.securite_proposee
+      ? { securiteProposee: ligne.securite_proposee.split(',').filter(Boolean) }
+      : Array.isArray(reste.securiteProposee) && reste.securiteProposee.length
+        ? { securiteProposee: reste.securiteProposee }
+        : {}),
     lastReadAt: nombre(ligne.last_read_at, 'lastReadAt'),
   });
 }

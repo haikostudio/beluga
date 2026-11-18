@@ -189,6 +189,32 @@ export function dernierJalonDeDemande(cardId: string, agentId: string): EntreeJo
 }
 
 /**
+ * LES TOURS D'EXÉCUTION D'UNE CARTE, lus dans son journal : un par tour lancé
+ * en phase « execution », de sa première à sa dernière entrée. Sert à dire au
+ * cadrage le travail DÉJÀ FAIT (`blocDuTravailDejaFait`) — l'agent unique de
+ * carte change de rôle, ses dates de naissance ne disent donc pas quand il a
+ * travaillé ; le journal, si. Un tour sans « Réponse rendue » est rendu sans fin.
+ */
+export function toursDExecution(cardId: string): { debut: number; fin?: number }[] {
+  if (!cardId) return [];
+  try {
+    const lignes = getDb()
+      .prepare(
+        `SELECT tour_id AS tour, MIN(at) AS debut, MAX(at) AS dernier,
+                MAX(CASE WHEN nature = 'jalon' AND libelle = 'Réponse rendue' THEN at END) AS rendu
+           FROM card_journal
+          WHERE card_id = ? AND phase = 'execution' AND tour_id IS NOT NULL
+          GROUP BY tour_id ORDER BY debut`,
+      )
+      .all(cardId) as { tour: string; debut: number; dernier: number; rendu: number | null }[];
+    return lignes.map((l) => (l.rendu ? { debut: l.debut, fin: Math.max(l.rendu, l.dernier) } : { debut: l.debut }));
+  } catch (err: any) {
+    log.warn(`journal de carte : tours d'exécution illisibles (${err?.message ?? err})`);
+    return [];
+  }
+}
+
+/**
  * COMPLÈTE LES DONNÉES D'UNE ENTRÉE DÉJÀ ÉCRITE, sans rien perdre de ce qu'elle
  * portait. Le journal n'ajoute qu'à la fin — c'est sa règle et elle tient : ici
  * on n'ajoute pas de ligne, on ENRICHIT la sienne, pour qu'une synthèse écrite
@@ -255,6 +281,23 @@ export function jalonsPortantDesSuites(tourId: string): EntreeJournal[] {
   }
 }
 
+/**
+ * LES ENTRÉES D'UN SEUL TOUR d'une carte, dans l'ordre de leur rang — pour le fil du panneau Chrome, relu à chaque
+ * message en direct. La carte borne la lecture par son index ; le tour filtre.
+ */
+export function entreesDuTour(cardId: string, tourId: string): EntreeJournal[] {
+  if (!cardId || !tourId) return [];
+  try {
+    const lignes = getDb()
+      .prepare('SELECT * FROM card_journal WHERE card_id = ? AND tour_id = ? ORDER BY rang ASC')
+      .all(cardId, tourId) as Ligne[];
+    return lignes.map(versEntree);
+  } catch (err: any) {
+    log.warn(`journal de carte : tour illisible (${err?.message ?? err})`);
+    return [];
+  }
+}
+
 /** Les entrées d'une carte, dans l'ordre de leur rang. */
 export function entreesDuJournal(cardId: string): EntreeJournal[] {
   if (!cardId) return [];
@@ -304,15 +347,37 @@ export function phaseDeLaCarte(cardId: string, role: string | undefined): PhaseJ
  */
 export function allegerLesJournaux(avant: number): number {
   try {
-    const res = getDb()
-      .prepare(
-        `UPDATE card_journal SET resultat = '', params = NULL
-         WHERE at < ? AND (resultat IS NOT NULL AND resultat != '')`,
-      )
-      .run(avant);
+    const res = getDb().prepare(`UPDATE card_journal SET resultat = '', params = NULL WHERE ${A_ALLEGER}`).run(avant);
     return res.changes ?? 0;
   } catch (err: any) {
     log.warn(`journal de carte : allègement impossible (${err?.message ?? err})`);
+    return 0;
+  }
+}
+
+/**
+ * CE QUI RESTE À ALLÉGER : un résultat non vide, OU des paramètres encore là
+ * (les traces du pont ont des paramètres sans résultat, MEM-4072). Les
+ * lignes déjà vidées ne correspondent plus : une seconde passe ne change rien.
+ */
+const A_ALLEGER = `at < ? AND ((resultat IS NOT NULL AND resultat != '') OR params IS NOT NULL)`;
+
+/**
+ * UN LOT SEULEMENT, pour le ménage quotidien : le premier passage touche des
+ * centaines de milliers de lignes, et une seule écriture bloquerait la base.
+ * Rend le nombre de lignes allégées (0 = terminé ou impossible).
+ */
+export function allegerUnLotDeJournaux(avant: number, limite = 5000): number {
+  try {
+    const res = getDb()
+      .prepare(
+        `UPDATE card_journal SET resultat = '', params = NULL
+         WHERE rowid IN (SELECT rowid FROM card_journal WHERE ${A_ALLEGER} LIMIT ?)`,
+      )
+      .run(avant, limite);
+    return res.changes ?? 0;
+  } catch (err: any) {
+    log.warn(`journal de carte : allègement d'un lot impossible (${err?.message ?? err})`);
     return 0;
   }
 }

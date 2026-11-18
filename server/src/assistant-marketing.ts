@@ -36,6 +36,7 @@ import {
   jourLocalDe,
   FICHES_RESEAUX,
   demandeDeCreationDeCompte,
+  RESEAUX_PAR_LE_VRAI_COMPTE,
   estReseauSocial,
 } from '@beluga/shared';
 import * as store from './store.js';
@@ -50,6 +51,11 @@ export interface DepartMarketing {
   agentId: string;
   projectId: string;
   cardId: string;
+}
+
+/** Le moteur des agents marketing (création, connexion, publication par Chrome) : Claude au niveau standard. */
+export async function reglagesDuMoteurMarketing() {
+  return reglages();
 }
 
 async function reglages() {
@@ -207,17 +213,35 @@ export async function lancerCreationDeCompte(entree: { projectId: string; reseau
   const reseau = entree.reseau;
   const fiche = FICHES_RESEAUX[reseau];
   const app = lireApplication(fiche.application);
+  /* META PAR LE VRAI COMPTE (03/11/2026) : l'agent guide et prépare, il ne crée plus de compte. Une ancienne carte de
+     création par robot, restée « en création », n'est plus reprise. */
+  const parLeVraiCompte = RESEAUX_PAR_LE_VRAI_COMPTE.includes(reseau);
+  const prefixe = parLeVraiCompte ? 'Préparer' : 'Ouvrir';
   if (app.etat === 'en_creation' && app.cardId) {
-    const carte = store.getCard(app.cardId);
+    const trouvee = store.getCard(app.cardId);
+    /* La carte d'un robot de création (titre « Ouvrir … ») ne se reprend pas : une carte de guidage s'ouvre. */
+    const carte = trouvee && parLeVraiCompte && !trouvee.title.startsWith(prefixe) ? undefined : trouvee;
     const agent = carte ? store.listAgents().find((a) => a.cardId === carte.id && a.role !== 'cadrage') : undefined;
     if (carte && agent && carte.column !== 'archived') return { agentId: agent.id, projectId: carte.projectId, cardId: carte.id };
+  }
+  /* UN SEUL AGENT PAR RÉSEAU ET PAR PROJET (03/11/2026) : la création en lot de Canaux, un double clic ou une
+     page rechargée retrouvent la carte qui travaille encore, au lieu d'en ouvrir une seconde. */
+  const titre = `${prefixe} ${fiche.libelle} — ${projet.name}`.slice(0, 80);
+  const enCours = store
+    .listCards(projet.id)
+    .find((c) => c.title === titre && c.labels.includes(LABEL_MARKETING) && (c.column === 'planned' || c.column === 'running'));
+  if (enCours) {
+    const agent = store.listAgents().find((a) => a.cardId === enCours.id && a.role !== 'cadrage');
+    if (agent) return { agentId: agent.id, projectId: projet.id, cardId: enCours.id };
   }
   assurerEspace(projet.id);
   const r = await reglages();
   const { card, agentId } = ouvrirCarteDAgent({
     projectId: projet.id,
-    titre: `Ouvrir ${fiche.libelle} — ${projet.name}`.slice(0, 80),
-    description: `Un agent ouvre le compte ${fiche.libelle} du projet, crée l’application développeur si elle manque et remplit les dossiers de validation. Il vous demandera les codes reçus par SMS et ce que vous seul pouvez fournir. Rien n’est publié sans vous.`,
+    titre,
+    description: parLeVraiCompte
+      ? `Un agent vous guide pour créer, une seule fois, l’application Meta sur votre propre compte, puis prépare la page ${fiche.libelle} de « ${projet.name} » (nom, photos, description) : vous la créez sur votre téléphone et « Relier » ramène vos pages et vos comptes Instagram. Aucun compte n’est créé par un robot, rien n’est publié sans vous.`
+      : `Un agent ouvre le compte ${fiche.libelle} du projet, crée l’application développeur si elle manque et remplit les dossiers de validation. Il vous demandera les codes reçus par SMS et ce que vous seul pouvez fournir. Rien n’est publié sans vous.`,
     labels: [LABEL_MARKETING],
     role: 'task',
     run: { engine: 'claude', model: r.model, thinking: r.thinking as any },

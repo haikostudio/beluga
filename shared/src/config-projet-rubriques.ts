@@ -56,6 +56,11 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
     resume: 'Où le projet vit sur le serveur, ses dépôts, ses copies de travail.',
   },
   {
+    cle: 'chartes',
+    titre: 'Charte d’interface',
+    resume: 'Les règles d’écran que chaque agent reçoit d’office, à valider.',
+  },
+  {
     cle: RUBRIQUE_DEPLOIEMENT,
     titre: 'Déploiement',
     resume: 'Rafraîchir la version de travail de ce projet, sur ce serveur.',

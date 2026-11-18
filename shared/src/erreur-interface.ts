@@ -17,7 +17,7 @@
  * jamais parti faute de lien. Ce n'est pas une exception, mais c'est la seule
  * trace qui dise POURQUOI le lien était coupé chez quelqu'un qu'on ne voit pas.
  */
-export const SOURCES_ERREUR = ['affichage', 'fenetre', 'promesse', 'canal'] as const;
+export const SOURCES_ERREUR = ['affichage', 'fenetre', 'promesse', 'canal', 'voix'] as const;
 export type SourceErreur = (typeof SOURCES_ERREUR)[number];
 
 /** Ce que la page envoie. Rien du projet : ni message, ni pièce jointe. */
@@ -178,6 +178,8 @@ export function origineEnClair(source: SourceErreur): string {
   if (source === 'affichage') return "Affichage interrompu";
   if (source === 'promesse') return 'Traitement en arrière-plan';
   if (source === 'canal') return 'Geste parti sans lien';
+  // La conversation vocale qui ne transmet rien (carte « Jarvis n'entend ni ne répond », 17/11/2026).
+  if (source === 'voix') return 'Conversation vocale muette';
   return 'Erreur de la page';
 }
 

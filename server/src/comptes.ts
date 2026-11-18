@@ -29,6 +29,7 @@ import {
   type CompteUtilisateur,
   type DroitsDAcces,
   type RoleCompte,
+  prenomNettoye,
 } from '@beluga/shared';
 import { getDb } from './db.js';
 import { log } from './logger.js';
@@ -38,6 +39,7 @@ interface LigneUtilisateur {
   identifiant: string;
   role: string;
   nom_affiche: string;
+  prenom?: string | null;
   salt: string;
   hash: string;
   actif: number;
@@ -74,6 +76,7 @@ function enCompte(ligne: LigneUtilisateur): CompteUtilisateur {
     identifiant: ligne.identifiant,
     role: roleLu(ligne.role),
     nomAffiche: ligne.nom_affiche ?? '',
+    prenom: ligne.prenom ?? '',
     actif: ligne.actif === 1,
     creeLe: ligne.cree_le,
     derniereEntree: ligne.derniere_entree ?? undefined,
@@ -221,6 +224,14 @@ export function changerLeRole(userId: string, role: Exclude<RoleCompte, 'admin'>
   if (compte.role === 'admin') throw new Error('Le niveau d’un administrateur ne se change pas ici.');
   getDb().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
   fermerLesSessions(userId);
+  return compteParId(userId)!;
+}
+
+/** Le prénom d'un compte, que l'assistant emploie en lui parlant. Vide : il s'en passe. */
+export function changerLePrenom(userId: string, prenom: string): CompteUtilisateur {
+  const compte = compteParId(userId);
+  if (!compte) throw new Error('Ce compte est introuvable.');
+  getDb().prepare('UPDATE users SET prenom = ? WHERE id = ?').run(prenomNettoye(prenom), userId);
   return compteParId(userId)!;
 }
 

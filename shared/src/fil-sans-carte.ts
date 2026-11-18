@@ -20,7 +20,7 @@
  * carte (`cardId` vide), et le rang suit l'ordre du temps.
  */
 
-import type { EntreeJournal } from './journal-carte.js';
+import { JALON_NOTE_DE_L_AGENT, type EntreeJournal } from './journal-carte.js';
 import type { RunStep, TodoItem } from './models.js';
 
 export interface TourDUnMessage {
@@ -72,6 +72,19 @@ export function entreesDuTourSansCarte(message: TourDUnMessage, garder: FiltreDe
   });
 
   for (const step of message.steps) {
+    /* LA PHRASE DE PASSAGE QUI ANNONCE L'ACTION (`RunStep.noteAvant`, 13/11/2026) : une « Note de l'agent », juste
+       avant elle — même si l'action tourne encore, la phrase est déjà écrite. */
+    if (step.noteAvant?.trim() && garder(step)) {
+      brutes.push({
+        ...commun,
+        id: `${message.id}:note:${step.id}`,
+        nature: 'jalon',
+        at: step.startedAt ?? message.createdAt,
+        libelle: JALON_NOTE_DE_L_AGENT,
+        resultat: step.noteAvant.trim(),
+        ordre: ordre++,
+      });
+    }
     /* Comme le démon : seule une étape REFERMÉE entre au journal. */
     if (step.state === 'running' || step.state === 'todo' || !garder(step)) continue;
     brutes.push({

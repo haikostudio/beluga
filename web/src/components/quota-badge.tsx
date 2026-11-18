@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown, RefreshCw, Settings, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronDown, EllipsisVertical, ExternalLink, RefreshCw, Settings, TriangleAlert, X } from '@/components/ui/icones';
 import {
   AccountQuota,
   EngineId,
@@ -22,17 +22,33 @@ import {
   type SerieQuota,
   compteEpuise,
   construireFragment,
+  descriptionMoteur,
+  groupeQuotaReplie,
+  groupesDeComptes,
+  partConsommeeIa,
+  niveauDuSolde,
+  seuilDansLUnite,
+  seuilDuServiceUsd,
+  servicesIaEnAlerte,
+  SEUIL_PAR_DEFAUT_USD,
+  type SoldeDeServiceIa,
 } from '@beluga/shared';
 import {
   BulleInfo,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Gauge,
+  Input,
   Switch,
   Tooltip,
 } from '@/components/ui';
 import { IconeMoteur } from '@/components/icone-moteur';
+import { IconeServiceIa } from '@/components/icone-service-ia';
+import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -138,7 +154,7 @@ function Courbe({
           <path
             d={trace('session')}
             fill="none"
-            stroke="hsl(var(--faint))"
+            stroke="hsl(var(--teinte) / 0.45)"
             strokeWidth="1"
             vectorEffect="non-scaling-stroke"
           />
@@ -147,7 +163,7 @@ function Courbe({
           <path
             d={trace('weekly')}
             fill="none"
-            stroke="hsl(var(--muted))"
+            stroke="hsl(var(--teinte))"
             strokeWidth="1.4"
             vectorEffect="non-scaling-stroke"
           />
@@ -165,7 +181,7 @@ function Courbe({
               `L${x(prevision.at).toFixed(1)},${y(100).toFixed(1)}`,
             ].join(' ')}
             fill="none"
-            stroke={prevision.niveau === 'manque' ? 'hsl(var(--warning))' : 'hsl(var(--faint))'}
+            stroke={prevision.niveau === 'manque' ? 'hsl(var(--warning))' : 'hsl(var(--teinte) / 0.45)'}
             strokeWidth="1.4"
             strokeDasharray="3 3"
             vectorEffect="non-scaling-stroke"
@@ -226,7 +242,7 @@ function CourbeCredit({ points }: { points: { at: number; credit?: number }[] })
         <path
           d={trace}
           fill="none"
-          stroke="hsl(var(--muted))"
+          stroke="hsl(var(--teinte))"
           strokeWidth="1.4"
           vectorEffect="non-scaling-stroke"
         />
@@ -300,15 +316,67 @@ export function QuotaBadge({
 }) {
   const [open, setOpen] = React.useState(false);
   const state = client.lireEtat();
+  const reglages = state.settings;
+  /* LES GROUPES REPLIÉS À LA MAIN : ceux des réglages (partagés entre appareils), puis les clics de cette page en
+     attendant l'écho du démon — l'écran suit le clic tout de suite. */
+  const [clicsDesGroupes, setClicsDesGroupes] = React.useState<Record<string, boolean>>({});
+  const choixDesGroupes = React.useMemo(() => ({ ...(reglages?.groupesQuotaReplies ?? {}), ...clicsDesGroupes }), [reglages?.groupesQuotaReplies, clicsDesGroupes]);
+  const basculerGroupe = (engine: string, replie: boolean) => {
+    const suite = { ...choixDesGroupes, [engine]: replie };
+    setClicsDesGroupes((avant) => ({ ...avant, [engine]: replie }));
+    void client.call({ type: 'settings.update', patch: { groupesQuotaReplies: suite } }).catch(() => {
+      setClicsDesGroupes((avant) => {
+        const { [engine]: _oublie, ...reste } = avant;
+        return reste;
+      });
+      client.pushToast('error', t('Réglage non enregistré'));
+    });
+  };
+  /* LES SEUILS D'ALERTE DES SERVICES D'IA : ceux des réglages (partagés entre appareils), puis les choix faits ici en
+     attendant l'écho du démon. `null` : revenu au seuil par défaut. */
+  const [clicsDesSeuils, setClicsDesSeuils] = React.useState<Record<string, number | null>>({});
+  const seuilsServices = React.useMemo(() => {
+    const suite: Record<string, number> = { ...(reglages?.seuilsServicesIa ?? {}) };
+    for (const [id, v] of Object.entries(clicsDesSeuils)) {
+      if (v === null) delete suite[id];
+      else suite[id] = v;
+    }
+    return suite;
+  }, [reglages?.seuilsServicesIa, clicsDesSeuils]);
+  const changerSeuil = (id: string, valeur: number | null) => {
+    const suite = { ...seuilsServices };
+    if (valeur === null) delete suite[id];
+    else suite[id] = valeur;
+    setClicsDesSeuils((avant) => ({ ...avant, [id]: valeur }));
+    void client.call({ type: 'settings.update', patch: { seuilsServicesIa: suite } }).catch(() => {
+      setClicsDesSeuils((avant) => {
+        const { [id]: _oublie, ...reste } = avant;
+        return reste;
+      });
+      client.pushToast('error', t('Réglage non enregistré'));
+    });
+  };
+  /* LE POINT ORANGE DU PIED DE COLONNE : au moins un service d'IA sous son seuil ou à sec, d'après le dernier relevé
+     poussé par le démon (tournée de 30 min) — sans ouvrir le volet. */
+  const alertesServices = React.useMemo(
+    () => servicesIaEnAlerte(state.servicesIa?.soldes ?? [], seuilsServices),
+    [state.servicesIa, seuilsServices],
+  );
+  const texteAlerteServices = alertesServices.length
+    ? t('Solde bas : {v0}', { v0: alertesServices.map((a) => a.solde.nom).join(', ') })
+    : undefined;
   // Les lignes de suivi (Gemini) ne vivent que dans ce volet : ailleurs, `state.quotas` ne porte que des comptes.
   const quotas = React.useMemo(() => [...state.quotas, ...state.quotasSuivi], [state.quotas, state.quotasSuivi]);
   /* Le bouton tourne pendant tout l'aller-retour, réussite comme échec : un
      `send` sans réponse ne le permettait pas, il faut le `call` qui attend
      la fin du relevé. */
   const [actualisation, setActualisation] = React.useState(false);
+  /* Chaque appui sur « Actualiser » relit AUSSI les soldes des services d'IA, sans attendre les cinq minutes. */
+  const [relectureServices, setRelectureServices] = React.useState(0);
   const actualiser = React.useCallback(async () => {
     if (actualisation) return;
     setActualisation(true);
+    setRelectureServices((n) => n + 1);
     try {
       await client.call({ type: 'quota.refresh' });
     } catch {
@@ -466,6 +534,9 @@ export function QuotaBadge({
   const chiffreBande = cursorActif ? pourcents[0]?.chiffre : current?.session ? chiffreGauche : undefined;
   const pourcentsEnClair = pourcents.map(({ chiffre, nom }) => `${nom} ${chiffre} %`).join(' · ');
 
+  /* La carte dépliée au toucher : sans survol, c'est le seul geste qui montre son graphique. */
+  const [carteDepliee, setCarteDepliee] = React.useState<string | null>(null);
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -480,11 +551,15 @@ export function QuotaBadge({
             'flex min-w-0 items-center rounded-lg text-left transition-colors hover:bg-raised',
             variante === 'bande' ? 'relative h-[43px] sm:h-9 w-[43px] sm:w-9 flex-col justify-center gap-0.5' : 'h-11 flex-1 gap-2.5 px-2.5',
           )}
-          title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair].filter(Boolean).join(' · ')}
+          title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair, texteAlerteServices].filter(Boolean).join(' · ')}
           aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
           onMouseEnter={() => setSurvole(true)}
           onMouseLeave={() => setSurvole(false)}
           data-essai="badge-quota"
+          /* PLUS DE PORTEFEUILLE À CÔTÉ DU POINT (15/11/2026, capture #48db6, demande de l'utilisateur) : le solde bas
+             d'un service de création ne se lit plus que dans la bulle de la ligne (`title`, ci-dessus) et dans le
+             volet des quotas. Le repère reste porté par la ligne, pour les contrôles. */
+          data-alerte-services-ia={texteAlerteServices ? alertesServices.map((a) => a.solde.id).join(' ') : undefined}
           data-compte={current?.id}
           data-session={Math.round(session)}
           data-semaine={Math.round(semaine)}
@@ -507,6 +582,9 @@ export function QuotaBadge({
               ) : null}
               {liaison ? (
                 <span data-point-etat className={cn('absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full', liaison.classe)} />
+              ) : null}
+              {texteAlerteServices ? (
+                <span data-alerte-services-ia={alertesServices.map((a) => a.solde.id).join(' ')} className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-warning" />
               ) : null}
             </>
           ) : (
@@ -558,19 +636,51 @@ export function QuotaBadge({
         </div>
 
         {quotas.length ? (
-          <div className="space-y-2">
-            {quotas.map((quota) => {
+          /* RANGÉS PAR MOTEUR, COMME DANS LES RÉGLAGES DES COMPTES (carte du 05/11/2026, capture #8527) : un titre par
+             moteur — logo, nom, nombre de comptes — qui replie ou déplie son groupe d'un clic. Replié, le groupe ne
+             tient plus qu'en sa ligne de titre. Un moteur dont aucun compte ne sert est replié d'office ; le choix de
+             l'utilisateur l'emporte ensuite, retenu dans les réglages, donc sur TOUS ses appareils
+             (`groupeQuotaReplie`). Le titre est un simple bouton : il ne referme pas le menu. */
+          <div className="space-y-1" data-groupes-quota>
+            {groupesDeComptes(quotas, reglages?.ordreDesMoteurs).map((groupe) => {
+              const replie = groupeQuotaReplie(groupe, choixDesGroupes);
+              const nom = descriptionMoteur(groupe.engine)?.nomCourt ?? groupe.comptes[0]?.label ?? groupe.engine;
+              return (
+            <section key={groupe.engine} data-groupe-quota={groupe.engine} data-replie={replie || undefined}>
+              <button
+                type="button"
+                aria-expanded={!replie}
+                onClick={() => basculerGroupe(groupe.engine, !replie)}
+                className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-raised"
+                title={replie ? t('Déplier {v0}', { v0: nom }) : t('Replier {v0}', { v0: nom })}
+                data-titre-groupe-quota={groupe.engine}
+              >
+                <ChevronDown className={cn('h-3 w-3 shrink-0 text-faint transition-transform', replie && '-rotate-90')} />
+                <IconeMoteur engine={groupe.engine as EngineId} className="h-3.5 w-3.5" />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-text">{nom}</span>
+                <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{groupe.comptes.length}</span>
+              </button>
+              {replie ? null : (
+            <div className="mt-1 space-y-1.5 pb-1">
+            {groupe.comptes.map((quota) => {
               const aide = textesDAide(quota, histoire[quota.id] ?? [], pourProfil(quota.id), previsions[quota.id]);
               return (
               <div
                 key={quota.id}
                 data-carte-quota={quota.id}
                 data-moteur={quota.engine}
+                /* AU TOUCHER, la carte déplie son graphique : ni l'interrupteur ni la
+                   bulle « i », qui ont leur propre geste, ne le déclenchent. */
+                onClick={(event) => {
+                  if ((event.target as Element).closest('button, a, [role="switch"]')) return;
+                  setCarteDepliee((avant) => (avant === quota.id ? null : quota.id));
+                }}
+                data-depliee={carteDepliee === quota.id || undefined}
                 // Chaque compte est une carte à part entière : bordure et fond
                 // pour tous. Le compte qui sert est marqué par sa bordure, pas
                 // par l'absence de carte chez les autres.
                 className={cn(
-                  'rounded-md border bg-raised px-2 py-1.5',
+                  'group/carte-quota rounded-md border bg-raised px-2 py-1',
                   quota.disabled ? 'border-border opacity-60' : quota.active ? 'border-muted' : 'border-border',
                 )}
               >
@@ -616,7 +726,7 @@ export function QuotaBadge({
                   )}
                 </div>
 
-                <div className="mt-1.5 space-y-1.5">
+                <div className="mt-1 space-y-1">
                   {sansFenetre(quota) ? (
                     <>
                       <UsageCursor credit={quota.credit} enErreur={Boolean(quota.error)} />
@@ -644,22 +754,34 @@ export function QuotaBadge({
                   )}
                 </div>
 
-                {sansFenetre(quota) ? (
-                  <CourbeCredit points={histoire[quota.id] ?? []} />
-                ) : (
-                  <Courbe
-                    points={histoire[quota.id] ?? []}
-                    prevision={previsions[quota.id]}
-                    showSession={Boolean(quota.session)}
-                    showWeekly={Boolean(quota.weekly)}
-                  />
-                )}
-
                 <AlerteJumeaux jumeaux={quota.jumeaux} certains={quota.jumeauxCertains} />
 
                 <AmorceRefusee amorce={quota.derniereAmorce} />
 
-                <ProchainReveil creneau={quota.creneau} />
+                {/* LE GRAPHIQUE ET LE TEXTE QUI LE SUIT, repliés au repos : ils s'ouvrent
+                    au survol de la carte, au clavier, ou au toucher (`carteDepliee`). */}
+                <div
+                  data-detail-du-compte={quota.id}
+                  className={cn(
+                    'grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none',
+                    'survol:group-hover/carte-quota:grid-rows-[1fr] group-has-[:focus-visible]/carte-quota:grid-rows-[1fr]',
+                    carteDepliee === quota.id && 'grid-rows-[1fr]',
+                  )}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    {sansFenetre(quota) ? (
+                      <CourbeCredit points={histoire[quota.id] ?? []} />
+                    ) : (
+                      <Courbe
+                        points={histoire[quota.id] ?? []}
+                        prevision={previsions[quota.id]}
+                        showSession={Boolean(quota.session)}
+                        showWeekly={Boolean(quota.weekly)}
+                      />
+                    )}
+                    <ProchainReveil creneau={quota.creneau} />
+                  </div>
+                </div>
 
                 {quota.error ? (
                   <ReleveAncien
@@ -671,10 +793,23 @@ export function QuotaBadge({
               </div>
               );
             })}
+            </div>
+              )}
+            </section>
+              );
+            })}
           </div>
         ) : (
           <p className="px-1 py-2 text-[13px] text-faint">{t('Aucun compte connecté.')}</p>
         )}
+
+        <ServicesIa
+          ouvertMenu={open}
+          relecture={relectureServices}
+          pousse={state.servicesIa}
+          seuils={seuilsServices}
+          onSeuil={changerSeuil}
+        />
 
         <JournalDesAmorces ouvertMenu={open} onReglages={() => setOpen(false)} />
       </DropdownMenuContent>
@@ -1007,6 +1142,284 @@ function AmorceRefusee({ amorce }: { amorce?: AccountQuota['derniereAmorce'] }) 
  * Le journal complet, replié par défaut : il raconte le travail de fond, il ne
  * doit pas prendre la place des chiffres qu'on vient lire.
  */
+/**
+ * LES SERVICES D'IA CONNECTÉS (carte « Quotas des services d'IA », 08/11/2026) : sous les moteurs, un bloc
+ * par COMPTE de service repéré dans le coffre (OpenRouter, kie.ai, HeyGen, Agentik, Groq, API Gemini) — son
+ * logo, son solde restant et consommé quand le service le publie, « solde non communiqué » sinon, et un lien
+ * vers sa page de facturation.
+ *
+ * LE SEUIL : sous 2 $ (ou le seuil choisi dans le menu à trois points du bloc, partagé entre appareils), le
+ * restant passe en ORANGE ; à zéro, le bloc dit « À sec » (et le démon notifie, une fois). Un service qu'on
+ * n'a pas su lire n'est jamais dit bas ni à sec (`niveauDuSolde`).
+ *
+ * LES DONNÉES : le relevé poussé par le démon (tournée de 30 min, `state.servicesIa`) ; l'ouverture du volet
+ * le redemande (cache serveur de 5 min) et « Actualiser » le force. Le plus récent des deux s'affiche.
+ */
+function montantIa(valeur: number, unite: SoldeDeServiceIa['unite']): string {
+  // Les dollars s'écrivent comme la dépense Cursor juste au-dessus (« 4,48 $ ») : un seul style dans le volet.
+  if (unite === 'usd') return montantCursorEnClair(Math.round(valeur * 100), formatRegional());
+  return t('{v0} crédits', { v0: new Intl.NumberFormat(formatRegional(), { maximumFractionDigits: 1 }).format(valeur) });
+}
+
+type ReleveIa = { soldes: SoldeDeServiceIa[]; releveLe: number };
+
+function ServicesIa({
+  ouvertMenu,
+  relecture,
+  pousse,
+  seuils,
+  onSeuil,
+}: {
+  ouvertMenu: boolean;
+  relecture: number;
+  /** Le dernier relevé poussé par le démon, `null` tant qu'il n'y en a pas eu. */
+  pousse: ReleveIa | null;
+  seuils: Record<string, number>;
+  onSeuil: (id: string, valeurUsd: number | null) => void;
+}) {
+  const [repondu, setRepondu] = React.useState<ReleveIa | null>(null);
+  const [panne, setPanne] = React.useState(false);
+  // Seul un NOUVEL appui sur « Actualiser » force la relecture ; rouvrir le volet se contente du relevé gardé.
+  const derniereRelecture = React.useRef(relecture);
+
+  React.useEffect(() => {
+    if (!ouvertMenu) return;
+    let vivant = true;
+    const forcer = relecture !== derniereRelecture.current;
+    derniereRelecture.current = relecture;
+    client
+      .call<{ soldes: SoldeDeServiceIa[]; releveLe: number }>({ type: 'servicesIa.releve', force: forcer })
+      .then((data) => {
+        if (!vivant) return;
+        setRepondu({ soldes: data.soldes ?? [], releveLe: data.releveLe ?? Date.now() });
+        setPanne(false);
+      })
+      .catch(() => {
+        if (vivant) setPanne(true);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [ouvertMenu, relecture]);
+
+  const releve = !pousse ? repondu : !repondu ? pousse : repondu.releveLe > pousse.releveLe ? repondu : pousse;
+  const soldes = releve?.soldes ?? null;
+
+  // Aucun service d'IA au coffre : la section ne prend aucune place.
+  if (soldes && !soldes.length) return null;
+
+  return (
+    <section className="mt-2 pt-1" data-services-ia>
+      <p className="mb-1 px-1.5 text-[12px] uppercase tracking-wide text-faint">{t('Services d’IA')}</p>
+      {!soldes ? (
+        panne ? (
+          <p className="px-1.5 text-[12px] text-faint">{t('Soldes des services indisponibles pour le moment.')}</p>
+        ) : (
+          <div className="space-y-1.5" aria-busy data-silhouette="services-ia">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-md bg-raised px-2 py-1.5">
+                <Silhouette className="h-3 w-2/5" />
+                <Silhouette className="mt-1.5 h-2.5 w-3/5" />
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="space-y-1.5">
+          {soldes.map((solde) => (
+            <BlocServiceIa key={solde.id} solde={solde} seuils={seuils} onSeuil={onSeuil} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BlocServiceIa({
+  solde,
+  seuils,
+  onSeuil,
+}: {
+  solde: SoldeDeServiceIa;
+  seuils: Record<string, number>;
+  onSeuil: (id: string, valeurUsd: number | null) => void;
+}) {
+  const part = partConsommeeIa(solde);
+  const niveau = niveauDuSolde(solde, seuils);
+  const seuilUsd = seuilDuServiceUsd(solde.id, seuils);
+  const enAlerte = niveau === 'bas' || niveau === 'vide';
+  return (
+    <div
+      data-service-ia={solde.id}
+      data-etat={solde.etat}
+      data-niveau={niveau ?? undefined}
+      className="rounded-md border border-border bg-raised px-2 py-1"
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <IconeServiceIa id={solde.id} />
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{solde.nom}</span>
+        {/* L'ÉTAT DIT EN MOTS : la palette est monochrome (`--warning` = texte fort), la couleur seule ne suffirait pas. */}
+        {enAlerte ? (
+          <span data-alerte-niveau={niveau} className="shrink-0 text-[11.5px] font-medium text-warning">
+            {niveau === 'vide' ? t('À sec') : t('Solde bas')}
+          </span>
+        ) : null}
+        <Tooltip label={t('Ouvrir la facturation de {v0} dans un nouvel onglet', { v0: solde.nom })}>
+          <a
+            href={solde.lien}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-lien-service-ia={solde.id}
+            className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] text-faint transition-colors hover:bg-surface hover:text-text"
+          >
+            {t('Ouvrir')}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </Tooltip>
+        {niveau !== null ? <MenuDuSeuil solde={solde} seuilUsd={seuilUsd} personnalise={solde.id in seuils} onSeuil={onSeuil} /> : null}
+      </div>
+      <div className="mt-0.5 pb-0.5">
+        {solde.etat === 'ok' ? (
+          <>
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[12px]">
+              {solde.restant !== undefined ? (
+                <span
+                  className="text-muted"
+                  title={enAlerte ? t('Sous le seuil de {v0}', { v0: montantIa(seuilDansLUnite(solde.unite, seuilUsd), solde.unite) }) : undefined}
+                >
+                  {t('Restant')}{' '}
+                  <span data-restant-service-ia className={cn('tabular-nums', enAlerte ? 'font-medium text-warning' : 'text-text')}>
+                    {montantIa(solde.restant, solde.unite)}
+                  </span>
+                </span>
+              ) : null}
+              {solde.consomme !== undefined ? (
+                <span className="text-faint">
+                  {t('Consommé')} <span className="tabular-nums">{montantIa(solde.consomme, solde.unite)}</span>
+                </span>
+              ) : null}
+              {part !== undefined ? <span className="ml-auto shrink-0 text-muted">{Math.round(part)} %</span> : null}
+            </div>
+            {part !== undefined ? <Gauge value={part} tone="quota" height="h-1" /> : null}
+          </>
+        ) : solde.etat === 'non-communique' ? (
+          <p className="text-[11.5px] text-faint">{t('Solde non communiqué par ce service')}</p>
+        ) : (
+          <p className="text-[11.5px] text-danger">{solde.raison ?? t('Relevé impossible')}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Lit un montant tapé à la française ou à l'anglaise (« 2,5 », « 2.5 », « 2 $ ») ; `null` s'il n'en est pas un. */
+function montantSaisi(texte: string): number | null {
+  const net = texte.replace(/[\s$€]/g, '').replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(net)) return null;
+  const n = Number(net);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
+
+/**
+ * LE MENU À TROIS POINTS D'UN BLOC : le seuil d'alerte du service, en dollars. Le champ vit DANS un menu Radix
+ * (compétence champ-de-saisie-dans-un-menu-radix) : il arrête la propagation des touches — sauf Échap, les
+ * flèches et Tab — pour que la recherche par frappe du menu (et celle du volet autour) ne vole pas les lettres.
+ */
+function MenuDuSeuil({
+  solde,
+  seuilUsd,
+  personnalise,
+  onSeuil,
+}: {
+  solde: SoldeDeServiceIa;
+  seuilUsd: number;
+  personnalise: boolean;
+  onSeuil: (id: string, valeurUsd: number | null) => void;
+}) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const idDuLibelle = React.useId();
+  const [texte, setTexte] = React.useState('');
+  const [invalide, setInvalide] = React.useState(false);
+  const enDollars = (v: number) => montantCursorEnClair(Math.round(v * 100), formatRegional());
+  React.useEffect(() => {
+    if (!ouvert) return;
+    setTexte(new Intl.NumberFormat(formatRegional(), { maximumFractionDigits: 2 }).format(seuilUsd));
+    setInvalide(false);
+  }, [ouvert, seuilUsd]);
+  const saisi = montantSaisi(texte);
+  const valider = () => {
+    if (saisi === null) {
+      setInvalide(true);
+      return false;
+    }
+    if (saisi !== seuilUsd) onSeuil(solde.id, saisi === SEUIL_PAR_DEFAUT_USD ? null : saisi);
+    return true;
+  };
+  return (
+    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title={t('Alerte de {v0}', { v0: solde.nom })}
+          data-menu-seuil-service-ia={solde.id}
+          className="grid h-5 w-5 shrink-0 place-items-center rounded text-faint transition-colors hover:bg-surface hover:text-text"
+        >
+          <EllipsisVertical className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="sm:w-[230px]" titre={t('Alerte de {v0}', { v0: solde.nom })}>
+        <DropdownMenuLabel id={idDuLibelle}>{t('Prévenir sous (en dollars)')}</DropdownMenuLabel>
+        <div className="px-2.5 pb-1.5">
+          <Input
+            value={texte}
+            inputMode="decimal"
+            autoFocus
+            aria-labelledby={idDuLibelle}
+            aria-invalid={invalide || undefined}
+            data-champ-seuil-service-ia={solde.id}
+            className="h-8 text-[16px] tabular-nums sm:text-[13px]"
+            onChange={(e) => {
+              setTexte(e.target.value);
+              setInvalide(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Tab') return;
+              e.stopPropagation();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (valider()) setOuvert(false);
+              }
+            }}
+          />
+          {invalide || (solde.unite === 'credits' && saisi !== null) ? (
+            <p data-aide-seuil className={cn('mt-1 text-[11.5px]', invalide ? 'text-danger' : 'text-faint')}>
+              {invalide || saisi === null ? t('Montant invalide') : t('soit {v0}', { v0: montantIa(seuilDansLUnite('credits', saisi), 'credits') })}
+            </p>
+          ) : null}
+        </div>
+        <DropdownMenuItem
+          data-enregistrer-seuil-service-ia={solde.id}
+          onSelect={(e) => {
+            if (!valider()) e.preventDefault();
+          }}
+        >
+          <Check className="h-3.5 w-3.5" />
+          {t('Enregistrer')}
+        </DropdownMenuItem>
+        {personnalise ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem data-seuil-par-defaut-service-ia={solde.id} onSelect={() => onSeuil(solde.id, null)}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t('Revenir à {v0}', { v0: enDollars(SEUIL_PAR_DEFAUT_USD) })}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function JournalDesAmorces({ ouvertMenu, onReglages }: { ouvertMenu: boolean; onReglages: () => void }) {
   const [ouvert, setOuvert] = React.useState(false);
   const [entrees, setEntrees] = React.useState<
@@ -1128,16 +1541,20 @@ function Window({
 
   return (
     <div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[12px] text-faint">{label}</span>
-        <span className="ml-auto text-[12px] text-muted">{Math.round(pct)} %</span>
+      {/* LE TEMPS RESTANT REJOINT LA LIGNE DU LIBELLÉ (carte du 05/11/2026 : « que ça occupe moins de place ») : une
+          ligne de moins par fenêtre, rien de retiré ; l'heure exacte reste en infobulle. */}
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        <span className="shrink-0 text-[12px] text-faint">{label}</span>
+        {restant ? (
+          <Tooltip label={exact ?? ''}>
+            <span className="min-w-0 truncate text-[11px] text-faint" data-temps-restant>
+              · {restant}
+            </span>
+          </Tooltip>
+        ) : null}
+        <span className="ml-auto shrink-0 text-[12px] text-muted">{Math.round(pct)} %</span>
       </div>
       <Gauge value={pct} tone="quota" height="h-1" />
-      {restant ? (
-        <Tooltip label={exact ?? ''}>
-          <p className="mt-0.5 w-fit text-[11px] text-faint">{restant}</p>
-        </Tooltip>
-      ) : null}
       {prevision ? (
         // Orange quand le quota tombe nettement avant la fin de la semaine,
         // discret quand il tient presque jusqu'au bout. L'heure exacte et le

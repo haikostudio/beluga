@@ -3,6 +3,11 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   SERVEUR_MCP_REA,
+  AttenteDepassee,
+  decisionsCaduquesAuRedemarrage,
+  PLAFONDS_DU_LANCEMENT,
+  attendreAuPlus,
+  dureeEnMots,
   COMPETENCES_ECARTEES_D_UNE_CREATION,
   VARIABLE_DE_CREATION_DE_MEDIA,
   Agent,
@@ -22,6 +27,7 @@ import {
   CONSIGNE_NIVEAU_AGENT,
   CONSIGNE_DES_ATTENTES,
   CONSIGNE_DE_LA_VEILLE,
+  CONSIGNE_DES_OUTILS_PAYANTS,
   Card,
   RAISON_LANCEMENT_NON_ABOUTI,
   colonneApresLancementManque,
@@ -64,6 +70,7 @@ import {
   causeEnClair,
   causeLaPlusParlante,
   demandeDeRepriseApresPanne,
+  etapeDeLaMemoire,
   libelleDeLEtape,
   libelleDeLaReprise,
   messageDePanneDefinitive,
@@ -110,8 +117,13 @@ import {
   CONSIGNE_ASSISTANT_SURVEILLANCE,
   consigneDePerimetre,
   CONSIGNE_AGENT_MARKETING,
+  consigneDuChef,
+  cleDuRoleDuChef,
+  lireRoleDuChef,
+  SERVICE_DU_DIRECTEUR,
   CONSIGNE_DE_VULGARISATION,
   CONSIGNE_DES_DATES,
+  CONSIGNE_DE_CONSEILLER,
   CONSIGNE_ASSISTANT_GLOBAL,
   RAPPEL_DE_VULGARISATION,
   consigneDeLangue,
@@ -147,6 +159,8 @@ import {
   questionEnTexteLibre,
   NIVEAU_PAR_DEFAUT,
   brancheDeLaCarte,
+  blocDuTravailDejaFait,
+  cheminEcritParUnOutil,
   observerContexte,
   plafondDeContexte,
   raisonDeRepli,
@@ -196,14 +210,21 @@ import {
   carteEnPublication,
   lancementAutomatique,
   messageOuvreUneNouvelleCarte,
+  demandesARemettreAuCadrage,
+  demandesArriveesPendantLeRangement,
   migrationDeReglage,
   TEXTE_CARTE_EN_PUBLICATION,
   TEXTE_ACCORD_NOUVELLE_CARTE,
+  retenueParUneEdition,
+  demandeCoupeeAvantLeMoteur,
+  textesRendusParLaFile,
+  RAISON_FILE_EN_ATTENTE,
 } from '@beluga/shared';
 import type { DecisionDArret } from '@beluga/shared';
 import { cheminDePieceJointe, dossiersDeDonneesOuverts } from './pieces-jointes.js';
 import { consigneDuCadrageReuni } from './regroupements.js';
 import * as store from './store.js';
+import { getMeta } from './db.js';
 import { langueDesAgents } from './langue-configuree.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
@@ -211,15 +232,23 @@ import { adapterFor, cachedEngines, contextWindowFor, EngineAdapter, EngineEvent
 import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { estAgentMarketing } from './marketing.js';
+import { jalonAvantLeTour } from './studio.js';
 import { listerSites } from './surveillance.js';
 import { productionsPourLAgent, productionsProtegees } from './productions-protegees.js';
 import { estAgentAttitre } from './agent-attitre.js';
-import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
+import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte, toursDExecution } from './journal-carte.js';
 import { repererLesCaptures } from './captures-auto.js';
+import { attendreLesLectures, conserverLesFichiersCites, conserverUnFichier } from './fichiers-conserves.js';
 import { getInternalToken } from './auth.js';
-import { briefingSepare, competencesPertinentes } from './memory.js';
+import { briefingSepare, competencesPertinentes, competencesProchesDuTravail } from './memory.js';
 import { garderLesPertinents, indiquerLaNatureDeLaDemande } from './jugement-rapide.js';
 import { briefingDesCompetencesValidees } from './proposition-competences.js';
+import { effacerLesDechiffrementsDeLAgent } from './lot-competences-clients.js';
+import { machineHebergee } from './offre-hebergee.js';
+import { CONSIGNE_DES_FICHES_PROTEGEES } from '@beluga/shared';
+import { argumentDeLaCommande, commandeDeBelugaDuMessage, consigneDeLaCommandeDeBeluga, resoudreLOrdinateur } from '@beluga/shared';
+import { relevesDesCommandes } from './commandes-slash.js';
+import { blocDesChartesDuTour, capturesDuTravail, porteDeFinDeTour } from './chartes.js';
 import { accueilDesConnaissances, compterUnites, oublierLesLectures, pistesDesConnaissances, pistesParLesMots, texteDesPistes } from './connaissances.js';
 import { allDone, mergeTodos } from './todos.js';
 import { callTool, cadrageAllowList, cadrageDenyList, toolsFor, writeMcpConfig } from './tools.js';
@@ -263,7 +292,7 @@ import {
   type CopieAnnexe,
 } from './copies-des-depots.js';
 import { sortieGit } from './git.js';
-import { consigneDeCreationDeLaCarte } from './mode-creation.js';
+import { proposerLeControleEnFinDeTour } from './proposition-securite.js';
 import { consigneDeRealisationDeLaCarte } from './realisation.js';
 import { noterLaDemandeDeRealisation } from './realisation-questionnaire.js';
 import { fermerLesBlocsDeLAgent } from './medias-en-fabrication.js';
@@ -271,6 +300,8 @@ import { lancerAvecRelances } from './relance-moteur.js';
 
 export interface LiveRun {
   agentId: string;
+  /** Le contexte envoyé du message de ce tour, gardé décodé d'un pas à l'autre (`store.patcherMessage`). */
+  contexteGarde?: store.ContexteGarde;
   /**
    * L'identifiant de CE tour. Le pont d'outils le recopie depuis sa
    * configuration et le renvoie à chaque appel : c'est la preuve que l'appel
@@ -441,6 +472,19 @@ export function runningAgentIds(): string[] {
 }
 
 /**
+ * LES INSTANTS DES DÉPARTS RÉCENTS : chaque tour vivant (son départ) et chaque
+ * tour en préparation (le début de sa préparation). La porte de capacité s'en
+ * sert pour étaler les départs et garder la place des agents qui n'ont pas
+ * encore atteint leur taille (`porteDesDeparts`, `reserveDesDepartsRecents`).
+ */
+export function instantsDesDepartsRecents(): number[] {
+  const instants: number[] = [];
+  for (const run of live.values()) instants.push(run.startedAt);
+  for (const prepa of demarrant.values()) instants.push(prepa.depuis);
+  return instants;
+}
+
+/**
  * Les agents dont le tour est PARTI mais dont le processus n'est pas encore né.
  *
  * Entre le moment où l'on décide de lancer une carte et celui où le moteur
@@ -475,6 +519,14 @@ const demarrant = new Map<
      * trace ne dise OÙ : la veille dit désormais l'étape dans son journal.
      */
     etape?: string;
+    /**
+     * LA BULLE HUMAINE QUE CE TOUR PORTE, quand il en porte une (écrite à
+     * l'entrée de la préparation, ou reprise de la file / d'un « Relancer »).
+     * C'est elle que le filet propose de renvoyer, et elle qu'un redémarrage
+     * forcé remet en tête de file — sans elle, un second échec de suite ne
+     * savait plus quelle phrase rejouer.
+     */
+    demandeId?: string;
   }
 >();
 
@@ -493,6 +545,50 @@ function etapeDePreparation(agentId: string, jeton: number, etape: string): void
   if (entree && entree.jeton === jeton) entree.etape = etape;
 }
 
+/**
+ * UNE ÉTAPE DU DÉPART, NOMMÉE ET BORNÉE (15/11/2026, `shared/src/plafond.ts`).
+ *
+ * L'étiquette « démarrage du moteur » couvrait une dizaine d'attentes, sans
+ * plafond : trois nuits de suite, une seule d'entre elles a pendu TOUS les
+ * départs jusqu'au redémarrage forcé, et le filet de cinq minutes ne savait
+ * dire que « bloquée avant le moteur ». Chaque attente porte désormais son nom
+ * (la veille le relève) et son délai. Avec un `repli`, le tour continue sans
+ * elle — un repère manquant, un guide vide — en le disant au journal ; sans
+ * repli, l'étape est indispensable et l'erreur nomme ce qui a manqué.
+ */
+async function etapeBornee<T>(
+  agentId: string,
+  jeton: number,
+  etape: string,
+  plafondMs: number,
+  travail: Promise<T>,
+  repli?: () => T,
+): Promise<T> {
+  etapeDePreparation(agentId, jeton, etape);
+  return attendreAuPlus(travail, plafondMs, etape, {
+    ...(repli ? { repli } : {}),
+    auPlafond: () =>
+      log.warn(
+        `préparation de l'agent ${agentId} : l'étape « ${etape} » n'a pas répondu en ${dureeEnMots(plafondMs)}` +
+          (repli ? ' — le tour continue sans elle' : ' — le tour s’arrête'),
+      ),
+  });
+}
+
+/**
+ * Une étape INDISPENSABLE restée sans réponse arrête le tour en le DISANT dans
+ * le fil, avec la décision « Relancer / Ignorer / Arrêter » — comme une copie
+ * de travail qui ne se rouvre pas. Les autres erreurs passent telles quelles.
+ */
+async function etapeIndispensable<T>(agentId: string, etape: () => Promise<T>): Promise<T> {
+  try {
+    return await etape();
+  } catch (err) {
+    if (err instanceof AttenteDepassee) direLeBlocage(agentId, err.message);
+    throw err;
+  }
+}
+
 /** Un numéro de préparation qui ne se répète jamais dans la vie du démon. */
 let prochainePreparation = 1;
 
@@ -503,10 +599,28 @@ let prochainePreparation = 1;
  * seul compte des processus déjà nés.
  */
 export function agentsActifs(): string[] {
-  // `live` d'abord (le moteur écrit), puis ceux qui démarrent : un même agent
-  // peut être dans les deux, on ne le compte qu'une fois.
-  return [...new Set([...live.keys(), ...demarrant.keys()])];
+  // `live` d'abord (le moteur écrit), puis ceux qui démarrent, puis ceux dont
+  // la demande vient de quitter la file : un même agent peut être dans
+  // plusieurs, on ne le compte qu'une fois.
+  return [...new Set([...live.keys(), ...demarrant.keys(), ...enchainementEnVol])];
 }
+
+/**
+ * LES DEMANDES QUI ONT QUITTÉ LA FILE SANS AVOIR ENCORE DE TOUR (04/11/2026).
+ *
+ * `enchainerLaFile` efface la demande de la file PUIS attend 400 ms avant de
+ * l'envoyer. Pendant ce battement, l'agent n'était ni dans `live` ni dans
+ * `demarrant` : `agentsActifs()` disait zéro, et le redémarrage retenu par une
+ * publication — rejoué par la même fin de tour — partait à cet instant précis.
+ * Le message, déjà sorti de la base, mourait avec le processus : constaté sur
+ * un cadrage Aerofish, l'utilisateur a dû le recopier à la main.
+ *
+ * L'agent est donc compté ici du dépilage jusqu'à ce que `sendPrompt` ait pris
+ * le relais (il pose `demarrant` sans attendre) ou ait refusé. Un ensemble À
+ * PART, et non `demarrant` : la file et `sendPrompt` sortent tous deux sur
+ * `demarrant.has`, un verrou commun empêcherait la demande de partir.
+ */
+const enchainementEnVol = new Set<string>();
 
 /**
  * Ce que fait chaque agent actif, en une phrase courte — pour que « un agent
@@ -660,9 +774,9 @@ export function jugerLAppelSousListe(
  * rien. Le texte entier du tour, lui, ne bouge pas : c'est ce qui s'affiche en
  * direct.
  */
-function verserLaNoteAvantLAction(agentId: string, run: LiveRun): void {
+function verserLaNoteAvantLAction(agentId: string, run: LiveRun): string | undefined {
   const note = noteAvantLAction(run.morceauxDuTexte[run.morceauxDuTexte.length - 1] ?? '');
-  if (!note) return;
+  if (!note) return undefined;
   const rang = run.morceauxDuTexte.length - 1;
   run.morceauxDuTexte.push('');
   journaliserDansLeTour(agentId, {
@@ -671,6 +785,8 @@ function verserLaNoteAvantLAction(agentId: string, run: LiveRun): void {
     libelle: JALON_NOTE_DE_L_AGENT,
     resultat: note,
   });
+  /* Rendue aussi à l'appelant : l'étape qui suit la porte (`RunStep.noteAvant`) pour les agents SANS carte. */
+  return note;
 }
 
 /** Ce qu'un appelant peut demander d'écrire : la carte et la phase sont déduites. */
@@ -747,6 +863,8 @@ function marquerLeTourVivant(agentId: string, depuis: number): void {
 /** Le tour est refermé : le témoin s'éteint, quel que soit le chemin pris. */
 function retirerLeTourVivant(agentId: string): void {
   live.delete(agentId);
+  /* Une compétence protégée ouverte pour ce tour ne lui survit pas (arrêt, panne, suspension compris). */
+  effacerLesDechiffrementsDeLAgent(agentId);
   /* Un bloc de média annoncé par l'agent et jamais fermé ne reste pas « en cours » pour toujours. */
   fermerLesBlocsDeLAgent(agentId);
   const frais = store.getAgent(agentId);
@@ -1194,10 +1312,12 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
      * message », et l'ordonnanceur la tiendrait à l'écart au tour suivant.
      */
     const pauseALever = carteEnPause(carte.scheduling);
+    /* LA CARTE RETENUE PAR UN MESSAGE EN ATTENTE : ce tour EST ce message, la phrase tombe. */
+    const fileALever = carte.scheduling?.waitingReason === RAISON_FILE_EN_ATTENTE;
     // Rien à déplacer, rien à effacer : on ne touche pas au reste de la carte —
     // une carte rangée dans une fin de parcours n'a pas à voir sa date de
     // clôture ni sa suspension effacées par un simple tour de suite.
-    if (!phraseAEffacer && !marqueAPoser && !pauseALever) return;
+    if (!phraseAEffacer && !marqueAPoser && !pauseALever && !fileALever) return;
     const marquee = store.saveCard({
       ...carte,
       ...(phraseAEffacer ? { sansModification: undefined } : {}),
@@ -1205,6 +1325,7 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
         ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
         ...(marqueAPoser ? { tourEnVolDepuis: Date.now() } : {}),
         ...(pauseALever ? { suspendu: false, enPause: undefined, waitingReason: undefined } : {}),
+        ...(fileALever ? { waitingReason: undefined } : {}),
       },
     });
     bus.emit({ type: 'card.upsert', card: marquee });
@@ -1271,29 +1392,103 @@ export function reprendreLaFile(agentId: string): void {
 }
 
 function enchainerLaFile(agentId: string): void {
-  if (live.has(agentId) || demarrant.has(agentId)) return;
+  // Une demande déjà dépilée attend son envoi : en dépiler une seconde la
+  // ferait se remettre en file derrière les autres, hors de son rang.
+  if (live.has(agentId) || demarrant.has(agentId) || enchainementEnVol.has(agentId)) return;
   purgerLesReprisesMortes(agentId);
+  rendreAuChampCeQuiSeraitRefuse(agentId);
   const next = store.dequeuePrompt(agentId);
   bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
   if (!next) return;
+  /* COMPTÉE AU TRAVAIL DÈS LE DÉPILAGE : un redémarrage retenu ne part plus
+     dans les 400 ms où la demande n'est plus en base et pas encore partie. */
+  enchainementEnVol.add(agentId);
   const onComplete = posterTraitementEnAttente.get(next.id);
   posterTraitementEnAttente.delete(next.id);
   setTimeout(() => {
-    /* Une demande déjà écrite (retombée en file faute de quota) repart avec sa
-       bulle : le tour la reprend, il n'en crée pas une seconde. Et elle repart
-       telle qu'elle est ARRIVÉE : silencieuse si elle l'était, sur le compte
-       qui lui avait été imposé — sans quoi une reprise après épuisement
-       repartirait sur le compte que la limite vient de fermer. */
-    sendPrompt(agentId, next.text, {
-      attachments: next.attachments,
-      messageDejaEcrit: next.messageId,
-      silent: next.silencieuse || undefined,
-      compteImpose: next.compteImpose,
-      poursuite: next.poursuite || undefined,
-      repriseDe: next.repriseDe,
-      onComplete,
-    }).catch((err) => log.error('enchaînement de file impossible', err));
+    try {
+      envoyerLaDemandeDepilee(agentId, next, onComplete);
+    } finally {
+      enchainementEnVol.delete(agentId);
+      /* Refusée, introuvable ou partie en panne, la demande n'a ouvert aucun
+         tour : rien d'autre ne rejouera alors un redémarrage retenu. Parti, le
+         tour le rejouera lui-même à sa fin. */
+      if (!live.has(agentId) && !demarrant.has(agentId)) {
+        void import('./demon.js').then((demon) => demon.appliquerRedemarrageEnAttente());
+      }
+    }
   }, 400);
+}
+
+/** L'envoi d'une demande sortie de la file — la partie synchrone de `sendPrompt` pose `demarrant`. */
+function envoyerLaDemandeDepilee(
+  agentId: string,
+  next: NonNullable<ReturnType<typeof store.dequeuePrompt>>,
+  onComplete: PromptOptions['onComplete'],
+): void {
+  /* Une demande déjà écrite (retombée en file faute de quota) repart avec sa
+     bulle : le tour la reprend, il n'en crée pas une seconde. Et elle repart
+     telle qu'elle est ARRIVÉE : silencieuse si elle l'était, sur le compte
+     qui lui avait été imposé — sans quoi une reprise après épuisement
+     repartirait sur le compte que la limite vient de fermer. */
+  sendPrompt(agentId, next.text, {
+    attachments: next.attachments,
+    messageDejaEcrit: next.messageId,
+    silent: next.silencieuse || undefined,
+    compteImpose: next.compteImpose,
+    poursuite: next.poursuite || undefined,
+    repriseDe: next.repriseDe,
+    onComplete,
+  }).catch((err) => log.error('enchaînement de file impossible', err));
+}
+
+/**
+ * UN MESSAGE EN FILE N'EST JAMAIS JETÉ EN SILENCE (04/11/2026).
+ *
+ * La file dépilait la demande (DELETE) PUIS l'envoyait : quand `sendPrompt` la
+ * refusait ensuite — carte en publication, carte déjà en ligne —, elle avait
+ * déjà quitté la base et disparaissait sans retour. C'est ainsi qu'un long
+ * message, refermé après la mise en ligne de sa carte, a été perdu. Le refus se
+ * juge donc AVANT de dépiler : un message humain qui serait refusé sort de la
+ * file et revient au champ d'écriture de son agent, avec la raison (le modèle
+ * de « Suspendre », DEC-372). Une demande interne (silencieuse) passe : le
+ * refus ne la vise pas. Une demande retenue par une modification ne bouge pas.
+ */
+function rendreAuChampCeQuiSeraitRefuse(agentId: string): void {
+  const agent = store.getAgent(agentId);
+  if (!agent) return;
+  const rendus: string[] = [];
+  let raison: string | null = null;
+  for (const demande of store.listQueue(agentId)) {
+    if (retenueParUneEdition(demande) || demande.silencieuse) break;
+    const refus = refusDUnEnvoiHumain(agent);
+    if (!refus) break;
+    raison = refus;
+    store.removeQueued(demande.id);
+    posterTraitementEnAttente.delete(demande.id);
+    rendus.push(...textesRendusParLaFile([demande]));
+  }
+  if (!raison) return;
+  log.warn(`agent ${agentId} : ${rendus.length} message(s) en file refusé(s) et rendu(s) au champ — ${raison}`);
+  bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
+  bus.emit({ type: 'queue.rendue', agentId, textes: rendus, raison });
+}
+
+/**
+ * CE QUI REFUSE UN MESSAGE HUMAIN, jugé au même endroit pour la file et pour
+ * `sendPrompt` : la carte se publie en ce moment, ou elle est déjà en ligne
+ * (un message n'y ouvre une nouvelle carte que sur accord, MEM-0354). Rend la
+ * phrase à dire, ou `null` si le message peut partir.
+ */
+function refusDUnEnvoiHumain(agent: Agent): string | null {
+  if (agent.role !== 'deploy' && carteEnPublication(store.latestDeploy(agent.projectId), agent.cardId)) {
+    return TEXTE_CARTE_EN_PUBLICATION;
+  }
+  if (agent.cardId) {
+    const carte = store.getCard(agent.cardId);
+    if (carte && messageOuvreUneNouvelleCarte(carte) && !estAgentAttitre(agent.id)) return TEXTE_ACCORD_NOUVELLE_CARTE;
+  }
+  return null;
 }
 
 /**
@@ -1340,6 +1535,7 @@ function purgerLesReprisesMortes(agentId: string): number {
  * son propre tour dépilera à sa fin.
  */
 export async function reprendreLesFilesEnAttente(): Promise<void> {
+  const { canStartAgent } = await import('./capacity.js');
   for (const agent of store.agentsAvecFileEnAttente()) {
     if (live.has(agent.id) || demarrant.has(agent.id)) continue;
     if (!store.listQueue(agent.id).length) continue;
@@ -1347,9 +1543,18 @@ export async function reprendreLesFilesEnAttente(): Promise<void> {
     // qu'on cherche un compte pour elle — y compris au premier passage après
     // un redémarrage du démon.
     purgerLesReprisesMortes(agent.id);
-    if (!store.listQueue(agent.id).length) continue;
+    const tete = store.listQueue(agent.id)[0];
+    if (!tete) continue;
+    /* UNE TÊTE OUVERTE EN MODIFICATION N'ATTEND AUCUN QUOTA : elle attend son
+       auteur. Sans ce refus, le filet journalisait « file reprise » toutes les
+       quinze secondes pour rien (40 fois de suite le 04/11/2026). */
+    if (retenueParUneEdition(tete)) continue;
     const compte = await pickAccount(agent.run.engine).catch(() => null);
     if (!compte) continue;
+    /* Le quota revenu ne relance pas toutes les files d'un coup : la même porte
+       que les lancements de cartes (mémoire, étalement) les retient. Ce filet
+       repasse toutes les quinze secondes, la demande reste en file. */
+    if (!canStartAgent().ok) break;
     log.info(`file reprise : une demande attendait un quota (agent ${agent.id})`);
     enchainerLaFile(agent.id);
   }
@@ -1378,6 +1583,15 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * consigne système ne change pas dans une même session (`server/src/marketing.ts`).
    */
   if (!options.motif && estAgentMarketing(agentId)) options = { ...options, motif: 'configuration-marketing' };
+  /* LE DIRECTEUR MARKETING GARDE SA CONSIGNE (`shared/src/directeur-marketing.ts`), lui aussi d'un tour à l'autre. */
+  /* …ET CHAQUE CHEF LA SIENNE (03/11/2026) : le rôle d'un chef de marque ou de projet est rangé par le démon. */
+  if (!options.motif && agent.service?.id === SERVICE_DU_DIRECTEUR) {
+    const role = lireRoleDuChef(getMeta(cleDuRoleDuChef(agent.id)));
+    options = {
+      ...options,
+      motif: role?.niveau === 'marque' ? 'chef-de-marque' : role?.niveau === 'projet' ? 'chef-de-projet' : role?.niveau === 'campagne' ? 'chef-de-campagne' : 'directeur-marketing',
+    };
+  }
   /*
    * ET L'AGENT D'UN SITE SURVEILLÉ GARDE LA SIENNE : une phrase tapée plus tard
    * dans le volet du site n'a pas de motif, et l'agent recevait alors la
@@ -1393,11 +1607,8 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * relancerait l'agent sur la branche qu'on est en train de pousser. Les
    * demandes silencieuses du démon et le conducteur de publication passent.
    */
-  if (
-    !options.silent &&
-    agent.role !== 'deploy' &&
-    carteEnPublication(store.latestDeploy(agent.projectId), agent.cardId)
-  ) {
+  const refus = options.silent ? null : refusDUnEnvoiHumain(agent);
+  if (refus === TEXTE_CARTE_EN_PUBLICATION) {
     bus.toast('warning', TEXTE_CARTE_EN_PUBLICATION);
     return;
   }
@@ -1413,13 +1624,10 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * Un agent DE VOLET (Studio, Marketing, surveillance, sauvegardes) ne livre
    * aucun code : sa carte rangée avec un lot publié ne le rend pas muet.
    */
-  if (!options.silent && agent.cardId) {
-    const carte = store.getCard(agent.cardId);
-    if (carte && messageOuvreUneNouvelleCarte(carte) && !estAgentAttitre(agentId)) {
-      log.warn(`agent ${agentId} : message refusé sous la carte déjà en ligne « ${carte.title} » — aucune carte créée sans accord`);
-      bus.toast('warning', TEXTE_ACCORD_NOUVELLE_CARTE);
-      return;
-    }
+  if (refus === TEXTE_ACCORD_NOUVELLE_CARTE) {
+    log.warn(`agent ${agentId} : message refusé sous la carte déjà en ligne — aucune carte créée sans accord`);
+    bus.toast('warning', TEXTE_ACCORD_NOUVELLE_CARTE);
+    return;
   }
 
   /*
@@ -1480,7 +1688,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    */
   setStatus(agent, 'starting', { startedAt: Date.now(), endedAt: undefined });
   const preparation = prochainePreparation++;
-  demarrant.set(agentId, { depuis: Date.now(), jeton: preparation, lancement: options.lancementDeCarte, etape: 'début' });
+  demarrant.set(agentId, {
+    depuis: Date.now(),
+    jeton: preparation,
+    lancement: options.lancementDeCarte,
+    etape: 'début',
+    ...(options.messageDejaEcrit ? { demandeId: options.messageDejaEcrit } : {}),
+  });
   let attendUnQuota = false;
   try {
     attendUnQuota = await preparerLeTour(agent, text, options, preparation);
@@ -1581,6 +1795,8 @@ async function preparerLeTour(
       }),
     );
     userMessageId = userMessage.id;
+    const enPreparation = demarrant.get(agent.id);
+    if (enPreparation && enPreparation.jeton === preparation) enPreparation.demandeId = userMessage.id;
     bus.emit({ type: 'message.upsert', message: userMessage });
     journaliserLaDemande(agent, userMessage);
     options.apresLaDemande?.();
@@ -1808,6 +2024,13 @@ async function preparerLeTour(
     // tiroir « Contexte envoyé » de distinguer mémoire et reste du briefing.
     const travailDeLaCarte = card ? `${card.title}\n${card.description}` : '';
     etapeDePreparation(agent.id, preparation, 'compétences pertinentes');
+    const ecarteesDeLaCarte = card?.parcours?.realisationSouhaitee ? COMPETENCES_ECARTEES_D_UNE_CREATION : undefined;
+    // UNE CARTE reçoit les fiches les plus proches de son travail PAR LE SENS, maison et
+    // bibliothèques mêlées (carte dd481232) ; sans mesure, la liste par thème d'avant.
+    const competencesProches =
+      card && partsDAccueil(niveau).competences
+        ? await competencesProchesDuTravail(travailDeLaCarte, { projet: project.name, projectId: project.id, ecartees: ecarteesDeLaCarte })
+        : undefined;
     const { sansMemoire, socle } = briefingSepare(
       project.path,
       project.name,
@@ -1818,12 +2041,13 @@ async function preparerLeTour(
       // Le POOL DE COMPÉTENCES est servi au poids du travail de la carte : les
       // fiches qui en parlent sont nommées, les autres comptées.
       travailDeLaCarte,
-      // …et d'abord selon le juge rapide, quand il est éveillé et allumé.
-      card && partsDAccueil(niveau).competences
+      // …et d'abord selon le juge rapide, quand il est éveillé et allumé (seulement sans fiches proches).
+      card && partsDAccueil(niveau).competences && !competencesProches
         ? await competencesPertinentes(travailDeLaCarte, { cardId: card.id, projectId: project.id, projet: project.name })
         : undefined,
       // Une carte de création fabrique par kie.ai seulement : la fabrique d'images par Codex ne lui est jamais servie.
-      card?.parcours?.realisationSouhaitee ? COMPETENCES_ECARTEES_D_UNE_CREATION : undefined,
+      ecarteesDeLaCarte,
+      competencesProches,
     );
     contextParts.push({
       label: niveau === 'minimal' ? 'Briefing réduit (dépannage)' : 'Briefing du projet',
@@ -1850,7 +2074,7 @@ async function preparerLeTour(
      * son texte complet — pour l'agent qui EXÉCUTE, jamais pour un cadrage.
      */
     if (card && agent.role === 'task') {
-      const validees = briefingDesCompetencesValidees(card);
+      const validees = briefingDesCompetencesValidees(card, agent.id);
       if (validees) {
         contextParts.push({
           label: 'Compétences validées au cadrage',
@@ -1895,6 +2119,32 @@ async function preparerLeTour(
       if (pistes) {
         contextParts.push({ label: 'Pistes de la base de connaissances', kind: 'memory', origine: 'projet', content: pistes });
         memoryAndInstructionsCharacters += pistes.length;
+      }
+      /*
+       * LA CHARTE D'INTERFACE PART D'OFFICE (05/11/2026). Les règles d'écran
+       * existaient, noyées parmi 3 600 unités P1 : l'agent qui codait ne les
+       * lisait jamais, et livrait des listes natives. Tout tour d'une carte —
+       * cadrage, exécution, reprise — dont le travail touche le domaine d'une
+       * charte (`docs/chartes/*.md`, fichiers prévus ou touchés, mots de la
+       * demande) la reçoit ENTIÈRE, HORS du budget P0/P1 de l'accueil, sous son
+       * propre plafond, une fois par session (`server/src/chartes.ts`).
+       */
+      etapeDePreparation(agent.id, preparation, 'charte d’interface');
+      const chartes = await blocDesChartesDuTour({
+        project,
+        card,
+        agentId: agent.id,
+        dossier: agent.workdir ?? project.path,
+        nouvelleSession,
+        cadrage: agent.role === 'cadrage',
+        etape: etapeDeLaMemoire({ roleAgent: agent.role, colonne: card.column, parcours: card.parcours, accueil: true }),
+      }).catch((err) => {
+        log.warn(`charte d'interface non servie : ${(err as Error).message}`);
+        return '';
+      });
+      if (chartes) {
+        contextParts.push({ label: 'Charte d’interface du projet', kind: 'memory', origine: 'projet', content: chartes });
+        memoryAndInstructionsCharacters += chartes.length;
       }
     }
   }
@@ -2040,20 +2290,13 @@ async function preparerLeTour(
       /* LE PREMIER MESSAGE PARTI EN MODE RÉALISATION ouvre le volet : allumer
          le bouton, lui, n'a rien changé à l'écran. */
       if (consigneRealisation && agent.role === 'cadrage') noterLaDemandeDeRealisation(card.id);
+      /* AVANT CHAQUE TOUR DE L'AGENT, UNE VERSION NOMMÉE : ce qu'il va modifier reste retrouvable d'un clic au Studio. */
+      jalonAvantLeTour(card.id);
     } catch (err) {
       log.warn('consigne du mode Réalisation indisponible', String((err as Error)?.message ?? err));
     }
   }
-  if (card?.parcours?.creationSouhaitee) {
-    etapeDePreparation(agent.id, preparation, 'consigne de création');
-    const consigneCreation = await consigneDeCreationDeLaCarte(card).catch((err) => {
-      log.warn('consigne du mode Création indisponible', String((err as Error)?.message ?? err));
-      return '';
-    });
-    if (consigneCreation) {
-      contextParts.push({ label: 'Mode Création', kind: 'extra', origine: 'plateforme', content: consigneCreation });
-    }
-  }
+  /* LE MODE « CRÉATION » EST RETIRÉ (12/11/2026) : une carte ancienne qui le porte suit le chemin ordinaire. */
   if (card) {
     const bloc = carteContexte(agent.id, card, nouvelleSession, agent.role === 'cadrage');
     if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', origine: 'projet', content: bloc });
@@ -2093,9 +2336,10 @@ async function preparerLeTour(
         origine: 'projet',
         content:
           'DERNIÈRE COMPRÉHENSION RENDUE SUR CETTE CARTE — elle reste valable tant que la discussion ne change pas ' +
-          'le travail. Si ce tour la met à jour, son « texte » est le MESSAGE de ce tour et ne ' +
-          'dit que ce qui change ; c\'est la « partieTechnique » qui se reprend EN ENTIER, avec ce que les nouveaux ' +
-          `messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${partieTechniqueEnTexte(precedente.partieTechnique)}${cahierVivantEnTexte(precedente.cahierDesCharges)}${hypotheses}`,
+          'le travail. Si ce tour la met à jour, son « texte » est le MESSAGE de ce tour : la réponse à la question ' +
+          'éventuelle en premier point, puis la compréhension COMPLÈTE reprise EN ENTIER et à jour — jamais un simple ' +
+          '« voici ce qui change » (l\'écran marque lui-même ce qui a changé). La « partieTechnique » se reprend EN ENTIER ' +
+          `elle aussi, avec ce que les nouveaux messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${partieTechniqueEnTexte(precedente.partieTechnique)}${cahierVivantEnTexte(precedente.cahierDesCharges)}${hypotheses}`,
       });
     }
     /*
@@ -2142,7 +2386,27 @@ async function preparerLeTour(
   const contexteAssemble = contextParts.map((part) => part.content).join('\n\n');
   // Le message ENREGISTRÉ garde son tag court ; seul celui qui part au moteur
   // porte l'identifiant de son fichier.
-  const texteEnvoye = jointes.length ? tagsAvecAlias(text, jointes, tagsDuTexte(text)) : text;
+  /* LES COMMANDES « / » DE BELUGA (`shared/src/commandes-de-beluga.ts`) : le moteur ne les connaît pas, il reçoit leur
+     consigne ; la bulle enregistrée garde ce que l'utilisateur a tapé. Une commande de même nom écrite sur le DISQUE
+     (projet ou compte) l'emporte : le texte part alors tel quel. Le disque n'est relu que si le message en porte une.
+     Elles se cumulent n'importe où dans le texte (une consigne combinée) ; un message qui s'ouvre sur une commande du
+     MOTEUR part toujours tel quel, aucune consigne ne la recouvre (`consigneDeLaCommandeDeBeluga`). */
+  const masquees = commandeDeBelugaDuMessage(text)
+    ? (relevesDesCommandes(project.path)[agent.run.engine] ?? []).map((c) => c.nom)
+    : [];
+  /* « /ordinateur:<repère> » (carte « Choisir l'ordinateur visé depuis le téléphone ») : l'ordinateur est retenu pour la
+     carte AVANT le tour, parmi ceux de la personne qui parle seulement ; la consigne dit à l'agent où agir. */
+  const ordinateursDeLaCommande = await ordinateurDeLaCommande(agent.id, agent.cardId ?? null, text);
+  const texteDeLaDemande =
+    consigneDeLaCommandeDeBeluga(text, masquees, {
+      // « /securite » lance le script du DÉPÔT PRINCIPAL de Beluga sur le dossier du projet (jamais une copie de carte).
+      racineBeluga: CONFIG.depotDuDemon,
+      dossier: project.path,
+      nomDuProjet: project.name,
+      ...(project.devUrl ? { adresse: project.devUrl } : {}),
+      ...(ordinateursDeLaCommande ? { ordinateurs: ordinateursDeLaCommande } : {}),
+    }) ?? text;
+  const texteEnvoye = jointes.length ? tagsAvecAlias(texteDeLaDemande, jointes, tagsDuTexte(texteDeLaDemande)) : texteDeLaDemande;
   const prompt = wrapPrompt(template, texteEnvoye, contexteAssemble, {
     // Session déjà ouverte : le gabarit entier est dans le fil, un rappel suffit.
     rappel: !nouvelleSession,
@@ -2243,6 +2507,19 @@ function carteContexte(
    */
   ecritLaCarte = false,
 ): string | null {
+  /* LE TRAVAIL DÉJÀ FAIT SUR LA CARTE, au cadrage qui en parle (Wogo
+     4d0aeccc, 01/11/2026 : un cadrage rouvert a nié un travail livré et en
+     ligne, faute de le savoir). Rien tant que la carte n'a pas travaillé. */
+  const travail = ecritLaCarte
+    ? blocDuTravailDejaFait({
+        executions: toursDExecution(card.id),
+        ...(card.github?.branch && !card.github.brancheSupprimee ? { branche: card.github.branch } : {}),
+        codeDejaEnregistre: card.codeDejaEnregistre,
+        ...(card.doneAt ? { doneAt: card.doneAt } : {}),
+        ...(card.deployedAt ? { deployedAt: card.deployedAt } : {}),
+        ...(card.archivedAt ? { archivedAt: card.archivedAt } : {}),
+      })
+    : null;
   const entier =
     `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.` +
     (ecritLaCarte
@@ -2253,10 +2530,16 @@ function carteContexte(
            avant le moteur ne savait rien de l'échec, et répondait à
            « et le travail ? » qu'il fallait « valider le plan » (InVia,
            27/10/2026). */
-        (card.scheduling?.waitingReason ? `\nÉtat affiché sur la carte : ${card.scheduling.waitingReason}` : '')
+        (card.scheduling?.waitingReason ? `\nÉtat affiché sur la carte : ${card.scheduling.waitingReason}` : '') +
+        (travail ? `\n${travail}` : '')
       : '');
+  /* Le travail fait entre dans l'empreinte : une session REPRISE le reçoit dès
+     qu'il change, sans quoi seule la ligne « passée en colonne » repartirait. */
   const fond = createHash('sha1')
-    .update(`${card.title}\n${card.description ?? ''}\n${ecritLaCarte ? (card.scheduling?.waitingReason ?? '') : ''}`)
+    .update(
+      `${card.title}\n${card.description ?? ''}\n${ecritLaCarte ? (card.scheduling?.waitingReason ?? '') : ''}` +
+        (travail ? `\n${travail}` : ''),
+    )
     .digest('hex')
     .slice(0, 12);
   const empreinte = `${fond}:${card.column}`;
@@ -2414,6 +2697,8 @@ function additionnerUsage(
         ? {
             tokens: (avant.aides?.tokens ?? 0) + (dernier.aides?.tokens ?? 0),
             sortie: (avant.aides?.sortie ?? 0) + (dernier.aides?.sortie ?? 0),
+            entree: (avant.aides?.entree ?? 0) + (dernier.aides?.entree ?? 0),
+            relu: (avant.aides?.relu ?? 0) + (dernier.aides?.relu ?? 0),
             modeles: [...new Set([...(avant.aides?.modeles ?? []), ...(dernier.aides?.modeles ?? [])])],
           }
         : undefined,
@@ -2502,7 +2787,15 @@ async function startTurn(
   const agent = versionActuelleDuModele(store.getAgent(agentBefore.id) ?? agentBefore);
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
-  const catalogContextWindow = await contextWindowFor(agent.run.engine, agent.run.model).catch(() => undefined);
+  const jeton = tour.preparation;
+  const catalogContextWindow = await etapeBornee(
+    agent.id,
+    jeton,
+    'catalogue des moteurs',
+    PLAFONDS_DU_LANCEMENT.catalogue,
+    contextWindowFor(agent.run.engine, agent.run.model).catch(() => undefined),
+    () => undefined,
+  );
 
   /*
    * OÙ CET AGENT TRAVAILLE. Une carte lancée a sa propre copie de travail
@@ -2514,8 +2807,18 @@ async function startTurn(
    * avec le travail déjà enregistré — jamais un repli silencieux sur la branche
    * principale du dossier partagé.
    */
-  const dossier = await dossierDuTour(agent, project);
-  const copiesAnnexes = await copiesAnnexesDuTour(agent, project, dossier);
+  const dossier = await etapeIndispensable(agent.id, () =>
+    etapeBornee(agent.id, jeton, 'copie de travail de la carte', PLAFONDS_DU_LANCEMENT.copieDeTravail, dossierDuTour(agent, project)),
+  );
+  const copiesAnnexes = await etapeIndispensable(agent.id, () =>
+    etapeBornee(
+      agent.id,
+      jeton,
+      'copies des dépôts annexes',
+      PLAFONDS_DU_LANCEMENT.copiesAnnexes,
+      copiesAnnexesDuTour(agent, project, dossier),
+    ),
+  );
 
   /*
    * LE VRAI DÉPART D'UN TOUR, et le dernier filet. `sendPrompt` a déjà replacé
@@ -2547,7 +2850,14 @@ async function startTurn(
    * dire si du code a été enregistré sans carte — et mérite donc une fiche —,
    * et dire si la carte a le droit de passer en « Terminé ».
    */
-  const repere = await repereAvant(dossier).catch(() => null);
+  const repere = await etapeBornee(
+    agent.id,
+    jeton,
+    'repère du dépôt',
+    PLAFONDS_DU_LANCEMENT.repereGit,
+    repereAvant(dossier).catch(() => null),
+    () => null,
+  );
 
   /*
    * SECOND REPÈRE : LE DOSSIER PARTAGÉ DU PROJET. L'agent est censé rester dans
@@ -2560,7 +2870,16 @@ async function startTurn(
    * alors qu'un seul dossier, déjà observé.
    */
   const remuesAvant =
-    dossier === project.path ? undefined : await fichiersRemues(project.path).catch(() => null);
+    dossier === project.path
+      ? undefined
+      : await etapeBornee(
+          agent.id,
+          jeton,
+          'repère du dossier partagé',
+          PLAFONDS_DU_LANCEMENT.repereGit,
+          fichiersRemues(project.path).catch(() => null),
+          () => null,
+        );
 
   /*
    * QUOTA CONSOMMÉ PAR CETTE TÂCHE : on relève sur le compte porteur les deux
@@ -2796,6 +3115,23 @@ async function startTurn(
    */
   const consigneDuCahier = agent.role === 'cadrage' ? consigneSystemeDuCahier(agent.id) : '';
   if (consigneDuCahier) systemPrompt = `${systemPrompt}\n\n${consigneDuCahier}`;
+  /*
+   * LE GUIDE DES SERVICES (02/11/2026) : ce que chaque service permet à cet
+   * agent, avec les droits de la personne qui lui parle. Le conducteur d'une
+   * publication n'en a que faire ; l'assistant général, si.
+   */
+  if (agent.role !== 'deploy' || assistantGlobal) {
+    const { guideDesServicesDeLAgent } = await import('./services-des-agents.js');
+    const guide = await etapeBornee(
+      agent.id,
+      jeton,
+      'guide des services',
+      PLAFONDS_DU_LANCEMENT.guideDesServices,
+      guideDesServicesDeLAgent(agent.id, project.id).catch(() => ''),
+      () => '',
+    );
+    if (guide) systemPrompt = `${systemPrompt}\n\n${guide}`;
+  }
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -2845,7 +3181,14 @@ async function startTurn(
     // copie de travail comme dans le bac à sable du chef, sans lire le dossier
     // personnel du serveur ni rien configurer projet par projet. Serveur non
     // identifié : aucune variable posée, `gh` le dira lui-même.
-    ...(await envGithub()),
+    ...(await etapeBornee(
+      agent.id,
+      jeton,
+      'jeton GitHub',
+      PLAFONDS_DU_LANCEMENT.jetonGithub,
+      envGithub().catch(() => ({}) as Record<string, string>),
+      () => ({}) as Record<string, string>,
+    )),
     ...applyAccountEnv(account),
   };
 
@@ -3013,7 +3356,7 @@ async function startTurn(
                * l'action qu'il annonce, et se lit dans « Réflexions ». La
                * réponse ne garde que ce qui suit la dernière action.
                */
-              verserLaNoteAvantLAction(agent.id, runState);
+              const noteAvant = verserLaNoteAvantLAction(agent.id, runState);
               const existing = runState.steps.get(event.step.key);
               /*
                * UN REFUS DU BAC À SABLE SE DIT EN FRANÇAIS. Le projet est monté en
@@ -3059,6 +3402,9 @@ async function startTurn(
                 entree: event.step.entree
                   ? paramsLisibles(event.step.entree)
                   : existing?.entree,
+                /* LA PHRASE DE PASSAGE QUI ANNONCE CETTE ACTION (13/11/2026) : le fil d'un agent sans carte la relit à
+                   sa place, comme le journal d'une carte. */
+                ...((existing?.noteAvant ?? noteAvant) ? { noteAvant: existing?.noteAvant ?? noteAvant } : {}),
               };
               runState.steps.set(event.step.key, step);
               pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
@@ -3072,6 +3418,19 @@ async function startTurn(
               if (step.state !== 'running' && step.state !== 'todo') {
                 const appelFini = runState.outilsDesEtapes.get(step.id);
                 const outilBrut = String(appelFini?.outil ?? step.outil ?? '');
+                /* CE QUE CETTE ÉTAPE A ÉCRIT GARDE UNE COPIE : le lien du fil
+                   s'ouvrira encore une fois la copie de travail refermée
+                   (`server/src/fichiers-conserves.ts`). Rien n'attend ici. */
+                if (step.state === 'done') {
+                  const ecrit = cheminEcritParUnOutil(outilBrut, JSON.stringify(appelFini?.entree ?? step.entree ?? ''));
+                  if (ecrit) {
+                    conserverUnFichier(
+                      { projectId: project.id, projectPath: project.path, workdir: agent.workdir, cardId: agent.cardId, agentId: agent.id },
+                      ecrit,
+                      { depotDAbord: outilBrut.endsWith('write_document') },
+                    );
+                  }
+                }
                 if (!/attach_(file|screenshot)$/.test(outilBrut)) {
                   repererLesCaptures(
                     runState,
@@ -3272,6 +3631,7 @@ async function startTurn(
     return;
   }
 
+  etapeDePreparation(agent.id, jeton, 'lancement du moteur');
   const handle = lancerLeMoteur(prompt, sessionId);
 
   runState.handle = handle;
@@ -3502,12 +3862,14 @@ async function startTurn(
    * déjà dans la réflexion de la carte (`verserLaNoteAvantLAction`) : les
    * recoller en tête de la réponse les faisait lire deux fois, et au mauvais
    * endroit. Un rapport écrit en plusieurs fois garde ce qu'il faut pour tenir
-   * son gabarit (`texteRenduDuTour`). Un agent SANS carte n'a pas de journal où
-   * verser ces phrases : il garde son texte entier.
+   * son gabarit (`texteRenduDuTour`). Un agent SANS carte n'a pas de journal : ses phrases voyagent sur ses étapes
+   * (`RunStep.noteAvant`, 13/11/2026) et son fil les lit à leur place — sa réponse suit donc la même règle dès qu'il
+   * en a écrit une ; sans phrase de passage, il garde son texte entier.
    */
   /* Un tour de cadrage qui a déplacé la carte n'écrit plus de texte (voir plus bas). */
   let texteEcarte = false;
-  let finalText = runState.cardIdJournal
+  const notesSurLesEtapes = [...runState.steps.values()].some((step) => !!step.noteAvant);
+  let finalText = runState.cardIdJournal || notesSurLesEtapes
     ? texteRenduDuTour(
         runState.morceauxDuTexte,
         template !== 'none' ? (texte) => checkTemplate(template, texte, ampleur, { plancher }).ok : undefined,
@@ -4164,7 +4526,19 @@ async function startTurn(
   /* UNE SUSPENSION À LA MAIN laisse une ligne NEUTRE du travail — ni rouge, ni
      « Rapport » : la marque de pause est posée AVANT la coupe (`agent.suspend`). */
   const suspendu = runState.stopping && !!agent.cardId && carteEnPause(store.getCard(agent.cardId)?.scheduling);
-  const suitesDuTour = store.getMessage(runState.messageId)?.suites;
+  /* LE CONTRÔLE DE SÉCURITÉ PROPOSÉ AU BON MOMENT : une commande collée dans la demande, ou un tour qui a
+     touché une partie sensible, pose la suite « /securite … » en dernier — par le démon, aucune consigne de
+     plus (`server/src/proposition-securite.ts`). Un tour en échec ou arrêté ne propose rien. */
+  const suitesDuTour =
+    !failed && !runState.stopping
+      ? await proposerLeControleEnFinDeTour({
+          agent,
+          messageId: runState.messageId,
+          messageIdDeLaDemande: contexteUtilisateur?.messageId,
+          dossier,
+          tete: repere?.tete,
+        })
+      : store.getMessage(runState.messageId)?.suites;
   const issue = jalonDeFinDeTour({
     failed,
     reprise: Boolean(reprise),
@@ -4407,6 +4781,16 @@ async function startTurn(
   }
 
   /*
+   * CE QUE LA RÉPONSE CITE GARDE UNE COPIE, ET CES FICHIERS SONT LUS AVANT QUE
+   * LEUR DOSSIER NE SE REFERME. L'attente est bornée, et sans objet si rien n'est cité.
+   */
+  conserverLesFichiersCites(
+    { projectId: project.id, projectPath: project.path, workdir: dossier, cardId: agent.cardId, agentId: agent.id },
+    finalText || runState.text,
+  );
+  await attendreLesLectures();
+
+  /*
    * LE DOSSIER DE LA CARTE SE REFERME ICI, une fois le constat pris : la branche
    * rejoint la principale et la copie de travail est retirée. Sans cela, le
    * travail resterait sur une branche poussée — jamais livrée —, et le dossier
@@ -4422,7 +4806,98 @@ async function startTurn(
    * fermeture a lieu à la vraie fin — rapport, arrêt, abandon de la reprise
    * (le ménage des dossiers la range alors, `menageDesDossiersDeCarte`).
    */
-  if (agent.role === 'task' && agent.cardId && dossier !== project.path && !reprise) {
+  /*
+   * …ET QUAND UN MESSAGE ATTEND ENCORE DERRIÈRE L'AGENT (04/11/2026). Le tour
+   * est fini, mais le travail ne l'est pas : la carte reste ouverte
+   * (`fileEnAttente`, `carteApresFinDeTour`) et son dossier aussi — le message,
+   * une fois envoyé, reprend dans la même copie. Si la file se vide sans tour,
+   * le balayage range la carte et le ménage des dossiers referme la copie.
+   */
+  /*
+   * UN MESSAGE ÉCRIT PENDANT LE TRAVAIL REPASSE PAR LA COMPRÉHENSION (06/11/2026,
+   * `demandesARemettreAuCadrage`, shared/src/relance-apres-rapport.ts). Les
+   * messages humains en file sortent AVANT la porte de la charte et la fermeture
+   * de la carte : celle-ci se referme comme un tour sans suite, puis ils partent
+   * à l'agent de cadrage une fois ce tour éteint (plus bas). Si la porte renvoie
+   * l'agent corriger, ils reprennent leur place derrière ce renvoi.
+   */
+  const tourDuRangement = () => ({
+    roleDeLAgent: agent.role,
+    porteUneCarte: !!agent.cardId && dossier !== project.path,
+    agentAttitre: estAgentAttitre(agent.id),
+    abouti: !reprise && !failed && !panneDefinitive && !runState.stopping && !runState.refermeDAutorite,
+    questionOuverte: (store.getMessage(runState.messageId)?.questions ?? []).some((q) => !q.answer && !q.cancelled),
+  });
+  let versLeCadrage = demandesARemettreAuCadrage(store.listQueue(agent.id), tourDuRangement());
+  for (const demande of versLeCadrage) store.removeQueued(demande.id);
+  if (versLeCadrage.length) bus.emit({ type: 'queue.etat', agentId: agent.id, queue: store.listQueue(agent.id) });
+  /*
+   * …ET LA FILE SE RELÈVE DE NOUVEAU À CHAQUE ÉTAPE DU RANGEMENT (08/11/2026, `demandesArriveesPendantLeRangement`).
+   * Un message écrit pendant la porte de la charte ou la fermeture du dossier entrait APRÈS le premier relevé : il
+   * retenait la carte en « En cours » et partait à l'agent de tâche, sans compréhension.
+   */
+  const releverLaFile = () => {
+    const arrivees = demandesArriveesPendantLeRangement(store.listQueue(agent.id), tourDuRangement());
+    if (!arrivees.length) return;
+    for (const demande of arrivees) store.removeQueued(demande.id);
+    versLeCadrage = [...versLeCadrage, ...arrivees];
+    bus.emit({ type: 'queue.etat', agentId: agent.id, queue: store.listQueue(agent.id) });
+  };
+  /*
+   * LA PORTE DE LA CHARTE D'INTERFACE (05/11/2026). Un tour de tâche qui a
+   * abouti et touche les écrans d'une charte n'est rendu que si ses fichiers
+   * respectent ses interdits (aucun élément natif…) et si l'agent a REGARDÉ son
+   * rendu (au moins une capture pendant le travail). Sinon une demande interne
+   * le renvoie corriger, dans la même copie : la carte reste ouverte comme pour
+   * tout message en file. Deux renvois au plus, puis la carte se rend et le
+   * manquement s'écrit à son journal — chaque fin de tour garde une issue.
+   */
+  if (
+    agent.role === 'task' &&
+    agent.cardId &&
+    dossier !== project.path &&
+    !reprise &&
+    !failed &&
+    !panneDefinitive &&
+    !runState.stopping &&
+    !runState.refermeDAutorite &&
+    store.listQueue(agent.id).length === 0 &&
+    !(store.getMessage(runState.messageId)?.questions ?? []).some((q) => !q.answer && !q.cancelled)
+  ) {
+    const verdict = await porteDeFinDeTour({
+      project,
+      cardId: agent.cardId,
+      dossier,
+      captures: capturesDuTravail(store.listMessages(agent.id), store.getAttachment),
+    });
+    if (verdict.issue === 'renvoyer') {
+      store.enqueuePrompt(agent.id, verdict.texte, [], undefined, { silencieuse: true });
+      bus.emit({ type: 'queue.etat', agentId: agent.id, queue: store.listQueue(agent.id) });
+      journaliserDansLeTour(agent.id, {
+        cle: `charte:renvoi:${runState.messageId}`,
+        nature: 'jalon',
+        libelle: 'Contrôle de la charte d’interface : renvoyé corriger avant de rendre',
+        donnees: { texte: verdict.texte.slice(0, 2_000) },
+      });
+      log.info(`charte d'interface : l'agent ${agent.id} est renvoyé corriger avant de rendre`);
+    } else if (verdict.raison === 'renvois-epuises') {
+      journaliserDansLeTour(agent.id, {
+        cle: `charte:epuise:${runState.messageId}`,
+        nature: 'jalon',
+        libelle: 'Contrôle de la charte d’interface toujours en défaut : carte rendue quand même',
+        donnees: { texte: verdict.texte.slice(0, 2_000) },
+      });
+    }
+  }
+  /* La porte a renvoyé l'agent corriger : les messages humains attendent derrière ce renvoi, chez lui. */
+  if (versLeCadrage.length && store.listQueue(agent.id).length > 0) {
+    for (const demande of versLeCadrage) store.enqueuePrompt(agent.id, demande.text, demande.attachments ?? []);
+    bus.emit({ type: 'queue.etat', agentId: agent.id, queue: store.listQueue(agent.id) });
+    versLeCadrage = [];
+  }
+  releverLaFile();
+  const fileEnAttente = store.listQueue(agent.id).length > 0;
+  if (agent.role === 'task' && agent.cardId && dossier !== project.path && !reprise && !fileEnAttente) {
     const carte = store.getCard(agent.cardId);
     if (carte) {
       try {
@@ -4452,6 +4927,7 @@ async function startTurn(
   // La pastille « terminé, pas encore lu » se met à jour dès que l'agent se tait.
   bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
 
+  let carteAArchiverApresLeTour: string | undefined;
   if (agent.cardId) {
     const card = store.getCard(agent.cardId);
     if (card) {
@@ -4520,6 +4996,9 @@ async function startTurn(
            * que la charge d'à côté retombe.
            */
           machineSaturee: panneDeLaMachine(panneDefinitive),
+          /* UN MESSAGE ATTEND DERRIÈRE L'AGENT : la carte ne se range pas et ne
+             part pas au déploiement (décision de l'utilisateur, 04/11/2026). */
+          fileEnAttente: (releverLaFile(), store.listQueue(agent.id).length > 0),
         }),
         consumption: {
           tokens,
@@ -4536,6 +5015,19 @@ async function startTurn(
         }),
       });
       bus.emit({ type: 'card.upsert', card: updated });
+      /* LE TRAVAIL EST RENDU : les propositions de carte restées en suspens dans sa conversation, pour ce même projet,
+         se retirent (`propositions-orphelines.ts`, 15/11/2026) — sinon la carte garde le cadre orange « à vous ». */
+      if (agent.role === 'task' && card.column !== updated.column && (updated.column === 'to_deploy' || updated.column === 'archived')) {
+        void import('./propositions-orphelines.js')
+          .then(({ retirerLesPropositionsOrphelines }) => retirerLesPropositionsOrphelines(updated.id))
+          .catch((err) => log.warn(`propositions orphelines de la carte ${updated.id} : retrait impossible`, err));
+      }
+      /* RENDUE SANS CODE, LA CARTE EST PARTIE DROIT DANS « ARCHIVÉ » : sa branche
+         vide et sa copie se rangent par l'archivage ordinaire, une fois le tour
+         sorti des vivants (`archiveCard` refuse un agent qui parle encore). */
+      if (card.column !== 'archived' && updated.column === 'archived' && agent.role === 'task') {
+        carteAArchiverApresLeTour = updated.id;
+      }
     }
 
     /*
@@ -4669,6 +5161,15 @@ async function startTurn(
 
   retirerLeTourVivant(agent.id);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).etatCapacite() });
+  if (carteAArchiverApresLeTour) {
+    const id = carteAArchiverApresLeTour;
+    void import('./archive.js')
+      .then(({ archiveCard }) => archiveCard(id))
+      .then((bilan) => {
+        if (!bilan.ok) log.warn(`archivage d'office de la carte ${id} (rendue sans code) : ${bilan.error ?? 'raison inconnue'}`);
+      })
+      .catch((err) => log.error(`archivage d'office de la carte ${id} impossible`, err));
+  }
 
   /*
    * LA RELÈVE PART UNE FOIS LE TOUR SORTI DES VIVANTS. Avec un quota frais, le
@@ -4702,8 +5203,49 @@ async function startTurn(
     });
   }
 
+  /* Les messages écrits pendant le travail — ou pendant le rangement — partent au cadrage de la carte. */
+  releverLaFile();
+  if (versLeCadrage.length && agent.cardId) remettreAuCadrage(agent.cardId, versLeCadrage);
+  /*
+   * LE MODE AUTO RELIT LE BILAN DU TRAVAIL (`mode-auto.ts`) : seulement pour un tour de TÂCHE abouti, et seulement
+   * quand aucun message ne repart déjà au cadrage (lui relancera le travail de toute façon). Ni un tour coupé par la
+   * limite d'un compte, ni une panne, ni un arrêt à la main ne consomment de relance.
+   */
+  if (agent.role === 'task' && agent.cardId && !versLeCadrage.length) {
+    finDeTourDeTache?.(agent.cardId, agent.id, !(failed || !!reprise || !!panneDefinitive || runState.stopping), runState.startedAt);
+  }
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
   enchainerLaFile(agent.id);
+}
+
+/**
+ * UNE DEMANDE QUI REPART AU CADRAGE DE LA CARTE, posée par le démon (le mode Auto qui relance un travail inachevé) :
+ * le même chemin qu'un message écrit pendant le travail — la carte est rouverte en « Demande », son cadrage reprend.
+ */
+export function remettreUneDemandeAuCadrage(cardId: string, texte: string): void {
+  remettreAuCadrage(cardId, [{ text: texte }]);
+}
+
+/**
+ * LES MESSAGES ÉCRITS PENDANT LE TRAVAIL PARTENT AU CADRAGE, une fois le tour de tâche éteint (le délai laisse la
+ * fin de tour retirer son témoin, comme `enchainerLaFile`) : la carte est rouverte en « Demande » et chacun part à
+ * l'agent de cadrage, dans l'ordre — le second s'empile derrière le premier.
+ */
+function remettreAuCadrage(cardId: string, demandes: readonly { text: string; attachments?: string[] }[]): void {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        /* Import tardif : le module du cadrage importe celui-ci. */
+        const { rouvrirLeCadrage } = await import('./cadrage.js');
+        const cadrage = await rouvrirLeCadrage(cardId);
+        if (!cadrage) throw new Error('cadrage introuvable');
+        log.info(`carte ${cardId} : ${demandes.length} message(s) écrit(s) pendant le travail repartent au cadrage`);
+        for (const demande of demandes) await sendPrompt(cadrage.id, demande.text, { attachments: demande.attachments ?? [] });
+      } catch (err) {
+        log.error('messages écrits pendant le travail : renvoi au cadrage impossible', err);
+      }
+    })();
+  }, 500);
 }
 
 /**
@@ -4975,8 +5517,8 @@ const OUTILS_FERMES_POUR_LA_RELANCE = [
   'Task',
   'Agent',
   'Workflow',
-  ...toolsFor('task', { creation: true }).map((outil) => `mcp__beluga__${outil.name}`),
-  ...toolsFor('cadrage', { creation: true }).map((outil) => `mcp__beluga__${outil.name}`),
+  ...toolsFor('task', { realisation: true }).map((outil) => `mcp__beluga__${outil.name}`),
+  ...toolsFor('cadrage', { realisation: true }).map((outil) => `mcp__beluga__${outil.name}`),
 ];
 
 async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
@@ -4992,7 +5534,7 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
     'Task',
     'Agent',
     'Workflow',
-    ...toolsFor(agent.role, { creation: true }).map((outil) => `mcp__beluga__${outil.name}`),
+    ...toolsFor(agent.role, { realisation: true }).map((outil) => `mcp__beluga__${outil.name}`),
   ];
   const handle = options.adapter.run({
     ...options.lancement,
@@ -5098,9 +5640,7 @@ export function refermerLesReprisesDepassees(
   }
 }
 
-function pushMessage(run: LiveRun, patch: Partial<Message>): void {
-  const current = store.getMessage(run.messageId);
-  if (!current) return;
+function pushMessage(run: LiveRun, patch: Partial<Omit<Message, 'sentContext'>>): void {
   /*
    * UN TOUR REFERMÉ NE SE RALLUME PLUS. Le corps du tour continue de se dérouler
    * après une fermeture d'autorité (`refermerLeTour` arrête le moteur, fige le
@@ -5112,7 +5652,10 @@ function pushMessage(run: LiveRun, patch: Partial<Message>): void {
    */
   const refermé = live.get(run.agentId) !== run;
   const applique = refermé ? { ...patch, streaming: false } : patch;
-  const updated = store.saveMessage({ ...current, ...applique } as Message);
+  /* Le message n'est plus relu en entier à chaque pas (`patcherMessage`). */
+  run.contexteGarde ??= {};
+  const updated = store.patcherMessage(run.messageId, applique, run.contexteGarde);
+  if (!updated) return;
   bus.emit({ type: 'message.upsert', message: updated });
 }
 
@@ -5275,16 +5818,19 @@ export function attachToCurrentMessage(
     /** L'identifiant d'une pièce jointe que l'agent vient de produire (ex. capture d'écran). */
     attachment?: string;
   },
+  /** Le message à toucher, quand l'appel ne vient pas d'un tour (la conversation vocale en direct). */
+  messageVise?: string,
 ): string | undefined {
   const run = live.get(agentId);
-  const messageId = run?.messageId ?? store.listMessages(agentId, 1).slice(-1)[0]?.id;
+  const messageId = messageVise ?? run?.messageId ?? store.listMessages(agentId, 1).slice(-1)[0]?.id;
   if (!messageId) return undefined;
   const current = store.getMessage(messageId);
   if (!current) return undefined;
   const updated = store.saveMessage({
     ...current,
     proposals: patch.proposal ? [...current.proposals, patch.proposal] : current.proposals,
-    questions: patch.question ? [...current.questions, patch.question] : current.questions,
+    // L'heure où la question est posée : le fil du panneau Chrome la remet à son moment (`fluxDuTour`).
+    questions: patch.question ? [...current.questions, { ...patch.question, poseeLe: patch.question.poseeLe ?? Date.now() }] : current.questions,
     downloads: patch.download ? [...current.downloads, patch.download] : current.downloads,
     attachments:
       patch.attachment && !current.attachments.includes(patch.attachment)
@@ -5826,6 +6372,7 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
       partiDepuisMs: maintenant - (run?.startedAt ?? preparation?.depuis ?? agent.startedAt ?? agent.updatedAt),
       silenceDepuisMs: run ? maintenant - run.dernierSigneDeVie : undefined,
       attendUneReponse: agentEnAttente(agent.id),
+      etapeDePreparation: !run ? preparation?.etape : undefined,
     });
     if (!verdict) continue;
     /*
@@ -5849,7 +6396,7 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
      * bloqué AVANT lui n'a rien écrit du tout : sans ce mot, l'utilisateur
      * verrait sa demande partir dans le vide, exactement comme avant.
      */
-    direLeBlocage(agent.id, verdict.raison);
+    direLeBlocage(agent.id, verdict.raison, !run ? preparation?.demandeId : undefined);
   }
   return refermes;
 }
@@ -5921,7 +6468,7 @@ function ramenerLeLancementManque(agentId: string, lancement: LancementDeCarte):
  * (`demandeARejouer`) pour que « Relancer » la RENVOIE au lieu de demander de
  * poursuivre un travail qui n'a pas commencé.
  */
-function direLeBlocage(agentId: string, raison: string): void {
+function direLeBlocage(agentId: string, raison: string, demandeConnue?: string): void {
   try {
     const dernier = [...store.listMessages(agentId, 1)].pop();
     /*
@@ -5947,7 +6494,16 @@ function direLeBlocage(agentId: string, raison: string): void {
      * la moindre réponse. Un appel interne du démon (publication, analyse) n'en
      * a pas : sa relance garde alors le texte de reprise ordinaire.
      */
-    const demandeARejouer = dernier?.role === 'user' && dernier.content.trim() ? dernier.id : undefined;
+    /* …OU CELLE QUE CE TOUR PORTAIT, MÊME SI UN ÉCHEC PRÉCÉDENT S'EST ÉCRIT
+       DESSOUS : un « Relancer » qui retombe doit encore proposer la même
+       phrase, pas une reprise d'un travail qui n'a jamais commencé. */
+    const portee = demandeConnue ? store.getMessage(demandeConnue) : undefined;
+    const demandeARejouer =
+      dernier?.role === 'user' && dernier.content.trim()
+        ? dernier.id
+        : portee?.role === 'user' && portee.content.trim()
+          ? portee.id
+          : undefined;
     const message = store.saveMessage(
       Message.parse({
         id: store.newId(),
@@ -6073,6 +6629,12 @@ export function brancherFinDeTourDeCadrage(fn: (cardId: string, agentId: string,
   finDeTourDeCadrage = fn;
 }
 
+/** CE QUI SUIT LA FIN D'UN TOUR DE TÂCHE d'une carte, branché de l'extérieur (le mode Auto, `mode-auto.ts`). */
+let finDeTourDeTache: ((cardId: string, agentId: string, tourReussi: boolean, debutDuTour: number) => void) | undefined;
+export function brancherFinDeTourDeTache(fn: (cardId: string, agentId: string, tourReussi: boolean, debutDuTour: number) => void): void {
+  finDeTourDeTache = fn;
+}
+
 /** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
 export function rappelDeMethode(
   engine: EngineId = 'claude',
@@ -6174,7 +6736,53 @@ export const CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE =
  */
 export const CONSIGNE_DES_AIDES =
   "LES AIDES (sous-agents) SERVENT À LIRE, PAS À CONSTRUIRE : quand ton moteur t'en offre une (sous Claude : « Explore »), confie à l'aide de lecture les recherches larges dans le dépôt et les lectures longues, en lui demandant un résumé court avec chemins et lignes ; vérifie ce qui fonde une décision avant de t'y fier. " +
-  "Garde pour toi l'écriture, les commandes qui modifient et les décisions. Pas d'aides en parallèle pour construire, ni pour ce qu'une seule recherche ciblée trouve : chaque aide repart de zéro et coûte.";
+  "Garde pour toi l'écriture, les commandes qui modifient et les décisions. Pas d'aides en parallèle pour construire, ni pour ce qu'une seule recherche ciblée trouve : chaque aide repart de zéro et coûte. Plusieurs aides en parallèle : seulement après accord par ask_user.";
+
+/**
+ * LA BOÎTE DE MÉTHODES PSTACK, AU JUGEMENT DE L'AGENT DE TÂCHE.
+ *
+ * Décision de l'utilisateur (carte 2aeb9b29, 06/11/2026) : la bibliothèque
+ * « pstack » (open-pstack, importée au pool) n'est jamais proposée au cadrage
+ * (`BIBLIOTHEQUES_AU_CHOIX_DE_L_AGENT`) ; c'est l'agent qui juge si l'une de
+ * ses méthodes sert sa carte. Les consommations sont tenues : ses étapes à
+ * aides ou panels de modèles en parallèle se jouent seul, sauf accord demandé.
+ * COURTE, car chaque tour de chaque agent de tâche la paie ; dans le corps
+ * STABLE de la consigne, même texte pour tous les moteurs. EXPORTÉE pour son test.
+ */
+export const CONSIGNE_DE_PSTACK =
+  "MÉTHODES PSTACK (bibliothèque « pstack » du pool : principes, preuve réelle, test d'abord, cause racine, écriture simple) : à TON JUGEMENT — si l'une sert ta carte, « memoire » chercher (en mots anglais : prove it works, root cause…) puis lire, et applique-la. " +
+  "Ses étapes à aides ou panels parallèles se jouent SEUL ; une aide parallèle vraiment nécessaire se demande par ask_user (pourquoi, combien, coût) — sans accord, continue seul. Nomme au compte rendu la méthode suivie.";
+
+/**
+ * LA PREUVE DANS LA VRAIE APPLICATION, À LA FIN DE CHAQUE CARTE.
+ *
+ * Décision de l'utilisateur (carte db89f57f, 07/11/2026) : la méthode pstack
+ * « create-verification-skill » est réécrite ici plutôt que réactivée — les
+ * tests seuls ne prouvent pas qu'un bouton marche. La NOTICE de lancement
+ * propre à chaque projet n'est pas une carte à part : la première tâche qui en
+ * a besoin l'écrit en compétence du projet (mécanisme de fin de tâche), les
+ * suivantes la relisent et la complètent. Aucune aide par fonction
+ * (« maintain-verification-skill » écarté sur ce point). Réservée au rôle de
+ * TÂCHE ; COURTE, dans le corps STABLE. EXPORTÉE pour son test.
+ */
+export const CONSIGNE_DE_PREUVE_REELLE =
+  "PREUVE DANS LA VRAIE APPLICATION : avant de rendre, lance l'application réelle (serveur de développement ou adresse d'essai du projet), essaie ce que tu as changé comme l'utilisateur le ferait (navigateur d'essai, outil « capture »), joins la capture et dis au compte rendu ce que tu as essayé. " +
+  "Comment la lancer, s'y connecter, y naviguer et nettoyer : suis la compétence de ce projet qui le dit ; s'il n'y en a pas, écris-la en fin de tâche (« tester-<projet>-dans-l-application » : lancer, se connecter, aller à chaque écran, pièges, nettoyage), et complète-la ENTIÈRE quand tu y apprends un écran ou un piège. " +
+  "Essai réel impossible (rien à l'écran, tâche de documentation) : dis-le en une ligne, avec la raison.";
+
+/**
+ * LE CARNET DES DÉCISIONS, TENU AU BROUILLON DE LA CARTE.
+ *
+ * Décision de l'utilisateur (carte db89f57f, 07/11/2026) : la méthode pstack
+ * « show-me-your-work » est réécrite ici — chaque choix noté au fil de l'eau,
+ * relu avant de rendre. Le carnet reste à l'AGENT : il vit dans le brouillon
+ * (WORKING), n'est jamais servi comme mémoire, s'efface à la fermeture, et
+ * l'utilisateur n'en lit que le résumé du compte rendu. Pas de relecture par un
+ * autre modèle. EXPORTÉE pour son test.
+ */
+export const CONSIGNE_DU_CARNET =
+  "CARNET DES DÉCISIONS : chaque choix qui engage le travail (une piste retenue ou écartée, un compromis) se note AUSSITÔT au « brouillon » de la carte (outil « memoire », geste « brouillon », « texte » : décision — pourquoi — preuve), avec tes pistes et points à revoir ; jamais servi comme mémoire, effacé à la fermeture. " +
+  "Avant ton compte rendu, relis-le (geste « brouillon » sans « texte ») : chaque décision est tenue ou retirée, et les choix importants y sont résumés.";
 
 /**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
@@ -6234,6 +6842,10 @@ function corpsDeConsigne(
   if (motif === 'configuration-backup') return CONSIGNE_ASSISTANT_BACKUP;
   if (motif === 'configuration-surveillance') return CONSIGNE_ASSISTANT_SURVEILLANCE;
   if (motif === 'configuration-marketing') return CONSIGNE_AGENT_MARKETING;
+  if (motif === 'directeur-marketing') return consigneDuChef('general');
+  if (motif === 'chef-de-marque') return consigneDuChef('marque');
+  if (motif === 'chef-de-projet') return consigneDuChef('projet');
+  if (motif === 'chef-de-campagne') return consigneDuChef('campagne');
   if (motif === 'depannage-manuel') return CONSIGNE_DEPANNAGE_MANUEL;
   if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
 
@@ -6276,8 +6888,12 @@ TU ES L'AGENT DE PUBLICATION. Tu CONFIGURES la mise en production d'un projet : 
 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
 ${CONSIGNE_DES_AIDES}
+${CONSIGNE_DE_PSTACK}
 ${CONSIGNE_DE_LA_VEILLE}
-Travaille sur la branche de la carte. Pendant la tâche, ce que tu manipules (pistes, hypothèses, points à revoir) peut aller au « brouillon » de la carte (outil « memoire », geste « brouillon ») : il n'est jamais servi comme mémoire et s'efface à la fermeture de la carte.
+${CONSIGNE_DES_OUTILS_PAYANTS}
+Travaille sur la branche de la carte.
+${CONSIGNE_DU_CARNET}
+${CONSIGNE_DE_PREUVE_REELLE}
 À LA FIN, L'ÉTAPE DE PROMOTION : relis ton travail et PROPOSE à la base de connaissances zéro, une ou quelques unités durables — outil « memoire », geste « proposer » (ou « remember » pour un fait d'une ligne) —, en remplaçant (« remplace ») l'unité que ta tâche a rendue fausse. Ne se mémorise JAMAIS : ${CE_QUI_NE_SE_MEMORISE_JAMAIS.join(' ; ')}. Une proposition refusée te dit pourquoi : corrige-la ou renonce. Puis appelle l'outil « memoire », geste « changelog », qui écrit l'entrée du JOURNAL DES CHANGEMENTS, lue par quelqu'un qui ne programme pas (la branche s'ajoute toute seule) : ${CONSIGNES_REDACTION_CHANGELOG.map((c) => c.replace(/^Le TITRE/, '« titre »').replace(/^L’EXPLICATION/, '« explication »').replace(/^Le POIDS/, '« poids »')).join(' ')} Une entrée sans explication, ou dont le titre est un nom de branche, est refusée : réécris-la.
 ${CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE}
 Si ta tâche a changé une règle durable, une architecture ou une commande, dépose-la dans le fichier d'attente que le briefing nomme — jamais dans le fichier d'instructions du moteur, que tu ne modifies pas.`;
@@ -6302,7 +6918,22 @@ export function rolePrompt(
   motif?: MotifDAppel,
   langue: LangueId = LANGUE_DORIGINE,
 ): string {
-  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${corpsDeConsigne(role, isSelf, engine, niveau, motif)}`;
+  /* Sur un serveur LOUÉ, les compétences protégées du lot fourni ne se recopient jamais (constante par machine : la consigne reste stable). */
+  const protegees = machineHebergee() ? `\n${CONSIGNE_DES_FICHES_PROTEGEES.replace(/^COMPÉTENCE PROTÉGÉE/, 'TOUTE COMPÉTENCE PROTÉGÉE')}` : '';
+  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n${postureDeLAccueil(niveau, motif)}\n${corpsDeConsigne(role, isSelf, engine, niveau, motif)}${protegees}`;
+}
+
+/**
+ * LA POSTURE DE CONSEILLER (`CONSIGNE_DE_CONSEILLER`) vaut pour tout agent qui
+ * travaille AVEC l'utilisateur — cadrage, tâche, chef, Studio, marketing. Les
+ * accueils ciblés qui réparent ou configurent une chose précise (dépannage de
+ * publication, assistant des backups, surveillance) n'en ont que faire : ils
+ * gardent leur accueil court.
+ */
+function postureDeLAccueil(niveau: NiveauDAccueil, motif?: MotifDAppel): string {
+  if (niveau === 'minimal') return '';
+  if (motif === 'configuration-backup' || motif === 'configuration-surveillance' || motif === 'depannage-manuel') return '';
+  return `${CONSIGNE_DE_CONSEILLER}\n`;
 }
 
 
@@ -6312,7 +6943,7 @@ export function rolePrompt(
  * (`CONSIGNE_ASSISTANT_GLOBAL`), à la place du rôle d'un agent de carte.
  */
 export function consigneDeLAssistantGlobal(isSelf: boolean, engine: EngineId = 'claude', langue: LangueId = LANGUE_DORIGINE): string {
-  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${deroulerCommun(isSelf, engine)}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`;
+  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n${CONSIGNE_DE_CONSEILLER}\n\n${deroulerCommun(isSelf, engine)}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -6383,7 +7014,10 @@ export function recoverAfterRestart(
       poserLaProgression(agent.id, fixed.todos);
     }
 
-    if (agent.cardId) rendreLaCarteInterrompue(agent.cardId);
+    const carteReprise = agent.cardId ? rendreLaCarteInterrompue(agent.cardId) : false;
+    /* Une carte rendue interrompue repart d'elle-même avec la demande de son
+       tour (DEC-036) : la remettre AUSSI en file la doublerait. */
+    if (!carteReprise) remettreEnFileLaDemandeCoupee(agent.id);
   }
 
   /*
@@ -6402,6 +7036,15 @@ export function recoverAfterRestart(
    * n'en porte pas : on ne la touche pas.
    */
   for (const carte of store.cartesEnVol()) rendreLaCarteInterrompue(carte.id);
+
+  /*
+   * …ET UNE CARTE QUI ANNONCE QU'ELLE REPART N'EST PLUS RETENUE PAR UNE
+   * DÉCISION D'AVANT (15/11/2026). La veille des compétences portait « la
+   * carte repart d'elle-même » et restait refusée en silence par une erreur de
+   * tour posée avant le redémarrage. Le redémarrage EST la relance : la
+   * décision est close, une fois par coupure (`decisionsCaduquesAuRedemarrage`).
+   */
+  fermerLesDecisionsCaduques();
 
   /*
    * Une publication « running » a été coupée en plein vol par le redémarrage :
@@ -6446,6 +7089,84 @@ export function recoverAfterRestart(
 }
 
 /**
+ * UNE DEMANDE COUPÉE AVANT LE MOTEUR REPART TOUTE SEULE (`demandeCoupeeAvantLeMoteur`).
+ *
+ * Sa bulle est déjà écrite : elle revient en TÊTE de file avec son identifiant,
+ * donc elle repart sans seconde bulle — le filet des files en attente la dépile
+ * au premier compte disponible, en passant par les mêmes refus que toute
+ * demande humaine (carte en publication ou déjà en ligne : rendue au champ).
+ * Une fois en file, elle ne s'y remet plus ; partie, elle porte son contexte
+ * envoyé : deux redémarrages de suite ne la doublent jamais.
+ */
+function remettreEnFileLaDemandeCoupee(agentId: string): void {
+  try {
+    const dejaEnFile = new Set(
+      store
+        .listQueue(agentId)
+        .map((d) => d.messageId)
+        .filter((id): id is string => !!id),
+    );
+    const coupee = demandeCoupeeAvantLeMoteur(
+      // `listMessages` rend l'ordre chronologique : la règle lit du plus récent au plus ancien.
+      store.listMessages(agentId, 10).reverse(),
+      Date.now(),
+      dejaEnFile,
+    );
+    if (!coupee) return;
+    const message = store.getMessage(coupee.id);
+    if (!message) return;
+    const item = store.enqueuePrompt(agentId, message.content, message.attachments ?? [], message.id);
+    if (!item) return;
+    store.remonterEnTete(item.id);
+    log.info(`demande coupée par l'arrêt du serveur remise en tête de file (agent ${agentId}, message ${message.id})`);
+  } catch (err) {
+    log.warn(`demande coupée impossible à remettre en file (agent ${agentId})`, err);
+  }
+}
+
+/**
+ * LES DEMANDES HUMAINES ENCORE EN PRÉPARATION, à l'instant d'un redémarrage
+ * FORCÉ (15/11/2026). Le geste ferme ces tours en « secours », l'agent n'est
+ * plus « au travail » au démarrage suivant : la reprise ordinaire
+ * (`remettreEnFileLaDemandeCoupee`) ne les voyait donc plus, et le message de
+ * l'utilisateur restait sans réponse — un cadrage du 15/11 a dû être supprimé.
+ * Relevées AVANT l'arrêt, elles sont remises en file juste après.
+ */
+export function demandesEnPreparation(): { agentId: string; demandeId: string }[] {
+  const demandes: { agentId: string; demandeId: string }[] = [];
+  for (const [agentId, entree] of demarrant) {
+    if (live.has(agentId) || !entree.demandeId) continue;
+    demandes.push({ agentId, demandeId: entree.demandeId });
+  }
+  return demandes;
+}
+
+/**
+ * Remet en TÊTE de file chaque demande relevée, avec sa bulle : elle repart au
+ * prochain démarrage sans seconde bulle, par le filet des files en attente. Une
+ * demande déjà en file, déjà reçue par un moteur ou disparue n'est pas remise :
+ * deux redémarrages de suite ne la doublent jamais. Rend le nombre remis.
+ */
+export function remettreEnFileLesDemandes(demandes: { agentId: string; demandeId: string }[]): number {
+  let remises = 0;
+  for (const { agentId, demandeId } of demandes) {
+    try {
+      const message = store.getMessage(demandeId);
+      if (!message || message.role !== 'user' || message.sentContext || !message.content.trim()) continue;
+      if (store.listQueue(agentId).some((d) => d.messageId === demandeId)) continue;
+      const item = store.enqueuePrompt(agentId, message.content, message.attachments ?? [], message.id);
+      if (!item) continue;
+      store.remonterEnTete(item.id);
+      remises += 1;
+      log.info(`demande en préparation remise en tête de file avant le redémarrage (agent ${agentId}, message ${demandeId})`);
+    } catch (err) {
+      log.warn(`demande en préparation impossible à remettre en file (agent ${agentId})`, err);
+    }
+  }
+  return remises;
+}
+
+/**
  * Le repli pour les cartes d'AVANT la marque : une carte trouvée en « En cours »
  * alors que son agent était encore au travail est coupée en vol, marque ou pas.
  */
@@ -6462,13 +7183,14 @@ const etatCoupureSansMarque = (suspendue?: boolean) => ({
  * Le compteur d'ESSAIS, lui, ne bouge pas : un arrêt du serveur n'est pas un
  * essai raté.
  */
-function rendreLaCarteInterrompue(cardId: string): void {
+/** Rend `true` quand la carte a été rendue interrompue (elle repartira d'elle-même). */
+function rendreLaCarteInterrompue(cardId: string): boolean {
   const card = store.getCard(cardId);
-  if (!card) return;
+  if (!card) return false;
   const etat =
     etatApresCoupure(card) ??
     (card.column === 'running' ? etatCoupureSansMarque(card.scheduling?.suspendu) : null);
-  if (!etat) return;
+  if (!etat) return false;
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updatedCard = store.saveCard({
     ...card,
@@ -6495,6 +7217,36 @@ function rendreLaCarteInterrompue(cardId: string): void {
   });
   bus.emit({ type: 'card.upsert', card: updatedCard });
   log.info(`carte « ${card.title} » rendue interrompue après redémarrage`);
+  return true;
+}
+
+/**
+ * Ferme, au démarrage, les décisions « Relancer / Ignorer / Arrêter » restées
+ * ouvertes sur une carte qui repart d'elle-même : le redémarrage a relancé.
+ * Rend le nombre de décisions fermées.
+ */
+export function fermerLesDecisionsCaduques(maintenant = Date.now()): number {
+  let fermees = 0;
+  try {
+    for (const attente of store.erreursDeTourEnAttente()) {
+      if (!attente.cardId) continue;
+      const carte = store.getCard(attente.cardId);
+      if (!carte || !decisionsCaduquesAuRedemarrage(carte)) continue;
+      const message = store.getMessage(attente.messageId);
+      if (!message?.erreurDeTour || message.erreurDeTour.choix) continue;
+      const ferme = store.saveMessage({
+        ...message,
+        erreurDeTour: { ...message.erreurDeTour, choix: 'relancer', choisiA: maintenant, fermeeParRedemarrage: true },
+      });
+      bus.emit({ type: 'message.upsert', message: ferme });
+      fermees += 1;
+      log.info(`décision d'erreur close par le redémarrage (carte « ${carte.title} ») : la carte repart d'elle-même`);
+    }
+    if (fermees) bus.emit({ type: 'attention', ...store.signalAttention() });
+  } catch (err) {
+    log.warn('décisions caduques non fermées au démarrage', err);
+  }
+  return fermees;
 }
 
 /** Nettoyage des configurations d'outils temporaires. */
@@ -6534,4 +7286,25 @@ function cahierVivantEnTexte(cahier: { titre: string; contenu: string }[] | unde
   return texte
     ? `\n\nSON CAHIER DES CHARGES VIVANT (« cahierDesCharges », ${cahier!.length} rubrique(s)) — ne redonne que les rubriques qui changent :\n${texte}`
     : '';
+}
+
+/**
+ * « /ordinateur:<repère> » DANS UN MESSAGE : les ordinateurs de la personne qui parle (jamais ceux d'un autre compte),
+ * et celui désigné retenu pour la carte. `null` quand le message ne porte pas la commande.
+ */
+async function ordinateurDeLaCommande(agentId: string, cardId: string | null, texte: string): Promise<{ id: string; nom: string; repere: string }[] | null> {
+  if (!/(^|\s)\/ordinateur(:|\s|$)/.test(texte)) return null;
+  try {
+    const { interlocuteurDeLAgent } = await import('./interlocuteur.js');
+    const compte = await interlocuteurDeLAgent(agentId);
+    if (!compte?.id) return [];
+    const { ordinateursDuCompte, retenirLOrdinateur } = await import('./ordinateurs.js');
+    const ordinateurs = await ordinateursDuCompte(compte.id);
+    const argument = argumentDeLaCommande(texte, 'ordinateur');
+    const vise = argument ? resoudreLOrdinateur(ordinateurs, argument) : null;
+    if (vise) retenirLOrdinateur(compte.id, agentId, cardId, vise.id);
+    return ordinateurs.map((o) => ({ id: o.id, nom: o.nom, repere: o.repere }));
+  } catch {
+    return [];
+  }
 }

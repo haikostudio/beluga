@@ -45,16 +45,50 @@ export const PROPOSITIONS_PAR_CARTE_MAX = 6;
  * demande sans compétence les premières se suivent à 0,001–0,009. On propose
  * donc ce qui précède une vraie marche dans les trois premières places — et
  * rien quand il n'y a pas de marche.
+ *
+ * RÉGLÉ À NOUVEAU LE 13/11/2026 (carte dd481232) : la foule n'est plus de ~150
+ * fiches mais de ~1 200 (les bibliothèques y sont entrées, résumées en
+ * français) ; plus dense, elle resserre toutes les marches. Mesuré sur
+ * quatorze demandes (`scripts/mesure-competences-par-le-sens.mjs`) : une fiche
+ * qui tombe pile se détache de 0,0099 à 0,0117 ; sur les demandes sans
+ * compétence, la plus grande marche des trois premières places vaut 0,0053.
+ * 0,012 ne proposait plus RIEN (0 sur 11) ; 0,008 coupe au milieu.
  */
-export const ECART_DE_SAILLANCE = 0.012;
+export const ECART_DE_SAILLANCE = 0.008;
 /**
  * …et les deux recherches doivent être D'ACCORD : une fiche saillante par le
  * sens doit aussi figurer parmi les premières compétences de la recherche
  * mêlée (mots + sens). Un seul signal ne suffit pas à déranger l'utilisateur.
  */
 export const RANG_MELE_MAX = 5;
+/**
+ * …SAUF QU'UNE FICHE DE BIBLIOTHÈQUE PART AVEC UN HANDICAP dans la recherche
+ * mêlée : son unité est en P3, les fiches maison en P2, et la pondération par
+ * l'importance la classe derrière elles même quand elle colle mieux à la
+ * demande (mesure du 13/11/2026, carte dd481232 : « faire un devis » → devis-brain
+ * PREMIÈRE par le sens avec une marche de 0,018, mais HUITIÈME compétence de la
+ * mêlée). Les deux signaux doivent toujours être d'accord — la saillance par le
+ * sens reste exigée — mais le rang mêlé d'une fiche de bibliothèque est jugé
+ * avec ce plafond-ci.
+ */
+export const RANG_MELE_MAX_BIBLIOTHEQUE = 10;
 /** Sous ce nombre de fiches comparées, « se détacher de la foule » ne veut rien dire. */
 export const FOULE_MINIMALE = 8;
+
+/**
+ * LES BIBLIOTHÈQUES LAISSÉES AU JUGEMENT DE L'AGENT D'EXÉCUTION. Décision de
+ * l'utilisateur (carte 2aeb9b29, 06/11/2026) : c'est l'agent qui décide si une
+ * méthode pstack sert sa carte (`CONSIGNE_DE_PSTACK`, server/src/runtime.ts),
+ * pas l'utilisateur au cadrage. Leurs fiches ne deviennent donc jamais un
+ * encadré à valider ; la mémoire (« memoire chercher ») continue de les servir.
+ */
+export const BIBLIOTHEQUES_AU_CHOIX_DE_L_AGENT: readonly string[] = ['pstack'];
+
+/** Cette fiche peut-elle être proposée en encadré au cadrage ? */
+export function ficheProposableAuCadrage(fiche: { bibliotheque?: string; provenance?: { bibliotheque?: string } }): boolean {
+  const bibliotheque = fiche.bibliotheque ?? fiche.provenance?.bibliotheque;
+  return !bibliotheque || !BIBLIOTHEQUES_AU_CHOIX_DE_L_AGENT.includes(bibliotheque);
+}
 
 export const REPONSE_UTILISER = 'Utiliser';
 export const REPONSE_PAS_UTILE = 'Pas utile';
@@ -108,6 +142,8 @@ export interface CandidateDeProposition {
   proximite: number;
   /** Sa place parmi les compétences de la recherche mêlée, à partir de 0 ; absente = `Infinity`. */
   rang: number;
+  /** Une fiche de BIBLIOTHÈQUE : son rang mêlé est jugé avec `RANG_MELE_MAX_BIBLIOTHEQUE`. */
+  bibliotheque?: boolean;
 }
 
 /**
@@ -121,12 +157,13 @@ export interface CandidateDeProposition {
 export function retenirLesPropositions<T extends CandidateDeProposition>(
   candidates: readonly T[],
   dejaProposees: readonly string[],
-  plafonds: { parRecherche?: number; parCarte?: number; ecart?: number; rangMax?: number; fouleMin?: number } = {},
+  plafonds: { parRecherche?: number; parCarte?: number; ecart?: number; rangMax?: number; rangMaxBibliotheque?: number; fouleMin?: number } = {},
 ): T[] {
   const parRecherche = plafonds.parRecherche ?? PROPOSITIONS_PAR_RECHERCHE_MAX;
   const parCarte = plafonds.parCarte ?? PROPOSITIONS_PAR_CARTE_MAX;
   const ecart = plafonds.ecart ?? ECART_DE_SAILLANCE;
   const rangMax = plafonds.rangMax ?? RANG_MELE_MAX;
+  const rangMaxBibliotheque = plafonds.rangMaxBibliotheque ?? RANG_MELE_MAX_BIBLIOTHEQUE;
   const fouleMin = plafonds.fouleMin ?? FOULE_MINIMALE;
   const deja = new Set(dejaProposees);
   const place = Math.min(parRecherche, parCarte - deja.size);
@@ -141,7 +178,7 @@ export function retenirLesPropositions<T extends CandidateDeProposition>(
   }
   return classees
     .slice(0, coupure)
-    .filter((c) => c.rang < rangMax && !deja.has(c.nom))
+    .filter((c) => c.rang < (c.bibliotheque ? rangMaxBibliotheque : rangMax) && !deja.has(c.nom))
     .slice(0, place);
 }
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   DOSSIER_D_ATTENTE,
   FICHIER_D_ATTENTE,
@@ -28,6 +29,8 @@ import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import { cheminsIgnores } from './memoire-hors-depot.js';
 import * as store from './store.js';
+
+const executer = promisify(execFile);
 
 /**
  * LE RANGEMENT DE NUIT DES INSTRUCTIONS.
@@ -278,7 +281,7 @@ function projetDeLaRacine(racine: string): { id: string; name: string; path: str
  * copies de travail suivantes partent du fichier rangé, et la prochaine
  * publication réelle emportera ce commit avec le reste.
  */
-function enregistrerLeRangement(racine: string, tousLesFichiers: readonly string[]): CommitObserve | undefined {
+async function enregistrerLeRangement(racine: string, tousLesFichiers: readonly string[]): Promise<CommitObserve | undefined> {
   /*
    * UNE MÉMOIRE GARDÉE HORS DU DÉPÔT NE S'ENREGISTRE PAS. Un projet dont le
    * `.gitignore` écarte ses instructions et ses règles (`memoire-hors-depot.ts`)
@@ -288,13 +291,18 @@ function enregistrerLeRangement(racine: string, tousLesFichiers: readonly string
   const ignores = cheminsIgnores(racine, tousLesFichiers);
   const fichiers = tousLesFichiers.filter((fichier) => !ignores.has(fichier));
   if (!fichiers.length) return undefined;
-  const git = (...args: string[]) =>
-    execFileSync('git', args, {
-      cwd: racine,
-      encoding: 'utf8',
-      env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+  /* EN ASYNCHRONE : un `git commit` synchrone figeait le démon entier chaque
+     nuit (jusqu'à 12 s le 16/11/2026, carte 4e7f1032). Le rangement attend
+     toujours son enregistrement : seul le reste du démon ne l'attend plus. */
+  const git = async (...args: string[]) =>
+    (
+      await executer('git', args, {
+        cwd: racine,
+        encoding: 'utf8',
+        env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
+        maxBuffer: 16 * 1024 * 1024,
+      })
+    ).stdout;
   try {
     // Un dépôt en pleine fusion ou en plein rebasage ne se laisse pas
     // enregistrer : on repasse la nuit suivante plutôt que d'insister.
@@ -302,18 +310,18 @@ function enregistrerLeRangement(racine: string, tousLesFichiers: readonly string
     // d'un dépôt de carte, consommé et retiré. La règle du dossier partagé est
     // tenue — un fichier à la fois, jamais `git add -A` sur tout le dépôt.
     for (const fichier of fichiers) {
-      git('add', '--all', '--', fichier);
+      await git('add', '--all', '--', fichier);
     }
     try {
-      git('diff', '--cached', '--quiet');
+      await git('diff', '--cached', '--quiet');
       return undefined; // rien de neuf dans l'index : pas de commit à vide.
     } catch {
       /* il y a bien quelque chose à enregistrer */
     }
-    git('commit', '-m', 'Range les règles durables déposées, une fois pour la nuit');
-    const sha = git('rev-parse', 'HEAD').trim();
-    const branche = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
-    const date = git('show', '-s', '--format=%aI', 'HEAD').trim();
+    await git('commit', '-m', 'Range les règles durables déposées, une fois pour la nuit');
+    const sha = (await git('rev-parse', 'HEAD')).trim();
+    const branche = (await git('rev-parse', '--abbrev-ref', 'HEAD')).trim();
+    const date = (await git('show', '-s', '--format=%aI', 'HEAD')).trim();
     log.info(`rangement des instructions : ${fichiers.length} fichier(s) enregistré(s) dans ${racine}`);
     return { sha, titre: 'Range les règles durables déposées, une fois pour la nuit', branche, date };
   } catch (err) {
@@ -419,7 +427,10 @@ export async function rangerUnProjet(racine: string, projet = projetDeLaRacine(r
       fs.writeFileSync(instructions, compacte.texte);
       log.info(
         `rangement des instructions : ${compacte.doublons} doublon(s) et ${compacte.compactees} redite(s) ` +
-          `retirés du fichier d'instructions, ${compacte.gagnes} signes gagnés`,
+          `retirés du fichier d'instructions, ${compacte.gagnes} signes gagnés` +
+          (compacte.secondsTitres.length
+            ? ` — seconds titres retirés : ${compacte.secondsTitres.map((t) => `« ${t} »`).join(', ')}`
+            : ''),
       );
     }
     const tri = contratsQuiTiennent(compacte.texte.length, plan.contrat);
@@ -451,7 +462,11 @@ export async function rangerUnProjet(racine: string, projet = projetDeLaRacine(r
     for (const fiche of fichesDeRegles(texteAvecMarqueurs, sujet, 'rangement de nuit', etiquette)) {
       const corps = fiche.corps.replace(/^—\s*/, '').trim() || fiche.titre;
       const plat = corps.replace(/\s+/g, ' ').trim();
-      const resume = plat.length >= 20 ? (plat.length > 600 ? `${plat.slice(0, 599).trim()}…` : plat) : `${fiche.titre} — ${plat}`;
+      // Le résumé est DISTINCT du détail : la première phrase, bornée. Jamais une copie tronquée du corps,
+      // que la lecture afficherait deux fois (résumé puis détail).
+      const premiere = plat.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? plat;
+      const bornee = premiere.length > 240 ? `${premiere.slice(0, 239).trim()}…` : premiere;
+      const resume = bornee.length >= 20 ? bornee : `${fiche.titre} — ${bornee}`;
       const r = await proposerReglesDeNuit(
         portee,
         sujet,
@@ -477,7 +492,7 @@ export async function rangerUnProjet(racine: string, projet = projetDeLaRacine(r
       log.warn(`rangement des instructions : ${relatif} non retiré — ${(err as Error).message}`);
     }
   }
-  enregistrerLeRangement(racine, touches);
+  await enregistrerLeRangement(racine, touches);
   return plan;
 }
 

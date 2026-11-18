@@ -79,7 +79,7 @@ function ecrireLaRealisation(cardId: string, champs: Partial<NonNullable<Card['r
 /** Ce que le directeur reçoit quand l'utilisateur passe d'étape (il est réveillé seulement quand il a quelque chose à proposer). */
 const CONSIGNE_DU_PASSAGE: Partial<Record<GesteDuMedia, string>> = {
   'passer-esquisses':
-    'L’UTILISATEUR VIENT DE PASSER AUX ESQUISSES (bouton du bas). Relis l’état (« production » action « etat ») : le brief définit la structure des esquisses. Pose TOUT DE SUITE, dans ce même tour, UNE VALIDATION PAR PLAN OU ÉLÉMENT PRÉVU : pour chacun « realiser » action « devis » (2 à 4 variantes) puis « lot » — chaque bouton « Valider · prix » part dans le fil, et son clic lancera la génération sans toi. Une validation ne t’arrête pas : enchaîne-les toutes. Pour une vidéo : l’image de CHAQUE plan visuel (« plan » = sa clé), pas encore d’animation. Une phrase pour finir, rien de plus.',
+    'L’UTILISATEUR VIENT DE PASSER AUX ESQUISSES (bouton du bas). Relis l’état (« production » action « etat ») : le brief définit la structure des esquisses. Pose TOUT DE SUITE, dans ce même tour, UNE VALIDATION PAR PLAN OU ÉLÉMENT PRÉVU : pour chacun « realiser » action « devis » (2 à 4 variantes) puis « lot » — chaque bouton « Générer · prix » part dans le fil, et son clic lancera la génération sans toi. Une validation ne t’arrête pas : enchaîne-les toutes. Pour une vidéo : l’image de CHAQUE plan visuel (« plan » = sa clé), pas encore d’animation. Une phrase pour finir, rien de plus.',
   'passer-sequences':
     'L’UTILISATEUR VIENT DE PASSER AUX SÉQUENCES VIDÉO (bouton du bas). Pose TOUT DE SUITE, dans ce même tour, UNE VALIDATION PAR PLAN : l’animation de chaque plan visuel dont l’image est validée (devis capacité « animation », « source » = l’image validée, « plan » = sa clé, « duree » = la durée du plan, puis « lot »), puis la voix off et la musique prévues au brief, chacune par son propre lot. Une validation ne t’arrête pas : enchaîne-les toutes ; une phrase pour finir.',
 };
@@ -97,6 +97,18 @@ export async function passerALEtape(cardId: string, geste: GesteDuMedia): Promis
   if (!r.ok) return r;
   if (r.deja) return { ok: true, deja: true };
   ecrireLaRealisation(cardId, r.realisation);
+  /* LE STUDIO SUIT LES ÉTAPES : un jalon de version, et au passage au montage les séquences validées se posent sur la ligne de temps. */
+  {
+    const { creationDeLaCarte, poserUnJalon } = await import('./studio.js');
+    const creation = creationDeLaCarte(cardId);
+    if (creation) {
+      poserUnJalon(creation.id, `Étape : ${geste.replace('passer-', '').replace('revenir-', 'retour aux ')}`);
+      if (geste === 'passer-montage') {
+        const { verserLesPlans } = await import('./studio-montage-de-carte.js');
+        void verserLesPlans(creation.id, cardId).catch(() => 0);
+      }
+    }
+  }
   noterUnEvenement(cardId, 'parcours.passage', { geste });
   /* « Passer aux esquisses » vaut accord sur l'écrit du brief : une retouche ensuite le fera revalider. */
   if (geste === 'passer-esquisses') {

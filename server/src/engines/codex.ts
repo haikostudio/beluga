@@ -159,7 +159,7 @@ export const codexAdapter: EngineAdapter = {
 
   async detect() {
     try {
-      const { stdout } = await execFileAsync(codexAdapter.binary, ['--version'], { timeout: 15000 });
+      const { stdout } = await execFileAsync(codexAdapter.binary, ['--version'], { timeout: 15000, killSignal: 'SIGKILL' });
       return { installed: true, version: stdout.trim().split('\n')[0] };
     } catch {
       return { installed: false };
@@ -334,6 +334,80 @@ export function lireContexteCodex(
   return null;
 }
 
+/**
+ * LES SURCHARGES DU PONT D'OUTILS DE BELUGA, en « -c clé=valeur » : le pont seul (les serveurs tiers du compte
+ * éteints), ses variables, l'approbation d'office et le délai d'un outil. Partagées par un tour (`codex exec`) et
+ * par la conversation vocale en direct (`codex app-server`, `server/src/voix-directe.ts`) : une seule écriture.
+ */
+export function surchargesDuPontBeluga(
+  options: Pick<EngineRunOptions, 'mcpBridgePath' | 'env' | 'mcpServeursEnPlus'>,
+): string[] {
+  const args: string[] = [];
+  if (!options.mcpBridgePath) return args;
+  // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
+  // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de
+  // configuration de Claude Code (« node fichier.json » sort aussitôt sans
+  // rien dire, et la liste d'outils reste vide).
+  const set = (key: string, value: unknown) => args.push('-c', `${key}=${JSON.stringify(value)}`);
+  set('mcp_servers.beluga.command', process.execPath);
+  set('mcp_servers.beluga.args', [options.mcpBridgePath]);
+  // Sans ce mode, chaque appel d'outil demande une approbation ; hors bac à
+  // sable ouvert, personne ne répond et Codex rend « user cancelled MCP tool
+  // call ». Les outils du démon sont les nôtres : ils n'ont rien à demander.
+  set('mcp_servers.beluga.default_tools_approval_mode', 'approve');
+  /*
+   * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. `ask_user` ne rend la main
+   * qu'une fois la réponse donnée : c'est ce qui arrête le moteur au lieu de
+   * le laisser enchaîner les étapes suivantes de sa liste. Le délai d'un
+   * appel d'outil, très court par défaut chez Codex, doit donc laisser la
+   * place au plafond tenu par le démon (`shared/src/attente-question.ts`).
+   */
+  set('mcp_servers.beluga.tool_timeout_sec', Math.round(delaiOutilMoteurMs() / 1000));
+  if (options.env?.BELUGA_TOKEN) {
+    set('mcp_servers.beluga.env.BELUGA_TOKEN', options.env.BELUGA_TOKEN);
+    set('mcp_servers.beluga.env.BELUGA_URL', options.env.BELUGA_URL ?? '');
+    set('mcp_servers.beluga.env.BELUGA_AGENT', options.env.BELUGA_AGENT ?? '');
+    // Le tour, pour que le démon reconnaisse un appel venu d'ailleurs.
+    set('mcp_servers.beluga.env.BELUGA_TOUR', options.env.BELUGA_TOUR ?? '');
+  }
+  /*
+   * LES OUTILS DU PROJET SONT LES SEULS DANS LA PIÈCE. Un autre serveur
+   * branché dans la configuration de Codex propose souvent sa propre
+   * mémoire : le modèle l'appelle À LA PLACE de `project_memory`, annonce
+   * « mémoire consultée » et énonce des faits qu'il n'est jamais allé
+   * chercher (constaté sur les tours du 4 août : `chercher_memoire` appelé à
+   * chaque fois, `project_memory` jamais). On les éteint LE TEMPS D'UN TOUR
+   * d'agent — la configuration de l'utilisateur n'est pas touchée.
+   */
+  /* Les serveurs de plus de CE tour (REA, pour l'agent d'un clonage). */
+  for (const [nom, serveur] of Object.entries(options.mcpServeursEnPlus ?? {})) {
+    set(`mcp_servers.${nom}.command`, serveur.command);
+    set(`mcp_servers.${nom}.args`, serveur.args);
+    set(`mcp_servers.${nom}.default_tools_approval_mode`, 'approve');
+    set(`mcp_servers.${nom}.tool_timeout_sec`, 600);
+    for (const [cle, valeur] of Object.entries(serveur.env)) set(`mcp_servers.${nom}.env.${cle}`, valeur);
+  }
+  for (const nom of serveursTiersDuCompte(options.env?.CODEX_HOME)) {
+    args.push('-c', `mcp_servers.${nom}.enabled=false`);
+  }
+  /*
+   * Même raison pour la mémoire PROPRE de Codex (son dossier `memories`) :
+   * elle est commune à tous les projets, Beluga Build n'y écrit rien, et elle
+   * suffit au modèle pour se croire renseigné. La mémoire d'un projet vit
+   * par sujet dans `docs/memoire/`, et se lit avec `project_memory`.
+   */
+  args.push('-c', 'features.memories=false');
+  /*
+   * LES EXTENSIONS DU COMPTE suivent les serveurs d'outils : une extension
+   * personnelle (mémoire, rappel…) apporte ses propres consignes et outils.
+   * Éteintes le temps du tour, comme le sont les serveurs étrangers.
+   */
+  for (const nom of pluginsTiersDuCompte(options.env?.CODEX_HOME)) {
+    args.push('-c', `plugins."${nom}".enabled=false`);
+  }
+  return args;
+}
+
 export function buildCodexArgs(options: EngineRunOptions): string[] {
   const resuming = Boolean(options.sessionId);
   const args: string[] = resuming
@@ -366,69 +440,7 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   for (const surcharge of surchargesCodexBridees(options)) args.push('-c', surcharge);
   // Posée APRÈS les surcharges du bridage : c'est elle qui l'emporte.
   if (options.sandboxLectureSeule) args.push('-c', 'sandbox_mode="read-only"');
-  if (options.mcpBridgePath) {
-    // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
-    // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de
-    // configuration de Claude Code (« node fichier.json » sort aussitôt sans
-    // rien dire, et la liste d'outils reste vide).
-    const set = (key: string, value: unknown) => args.push('-c', `${key}=${JSON.stringify(value)}`);
-    set('mcp_servers.beluga.command', process.execPath);
-    set('mcp_servers.beluga.args', [options.mcpBridgePath]);
-    // Sans ce mode, chaque appel d'outil demande une approbation ; hors bac à
-    // sable ouvert, personne ne répond et Codex rend « user cancelled MCP tool
-    // call ». Les outils du démon sont les nôtres : ils n'ont rien à demander.
-    set('mcp_servers.beluga.default_tools_approval_mode', 'approve');
-    /*
-     * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. `ask_user` ne rend la main
-     * qu'une fois la réponse donnée : c'est ce qui arrête le moteur au lieu de
-     * le laisser enchaîner les étapes suivantes de sa liste. Le délai d'un
-     * appel d'outil, très court par défaut chez Codex, doit donc laisser la
-     * place au plafond tenu par le démon (`shared/src/attente-question.ts`).
-     */
-    set('mcp_servers.beluga.tool_timeout_sec', Math.round(delaiOutilMoteurMs() / 1000));
-    if (options.env?.BELUGA_TOKEN) {
-      set('mcp_servers.beluga.env.BELUGA_TOKEN', options.env.BELUGA_TOKEN);
-      set('mcp_servers.beluga.env.BELUGA_URL', options.env.BELUGA_URL ?? '');
-      set('mcp_servers.beluga.env.BELUGA_AGENT', options.env.BELUGA_AGENT ?? '');
-      // Le tour, pour que le démon reconnaisse un appel venu d'ailleurs.
-      set('mcp_servers.beluga.env.BELUGA_TOUR', options.env.BELUGA_TOUR ?? '');
-    }
-    /*
-     * LES OUTILS DU PROJET SONT LES SEULS DANS LA PIÈCE. Un autre serveur
-     * branché dans la configuration de Codex propose souvent sa propre
-     * mémoire : le modèle l'appelle À LA PLACE de `project_memory`, annonce
-     * « mémoire consultée » et énonce des faits qu'il n'est jamais allé
-     * chercher (constaté sur les tours du 4 août : `chercher_memoire` appelé à
-     * chaque fois, `project_memory` jamais). On les éteint LE TEMPS D'UN TOUR
-     * d'agent — la configuration de l'utilisateur n'est pas touchée.
-     */
-    /* Les serveurs de plus de CE tour (REA, pour l'agent d'un clonage). */
-    for (const [nom, serveur] of Object.entries(options.mcpServeursEnPlus ?? {})) {
-      set(`mcp_servers.${nom}.command`, serveur.command);
-      set(`mcp_servers.${nom}.args`, serveur.args);
-      set(`mcp_servers.${nom}.default_tools_approval_mode`, 'approve');
-      set(`mcp_servers.${nom}.tool_timeout_sec`, 600);
-      for (const [cle, valeur] of Object.entries(serveur.env)) set(`mcp_servers.${nom}.env.${cle}`, valeur);
-    }
-    for (const nom of serveursTiersDuCompte(options.env?.CODEX_HOME)) {
-      args.push('-c', `mcp_servers.${nom}.enabled=false`);
-    }
-    /*
-     * Même raison pour la mémoire PROPRE de Codex (son dossier `memories`) :
-     * elle est commune à tous les projets, Beluga Build n'y écrit rien, et elle
-     * suffit au modèle pour se croire renseigné. La mémoire d'un projet vit
-     * par sujet dans `docs/memoire/`, et se lit avec `project_memory`.
-     */
-    args.push('-c', 'features.memories=false');
-    /*
-     * LES EXTENSIONS DU COMPTE suivent les serveurs d'outils : une extension
-     * personnelle (mémoire, rappel…) apporte ses propres consignes et outils.
-     * Éteintes le temps du tour, comme le sont les serveurs étrangers.
-     */
-    for (const nom of pluginsTiersDuCompte(options.env?.CODEX_HOME)) {
-      args.push('-c', `plugins."${nom}".enabled=false`);
-    }
-  }
+  args.push(...surchargesDuPontBeluga(options));
 
   // Codex n'a pas de consigne « système » séparée : elle est collée devant la
   // demande, donc elle ENTRE dans l'historique du fil. La recoller à chaque

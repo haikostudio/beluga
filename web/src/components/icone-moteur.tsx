@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Cpu } from 'lucide-react';
+import { Cpu } from '@/components/ui/icones';
 import { cn } from '@/lib/utils';
 import { MOTEUR_SUIVI_GEMINI, type EngineId } from '@beluga/shared';
 
@@ -86,7 +86,7 @@ const FLOUS_GEMINI: Array<{ x: number; y: number; width: number; height: number;
  * LOGO affiché (`useId`). Partagé, il pointerait vers le premier logo de la
  * page — et s'éteindrait avec lui dès que celui-ci est caché.
  */
-function LogoGemini({ className }: { className?: string }) {
+export function LogoGemini({ className }: { className?: string }) {
   const brut = React.useId();
   // Les « : » de `useId` ne passent pas dans `url(#…)`.
   const id = `gemini-${brut.replace(/[^a-zA-Z0-9_-]/g, '')}`;

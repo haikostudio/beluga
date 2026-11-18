@@ -28,7 +28,6 @@
  */
 
 import type { ColumnKey } from './columns.js';
-import { extraitDeNote } from './editeur-riche.js';
 import { agentSystemeActif, agentSystemeTermine } from './cartes-systeme.js';
 
 /**
@@ -143,8 +142,7 @@ export const BANDE_GARDE_UN_FINI_MS = 60_000;
 /**
  * LA BANDE DES AGENTS QU'AUCUNE CARTE NE PORTE, EN TÊTE D'« ACTIFS » : la mise
  * en ligne, l'analyse de nuit, le chef — tant qu'ils travaillent ou attendent
- * une réponse (`agentSystemeActif`). Finis, ils passent dans « Archiver »
- * (`agentsTerminesDeLaBande`, 06/10/2026).
+ * une réponse (`agentSystemeActif`). Finis, ils passent dans « Archiver ».
  *
  * UN AGENT POSÉ SUR UNE CARTE N'Y ENTRE JAMAIS, que sa carte soit affichée ou
  * non (demande de l'utilisateur, 24.09.2026) : comparer aux seules cartes de
@@ -163,19 +161,6 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
       return agentSystemeActif(agent);
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
-}
-
-/**
- * LES AGENTS SANS CARTE FINIS DEPUIS MOINS DE 24 HEURES : leur carte Système
- * dans « Archiver » (`agentSystemeTermine` — l'analyse de nuit exceptée), la
- * plus récente fin d'abord.
- */
-export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], maintenant: number): T[] {
-  return agents
-    .filter(
-      (agent) => !agent.assistantGlobal && !agent.depannagePublication && !agent.reparationPublication && agentSystemeTermine(agent, maintenant),
-    )
-    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 
 /* ------------------------------------------------------------------------ */
@@ -272,9 +257,28 @@ export function rangementApresDeplacement(
 /** Les signes gardés : deux lignes pleines de la carte, et un peu de marge. */
 export const LONGUEUR_DEBUT_DE_DEMANDE = 280;
 
+/**
+ * Un texte Markdown débarrassé de ses signes (titres, gras, liens, code), aplati et coupé avec ses points de suite :
+ * une carte montre deux lignes de TEXTE, pas de la ponctuation.
+ */
+function extraitSansMiseEnForme(markdown: string, longueur: number): string {
+  const plat = (markdown ?? '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/<span style="color:[^"]*">([\s\S]*?)<\/span>/g, '$1')
+    .replace(/^[>#\s]+/gm, '')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/^\d+[.)]\s+/gm, '')
+    .replace(/[*`\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return plat.length > longueur ? `${plat.slice(0, longueur - 1).trimEnd()}…` : plat;
+}
+
 /** Le texte d'un message, sans ses pastilles « [fichier: …] », aplati et coupé. */
 export function debutDeLaDemande(contenu: string | null | undefined, longueur = LONGUEUR_DEBUT_DE_DEMANDE): string {
-  return extraitDeNote((contenu ?? '').replace(/\[fichier:[^\]]*\]/g, ' '), longueur);
+  return extraitSansMiseEnForme((contenu ?? '').replace(/\[fichier:[^\]]*\]/g, ' '), longueur);
 }
 
 /** Un premier message utilisateur trouvé pour une carte (un par agent de la carte). */

@@ -103,13 +103,24 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'acks.reclamer': 'aucun',
   // Le périmètre d'écran ne fait que choisir quels détails REÇOIT l'écran ; le tri par portée se fait à l'envoi.
   'ecran.perimetre': 'aucun',
+  /* « VOTRE ASSISTANT » (17/11/2026) : chacun règle SON prénom (le démon n'écrit que le compte connecté) et peut demander
+     si un nom d'assistant sera entendu ; changer ce nom reste un réglage de l'administrateur (`settings.update`). */
+  'compte.prenom': 'aucun',
+  'assistant.nom.verifier': 'aucun',
   // La réponse est filtrée sur la portée du compte.
   'project.list': 'aucun',
   'project.open': 'projet:id',
   'project.read': 'projet:projectId',
   'projects.relire': 'projet:ids',
   'cards.tranche': 'projet:projectId',
-  'cards.rechercher': 'projet:projectId',
+  // Ces trois réponses listent plusieurs projets : `reponsePourLeCollaborateur` les ramène à la portée.
+  'cards.rechercher': 'aucun',
+  /* ⌘F ÉLARGI : chaque source n'est lue que si sa propre commande de liste est ouverte au compte, et sa réponse est
+     ramenée à sa portée comme celle de la page (`recherche.globale` dans `ws.ts`). */
+  'recherche.globale': 'aucun',
+  'cards.parDate': 'aucun',
+  'cards.tachesDeLaColonne': 'aucun',
+  'deploys.parDate': 'aucun',
   'card.get': 'carte:id',
   'card.conversation': 'carte:cardId',
   'card.read': 'carte:cardId',
@@ -119,6 +130,11 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'agent.open': 'agent:id',
   'comment.list': 'carte:cardId',
   'files.list': 'projet:projectId',
+  /* LES FICHIERS RANGÉS : réponses bornées au serveur aux projets du compte, sans journaux, sauvegardes ni mémoire. */
+  'fichiers.dossier': 'aucun',
+  'fichiers.recherche': 'aucun',
+  'fichiers.corbeille': 'aucun',
+  'fichiers.dossierDuProjet': 'projet:projectId',
   'attachments.list': 'projet:projectId',
   'card.branches': 'carte:cardId',
   'card.cahierDocument': 'carte:id',
@@ -126,10 +142,57 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'card.realisationDocument': 'carte:id',
   'medias.livres.carte': 'carte:cardId',
   'medias.livres.agent': 'agent:agentId',
+  /* L'ESPACE COMMUNICATION EST OUVERT À TOUS : ses réponses sont bornées, au serveur, aux projets de la portée du compte. */
+  'marketing.espace': 'projet:projectId',
+  'communication.marques': 'aucun',
+  'communication.vue': 'aucun',
+  'communication.accueil': 'aucun',
+  'communication.publications': 'aucun',
+  'communication.reserve': 'aucun',
+  'communication.messages': 'aucun',
+  'communication.fil': 'aucun',
+  'communication.medias': 'aucun',
+  'communication.canaux': 'aucun',
+  'communication.connexion': 'aucun',
+  'communication.strategie': 'aucun',
+  'communication.rapport': 'aucun',
+  'communication.campagnes': 'aucun',
+  'communication.campagne': 'aucun',
+  'communication.directeur': 'aucun',
+  'communication.directeur.etat': 'aucun',
+  'communication.directeur.contexte': 'aucun',
+  'communication.directeur.lu': 'aucun',
+  'communication.directeur.reglages': 'aucun',
+  'communication.chef': 'aucun',
+  'communication.chefs': 'aucun',
+  'communication.coulisses.etat': 'aucun',
 };
 
 /** Ce que le MEMBRE fait en plus : piloter les cartes, les agents et les conversations des projets cochés. */
 export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
+  /* LES GESTES SUR LES FICHIERS RANGÉS : chaque geste revérifie au serveur le projet et le service de l'entrée (`peutFaireLeGeste`). */
+  'fichiers.renommer': 'aucun',
+  'fichiers.supprimer': 'aucun',
+  'fichiers.restaurer': 'aucun',
+  /* L'ESPACE COMMUNICATION : chaque geste revérifie, au serveur, le niveau sur le projet qu'il touche. */
+  /* La fiche d'un contenu et de la marque, reprises de l'atelier : bornées par le projet du contenu. */
+  'marketing.contenu.creer': 'projet:projectId',
+  'marketing.contenu.modifier': 'contenu:id',
+  'marketing.contenu.etape': 'contenu:id',
+  'marketing.contenu.cibles': 'contenu:id',
+  'marketing.contenu.publier': 'contenu:id',
+  'marketing.contenu.supprimer': 'contenu:id',
+  'marketing.fiche': 'projet:projectId',
+  'marketing.compte.relier': 'projet:projectId',
+  'communication.geste': 'aucun',
+  'communication.marque.creer': 'aucun',
+  'communication.marque.reunir': 'aucun',
+  'communication.marque.refuser': 'aucun',
+  'communication.marque.renommer': 'aucun',
+  'communication.marque.retirerProjet': 'aucun',
+  'communication.campagne.ecrire': 'aucun',
+  /* COMMUNICATION 2 : la demande au chef revérifie, au serveur, un accès de travail sur la marque (`marqueEnTravail`). */
+  'communication.coulisses': 'aucun',
   'card.create': 'projet:projectId',
   'card.update': 'carte:id',
   'card.move': 'carte:id',
@@ -141,6 +204,7 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'card.finish': 'carte:id',
   'card.veille.arreter': 'carte:cardId',
   'card.veille.verifier': 'carte:cardId',
+  'card.veille.reparer': 'carte:cardId',
   'card.cahierPause': 'carte:id',
   'card.cahierReprendre': 'carte:id',
   'card.asap': 'carte:id',
@@ -151,7 +215,6 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'card.comprehension.repondre': 'carte:cardId',
   'card.comprehension.validate': 'carte:cardId',
   'card.plan.souhaite': 'carte:cardId',
-  'card.creation.souhaitee': 'carte:cardId',
   'card.realisation.souhaitee': 'carte:cardId',
   'card.realisationPause': 'carte:id',
   'card.realisationReprendre': 'carte:id',
@@ -277,6 +340,8 @@ export function viseurDeCommande(role: RoleCompte, type: string): ViseurDeComman
  * ni processus, ni coffre, ni espace client.
  */
 export const EVENEMENTS_COLLABORATEUR: readonly string[] = [
+  'communication.marques',
+  'communication.nonLus',
   'ready',
   'pong',
   'ack',
@@ -319,13 +384,15 @@ export const ROUTES_API_COLLABORATEUR: readonly string[] = [
   '/api/me',
   '/api/attachment',
   '/api/attachments/archive',
+  /* Le contenu d'un fichier rangé : droits revérifiés par `fichierAServir`. */
+  '/api/fichiers/contenu',
   '/api/favicon',
   '/api/erreur',
   '/api/usage',
   '/api/push/subscribe',
   '/api/push/unsubscribe',
 ];
-const ROUTES_API_MEMBRE_EN_PLUS: readonly string[] = ['/api/upload'];
+const ROUTES_API_MEMBRE_EN_PLUS: readonly string[] = ['/api/upload', '/api/fichiers/deposer'];
 
 /** Cette route `/api/` est-elle permise à ce rôle ? Refus par défaut pour tout autre que l'administrateur. */
 export function routeApiAutorisee(role: RoleCompte, route: string): boolean {

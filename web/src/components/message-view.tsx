@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { INTITULE_DE_LA_VOIX } from '@beluga/shared';
+import { IconeTroisBarres } from '@/components/ondes-de-voix';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -15,9 +17,8 @@ import {
   Play,
   RotateCcw,
   Square,
-  Volume2,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Attachment,
   LIBELLE_ETAPE_DE_SUIVI,
@@ -37,6 +38,7 @@ import {
   reconnaitreErreur,
   choixDeQuestionEnTexte,
   entreesDuTourSansCarte,
+  texteApresLesNotes,
   choixPossible,
   comptesDeReprise,
   ordreDeMoteursComplet,
@@ -47,7 +49,6 @@ import {
   emballerJointes,
   jointesDuMessage,
   texteAvecTagsDesJointes,
-  texteAEcouter,
   tempsRestant,
   texteDeReponse,
   triImages,
@@ -59,25 +60,24 @@ import {
   sansBlocDeChiffrage,
   validationNonBloquante,
 } from '@beluga/shared';
-import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
-import { Markdown, SuitesProposees } from '@/lib/markdown';
+import { Markdown, SuitesProposees, apercuSansMarques } from '@/lib/markdown';
 import { DocumentsProduits } from '@/components/documents-produits';
+import { RefaireChaque } from '@/components/refaire-chaque';
 import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { BulleQuestion, PiecesJointes, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import { EncadresDeCompetences } from '@/components/encadre-competence';
 import { Steps } from '@/components/steps';
-import { CapturesDuFlux } from '@/components/captures-du-flux';
 import { TravailDUnTourSansCarte } from '@/components/flux-en-points';
 import { TexteDeLaDemande } from '@/components/contenu-journal';
-import { ContextePiecesDesBlocs } from '@/components/medias-en-fabrication';
+import { BlocDuStudio } from '@/components/bloc-du-studio';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { LienPromptEnvoye } from '@/components/prompt-envoye-complet';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
-import { IconeDuProjetDAccueil } from '@/components/propositions';
+import { LigneDuProjetDAccueil } from '@/components/propositions';
 import { client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { pieceEmbarquee } from '@/lib/copie-riche';
@@ -110,7 +110,7 @@ function LigneReperes({
   tokens?: number;
   complements?: (string | null)[];
   texte: string;
-  /** L'identifiant du message : sert au bouton d'écoute à savoir si c'est LUI qui parle. */
+  /** L’identifiant du message (repère de la ligne). */
   cle: string;
   aDroite?: boolean;
   /** Les fichiers joints à ce message : la copie les emporte avec le texte. */
@@ -137,7 +137,6 @@ function LigneReperes({
       {visibles.map((item, index) => (
         <span key={index}>{item}</span>
       ))}
-      <BoutonEcoute texte={texte} cle={cle} />
       <BoutonCopier texte={texte} jointes={jointes} />
     </div>
   );
@@ -211,6 +210,12 @@ function ExplicationDeLErreur({ texte }: { texte: string }) {
   );
 }
 
+/**
+ * LA LARGEUR DU CÔTÉ AGENT d'une conversation sans carte : les réponses de l'agent, et tout bloc qu'un hôte pose dans
+ * le fil à leur place (`blocsALHeure` de `Chat`, devis et étude de Marketing 2) finissent au MÊME bord droit.
+ */
+export const CLASSE_LARGEUR_DE_LA_REPONSE = 'w-[min(92%,860px)] min-w-0 max-w-full';
+
 export function MessageView({
   message,
   allMessages,
@@ -242,7 +247,6 @@ export function MessageView({
   const isUser = message.role === 'user';
   const state = useApp();
   /* Les pièces déjà montrées par un bloc de média en fabrication (`medias-en-fabrication.tsx`). */
-  const piecesDesBlocs = React.useContext(ContextePiecesDesBlocs);
 
   /* LE BLOC DE DONNÉES D'UN ANCIEN CADRAGE NE SE LIT PAS COMME DU TEXTE : il
      est retiré partout où le message s'affiche (`structure-cadrage.ts`, le
@@ -254,8 +258,15 @@ export function MessageView({
     /* …ni le bloc « <<<PROCESSUS … PROCESSUS>>> » de l'agent de configuration
        (21/10/2026) : enregistré pour le serveur, jamais montré, copié ni lu.
        …ni le bloc json du chiffrage, lu par l'application (`sansBlocDeChiffrage`). */
-    () => sansBlocDeChiffrage(retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(message.content))),
-    [message.content],
+    () => {
+      const propre = sansBlocDeChiffrage(retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(message.content)));
+      /* LES PHRASES DE PASSAGE SE LISENT DANS LE FIL DU TOUR (`RunStep.noteAvant`, 13/11/2026) : pendant le direct, le
+         texte du message porte encore tout le tour, notes comprises — elles seraient sinon lues deux fois. */
+      const notes = message.steps.map((step) => step.noteAvant ?? '').filter((note) => note.trim());
+      /* Rien que des notes déjà lues dans le fil : la réponse est vide, elle ne les redit pas (capture #6b87). */
+      return notes.length ? texteApresLesNotes(propre, notes) : propre;
+    },
+    [message.content, message.steps],
   );
 
   /*
@@ -267,7 +278,7 @@ export function MessageView({
    */
   if (isUser && estLeMessageDeSynthese(message.id)) {
     return (
-      <div className="w-[min(92%,860px)] min-w-0 max-w-full">
+      <div className={CLASSE_LARGEUR_DE_LA_REPONSE}>
         <div className="rounded-lg border border-transparent bg-raised px-3 py-2">
           <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
             <FileText className="h-3.5 w-3.5" />
@@ -369,17 +380,26 @@ export function MessageView({
           au-dessus de la réponse et du déroulé. */}
       {message.sentContext ? <LienPromptEnvoye contexte={message.sentContext} /> : null}
       {message.sentContext && !filAgentMasque ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
-      <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
+      <div className={cn('group', CLASSE_LARGEUR_DE_LA_REPONSE)} data-reponse-agent>
         {/* LE TRAVAIL DU TOUR SE LIT COMME SUR UNE CARTE (demande du 19/10/2026) :
             liste de tâches en sous-points, actions racontées, questions et
             réponses en mots de la discussion, temps total (`TravailDUnTourSansCarte`).
             Seule l'action EN COURS garde sa ligne vivante, le temps qu'elle se referme. */}
-        <TravailDUnTourSansCarte entrees={entreesDuTour} projectId={projectId} />
+        <TravailDUnTourSansCarte entrees={entreesDuTour} projectId={projectId} enCours={!!message.streaming} reponse={message.streaming ? undefined : contenuSansStructure} />
         {enCoursDuTour.length ? (
           <Steps steps={enCoursDuTour} streaming={message.streaming} projectId={projectId} agentAuTravail={agentAuTravail} />
         ) : null}
 
-        {contenuSansStructure ? (
+        {/* LE BLOC DE SUIVI D'UNE CRÉATION DU STUDIO SE LIT COMME UN LECTEUR, pas comme son texte de repli. */}
+        {message.suiviStudio ? (
+          <BlocDuStudio suivi={message.suiviStudio} />
+        ) : message.content === INTITULE_DE_LA_VOIX ? (
+          /* CE QUE JARVIS A PRODUIT À LA VOIX (17/11/2026) : l'intitulé aux trois barres, puis ses pièces, sa carte. */
+          <div data-production-de-la-voix className="flex items-center gap-2 text-[12.5px] font-medium text-muted">
+            <IconeTroisBarres className="scale-[0.7]" />
+            <span>{t('Jarvis · conversation vocale')}</span>
+          </div>
+        ) : contenuSansStructure ? (
           /* UN PLAN ÉCRIT EN CLAIR SE LIT COMME UN RAPPORT : le gabarit à
              quatre parties, sans cadre ni bouton — un plan ancien, rendu avant
              l'outil `rendre_plan`, s'affiche donc comme les autres. C'est la
@@ -402,19 +422,21 @@ export function MessageView({
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
               streaming={message.streaming}
-              enBulle
             />
           )
         ) : message.streaming && !etapes.length ? (
           <p className="text-[14.5px] text-faint">{t('L\'agent réfléchit…')}</p>
         ) : null}
 
-        {!message.streaming ? <DocumentsProduits chemins={documents} /> : null}
-
-        {/* LES SUITES POSSIBLES, sous la réponse (`proposer_suites`). */}
+        {/* LES SUITES POSSIBLES, à la suite de la réponse et AVANT ses documents (`proposer_suites`, capture #410a). */}
         {message.suites?.length && !message.streaming ? (
           <SuitesProposees suites={message.suites} onBasculer={onToggleEvolution} cible={{ messageId: message.id }} />
         ) : null}
+
+        {!message.streaming ? <DocumentsProduits chemins={documents} /> : null}
+
+        {/* UN PARCOURS RÉUSSI DANS CHROME DEVIENT UN GESTE RÉPÉTÉ (`refaire-chaque.tsx`). */}
+        <RefaireChaque message={message} />
 
         {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent
             encore un clic sont sorties du fil et se posent dans le bandeau fixe
@@ -486,14 +508,8 @@ export function MessageView({
           </div>
         ) : null}
 
-        {/* CE QUE L'AGENT A VU : ses captures d'étape et les images qu'il a
-            jointes, en bande de vignettes tout en bas de sa réponse. */}
-        <CapturesDuFlux
-          steps={etapes}
-          idsJointes={piecesDesBlocs.size ? message.attachments.filter((id) => !piecesDesBlocs.has(id)) : message.attachments}
-          projectId={projectId}
-        />
-
+        {/* CE QUE L'AGENT A VU NE SE POSE PLUS SOUS LA RÉPONSE (17/11/2026) : ses captures sont dans le fil, à leur
+            place, et toutes ses images derrière le bouton photo du pied (`BoutonDesCaptures`), comme sur une carte. */}
         {message.error ? <ErreurDeMessage texte={message.error} /> : null}
 
         {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
@@ -523,39 +539,6 @@ export function MessageView({
         />
       </div>
     </>
-  );
-}
-
-/**
- * Écouter un message à voix haute, avec la voix de l'assistant. Un appui lit,
- * un second appui arrête ; écouter un autre message coupe celui-ci — une parole
- * chasse l'autre (la voix est partagée avec le module d'annonces). La lecture
- * passe outre le bouton « Muet », comme la réécoute d'une annonce.
- *
- * Un message long est ramené à ses premières phrases complètes (`texteAEcouter`),
- * jamais coupé au milieu d'un mot ; sans rien à lire, aucun bouton.
- */
-function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
-  const { parle, cle: actif } = useVoix();
-  const aLire = texteAEcouter(texte);
-  if (!aLire) return null;
-
-  const enCours = parle && actif === cle;
-  return (
-    <button
-      type="button"
-      onClick={() => (enCours ? taireVoix() : direVoix(aLire, cle))}
-      title={enCours ? t('Arrêter la lecture') : t('Écouter le message')}
-      aria-label={enCours ? 'Arrêter la lecture' : 'Écouter le message'}
-      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 sm:px-1 py-1 sm:py-0.5 text-[12.5px] text-faint transition-colors hover:bg-surface hover:text-text"
-    >
-      {enCours ? (
-        <Square className="h-2.5 w-2.5 text-success" />
-      ) : (
-        <Volume2 className="h-2.5 w-2.5" />
-      )}
-      {enCours ? t('Arrêter') : t('Écouter')}
-    </button>
   );
 }
 
@@ -753,6 +736,12 @@ export function QuestionCard({
           <span className={question.formulaire ? 'min-w-0 flex-1 whitespace-pre-line' : 'min-w-0 flex-1 truncate'} data-reponse-question>
             {question.answer}
           </span>
+          {/* LA RÉPONSE DU MODE AUTO (`mode-auto.ts`) se dit : personne n'a cliqué. */}
+          {question.parAuto ? (
+            <span className="shrink-0 rounded-full bg-teinte/10 px-1.5 text-[11.5px] font-medium leading-5 text-teinte" data-choisi-par-auto>
+              {t('Choisi par Auto')}
+            </span>
+          ) : null}
         </p>
         {/* La réponse déjà donnée montre ses images, à côté de son texte. */}
         {question.answerAttachments?.length ? (
@@ -772,6 +761,8 @@ export function QuestionCard({
       question={question}
       projectId={projectId}
       agentId={agentId}
+      messageId={messageId}
+      questionId={question.id}
       /* UNE QUESTION SANS RÉPONSE EST « EN COURS » : elle prend le liseré
          orange et son propre étage de fond, sinon elle se confondait avec le
          bloc de cadrage qui la porte. SAUF quand le bloc qui la porte dit déjà
@@ -1295,6 +1286,17 @@ export function ProposalChip({
 }) {
   const state = useApp();
   const [lancement, setLancement] = React.useState(false);
+  /* LA CARTE NÉE DE LA PROPOSITION EST SUIVIE EN DIRECT (14/11/2026) : son bouton disait encore « Lancer » après un
+     tour fini quand ni elle ni son agent n'étaient dans le périmètre suivi par l'écran. On les y met, et une carte
+     absente du magasin est réclamée au serveur — l'état affiché est celui de la carte, rechargement compris. */
+  const carteSuivie = proposal.decision === 'accepted' ? proposal.cardId : undefined;
+  const agentDeLaCarte = carteSuivie ? state.cards[carteSuivie]?.agentId : undefined;
+  const carteConnue = carteSuivie ? !!state.cards[carteSuivie] : true;
+  React.useEffect(() => {
+    if (!carteSuivie) return;
+    client.suivre({ cartes: [carteSuivie], ...(agentDeLaCarte ? { agents: [agentDeLaCarte] } : {}) });
+    if (!carteConnue) void client.chargerCarte(carteSuivie);
+  }, [carteSuivie, agentDeLaCarte, carteConnue]);
 
   if (proposal.decision === 'accepted') {
     const card = proposal.cardId ? state.cards[proposal.cardId] : undefined;
@@ -1368,12 +1370,10 @@ export function ProposalChip({
           <Check className="h-3 w-3" />
           {card && !peutLancer ? t('Carte lancée') : t('Carte créée dans « Planifié »')}
         </div>
-        <div className="flex items-start gap-1.5">
-          <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--surface))" className="mt-[2px]" />
-          <p className="min-w-0 flex-1 text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
-        </div>
+        <LigneDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--surface))" className="mb-1" />
+        <p data-titre-de-proposition className="min-w-0 text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
         {proposal.description ? (
-          <p className="mt-1 line-clamp-2 text-[14.5px] leading-relaxed text-muted">{proposal.description}</p>
+          <p className="mt-1 line-clamp-2 text-[14.5px] leading-relaxed text-muted">{apercuSansMarques(proposal.description)}</p>
         ) : null}
         {proposal.labels.length ? (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -1383,7 +1383,13 @@ export function ProposalChip({
           </div>
         ) : null}
         <div className={etiree ? 'mt-auto pt-2' : 'mt-2'}>
-          {peutLancer ? (
+          {peutLancer && agentActif?.role === 'cadrage' ? (
+            /* LA SUGGESTION EST EN COURS DE COMPRÉHENSION (13/11/2026, capture #05fc) : pas de « Lancer » tant que le
+               cadrage n'a pas rendu — la compréhension est le seul point d'arrêt avant la dépense (DEC-242). */
+            <Button size="sm" variant="outline" disabled data-carte-proposee-bouton="comprehension">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> {t('Compréhension en cours…')}
+            </Button>
+          ) : peutLancer ? (
             <Button size="sm" variant="outline" disabled={lancement} onClick={lancer} data-carte-proposee-bouton="lancer">
               <Play className="h-3 w-3" /> {lancement ? t('Lancement…') : t('Lancer')}
             </Button>

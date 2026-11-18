@@ -2,7 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { REPERE_DE_PORTE, REPERE_D_IDENTITE, definirIdentiteDInstallation, porteDeLHote } from '@beluga/shared';
 import { Filet } from './components/filet';
+import './lib/barre-de-l-heure';
 import { brancherRemonteeErreurs } from './lib/erreurs';
+import { brancherImagesQuiChargent } from './lib/images-qui-chargent';
 import { rechargerUneFois } from './lib/rechargement';
 import './styles.css';
 import { t } from '@/lib/langue';
@@ -54,6 +56,7 @@ const Infobulles = React.lazy(() => import('./components/ui').then((m) => ({ def
  * elle aussi remonter. Sur un téléphone, c'est la seule trace qu'on aura.
  */
 brancherRemonteeErreurs();
+brancherImagesQuiChargent();
 brancherOuvertureDesMesures();
 
 /*

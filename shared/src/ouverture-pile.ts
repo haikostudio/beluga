@@ -1,5 +1,9 @@
 /**
- * Comment la pile des messages courts, en bas à droite, s'OUVRE.
+ * LA CAPACITÉ DU POINTEUR : survol à la souris, appui au doigt (`web/src/lib/pointeur.ts`).
+ * (Les règles d'ouverture de l'ancien module de voix — `gesteDOuverture`, `pileApres` — ont disparu avec lui le
+ * 16/11/2026 : Jarvis au bord s'ouvre d'un toucher ou d'un tirage.)
+ *
+ * D'origine : comment la pile des messages courts, en bas à droite, s'OUVRE.
  *
  * À la souris, on survole : la pile se déploie sous le curseur et se referme
  * dès qu'il s'en va. Au doigt, il n'y a pas de survol — la pile resterait
@@ -17,35 +21,3 @@
 
 /** La question posée au navigateur : ce pointeur sait-il survoler ? */
 export const REQUETE_SURVOL = '(hover: hover) and (pointer: fine)';
-
-/** Le geste qui ouvre la pile. */
-export type GesteDOuverture = 'survol' | 'appui';
-
-/** Ce qui vient d'arriver sur (ou à côté de) la pile. */
-export type EvenementDePile = 'survol-entre' | 'survol-sort' | 'appui-dedans' | 'appui-dehors';
-
-/** Le geste d'ouverture, d'après ce que le pointeur sait faire. */
-export function gesteDOuverture(survolPossible: boolean): GesteDOuverture {
-  return survolPossible ? 'survol' : 'appui';
-}
-
-/**
- * L'état de la pile après un événement.
- *
- * Un pointeur qui survole ignore l'appui d'ouverture — sinon un clic sur un
- * message rabattrait la pile sous le curseur, juste avant que le survol ne la
- * rouvre. Un pointeur sans survol, lui, ignore les événements de survol : les
- * navigateurs tactiles en fabriquent parfois de faux après un appui.
- */
-export function pileApres(ouverte: boolean, evenement: EvenementDePile, geste: GesteDOuverture): boolean {
-  // Un appui ailleurs referme toujours : c'est le geste de sortie commun.
-  if (evenement === 'appui-dehors') return false;
-  if (geste === 'survol') {
-    if (evenement === 'survol-entre') return true;
-    if (evenement === 'survol-sort') return false;
-    return ouverte;
-  }
-  if (evenement === 'appui-dedans') return !ouverte;
-  return ouverte;
-}
-

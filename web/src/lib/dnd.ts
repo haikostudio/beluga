@@ -41,9 +41,36 @@ interface Options {
   onLongPress?: (item: DragItem) => void;
   /** Délai de l'appui long, mesuré depuis la pose du doigt. */
   longPressMs?: number;
+  /**
+   * Ce geste-ci a-t-il un appui long ? Absent : toujours. Refusé (la souris, ou une poignée qui n'a pas de
+   * menu), le geste reste un pur glissement : tenir sans bouger ne l'annule pas.
+   */
+  appuiLongPermis?: (item: DragItem, pointerType: string) => boolean;
+  /** Échap pendant le geste : rien n'est déposé. */
+  onAbandon?: (item: DragItem) => void;
+  /**
+   * LES ZONES QUI DÉFILENT SEULES QUAND LE POINTEUR ATTEINT LEUR BORD, sans rien
+   * lâcher (facultatif, le tableau ne s'en sert pas) : plus il est près du bord,
+   * plus elles vont vite, et la cible est relue à chaque image, pointeur immobile compris.
+   */
+  defilementAuBord?: () => (HTMLElement | null)[];
 }
 
-export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longPressMs = 520 }: Options) {
+/**
+ * La bande sensible au bord d'une zone, et la vitesse au plus près du bord (pixels par
+ * image). Plus étroite et plus lente en hauteur : une rangée fait 44 px, et celle du bas
+ * doit rester atteignable sans que la zone défile sous la main.
+ */
+const BORD_EN_LARGEUR = { bande: 48, vitesse: 16 };
+const BORD_EN_HAUTEUR = { bande: 24, vitesse: 6 };
+
+function vitesseAuBord(depuisDebut: number, depuisFin: number, { bande, vitesse }: { bande: number; vitesse: number }): number {
+  if (depuisDebut < bande) return -vitesse * Math.min(1, (bande - depuisDebut) / bande);
+  if (depuisFin < bande) return vitesse * Math.min(1, (bande - depuisFin) / bande);
+  return 0;
+}
+
+export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longPressMs = 520, appuiLongPermis, onAbandon, defilementAuBord }: Options) {
   const [dragging, setDragging] = React.useState<DragItem | null>(null);
   const [target, setTarget] = React.useState<DropTarget | null>(null);
   const [pointer, setPointer] = React.useState<{ x: number; y: number } | null>(null);
@@ -60,6 +87,11 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
     minuteurLong?: number;
   } | null>(null);
   const targetRef = React.useRef<DropTarget | null>(null);
+  const dernierPoint = React.useRef<{ x: number; y: number } | null>(null);
+  const zonesDeBord = React.useRef(defilementAuBord);
+  zonesDeBord.current = defilementAuBord;
+  const surAbandon = React.useRef(onAbandon);
+  surAbandon.current = onAbandon;
 
   React.useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -98,6 +130,7 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
       }
 
       event.preventDefault();
+      dernierPoint.current = { x: event.clientX, y: event.clientY };
       setPointer({ x: event.clientX, y: event.clientY });
 
       const sous = document.elementFromPoint(event.clientX, event.clientY);
@@ -112,6 +145,7 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
       if (current?.minuteur) window.clearTimeout(current.minuteur);
       if (current?.minuteurLong) window.clearTimeout(current.minuteurLong);
       state.current = null;
+      dernierPoint.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       setPointer(null);
@@ -134,22 +168,76 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
       if (state.current && !state.current.attenteAppui) event.preventDefault();
     };
 
+    const clavier = (event: KeyboardEvent) => {
+      const current = state.current;
+      if (event.key !== 'Escape' || !current?.started) return;
+      event.preventDefault();
+      event.stopPropagation();
+      state.current = null;
+      dernierPoint.current = null;
+      targetRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setPointer(null);
+      setDragging(null);
+      setTarget(null);
+      surAbandon.current?.(current.item);
+    };
+
+    /* LE DÉFILEMENT AU BORD : la boucle tourne seulement pendant un geste. */
+    let image = 0;
+    const defiler = () => {
+      image = requestAnimationFrame(defiler);
+      const current = state.current;
+      const point = dernierPoint.current;
+      const zones = zonesDeBord.current?.();
+      if (!current?.started || !point || !zones?.length) return;
+      let bouge = false;
+      for (const zone of zones) {
+        if (!zone) continue;
+        const r = zone.getBoundingClientRect();
+        if (point.x < r.left - 8 || point.x > r.right + 8 || point.y < r.top - 8 || point.y > r.bottom + 8) continue;
+        const dx = zone.scrollWidth > zone.clientWidth ? vitesseAuBord(point.x - r.left, r.right - point.x, BORD_EN_LARGEUR) : 0;
+        /* Un haut collé couvre le début de la zone : sa bande sensible commence dessous, et le survoler ne fait rien défiler. */
+        const marge = Number(zone.dataset.margeDeBord) || 0;
+        const dy = zone.scrollHeight > zone.clientHeight && point.y >= r.top + marge ? vitesseAuBord(point.y - r.top - marge, r.bottom - point.y, BORD_EN_HAUTEUR) : 0;
+        const avantX = zone.scrollLeft;
+        const avantY = zone.scrollTop;
+        if (dx) zone.scrollLeft += dx;
+        if (dy) zone.scrollTop += dy;
+        if (zone.scrollLeft !== avantX || zone.scrollTop !== avantY) bouge = true;
+      }
+      if (!bouge) return;
+      /* Ce qui est sous le pointeur a changé sans qu'il bouge : on relit la cible, et l'écran se redessine. */
+      setPointer({ ...point });
+      const sous = document.elementFromPoint(point.x, point.y);
+      const trouve = sous ? resolve(sous, point.y, point.x) : null;
+      const valide = trouve && trouve.id !== current.item.id ? trouve : null;
+      targetRef.current = valide;
+      setTarget(valide);
+    };
+    if (defilementAuBord) image = requestAnimationFrame(defiler);
+
+    window.addEventListener('keydown', clavier, true);
     window.addEventListener('pointermove', move, { passive: false });
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
     window.addEventListener('touchmove', touche, { passive: false });
     return () => {
+      cancelAnimationFrame(image);
+      window.removeEventListener('keydown', clavier, true);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       window.removeEventListener('touchmove', touche);
     };
-  }, [resolve, onDrop]);
+  }, [resolve, onDrop, !!defilementAuBord]);
 
   const start = (event: React.PointerEvent, item: DragItem) => {
     // Seul le bouton principal démarre un glissement.
     if (event.button !== 0) return;
     const doigt = event.pointerType !== 'mouse' && holdMs > 0;
+    const appuiLong = onLongPress && (!appuiLongPermis || appuiLongPermis(item, event.pointerType)) ? onLongPress : undefined;
     const entree = {
       item,
       started: false,
@@ -168,19 +256,19 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
         // Avec un appui long à servir, la carte est décrochée mais son aperçu
         // n'apparaît qu'au premier mouvement : sinon il surgirait une demi-
         // seconde avant le menu, puis disparaîtrait.
-        if (onLongPress) return;
+        if (appuiLong) return;
         entree.started = true;
         setDragging(entree.item);
         setPointer({ x: entree.originX, y: entree.originY });
       }, holdMs);
     }
-    if (onLongPress) {
+    if (appuiLong) {
       entree.minuteurLong = window.setTimeout(() => {
         if (state.current !== entree || entree.started) return;
         window.clearTimeout(entree.minuteur);
         state.current = null;
         navigator.vibrate?.(14);
-        onLongPress(item);
+        appuiLong(item);
       }, longPressMs);
     }
     state.current = entree;

@@ -1,10 +1,9 @@
 /**
  * « RÉSOUDRE LE PROBLÈME » — LE DÉPANNAGE D'UNE PUBLICATION TOMBÉE, À LA MAIN.
  *
- * Une publication (déploiement ou mise en production) qui tombe s'arrête là :
- * rien ne la reprend toute seule. Le bouton « Résoudre le problème » du volet
- * ouvre un AGENT qui cherche la cause, la répare, puis relance lui-même la
- * publication par l'outil `relancer_publication` (`server/src/deploy.ts`).
+ * Depuis le 17/11/2026, une publication (déploiement ou mise en production) qui tombe OUVRE D'ELLE-MÊME un AGENT de
+ * dépannage (deux fois au plus, `MAX_DEPANNAGES_AUTOMATIQUES`) ; le clic sur sa ligne ouvre son fil. À la fin de chacun
+ * de ses tours, la MÊME publication reprend à l'étape tombée (`repriseApresLeTour`), sauf question en attente.
  *
  * Ce fichier porte les règles SANS base ni disque :
  *   - quand le bouton s'offre (`publicationADepanner`) ;
@@ -48,6 +47,35 @@ export function publicationADepanner(
 ): boolean {
   if (!run || !derniere || derniere.id !== run.id) return false;
   return run.state === 'failed' || run.state === 'stopped';
+}
+
+/**
+ * LE PLAFOND DES DÉPANNAGES AUTOMATIQUES D'UNE PUBLICATION (décidé au cadrage, 17/11/2026) : après deux cycles
+ * « dépanneur → reprise » qui retombent, plus rien ne repart seul — la ligne reste rouge et attend un clic.
+ */
+export const MAX_DEPANNAGES_AUTOMATIQUES = 2;
+
+/** Une chute ouvre-t-elle d'elle-même un dépanneur ? Pas au-delà du plafond, ni sur une publication arrêtée. */
+export function depannageAutomatiquePermis(run: { state: string; depannagesAuto?: number }): boolean {
+  return run.state === 'failed' && (run.depannagesAuto ?? 0) < MAX_DEPANNAGES_AUTOMATIQUES;
+}
+
+/**
+ * LE TOUR DU DÉPANNEUR EST FINI : faut-il reprendre la publication ? Oui, sauf s'il attend une réponse de l'utilisateur
+ * (rien ne repart avant), s'il a des demandes en file (sans quota : il n'a pas travaillé), ou si la publication n'est
+ * plus à dépanner (une autre est partie, ou elle a déjà repris).
+ */
+export function repriseApresLeTour(input: {
+  agent: { status: string; tourVivantDepuis?: number; attendReponse?: boolean } | null | undefined;
+  aDesDemandesEnFile: boolean;
+  aDepanner: boolean;
+}): 'attendre' | 'reprendre' | 'abandonner' {
+  const { agent } = input;
+  if (!agent || !input.aDepanner) return 'abandonner';
+  if (agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined) return 'attendre';
+  if (agent.attendReponse) return 'attendre';
+  if (input.aDesDemandesEnFile) return 'abandonner';
+  return 'reprendre';
 }
 
 /**
@@ -150,7 +178,7 @@ export function demandeDeDepannage(panne: PanneAResoudre): string {
     panne.erreur ? `Message de la publication : ${panne.erreur}` : null,
     panne.journal?.trim() ? `Fin du journal de l'étape :\n\`\`\`\n${panne.journal.trim()}\n\`\`\`` : null,
     '',
-    'Trouve la cause, répare-la, puis appelle « relancer_publication » : la même publication repartira à la fin de ton tour. Termine par une phrase simple qui dit ce qui bloquait, ce que tu as réparé, et si la relance est demandée.',
+    'Trouve la cause et répare-la. À LA FIN DE TON TOUR, LA MÊME PUBLICATION REPART D’ELLE-MÊME à l’étape tombée (tu peux aussi appeler « relancer_publication ») — sauf si tu poses une question à l’utilisateur par « ask_user » : rien ne repart avant sa réponse. Pose-en une seulement si une décision lui revient vraiment. Termine par une phrase simple qui dit ce qui bloquait et ce que tu as réparé.',
   ];
   return lignes.filter((ligne) => ligne !== null).join('\n');
 }

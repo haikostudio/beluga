@@ -20,8 +20,10 @@ import {
   X,
   type LucideIcon,
   LayoutGrid,
-} from 'lucide-react';
+  Globe,
+} from '@/components/ui/icones';
 import { PointDuFil, type TonDuPoint } from '@/components/point-du-fil';
+import { PanneauDuVolet } from '@/components/volet-comme-un-plan';
 import { ICONE_DE_LA_LIGNE, ICONE_DU_GENRE, RondDeLaLigne } from '@/components/icone-du-point';
 import {
   AttenteDeLaDemande,
@@ -33,7 +35,6 @@ import {
   ErreurDuPoint,
   EtapeDeLancement,
   EtapeDuParcours,
-  type EtatDuDeploiement,
   type EtatDuPoint,
   LIBELLES_ETAPE,
   LigneDuCarnet,
@@ -43,14 +44,15 @@ import {
   PointDuParcours,
   type SuiviDUneFille,
   LIBELLES_DE_LA_FILLE,
-  estCarteDuRendezVousDeNuit,
   avancementDuLancement,
   blocDeFinAViser,
+  vignettesDuTour,
   placerLesMediasDansLeFil,
+  fluxDesEntrees,
+  JALON_NOTE_DE_L_AGENT,
+  type ElementDuFluxDuTour,
   type MediaLivre,
-  sujetsDuCadrage,
   decouperAvantLePlan,
-  reflexionRepliee,
   retirerLaStructureDeCadrage,
   retirerLeBlocDeProcessus,
   genreDAction,
@@ -60,16 +62,11 @@ import {
   titreDuSujetLu,
   nomDeLaLigne,
   poidsLisible,
-  SousPointDuTravail,
   phraseDuBloc,
   rangerLaComprehension,
   recitDuPoint,
-  segmenterLeRecit,
-  type SegmentDuRecit,
-  entreesDeLaSorte,
   tempsDuPassage,
   toursSansBulleParPoint,
-  travailEnSousPoints,
   VersionDuPassage,
   versionDuPassageDePlan,
   versionEnPreparation,
@@ -82,6 +79,7 @@ import {
   travailDeLaCarteDejaLance,
   rangerLesSuggestions,
   type GroupeDeSuggestions,
+  marquerLesEcarts,
 } from '@beluga/shared';
 import { createPortal } from 'react-dom';
 import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, useDocumentDeCarte } from '@/lib/document-de-carte';
@@ -89,12 +87,12 @@ import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefi
 import { ContenuDeLEntree, EncadreQuestion, TexteDeLaDemande } from '@/components/contenu-journal';
 import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
-import { PointsDuCadrage } from '@/components/points-du-cadrage';
 import { GalerieDesMediasLivres, iconeDuMediaLivre, LigneDeMediaLivre, useMediasLivres } from '@/components/medias-livres';
-import { BULLE_DE_L_AGENT, RapportEnFlux } from '@/components/rapport-flux';
+import { RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
-import { Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
+import { ContexteOuvrirUneImageDuTexte, Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
+import { ouvrirUnMedia } from '@/lib/ouvrir-un-media';
 import { DocumentsProduits } from '@/components/documents-produits';
 import { client } from '@/lib/client';
 import { voirLesSuggestions } from '@/lib/suggestions-de-carte';
@@ -108,10 +106,10 @@ import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media
 import { GlissableVersUnPlan } from '@/components/glisser-vers-un-plan';
 import { MarqueEssaiRepris } from '@/components/encadre-etape';
 import { HeureDuFil } from '@/components/heure-du-fil';
-import { EtiquetteDeVignette } from '@/components/pastille-de-fichier';
 import { useTelephone } from '@/lib/telephone';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { cn, dateHeure, dureeFine, heureEtDuree } from '@/lib/utils';
+import { noterLaLegende, poserLaLargeurDeVignette, ReferenceSousLeMedia, useRangementDeLaCapture } from '@/components/cadre-de-media';
 import { t } from '@/lib/langue';
 
 /**
@@ -379,27 +377,109 @@ function SousPointDuFlux({
  * contrôle `verif-comprehension-en-points.mjs` mesure les deux.
  */
 const LARGEUR_DU_FIL = 'max-w-[85%]';
-const LARGEUR_DE_L_AGENT = 'max-w-[95%]';
+/* DANS LE STUDIO, 100 % (demande du 01/11/2026, capture #bbb9) : la conversation y tient déjà dans une colonne
+   centrée de 820 px, et le bord droit des réponses doit tomber sur celui de la bulle. Le Studio pose
+   `--largeur-de-l-agent: 100%` sur sa conversation ; partout ailleurs, la valeur par défaut reste 95 %. */
+const LARGEUR_DE_L_AGENT = 'max-w-[var(--largeur-de-l-agent,95%)]';
+
+/**
+ * UN FIL DU STUDIO NE RAPPELLE PAS LES SUJETS D'AVANT (demande du 01/11/2026, capture #39c51) : au-dessus d'une
+ * réponse, seul son titre « Réponse · sujet » reste. Vrai pour toute conversation posée par le Studio
+ * (`PanneauAgent`), montage d'une carte compris ; les cartes du tableau gardent leur sommaire (DEC-378).
+ */
+export const ContexteFilDuStudio = React.createContext(false);
 
 export interface OuvertureDemandee {
   /** L'ANCRE du passage à ouvrir — le DERNIER de son étape quand la barre l'appelle. */
   ancre: string;
-  /** L'étape du flux, ou le point « Déploiement » posé en bas (`PointDeDeploiement`). */
-  etape: EtapeDuParcours | 'deploiement';
+  /** L'étape du flux. */
+  etape: EtapeDuParcours;
   nonce: number;
 }
-
-/** L'ancre du point « Déploiement » : il n'existe qu'une fois par carte. */
-export const ANCRE_DU_DEPLOIEMENT = 'point-deploiement';
 
 /**
  * LES ACTIONS DE TOUTE LA CARTE, et l'instant de chacun de ses comptes rendus :
  * un compte rendu y retrouve les documents écrits depuis le précédent
  * (`DocumentsProduits`), même quand ils vivent dans d'autres passages.
  */
-const ContexteDesActionsDeLaCarte = React.createContext<{ traces: EntreeJournal[]; rapports: number[] }>({
+/**
+ * LA GALERIE DU FIL, LUE PAR LES RÉPONSES ET LES RAPPORTS (31/10/2026) : une image posée par l'agent dans son texte
+ * (« ![légende](piece:…) ») s'ouvre dans la même visionneuse que la bande, et le filet des vignettes du tour en vient.
+ */
+const ContexteGalerieDuFil = React.createContext<GalerieDesCaptures | null>(null);
+
+/**
+ * LE FILET DES IMAGES DU TOUR : l'agent n'a posé aucune image dans sa réponse alors que le tour en a produit — les
+ * captures de ce tour se montrent en vignettes sous le texte (`vignettesDuTour`), et s'ouvrent dans la visionneuse.
+ */
+/** Une vignette du tour : sa taille est fixe, la silhouette commune y respire tant que l'image n'est pas là (14/11/2026). */
+function VignetteDuTour({
+  capture,
+  galerie,
+}: {
+  capture: Parameters<NonNullable<React.ContextType<typeof ContexteGalerieDuFil>>['ouvrir']>[0];
+  galerie: NonNullable<React.ContextType<typeof ContexteGalerieDuFil>>;
+}) {
+  const [chargee, setChargee] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => galerie.ouvrir(capture)}
+      title={capture.libelle}
+      className="relative h-20 w-28 shrink-0 overflow-hidden rounded-md bg-raised"
+      data-vignette-du-tour={capture.cle}
+      data-chargee={chargee ? '1' : '0'}
+    >
+      {!chargee ? <span aria-hidden data-silhouette-image className="absolute inset-0 animate-silhouette bg-faint/25" /> : null}
+      <img
+        src={galerie.source(capture)}
+        alt={capture.libelle}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setChargee(true)}
+        ref={(el) => {
+          if (el?.complete && el.naturalWidth && !chargee) setChargee(true);
+        }}
+        className={cn('relative h-full w-full object-cover object-top transition-opacity duration-200', chargee ? 'opacity-100' : 'opacity-0')}
+        onError={() => galerie.perdre(capture)}
+      />
+    </button>
+  );
+}
+
+function VignettesDuTour({ texte, depuis, jusqua }: { texte: string; depuis: number; jusqua: number }) {
+  const galerie = React.useContext(ContexteGalerieDuFil);
+  const vignettes = React.useMemo(
+    () => (galerie ? vignettesDuTour(texte, galerie.captures, { depuis, jusqua }) : []),
+    [galerie, texte, depuis, jusqua],
+  );
+  if (!galerie || !vignettes.length) return null;
+  return (
+    <div className="mt-2.5 flex flex-wrap gap-1.5" data-vignettes-du-tour={vignettes.length}>
+      {vignettes.map((capture) => (
+        <VignetteDuTour key={capture.cle} capture={capture} galerie={galerie} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * LES COMPRÉHENSIONS DE LA CARTE, DANS L'ORDRE (13/11/2026) : chacune lit la précédente pour marquer en violet ce qui
+ * a changé (`marquerLesEcarts`), et un tour qui n'était qu'une question repose la dernière en entier.
+ */
+const ContexteComprehensionsDeLaCarte = React.createContext<EntreeJournal[]>([]);
+
+/** La compréhension rendue juste avant cet instant, sur la même carte. */
+function comprehensionAvant(comprehensions: EntreeJournal[], at: number, sauf?: string): EntreeJournal | undefined {
+  let trouvee: EntreeJournal | undefined;
+  for (const entree of comprehensions) if (entree.at < at && entree.id !== sauf && entree.resultat?.trim()) trouvee = entree;
+  return trouvee;
+}
+
+const ContexteDesActionsDeLaCarte = React.createContext<{ traces: EntreeJournal[]; rapports: number[]; jalons: number[] }>({
   traces: [],
   rapports: [],
+  jalons: [],
 });
 
 export function FluxEnPoints({
@@ -410,13 +490,12 @@ export function FluxEnPoints({
   ouverture,
   onEtapeVisible,
   onBlocRendu,
+  viserALOuverture = false,
   attente,
   lancement,
   onToggleEvolution,
   onToggleAll,
   configuration,
-  deploiement,
-  resumeDeLAgent,
   journalCharge = true,
   galerieDesCaptures,
   suggestions = [],
@@ -435,18 +514,6 @@ export function FluxEnPoints({
    * ses vignettes (`OuvrirUneCapture`) vers cette même galerie.
    */
   galerieDesCaptures: GalerieDesCaptures;
-  /**
-   * OÙ EN EST LA MISE EN LIGNE DE LA CARTE (`etatDuDeploiement`). Dès qu'elle
-   * est dans « À déployer » ou rangée, un dernier point le dit en bas du flux —
-   * sauf sur une carte mère, qui ne se déploie pas elle-même (DEC-258).
-   */
-  deploiement?: { etat: EtatDuDeploiement; deployeeA?: number };
-  /**
-   * LE RÉSUMÉ DE L'AGENT QUI A TRAITÉ LA DEMANDE, posé sous le point
-   * « Déploiement » une fois la carte en ligne ou rangée : la rangée d'action
-   * n'a alors plus de bouton, ni d'icône des réglages.
-   */
-  resumeDeLAgent?: React.ReactNode;
   projectId?: string;
   /** Les points et les questions ouvertes, dans l'ordre (`fluxDuParcours`). */
   flux: ElementDuFlux[];
@@ -463,11 +530,20 @@ export function FluxEnPoints({
   /** Le point le plus visible pendant le défilement, pour la barre. */
   onEtapeVisible?: (etape: EtapeDuParcours | 'deploiement') => void;
   /**
-   * UN BLOC DE FIN VIENT D'ÊTRE RENDU : la conversation dit si elle suivait
-   * le bas du fil (vrai), et coupe alors son suivi pour que le défilement vers
-   * le début du bloc ne soit pas aussitôt ramené en bas.
+   * UN BLOC DE FIN VIENT D'ÊTRE RENDU (ou se trouve en fin de fil à l'ouverture) :
+   * la conversation décide si elle le vise — à l'arrivée, seulement si elle
+   * suivait le bas ; à l'ouverture, seulement sans lecture retenue — et c'est ELLE
+   * qui défile et TIENT le début du bloc en tête pendant que le contenu se pose
+   * (`ancreDuBloc`, chat.tsx). Rend faux quand elle ne le vise pas.
    */
-  onBlocRendu?: () => boolean;
+  onBlocRendu?: (cible: () => HTMLElement | null, aLOuverture: boolean) => boolean;
+  /**
+   * À L'OUVERTURE SUR UN TOUR FINI, VISER SA COMPRÉHENSION, SON RAPPORT OU SA
+   * RÉPONSE (07/11/2026, toutes les cartes) : au lieu du bas du fil, on se pose
+   * au début de ce que l'agent a rendu en dernier, tant que rien n'a été écrit
+   * depuis (un message écrit ouvre un passage « Demande », qui n'a pas de bloc).
+   */
+  viserALOuverture?: boolean;
   /**
    * CE QUI SE PASSE PENDANT L'ATTENTE, écrit sous le DERNIER point
    * « Demande » : préparation du tour, file, ou manque de quota
@@ -591,6 +667,13 @@ export function FluxEnPoints({
     () => flux.flatMap((element) => (element.sorte === 'point' ? [element.point] : [])),
     [flux],
   );
+  const comprehensionsDeLaCarte = React.useMemo(
+    () =>
+      passages
+        .flatMap((passage) => passage.moments.filter((moment) => moment.sorte === 'comprehension').map((moment) => moment.entree))
+        .sort((a, b) => a.at - b.at),
+    [passages],
+  );
   /*
    * LES MÉDIAS LIVRÉS, CHACUN DANS LE PASSAGE OÙ IL A ÉTÉ RENDU (décision du
    * 26/10/2026, capture #e9bd) : le dernier passage commencé à son heure ou
@@ -620,14 +703,23 @@ export function FluxEnPoints({
    * ce qui s'écrit (`onBlocRendu`) : on ne tire pas la page sous les yeux de
    * quelqu'un qui relit plus haut.
    */
+  /* UNE IMAGE POSÉE DANS UNE RÉPONSE s'ouvre dans la visionneuse du fil quand la galerie la connaît. */
+  const ouvrirUnePieceDuTexte = React.useCallback(
+    (piece: string) => {
+      const capture = galerieDesCaptures.captures.find((c) => c.genre === 'jointe' && c.id === piece);
+      if (capture) galerieDesCaptures.ouvrir(capture);
+      else ouvrirUnMedia({ adresse: `/api/attachment?id=${encodeURIComponent(piece)}`, piece, genre: 'inconnu', nom: piece });
+    },
+    [galerieDesCaptures],
+  );
   const aViser = React.useMemo(() => blocDeFinAViser(passages), [passages]);
   const blocsVises = React.useRef<Set<string>>(new Set());
   /*
-   * …MAIS PAS À L'OUVERTURE DE LA TÂCHE (demande du 14/10/2026) : en entrant
-   * dans une tâche, le fil se pose TOUT EN BAS, et l'en-tête se replie comme
-   * après un défilement (`repliALOuverture`). Le bloc déjà rendu au premier
-   * chargement du journal est donc compté comme vu, sans défiler ; seuls ceux
-   * qui arrivent ensuite, en direct, tirent le fil jusqu'à leur début.
+   * ET À L'OUVERTURE DE LA CARTE (décision du 07/11/2026, qui remplace « le fil
+   * se pose tout en bas » du 14/10/2026) : le bloc déjà rendu au premier
+   * chargement du journal est compté comme vu, et visé par son début si le tour
+   * est fini et que rien n'a été écrit depuis (`viserALOuverture`) ; seuls ceux
+   * qui arrivent ensuite, en direct, tirent de nouveau le fil.
    */
   const journalVuALOuverture = React.useRef(false);
   React.useEffect(() => {
@@ -636,27 +728,35 @@ export function FluxEnPoints({
   }, [carte.id]);
   React.useEffect(() => {
     if (!journalCharge) return;
-    if (!journalVuALOuverture.current) {
+    const aLOuverture = !journalVuALOuverture.current;
+    if (aLOuverture) {
       journalVuALOuverture.current = true;
       if (aViser) blocsVises.current.add(aViser.cle);
-      return;
+      if (!viserALOuverture || !aViser || aViser.sorte === 'plan') return;
+    } else {
+      if (!aViser || blocsVises.current.has(aViser.cle)) return;
+      blocsVises.current.add(aViser.cle);
     }
-    if (!aViser || blocsVises.current.has(aViser.cle)) return;
-    blocsVises.current.add(aViser.cle);
-    if (onBlocRendu && !onBlocRendu()) return;
-    const viser = () => {
+    const cible = () => {
       const point = racine.current?.querySelector<HTMLElement>(`[data-point-ancre="${aViser.ancre}"]`);
       const selecteur =
         aViser.sorte === 'reponse'
           ? '[data-bloc-reponse]'
+          : aViser.sorte === 'rapport'
+            ? '[data-moment="rapport"]'
           : aViser.sorte === 'comprehension'
             ? '[data-moment="comprehension"]'
             : '[data-bloc-du-plan]';
       const cadres = point?.querySelectorAll<HTMLElement>(selecteur);
-      const cible = (cadres?.length ? cadres[cadres.length - 1] : null) ?? point;
-      cible?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return (cadres?.length ? cadres[cadres.length - 1] : null) ?? point ?? null;
     };
-    const image = requestAnimationFrame(() => requestAnimationFrame(viser));
+    if (onBlocRendu) {
+      onBlocRendu(cible, aLOuverture);
+      return;
+    }
+    const image = requestAnimationFrame(() =>
+      requestAnimationFrame(() => cible()?.scrollIntoView({ behavior: 'smooth', block: 'start' })),
+    );
     return () => cancelAnimationFrame(image);
   }, [aViser?.cle, journalCharge]);
 
@@ -690,6 +790,16 @@ export function FluxEnPoints({
         .filter((moment) => moment.sorte === 'rapport')
         .map((moment) => moment.entree.at)
         .sort((x, y) => x - y),
+      /* Les instants où un tour a RENDU quelque chose (réponse, compréhension, compte rendu) : le tour suivant commence
+         après le dernier, et ses images jointes sont celles d'après. */
+      jalons: flux
+        .flatMap((element) => [
+          ...element.point.moments
+            .filter((moment) => moment.sorte === 'rapport' || moment.sorte === 'comprehension')
+            .map((moment) => moment.entree.at),
+          ...(element.point.reponse ? [element.point.reponse.at] : []),
+        ])
+        .sort((x, y) => x - y),
     }),
     [flux],
   );
@@ -706,14 +816,19 @@ export function FluxEnPoints({
 
   return (
     <MesuresContexte.Provider value={mesures}>
+      <ContexteComprehensionsDeLaCarte.Provider value={comprehensionsDeLaCarte}>
       <ContexteDesActionsDeLaCarte.Provider value={actionsDeLaCarte}>
+      <ContexteGalerieDuFil.Provider value={galerieDesCaptures}>
+      <ContexteOuvrirUneImageDuTexte.Provider value={ouvrirUnePieceDuTexte}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
       <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
       <PieceDUneCapture.Provider value={galerieDesCaptures.pieceDuChemin}>
       {/* TOUT MÉDIA DU FIL DE LA CARTE PORTE SON MENU « … » (27/10/2026) : les pièces des messages lisent la carte ici. */}
       <ContexteCarteDuFil.Provider value={carte.id}>
       <GalerieDesMediasLivres medias={tousLesMediasLivres}>
-      <div className="px-4 pb-6 pt-4" data-flux-points={carte.id}>
+      {/* `pb-2` : sous le dernier point, la zone d'écriture a déjà sa propre marge
+          haute (≈ 16 px) — `pb-6` doublait l'air sous le dernier point. */}
+      <div className="px-4 pb-2 pt-4" data-flux-points={carte.id}>
         {/* UNE COLONNE DE DISCUSSION : les passages se suivent, séparés par de
             l'air. Plus de ligne verticale (`mesures.ligne` vaut `hidden`). */}
         <ol ref={racine} className="relative flex flex-col gap-6" data-flux-liste={flux.length}>
@@ -740,10 +855,8 @@ export function FluxEnPoints({
               onToggleAll={onToggleAll}
             />
           ))}
-          {/* La carte de nuit n'a rien à déployer : elle s'arrête à ses propositions. */}
-          {deploiement && deploiement.etat !== 'aucun' && !carte.suiviDesFilles?.length && !estCarteDuRendezVousDeNuit(carte) ? (
-            <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} resume={resumeDeLAgent} />
-          ) : null}
+          {/* PLUS DE POINT « DÉPLOIEMENT » EN BAS DU FIL (13/11/2026, capture #b6079) : la date de mise en ligne se lit
+              à droite de l'étape « Déployé », et le moteur à droite de « Travail », dans la ligne des étapes. */}
         </ol>
         {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
       </div>
@@ -752,72 +865,11 @@ export function FluxEnPoints({
       </PieceDUneCapture.Provider>
       </RepereDUneCapture.Provider>
       </OuvrirUneCapture.Provider>
+      </ContexteOuvrirUneImageDuTexte.Provider>
+      </ContexteGalerieDuFil.Provider>
       </ContexteDesActionsDeLaCarte.Provider>
+      </ContexteComprehensionsDeLaCarte.Provider>
     </MesuresContexte.Provider>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Le point « Déploiement »                                              */
-/* ------------------------------------------------------------------ */
-
-/** Le rond du point, dans le ton des autres (`TON_DE_L_ETAT`). */
-const ETAT_DU_POINT_DE_DEPLOIEMENT: Record<Exclude<EtatDuDeploiement, 'aucun'>, EtatDuPoint> = {
-  attend: 'avenir',
-  en_cours: 'encours',
-  echec: 'erreur',
-  en_ligne: 'fait',
-  archivee: 'fait',
-};
-
-/**
- * LE DERNIER POINT DU FLUX : OÙ EN EST LA MISE EN LIGNE. Il ne raconte rien
- * d'autre qu'un état — elle attend, elle part, elle est tombée, elle est en
- * ligne depuis telle date — et c'est lui que visent les segments
- * « À déployer » et « Archivée » de la barre. Il ne s'ouvre pas : il n'a rien
- * à déplier.
- */
-function PointDeDeploiement({
-  etat,
-  deployeeA,
-  resume,
-}: {
-  etat: Exclude<EtatDuDeploiement, 'aucun'>;
-  deployeeA?: number;
-  /** Le résumé de l'agent, une fois la mise en ligne faite (`ResumeDeLAgent`). */
-  resume?: React.ReactNode;
-}) {
-  const mesures = useMesures();
-  const etatDuPoint = ETAT_DU_POINT_DE_DEPLOIEMENT[etat];
-  const ton = TON_DE_L_ETAT[etatDuPoint];
-  const phrase =
-    etat === 'attend'
-      ? t('La carte attend la prochaine mise en ligne.')
-      : etat === 'en_cours'
-        ? t('La mise en ligne est en cours.')
-        : etat === 'echec'
-          ? t('La dernière mise en ligne est tombée : la carte attend la suivante.')
-          : etat === 'en_ligne'
-            ? t('En ligne depuis le {v0}', { v0: dateHeure(deployeeA ?? 0) })
-            : t('Rangée sans mise en ligne.');
-  void mesures;
-  void ton;
-  return (
-    <li
-      id={ANCRE_DU_DEPLOIEMENT}
-      data-point="deploiement"
-      data-point-ancre={ANCRE_DU_DEPLOIEMENT}
-      data-point-etat={etatDuPoint}
-      data-point-deploiement={etat}
-      className="relative flex flex-col items-center gap-2"
-    >
-      <span aria-hidden data-point-rond className="hidden" />
-      <MarqueDEtape icone={Rocket} titre={t('Déploiement')} etat={etatDuPoint} repere="deploiement" />
-      <span className="text-center text-[13.5px] leading-relaxed text-muted" data-point-phrase>
-        {phrase}
-      </span>
-      {(etat === 'en_ligne' || etat === 'archivee') && resume ? resume : null}
-    </li>
   );
 }
 
@@ -922,25 +974,24 @@ function PointDuFlux({
   /* LES MÉDIAS RENDUS PENDANT CE PASSAGE se posent parmi les lignes du récit, à
      leur heure, quand la carte du passage est ouverte ; fermée (ou sans carte),
      ils restent à l'écran, une ligne chacun, sous elle. */
-  const aDesTracesDansLaCarte = point.traces.length > 0 || point.memoire.length > 0 || !!point.competences?.length;
-  const mediasDansLaCarte = ouvert && aDesTracesDansLaCarte;
 
   /* CE QUE L'AGENT A FAIT (le récit) et CE QU'IL A RENDU (le carton) : deux
      blocs, dont l'ORDRE change au point « Plan » seulement. */
-  const recit = (
-    <ModeTechniqueContexte.Provider value={technique}>
-      {/* LA RÉFLEXION SE REPLIE DEVANT CE QUE LE TOUR A RENDU (`reflexionRepliee`) :
-          une réponse ou une compréhension se lit en tête, les actions restent
-          à un clic. Rouverte à la main, elle le reste tant que le passage vit. */}
-      <BlocsRacontes
-        point={point}
-        projectId={projectId}
-        repliable={reflexionRepliee(point)}
-        porteSesReglages={!!reglages}
-        medias={mediasDansLaCarte ? mediasLivres : undefined}
-      />
-    </ModeTechniqueContexte.Provider>
+  /* CE QUE L'AGENT A FAIT SE LIT À PLAT, TOUJOURS À L'ÉCRAN (13/11/2026, façon extension Chrome) : ses phrases, ses
+     actions groupées, ses questions et captures, les médias rendus à leur heure. Plus derrière une carte repliée. */
+  const finDuTour = point.reponse?.resultat?.trim();
+  const entreesDuRecit = React.useMemo(
+    () =>
+      [...point.traces, ...point.questions.map((q) => q.entree)]
+        /* Rien d'écrit après la dernière action : la dernière phrase EST la réponse, elle ne se lit qu'une fois. */
+        .filter((entree) => !(finDuTour && entree.nature === 'jalon' && entree.libelle === JALON_NOTE_DE_L_AGENT && entree.resultat?.trim() === finDuTour))
+        .sort((a, b) => a.rang - b.rang),
+    [point.traces, point.questions, finDuTour],
   );
+  const recit =
+    point.etape === 'configuration' ? null : (
+      <FluxDuTour entrees={entreesDuRecit} projectId={projectId} medias={mediasLivres} enCours={point.etat === 'encours'} />
+    );
   /* LE PASSAGE « PLAN » COUPE SON CARTON EN DEUX. Ce qui a DEMANDÉ la version
      (le clic « Générer le plan », la précision qui l'a fait refaire) reste en
      tête : c'est le point de départ du passage. Le CADRE du plan et ses
@@ -1016,7 +1067,10 @@ function PointDuFlux({
      la barre puisse toujours le viser. Le passage « Configuration » se cache de
      même : les réglages de l'agent s'ouvrent depuis l'en-tête de la page — mais
      son contenu reste monté, il porte la page de ces réglages. */
-  const cache = (point.etat === 'avenir' && !aDuContenu) || point.etape === 'configuration';
+  /* La DEMANDE qui attend le premier envoi reste lisible (« Dites ce que vous voulez faire. ») : elle est l'étape où
+     l'on est, simplement immobile tant que rien n'est parti. */
+  const cache =
+    (point.etat === 'avenir' && !aDuContenu && point.etape !== 'demande') || point.etape === 'configuration';
   /* La demande parle d'elle-même : sa bulle se passe d'intitulé. */
   const sansIntitule = point.etape === 'demande' && point.moments.length > 0;
   /* La phrase fixe d'un passage ne se lit que tant qu'il VIT (en cours, en
@@ -1025,19 +1079,24 @@ function PointDuFlux({
   const phraseUtile =
     (!point.resume || point.phrase === PHRASE_PLAN_A_DECIDER) && (point.etat !== 'fait' || point.phrase === PHRASE_PLAN_A_DECIDER);
 
-  /* CE QUE L'AGENT A FAIT, COMPTÉ : la ligne repliée d'un passage terminé le
-     dit comme Claude Desktop (« L'agent a fait 4 actions ») au lieu de la
-     phrase fixe de l'étape, qui ne disait rien de ce qui se cache dessous. */
-  const nombreDActions = React.useMemo(
-    () => recitDuPoint(entreesDeLaSorte([...point.traces].sort((a, b) => a.rang - b.rang), 'actions')).blocs.length,
-    [point.traces],
-  );
 
-  /* Les sujets du cadrage jusqu'à celui de ce tour, posés au-dessus de sa réponse. */
-  const sujets = React.useMemo(
-    () => (point.etape === 'comprehension' ? sujetsDuCadrage(passages, point) : []),
-    [passages, point],
-  );
+  const comprehensionsDeLaCarte = React.useContext(ContexteComprehensionsDeLaCarte);
+  const rappel =
+    point.etape === 'comprehension' && point.reponse && momentsDeComprehension.length === 0
+      ? comprehensionAvant(comprehensionsDeLaCarte, point.reponse.at)
+      : undefined;
+
+  const reponseDuPoint = point.reponse ? (
+    <ol className="flex flex-col gap-3" data-reponse-du-point="apres-le-recit">
+      <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
+        <MomentDeReponse
+          entree={point.reponse}
+          traces={point.traces}
+          onToggleEvolution={onToggleEvolution}
+        />
+      </SousPointDuFlux>
+    </ol>
+  ) : null;
 
   if (cache) {
     return (
@@ -1060,8 +1119,10 @@ function PointDuFlux({
   /* CE QUE LA CARTE PORTE, une fois ouverte : le dépôt, la mémoire, le récit du
      travail, et ce qu'il a rendu. Un passage « Demande » n'y range que le
      travail de l'agent — sa bulle, elle, est toujours à l'écran. */
+  /* LE RÉCIT N'Y EST PLUS (13/11/2026) : la carte ne garde que le dépôt, la mémoire ouverte, les compétences et ce que
+     le passage a rendu dans son carton. */
   const aDansLaCarte =
-    point.traces.length > 0 ||
+    (point.etape === 'travail' && point.traces.length > 0) ||
     point.memoire.length > 0 ||
     !!point.competences?.length ||
     !!preparation ||
@@ -1070,12 +1131,7 @@ function PointDuFlux({
   /* La ligne de la carte : ce que l'agent en dit lui-même, sinon la phrase de
      l'étape. C'est tout ce qu'on lit tant qu'on ne l'ouvre pas. */
   const ligneDeLaCarte =
-    point.resume?.trim() ||
-    (point.etat === 'fait' && nombreDActions > 0
-      ? nombreDActions > 1
-        ? t('L’agent a fait {v0} actions', { v0: nombreDActions })
-        : t('L’agent a fait 1 action')
-      : t(point.phrase));
+    (point.etape === 'demande' ? '' : point.resume?.trim()) || t(point.phrase);
   /* LE COMPTE RENDU RENDU N'A QU'UN TITRE (demande du 12/10/2026) : « Compte
      rendu » et sa date, sur la barre de la carte. La phrase « Le compte rendu
      est rendu. » redisait ce que ce titre dit déjà, et le même titre se
@@ -1135,17 +1191,8 @@ function PointDuFlux({
         </ol>
       ) : null}
 
-      {/* LA SYNTHÈSE DE LA DEMANDE, sous sa bulle : ce que l'agent a compris
-          qu'on lui demandait, en mots courants, dès le début du tour. Elle ne
-          s'écrivait plus que sur la ligne de la carte du passage — or un
-          passage « Demande » n'a de carte que s'il a laissé une trace : la
-          synthèse ne paraissait donc plus nulle part. */}
-      {sansIntitule && point.resume?.trim() && !aDansLaCarte ? (
-        <p className={cn('whitespace-pre-line text-[13.5px] leading-relaxed text-muted', LARGEUR_DE_L_AGENT)} data-point-resume>
-          {point.resume.trim()}
-        </p>
-      ) : null}
-
+      {/* PLUS DE SYNTHÈSE DE LA DEMANDE SOUS SA BULLE (13/11/2026, capture #d26d : le fil est une discussion, il ne
+          reformule pas ce qu'on vient d'écrire). La donnée (`resumeDemande`) reste pour les tableaux et le cahier. */}
       {/* 3. CE QUI EST TOMBÉ SE VOIT TOUJOURS, hors de la carte. */}
       {point.erreurs.length ? (
         <ol className={cn('flex flex-col gap-3', LARGEUR_DE_L_AGENT)}>
@@ -1159,27 +1206,15 @@ function PointDuFlux({
           de bulle de demande, son lien se pose donc ici, avant le détail. */}
       {toursDuPrompt?.length ? <LiensDesPromptsDuPoint cardId={carte.id} tours={toursDuPrompt} className={cn('w-full', LARGEUR_DE_L_AGENT)} /> : null}
 
-      {/* 4 bis. LES SUJETS DU CADRAGE, au-dessus de la réponse de cette itération
-          (20/10/2026, en texte depuis le 21/10/2026) : ceux d'avant avec leur
-          résumé, puis celui du tour en gras ; un clic sur un titre d'avant
-          remonte à sa réponse. */}
-      {sujets.length ? <PointsDuCadrage points={sujets} className={LARGEUR_DE_L_AGENT} /> : null}
 
-      {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran —
-          AU-DESSUS DU SUIVI du passage (demande du 22/10/2026, capture #40a5) :
-          on lit d'abord ce que l'agent répond, puis, dessous, la carte qui
-          raconte comment il y est arrivé. */}
-      {point.reponse ? (
-        <ol className="flex flex-col gap-3">
-          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
-            <MomentDeReponse entree={point.reponse} traces={point.traces} onToggleEvolution={onToggleEvolution} />
-          </SousPointDuFlux>
-        </ol>
-      ) : null}
-
-      {/* 4. LA CARTE DU PASSAGE : une ligne, qu'on ouvre pour le détail. */}
+      {/* 4. LA CARTE DU PASSAGE : une ligne, qu'on ouvre pour le détail. Elle
+          n'a AUCUN FOND (demande du 01/11/2026) : elle prend la couleur de
+          l'écran qui l'accueille — carte, Studio, assistant… Un `bg-surface`
+          ici se fondait dans une page de zone (qui rebase `--surface` sur
+          `--bg`) mais peignait un bloc gris partout ailleurs. Seuls les
+          encadrés POSÉS DEDANS (mémoire ouverte, fichiers…) gardent le leur. */}
       {aDansLaCarte || attente || point.mention || (point.etape === 'preparation' && point.etat === 'encours') ? (
-        <div className={cn('relative rounded-2xl bg-surface', LARGEUR_DE_L_AGENT)} data-carte-du-passage={point.etape}>
+        <div className={cn('relative', LARGEUR_DE_L_AGENT)} data-carte-du-passage={point.etape}>
           <button
             type="button"
             onClick={onBasculer}
@@ -1315,13 +1350,15 @@ function PointDuFlux({
                puis ce que ce travail a rendu — la compréhension, le plan, le
                compte rendu. */
             <PointsDeLaCarte.Provider value>
-              <ol className="flex flex-col gap-3 pb-4 pl-0 pr-4" data-point-contenu={point.etape}>
+              {/* PAS DE MARGE BASSE ICI : l'écart entre deux points est le `gap-6` de
+                  la liste du flux, seul. Un `pb-4` de plus creusait 40 px au lieu de
+                  24 sous chaque point ouvert — visible surtout avant « Déploiement ». */}
+              <ol className="flex flex-col gap-3 pl-0 pr-4" data-point-contenu={point.etape}>
                 {point.etape === 'travail' && (point.traces.length > 0 || point.total === 1) ? (
                   <DepotDuTravail carte={carte} traces={point.traces} />
                 ) : null}
                 <MemoireDuPoint lignes={point.memoire} etape={point.etape} />
                 <CompetencesDuPoint competences={point.competences} carteId={carte.id} />
-                {recit}
                 {sansIntitule ? null : carton}
               </ol>
             </PointsDeLaCarte.Provider>
@@ -1329,16 +1366,27 @@ function PointDuFlux({
         </div>
       ) : null}
 
-      {/* 5 bis. LES MÉDIAS DU PASSAGE, quand sa carte est fermée : une ligne
-          chacun, à son heure, comme une capture (capture #e9bd). Ouverte, la
-          carte les pose parmi les mots de la discussion. */}
-      {mediasLivres?.length && !mediasDansLaCarte ? (
-        <ol className="flex flex-col gap-3" data-point-medias={mediasLivres.length}>
-          <LignesDeMediasLivres medias={mediasLivres} />
+      {/* 5. LE FIL DU TOUR, À PLAT (13/11/2026, façon extension Chrome, captures #322f et #de1b) : les phrases de
+          l'agent, ses actions groupées, ses questions et ses captures, les médias à leur heure — dans l'ordre réel. */}
+      {recit}
+
+      {/* 6. LA RÉPONSE, EN DERNIER, PARTOUT (décision du 13/11/2026, capture #de1b : « le travail, il se fait avant la
+          réponse »). LE FIL SE LIT COMME UNE DISCUSSION (même jour, captures #056f et #d26d) : plus de liste des sujets
+          précédents ni de titre « Réponse · sujet » au-dessus — rien ne précède le sommaire de la réponse. */}
+      {reponseDuPoint}
+
+      {/* 6 bis. UN TOUR QUI N'ÉTAIT QU'UNE QUESTION SE TERMINE AUSSI PAR LA COMPRÉHENSION COMPLÈTE (13/11/2026) : l'agent
+          répond sans la réécrire, et l'écran repose dessous la dernière rendue, en entier, sans rien en violet. Jamais
+          quand le tour a rendu la sienne (elle suit juste en dessous). */}
+      {rappel ? (
+        <ol className="flex flex-col gap-3" data-comprehension-rappelee={rappel.id}>
+          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.comprehension} attrs={{ 'data-sous-point-flux': 'comprehension' }}>
+            <MomentDeComprehension entree={rappel} numero={0} rappel />
+          </SousPointDuFlux>
         </ol>
       ) : null}
 
-      {/* 6. LA COMPRÉHENSION, DÉTACHÉE DU BLOC : un texte posé sous le bloc de
+      {/* 7. LA COMPRÉHENSION, DÉTACHÉE DU BLOC : un texte posé sous le bloc de
           travail (et sous la réponse qui la précède dans le tour), sur le fond
           de la page, sans cadre ni en-tête — comme un message. Le bloc à points
           ne garde que le travail de fond ; ce qu'on lisait dans sa ligne
@@ -1354,7 +1402,7 @@ function PointDuFlux({
         </ol>
       ) : null}
 
-      {/* 7. LE PLAN, DÉTACHÉ DU BLOC COMME LA COMPRÉHENSION (demande du
+      {/* 8. LE PLAN, DÉTACHÉ DU BLOC COMME LA COMPRÉHENSION (demande du
           12/10/2026 : « un plan doit être rendu sous forme de texte avec des
           titres distincts, pas dans un bloc gris et en dehors du flux de la
           réflexion, comme une réponse »). Du texte, sur le fond de la page, dans
@@ -1508,7 +1556,19 @@ function PropositionsDuPoint({ point }: { point: PointDuParcours }) {
  * pied, qu'une croix peut fermer ; « Voir » la rouvre et la fait défiler
  * jusqu'à elles (`voirLesSuggestions`).
  */
+/**
+ * LES CARTES PROPOSÉES SE LISENT DANS LE FIL (décision du 14/11/2026) : la page de la carte fournit leur rendu
+ * (`SuggestionsDansLeFil`), posé à l'endroit même où l'agent les a proposées. Sans rendu fourni, le repère d'avant.
+ */
+export const RenduDesSuggestionsDuFil = React.createContext<((groupe: GroupeDeSuggestions) => React.ReactNode) | null>(null);
+
 function RepereDeSuggestions({ carteId, groupe }: { carteId: string; groupe: GroupeDeSuggestions }) {
+  const rendu = React.useContext(RenduDesSuggestionsDuFil);
+  if (rendu) return <>{rendu(groupe)}</>;
+  return <RepereSeulDeSuggestions carteId={carteId} groupe={groupe} />;
+}
+
+function RepereSeulDeSuggestions({ carteId, groupe }: { carteId: string; groupe: GroupeDeSuggestions }) {
   const n = groupe.ids.length;
   return (
     <div
@@ -1690,24 +1750,11 @@ function MomentDePlan({
  * carte : son titre, sa croix, et le plan qui défile sur lui-même.
  */
 function PanneauDuPlan({ titre, children }: { titre: string; children: React.ReactNode }) {
+  /* LE MÊME DESSIN QUE LE VOLET D'UNE CAMPAGNE (`volet-comme-un-plan.tsx`). */
   return (
-    <div className="flex h-full min-h-0 flex-col" data-panneau-du-plan>
-      <div className="flex shrink-0 items-center gap-2 px-5 pb-2 pt-3">
-        <FileText className="h-4 w-4 text-muted" />
-        <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{titre}</span>
-        <button
-          type="button"
-          onClick={fermerLeDocument}
-          title={t('Fermer le plan')}
-          data-fermer-le-plan
-          data-croix-du-volet="plan"
-          className="flex h-[38px] sm:h-8 w-[38px] sm:w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <ZoneDefilement className="px-5 pb-6">{children}</ZoneDefilement>
-    </div>
+    <PanneauDuVolet titre={titre} onFermer={fermerLeDocument} reperesCroix={{ 'data-fermer-le-plan': '', 'data-croix-du-volet': 'plan' }} data-panneau-du-plan="">
+      {children}
+    </PanneauDuVolet>
   );
 }
 
@@ -1797,6 +1844,27 @@ function DemandeDansLaBulle({ entree, projectId }: { entree: EntreeJournal; proj
 }
 const AUCUNE_PIECE: readonly string[] = [];
 
+/**
+ * QUI A ÉCRIT CETTE DEMANDE, quand ce n'est pas l'utilisateur (carte posée par l'agent de nuit, le chef…) : une
+ * mention discrète à côté de l'heure, lue dans les données de la bulle (`auteurDeLaDemande`, parcours-en-points).
+ */
+function AuteurDeLaDemande({ entree }: { entree: EntreeJournal }) {
+  const auteur = React.useMemo(() => {
+    try {
+      const d = entree.donnees ? (JSON.parse(entree.donnees) as { auteurDeLaDemande?: unknown }) : null;
+      return typeof d?.auteurDeLaDemande === 'string' ? d.auteurDeLaDemande : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [entree.donnees]);
+  if (!auteur) return null;
+  return (
+    <span className="text-[12px] text-faint" data-auteur-demande="">
+      {t('Écrite par {auteur}', { auteur: t(auteur) })} ·
+    </span>
+  );
+}
+
 function BoutonCopierLaDemande({ entree, projectId }: { entree: EntreeJournal; projectId?: string }) {
   const state = useApp();
   const [etat, setEtat] = React.useState<'repos' | 'encours' | 'fait'>('repos');
@@ -1877,6 +1945,7 @@ function Moment({
             <span className="transition-opacity survol:opacity-0 group-hover/bulle:survol:opacity-100">
               <BoutonCopierLaDemande entree={entree} projectId={projectId} />
             </span>
+            <AuteurDeLaDemande entree={entree} />
             <HeureDuFil at={entree.at} className="mt-0 text-[12px]" data-heure-demande="" />
           </div>
           {/* CE QUE L'AGENT A VRAIMENT REÇU, à un clic sous votre message. */}
@@ -1940,13 +2009,40 @@ function Moment({
  * Le cahier des charges vivant ne s'y colle pas non plus : il ne paraît que
  * dans le plan (`CahierDesChargesDuPlan`, demande du 17/10/2026).
  */
-function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; numero: number }) {
+function MomentDeComprehension({
+  entree,
+  numero,
+  rappel = false,
+}: {
+  entree: EntreeJournal;
+  numero: number;
+  /** Reposée sous la réponse d'un tour-question : en entier, sans rien en violet. */
+  rappel?: boolean;
+}) {
+  /* CE QUI A CHANGÉ DEPUIS LA PRÉCÉDENTE, EN VIOLET (13/11/2026) : calculé par l'écran, jamais marqué par l'agent. */
+  const comprehensions = React.useContext(ContexteComprehensionsDeLaCarte);
+  const precedente = rappel ? undefined : comprehensionAvant(comprehensions, entree.at, entree.id);
+  const texteMarque = React.useMemo(
+    () => marquerLesEcarts(precedente?.resultat, entree.resultat ?? ''),
+    [precedente?.resultat, entree.resultat],
+  );
   /*
    * PLUS AUCUNE SUPPOSITION À L'ÉCRAN (décision du 06/10/2026) : ce qu'un
    * cadrage sans témoin ne peut trancher devient une QUESTION gardée sur la
    * carte, posée au-dessus du champ (`QuestionsDeLaCarte`, `parcours-carte.tsx`).
    */
   const range = React.useMemo(() => rangerLaComprehension(entree.resultat ?? ''), [entree.resultat]);
+  /* LA COMPRÉHENSION EN POINTS (demande de l'utilisateur, carte « Retouches de la charte graphique ») : un titre
+     « ### » par point compris, sa synthèse dessous, et le sommaire en tête — le même rendu que le compte rendu. */
+  const enPoints = /^#{1,3}\s+\S/m.test(entree.resultat ?? '');
+  /* LES IMAGES JOINTES PENDANT LE TOUR DE CADRAGE (14/11/2026) : elles ne paraissaient que dans la bande du haut. Le
+     tour commence au jalon rendu juste avant (réponse, compréhension, compte rendu) : jamais les images d'avant. */
+  const { jalons } = React.useContext(ContexteDesActionsDeLaCarte);
+  const debutDuTour = React.useMemo(() => {
+    let debut = 0;
+    for (const at of jalons) if (at < entree.at && at > debut) debut = at;
+    return debut;
+  }, [jalons, entree.at]);
 
   return (
     /* LE MÊME DESSIN QUE LA RÉPONSE : à gauche, SANS AUCUN FOND, dans la largeur
@@ -1962,9 +2058,11 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
         <div
           className="comprehension-unie comprehension-detachee space-y-3"
           data-comprehension-contenu
-          data-comprehension-forme={range.conforme ? 'points' : 'texte'}
+          data-comprehension-forme={enPoints ? 'titres' : range.conforme ? 'points' : 'texte'}
         >
-          {range.conforme ? (
+          {enPoints ? (
+            <Markdown content={texteMarque} className="texte-du-fil [&_p]:mb-2.5" enPoints />
+          ) : range.conforme ? (
             <>
               {range.ouverture ? <Markdown content={range.ouverture} /> : null}
               {/* LE SOMMAIRE ET LES POINTS SONT LA MÊME LISTE. Le sommaire reste
@@ -1972,7 +2070,7 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
                   (compréhension ancienne, numérotation décalée) : rien ne doit
                   disparaître de l'écran. */}
               {range.sommaire.length && range.points.length < range.sommaire.length ? (
-                <ol className="list-decimal space-y-1 pl-5" data-comprehension-sommaire>
+                <ol className={cn('list-decimal space-y-1', range.sommaire.length >= 10 ? 'pl-7' : 'pl-5')} data-comprehension-sommaire>
                   {range.sommaire.map((ligne, index) => (
                     <li key={index}>{ligne}</li>
                   ))}
@@ -1998,8 +2096,9 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
                écrites avant les volets. Rendu en paragraphes aérés (`mb-2.5`),
                dans un `div` et jamais dans un `button` : tout se lit et se
                copie d'un trait. */
-            <Markdown content={entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-2.5" />
+            <Markdown content={texteMarque} className="texte-du-fil [&_p]:mb-2.5" />
           )}
+          {rappel ? null : <VignettesDuTour texte={entree.resultat ?? ''} depuis={debutDuTour} jusqua={entree.at} />}
         </div>
       </div>
       <HeureDuFil at={entree.at} className="pl-1 text-[12px]" />
@@ -2025,10 +2124,10 @@ function PartDuPointCompris({ libelle, texte }: { libelle: string; texte: string
 
 /**
  * LA RÉPONSE D'UN TOUR QUI A RÉPONDU AU LIEU DE CADRER (`reponseDuPassage`).
- * Même dessin que la compréhension : un EN-TÊTE au fond contrasté (titre et
- * heure), puis le texte dans un PANNEAU dessous (`panneau.tsx`), sans aucun
- * trait. Le texte se lit ENTIER, jamais tronqué ni replié — donc pas de flèche :
- * c'est ce que la question attendait.
+ * À PLAT, sans bulle ni fond (demande du 01/11/2026). SANS TITRE AU-DESSUS
+ * (13/11/2026, captures #056f et #d26d : « ça doit être une discussion ») : rien
+ * ne précède le sommaire que l'écran pose en tête (`enPoints`, DEC-496). Le texte
+ * se lit ENTIER, jamais tronqué ni replié.
  */
 function MomentDeReponse({
   entree,
@@ -2043,16 +2142,20 @@ function MomentDeReponse({
   const texte = retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(entree.resultat ?? ''));
   const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
   const documents = React.useMemo(() => documentsDuTour(traces), [traces]);
+  /* Le tour commence à sa première action : ses images sont celles d'après. */
+  const debutDuTour = traces.length ? Math.min(...traces.map((trace) => trace.at)) - 1 : entree.at;
   return (
-    /* LA RÉPONSE DE L'AGENT : une BULLE GRISE à GAUCHE, face à la vôtre à
-       droite (demande du 22/10/2026). Seule la réponse en porte une : la
-       compréhension et le compte rendu restent à plat. `scroll-mt-12` : visée
-       par son début, elle s'arrête sous le fondu du haut du fil et se lit nette. */
+    /* LA RÉPONSE DE L'AGENT, à plat comme la compréhension : aucun fond, aucun
+       titre. `scroll-mt-12` : visée par son début, elle s'arrête
+       sous le fondu du haut du fil et se lit nette. */
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
-      <div data-bulle="agent" className={cn(BULLE_DE_L_AGENT, LARGEUR_DE_L_AGENT)}>
-        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text [&>*:last-child]:mb-0" />
-        <DocumentsProduits chemins={documents} />
+      <div data-bulle="agent" className={cn('min-w-0', LARGEUR_DE_L_AGENT)}>
+        {/* LE COMPTE RENDU EN POINTS : sommaire en tête, titres en gras alignés à gauche, sans cadre. */}
+        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text [&>*:last-child]:mb-0" enPoints />
+        {/* LES SUITES SE LISENT À LA SUITE DU TEXTE, AVANT LES IMAGES ET LES DOCUMENTS (capture #410a). */}
         <SuitesProposees suites={suites} onBasculer={onToggleEvolution} cible={{ entreeId: entree.id }} />
+        <VignettesDuTour texte={texte} depuis={debutDuTour} jusqua={entree.at} />
+        <DocumentsProduits chemins={documents} />
       </div>
       <HeureDuFil at={entree.at} className="pl-1 text-[12px]" />
     </div>
@@ -2094,6 +2197,7 @@ function MomentDeRapport({
     const precedent = rapports.filter((at) => at < entree.at).pop() ?? -Infinity;
     return documentsDuTour(traces.filter((trace) => trace.at > precedent && trace.at <= entree.at));
   }, [traces, rapports, entree.at]);
+  const rapportPrecedent = rapports.filter((at) => at < entree.at).pop() ?? 0;
   const liste = texte.trim() ? (
     <>
     <RapportEnFlux
@@ -2104,15 +2208,17 @@ function MomentDeRapport({
       onToggleEvolution={onToggleEvolution}
       onToggleAll={onToggleAll}
     />
-    <DocumentsProduits chemins={documents} />
-    {/* LES SUITES POSSIBLES du message de fin (`proposer_suites`) ; figées sur un compte rendu dépassé. */}
+    {/* LES SUITES POSSIBLES du message de fin (`proposer_suites`) ; figées sur un compte rendu dépassé.
+        À la suite du texte, AVANT les images et les documents (capture #410a). */}
     <SuitesProposees suites={suites} onBasculer={onToggleEvolution} figee={!dernier} cible={{ entreeId: entree.id }} />
+    <VignettesDuTour texte={texte} depuis={rapportPrecedent} jusqua={entree.at} />
+    <DocumentsProduits chemins={documents} />
     </>
   ) : (
     <p className={cn('text-[14.5px] leading-relaxed text-faint', dernier && 'pl-6')}>{t('texte non conservé')}</p>
   );
   return (
-    <div data-moment="rapport" data-rapport-dernier={dernier ? 'oui' : 'non'} data-rapport-ouvert={ouvert ? 'oui' : 'non'}>
+    <div className="scroll-mt-12" data-moment="rapport" data-rapport-dernier={dernier ? 'oui' : 'non'} data-rapport-ouvert={ouvert ? 'oui' : 'non'}>
       {dernier ? null : (
         <button
           type="button"
@@ -2388,177 +2494,6 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
 /* ------------------------------------------------------------------ */
 
 /**
- * CE QUE L'AGENT A FAIT, EN BLOCS QUI SE LISENT.
- *
- * Ici vivait « Détails techniques » : un bandeau replié qui annonçait
- * « 34 actions · claude · opus · réflexion haute », et, dessous, une ligne par
- * appel d'outil. Il fallait deux gestes et un vocabulaire de développeur pour
- * savoir ce que l'agent avait regardé.
- *
- * Le passage RACONTE maintenant, dépliés d'office : UN CARTON PAR ACTION
- * (`recitDuPoint`, règle pure), titre court et phrase simple. Une capture
- * d'écran regardée montre sa VIGNETTE, qu'un clic agrandit. Le détail exact —
- * la commande, sa sortie brute — reste atteignable d'un cran de plus, jamais
- * au premier niveau.
- *
- * UN TOUR CHARGÉ NE DEVIENT PAS UN MUR : la règle dit combien de cartons se
- * montrent d'office, et le reste attend derrière « voir les N de plus »,
- * qui déplie SUR PLACE sans refermer le passage.
- */
-function BlocsRacontes({
-  point,
-  projectId,
-  repliable = false,
-  porteSesReglages = false,
-  medias,
-}: {
-  point: PointDuParcours;
-  projectId?: string;
-  /** Le passage a rendu son bloc de fin : les actions passent derrière « Réflexion ». */
-  repliable?: boolean;
-  /** Le point montre déjà le bloc des réglages (« Configuration ») : il n'est pas vide. */
-  porteSesReglages?: boolean;
-  /** Les médias rendus pendant ce passage : une ligne chacun, parmi les autres, à son heure. */
-  medias?: readonly MediaLivre[];
-}) {
-  const entrees = React.useMemo(
-    () => [...point.traces, ...point.questions.map((q) => q.entree)].sort((a, b) => a.rang - b.rang),
-    [point.traces, point.questions],
-  );
-  const [reflexionOuverte, setReflexionOuverte] = React.useState(false);
-  const retrait = useRetraitDuTexte();
-  /* LA DISCUSSION SE LIT DANS LE FIL, JAMAIS DERRIÈRE « RÉFLEXIONS » : les
-     questions répondues et les notes de l'agent se posent comme des mots d'une
-     conversation, dans l'ordre où ils sont arrivés. Seules les actions
-     (lectures, commandes, outils) se replient et se plafonnent. Le point
-     « Travail » garde sa propre lecture, par liste de tâches. */
-  const decoupe = point.etape !== 'travail';
-  const segments = React.useMemo(() => (decoupe ? segmenterLeRecit(entrees) : []), [decoupe, entrees]);
-  const entreesDActions = React.useMemo(() => (decoupe ? entreesDeLaSorte(entrees, 'actions') : entrees), [decoupe, entrees]);
-  const aDeLaDiscussion = segments.some((segment) => segment.sorte === 'discussion');
-  const actions = React.useMemo(() => (repliable ? recitDuPoint(entreesDActions).blocs.length : 0), [repliable, entreesDActions]);
-  const dernierSegmentDActions = segments.map((segment) => segment.sorte).lastIndexOf('actions');
-  /* CHAQUE MÉDIA APRÈS LA SUITE COMMENCÉE AVANT LUI (`placerLesMediasDansLeFil`).
-     Replié, le récit ne montre que les mots de la discussion : les médias se
-     rangent entre eux, et ceux d'avant le premier mot suivent « Réflexions ». */
-  const replie = repliable && (actions > 0 || aDeLaDiscussion);
-  const segmentsRepere = React.useMemo(
-    () => (replie ? segments.filter((segment) => segment.sorte === 'discussion') : segments),
-    [replie, segments],
-  );
-  const placement = React.useMemo(
-    () =>
-      placerLesMediasDansLeFil(
-        medias ?? [],
-        segmentsRepere.map((segment) => ({ cle: segment.entrees[0]?.id ?? '', at: segment.entrees[0]?.at })),
-      ),
-    [medias, segmentsRepere],
-  );
-  const mediasApres = (segment: SegmentDuRecit) => placement.apres.get(segment.entrees[0]?.id ?? '');
-
-  /* « RÉFLEXIONS » EST UN TITRE DE POINT, PAS UN LIEN GRIS. Le repli s'écrivait
-     en 12,5 px `--faint`, chevron en tête : posé juste au-dessus du titre de la
-     compréhension, il se lisait comme une note de bas de page alors qu'il ouvre
-     tout ce que l'agent a fait. Il reprend donc le gabarit du titre d'une
-     compréhension — 14,5 px `font-semibold` `--text` (MEM-3218 : le fil tient
-     dans UNE taille), le compte d'actions au second plan à sa droite comme
-     l'heure d'une compréhension, chevron à DROITE — et son contenu descend dans
-     sa propre liste, en sous-points, au lieu de flotter à côté de lui.
-     IL RESTE REPLIÉ D'OFFICE : `data-reflexion-bascule`, `aria-expanded` et
-     `data-reflexion-repliee` sont le point d'appui des contrôles (MEM-0582). */
-  if (repliable && (actions > 0 || aDeLaDiscussion)) {
-    return (
-      <>
-        {actions > 0 ? (
-          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reflexion} attrs={{ 'data-reflexion-repliee': reflexionOuverte ? 'ouverte' : 'repliee' }}>
-            <button
-              type="button"
-              onClick={() => setReflexionOuverte((avant) => !avant)}
-              aria-expanded={reflexionOuverte}
-              data-reflexion-bascule
-              className="flex w-full items-center gap-2 text-left"
-            >
-              <span className="text-[14.5px] font-semibold leading-relaxed text-muted">{t('Réflexions')}</span>
-              <span className="text-[12.5px] text-faint" data-reflexion-actions={actions}>
-                {actions > 1 ? t('{v0} actions', { v0: actions }) : t('1 action')}
-              </span>
-              <span className="flex-1" />
-              <ChevronRight
-                className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', reflexionOuverte && 'rotate-90')}
-                aria-hidden
-              />
-            </button>
-            {reflexionOuverte ? (
-              <ol className="mt-1" data-reflexion-contenu>
-                <RecitDuPassage entrees={entreesDActions} projectId={projectId} total />
-              </ol>
-            ) : null}
-          </SousPointDuFlux>
-        ) : null}
-        <LignesDeMediasLivres medias={placement.avant} />
-        {segments
-          .filter((segment) => segment.sorte === 'discussion')
-          .map((segment) => (
-            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} medias={mediasApres(segment)} />
-          ))}
-      </>
-    );
-  }
-
-  /* RIEN N'EST ARRIVÉ ICI : on le DIT, sauf quand le passage porte déjà son
-     carton — un plan seul n'a pas besoin qu'on lui annonce un vide. */
-  if (!entrees.length) {
-    if (medias?.length) return <LignesDeMediasLivres medias={medias} />;
-    if (point.moments.length || point.erreurs.length || porteSesReglages) return null;
-    return (
-      <li className={cn('text-[12.5px] text-faint', retrait)} data-blocs-racontes="0">
-        {t('Rien à raconter pour ce passage.')}
-      </li>
-    );
-  }
-
-  /* LE POINT « TRAVAIL » SE LIT À TROIS NIVEAUX : la Réflexion, puis chaque
-     point de la liste de tâches, puis les actions sous chacun. Les autres
-     passages gardent leurs deux niveaux. */
-  if (point.etape === 'travail') {
-    return (
-      <>
-        <TravailEnSousPoints entrees={entrees} projectId={projectId} />
-        <LignesDeMediasLivres medias={medias} />
-      </>
-    );
-  }
-
-  /* PENDANT LE TRAVAIL, LE FIL SE LIT DANS L'ORDRE : une suite d'actions, puis
-     le mot de la discussion qui l'a suivie. Le temps total se rappelle une
-     seule fois, sous la dernière suite d'actions, et compte tout le passage. */
-  if (aDeLaDiscussion) {
-    return (
-      <>
-        <LignesDeMediasLivres medias={placement.avant} />
-        {segments.map((segment, rang) =>
-          segment.sorte === 'discussion' ? (
-            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} medias={mediasApres(segment)} />
-          ) : (
-            <React.Fragment key={segment.entrees[0]?.id}>
-              <RecitDuPassage entrees={segment.entrees} projectId={projectId} total={rang === dernierSegmentDActions} dureeSur={entrees} />
-              <LignesDeMediasLivres medias={mediasApres(segment)} />
-            </React.Fragment>
-          ),
-        )}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <RecitDuPassage entrees={entrees} projectId={projectId} total />
-      <LignesDeMediasLivres medias={medias} />
-    </>
-  );
-}
-
-/**
  * LES MÉDIAS RENDUS, UNE LIGNE CHACUN (décision du 26/10/2026, capture #e9bd) :
  * l'icône de leur genre dans la colonne de gauche, la phrase qui dit ce qui a
  * été rendu, l'heure, puis le média dessous — comme une capture de l'agent.
@@ -2577,72 +2512,178 @@ function LignesDeMediasLivres({ medias }: { medias?: readonly MediaLivre[] }) {
 }
 
 /**
- * LE TRAVAIL D'UN TOUR D'AGENT SANS CARTE, DESSINÉ COMME CELUI D'UNE CARTE
- * (demande du 19/10/2026 : « tous les agents, partout, comme les agents de
- * tâche »). Les étapes et la liste de tâches du message sont relues comme un
- * journal (`entreesDuTourSansCarte`, `shared/src/fil-sans-carte.ts`), puis
- * dessinées par les MÊMES pièces que le point « Travail » d'une carte : la
- * liste de tâches en sous-points quand l'agent en a annoncé une, sinon le récit
- * des actions entrecoupé des mots de la discussion (questions et réponses),
- * avec le temps total dessous. Les points portent leurs icônes et leur trait,
- * comme dans la carte ouverte d'un passage.
+ * LE FIL D'UN TOUR, À LA FAÇON DE L'EXTENSION CHROME (décision du 13/11/2026, captures #322f et #de1b, maquette A
+ * #1a2b) — le MÊME dessin dans toutes les conversations : cartes, Studio, Communication, assistant, publication.
+ *
+ * De haut en bas, dans l'ordre réel (`fluxDesEntrees`, shared/src/flux-du-tour.ts) : les phrases de l'agent en clair,
+ * comme un message ; entre elles, ses actions réunies sur UNE ligne grise repliée qui dit ce qu'elle contient
+ * (« 5 fichiers lus, 2 recherches › ») et se déplie d'un appui sur le détail de chaque action ; les questions et les
+ * captures à leur place ; les médias rendus à leur heure. La réponse n'est pas ici : l'appelant la pose APRÈS, en
+ * dernier. Plus de « L'agent a fait N actions », plus de repli « Réflexions ».
  */
-export function TravailDUnTourSansCarte({ entrees, projectId }: { entrees: EntreeJournal[]; projectId?: string }) {
-  const aDesPoints = entrees.some((entree) => entree.nature === 'point');
-  const segments = React.useMemo(() => (aDesPoints ? [] : segmenterLeRecit(entrees)), [aDesPoints, entrees]);
-  const dernierSegmentDActions = segments.map((segment) => segment.sorte).lastIndexOf('actions');
-  if (!entrees.length) return null;
+export function FluxDuTour({
+  entrees,
+  projectId,
+  medias,
+  enCours = false,
+}: {
+  entrees: EntreeJournal[];
+  projectId?: string;
+  medias?: readonly MediaLivre[];
+  /** Le tour vit encore : le dernier groupe d'actions porte le violet du travail. */
+  enCours?: boolean;
+}) {
+  const elements = React.useMemo(() => fluxDesEntrees([...entrees].sort((a, b) => a.rang - b.rang)), [entrees]);
+  const placement = React.useMemo(
+    () =>
+      placerLesMediasDansLeFil(
+        medias ?? [],
+        elements.map((element) => ({
+          cle: element.cle,
+          at: element.sorte === 'actions' ? element.entrees[element.entrees.length - 1]?.at : element.entree.at,
+        })),
+      ),
+    [medias, elements],
+  );
+  if (!elements.length && !medias?.length) return null;
+  const dernier = elements[elements.length - 1];
   return (
-    <PointsDeLaCarte.Provider value>
-      <ol className="flex flex-col gap-3 pb-2" data-fil-sans-carte={entrees.length}>
-        {aDesPoints ? (
-          <TravailEnSousPoints entrees={entrees} projectId={projectId} />
-        ) : (
-          segments.map((segment, rang) =>
-            segment.sorte === 'discussion' ? (
-              <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
-            ) : (
-              <RecitDuPassage
-                key={segment.entrees[0]?.id}
-                entrees={segment.entrees}
-                projectId={projectId}
-                total={rang === dernierSegmentDActions}
-                dureeSur={entrees}
-              />
-            ),
-          )
-        )}
-      </ol>
-    </PointsDeLaCarte.Provider>
+    <ol className={cn('flex flex-col gap-2.5', LARGEUR_DE_L_AGENT)} data-flux-du-tour={elements.length}>
+      <LignesDeMediasLivres medias={placement.avant} />
+      {elements.map((element) => (
+        <React.Fragment key={element.cle}>
+          <ElementDuFluxDuTourAffiche element={element} projectId={projectId} enCours={enCours && element === dernier} />
+          <LignesDeMediasLivres medias={placement.apres.get(element.cle)} />
+        </React.Fragment>
+      ))}
+    </ol>
+  );
+}
+
+function ElementDuFluxDuTourAffiche({ element, projectId, enCours }: { element: ElementDuFluxDuTour; projectId?: string; enCours: boolean }) {
+  if (element.sorte === 'actions') return <GroupeDActions element={element} projectId={projectId} enCours={enCours} />;
+  if (element.sorte === 'note') {
+    /* UNE PHRASE DE L'AGENT SE LIT COMME UN MESSAGE : même typographie que la réponse, aucune icône. */
+    return (
+      <li className="min-w-0" data-note-du-flux={element.cle}>
+        <Markdown content={element.entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-1.5 [&_p]:text-text [&>*:last-child]:mb-0" />
+      </li>
+    );
+  }
+  /* QUESTION, CAPTURE, ÉVÉNEMENT : le bloc raconté habituel (encadré de la question, vignette de la capture). */
+  return <BlocSeulDuFlux entree={element.entree} sorte={element.sorte} projectId={projectId} />;
+}
+
+function BlocSeulDuFlux({ entree, sorte, projectId }: { entree: EntreeJournal; sorte: string; projectId?: string }) {
+  const bloc = React.useMemo(() => recitDuPoint([entree], { montres: Number.MAX_SAFE_INTEGER }).blocs[0], [entree]);
+  if (!bloc) return null;
+  return (
+    <SousPointDuFlux icone={ICONE_DU_GENRE[bloc.genre]} attrs={{ 'data-element-du-flux': sorte, 'data-discussion-bloc': sorte === 'question' ? bloc.genre : undefined }}>
+      <UnBlocRaconte bloc={bloc} projectId={projectId} />
+    </SousPointDuFlux>
   );
 }
 
 /**
- * LES MOTS D'UNE DISCUSSION : une question avec sa réponse, une note de
- * l'agent. Chacun se pose dans le fil comme un point à part entière, jamais
- * derrière « Réflexions » ni sous « voir les N précédentes » : c'est ce qu'on
- * vient lire. Une question sans réponse n'est pas ici, elle attend dans le
- * panneau de décision.
+ * UN GROUPE D'ACTIONS, EN UNE LIGNE GRISE : l'icône du genre le plus présent, ce que le groupe contient en toutes
+ * lettres, un chevron. Un appui déplie le détail de chaque action (les blocs racontés habituels) ; un second bouton,
+ * groupe ouvert, bascule ce détail en vue technique.
  */
-function MotsDeLaDiscussion({ entrees, projectId, medias }: { entrees: EntreeJournal[]; projectId?: string; medias?: readonly MediaLivre[] }) {
-  const recit = React.useMemo(() => recitDuPoint(entrees, { montres: Number.MAX_SAFE_INTEGER }), [entrees]);
-  /* Un média rendu entre deux questions se lit entre elles. */
-  const placement = React.useMemo(
-    () => placerLesMediasDansLeFil(medias ?? [], recit.blocs.map((bloc) => ({ cle: bloc.cle, at: bloc.debutAt }))),
-    [medias, recit.blocs],
-  );
+function GroupeDActions({
+  element,
+  projectId,
+  enCours,
+}: {
+  element: Extract<ElementDuFluxDuTour, { sorte: 'actions' }>;
+  projectId?: string;
+  enCours: boolean;
+}) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const [technique, setTechnique] = React.useState(false);
+  const Icone = element.dominant === 'chrome' ? Globe : ICONE_DU_GENRE[element.dominant];
+  const libelle = element.libelle.map((morceau) => t(morceau.motif, morceau.valeurs)).join(', ');
   return (
-    <>
-      <LignesDeMediasLivres medias={placement.avant} />
-      {recit.blocs.map((bloc) => (
-        <React.Fragment key={bloc.cle}>
-          <SousPointDuFlux icone={ICONE_DU_GENRE[bloc.genre]} attrs={{ 'data-discussion-bloc': bloc.genre }}>
-            <UnBlocRaconte bloc={bloc} projectId={projectId} />
-          </SousPointDuFlux>
-          <LignesDeMediasLivres medias={placement.apres.get(bloc.cle)} />
-        </React.Fragment>
-      ))}
-    </>
+    <li className="min-w-0" data-groupe-d-actions={element.cle} data-groupe-ouvert={ouvert ? '' : undefined} data-groupe-en-cours={enCours ? '' : undefined}>
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOuvert((avant) => !avant)}
+          aria-expanded={ouvert}
+          className={cn(
+            'flex min-w-0 items-center gap-2 rounded py-0.5 text-left text-[14px] transition-colors hover:text-text',
+            enCours ? 'text-teinte' : element.enEchec ? 'text-muted' : 'text-muted',
+          )}
+          data-groupe-bascule
+        >
+          {enCours ? <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icone className="h-[15px] w-[15px] shrink-0" aria-hidden />}
+          <span className="min-w-0 truncate" data-groupe-libelle>
+            {libelle}
+          </span>
+          {element.enEchec ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-danger" aria-label="Une action a échoué"><title>{t('Une action a échoué')}</title></AlertTriangle> : null}
+          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
+        </button>
+        {ouvert ? (
+          <button
+            type="button"
+            onClick={() => setTechnique((avant) => !avant)}
+            aria-pressed={technique}
+            title={technique ? t('Revenir au récit') : t('Voir le détail technique')}
+            aria-label={technique ? 'Revenir au récit' : 'Voir le détail technique'}
+            className={cn('shrink-0 rounded-md p-1.5 transition-colors', technique ? 'bg-raised text-text' : 'text-faint hover:text-muted')}
+            data-groupe-technique
+          >
+            <Terminal className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      {ouvert ? (
+        <ModeTechniqueContexte.Provider value={technique}>
+          <PointsDeLaCarte.Provider value>
+            <ol className="mt-2 flex flex-col gap-3" data-groupe-detail>
+              <RecitDuPassage entrees={element.entrees} projectId={projectId} />
+            </ol>
+          </PointsDeLaCarte.Provider>
+        </ModeTechniqueContexte.Provider>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * LE TRAVAIL D'UN TOUR D'AGENT SANS CARTE, DESSINÉ COMME CELUI D'UNE CARTE (demande du 19/10/2026 : « tous les
+ * agents, partout, comme les agents de tâche »). Les étapes du message sont relues comme un journal
+ * (`entreesDuTourSansCarte`, `shared/src/fil-sans-carte.ts`) — notes de l'agent comprises — puis dessinées par le
+ * MÊME fil que celui d'une carte (`FluxDuTour`, 13/11/2026).
+ */
+export function TravailDUnTourSansCarte({
+  entrees,
+  projectId,
+  enCours = false,
+  reponse,
+}: {
+  entrees: EntreeJournal[];
+  projectId?: string;
+  enCours?: boolean;
+  /** La réponse du tour : une dernière phrase qui la redit (rien d'écrit après la dernière action) ne se lit qu'une fois. */
+  reponse?: string;
+}) {
+  const visibles = React.useMemo(() => {
+    const reduite = (texte: string) => texte.replace(/\s+/g, ' ').trim();
+    const fin = reduite(reponse ?? '');
+    if (!fin) return entrees;
+    return entrees.filter((entree) => !(entree.nature === 'jalon' && entree.libelle === JALON_NOTE_DE_L_AGENT && reduite(entree.resultat ?? '') === fin));
+  }, [entrees, reponse]);
+  /* LES MESURES DU FIL D'UNE CARTE (17/11/2026, capture #6b87) : sans elles, une question ou une capture d'un agent de
+     service gardait le retrait et le rond du dessin à ronds, décalée de 56 px sous les phrases de l'agent. */
+  const telephone = useTelephone();
+  const mesures = React.useMemo(() => enDiscussion(telephone ? MESURES_DU_FLUX.telephone : MESURES_DU_FLUX.ordinateur), [telephone]);
+  if (!visibles.length) return null;
+  return (
+    <MesuresContexte.Provider value={mesures}>
+      <div className="pb-2" data-fil-sans-carte={visibles.length}>
+        <FluxDuTour entrees={visibles} projectId={projectId} enCours={enCours} />
+      </div>
+    </MesuresContexte.Provider>
   );
 }
 
@@ -2751,146 +2792,6 @@ function RecitDuPassage({
 }
 
 /**
- * LE POINT « TRAVAIL » À TROIS NIVEAUX.
- *
- * Sous « Travail » se lisait un empilement plat d'actions : quarante cartons
- * à la file, sans savoir lequel appartenait à quoi. Le journal porte pourtant
- * la LISTE DE TÂCHES de l'agent — c'est elle qui devient le deuxième niveau.
- *
- * Un sous-fil, donc : un petit rond par sous-point, son icône selon son état
- * (réflexion, en cours, faite, échec), son libellé, sa durée à droite. Sous
- * chacun se lisent ses actions, racontées comme partout ailleurs et repliées
- * de la même façon. Le sous-point COURANT s'ouvre d'office ; les autres se
- * déplient au clic.
- *
- * Le découpage vient de la règle pure `travailEnSousPoints`
- * (`shared/src/travail-en-sous-points.ts`) : cet écran ne fait que dessiner.
- */
-function TravailEnSousPoints({ entrees, projectId }: { entrees: EntreeJournal[]; projectId?: string }) {
-  const sousPoints = React.useMemo(() => travailEnSousPoints(entrees), [entrees]);
-  /* LE TOTAL DU PASSAGE se rappelle ici aussi : la « liste des gestes » du
-     point « Travail », c'est cette liste de tâches — pas les cartons qu'elle
-     contient. */
-  const temps = React.useMemo(() => tempsDuPassage(entrees), [entrees]);
-  /* LE TOTAL SE RANGE DANS LA COLONNE DU TEXTE DES SOUS-POINTS. Sans retrait,
-     il partait du bord gauche du contenu et passait EN PLEIN sur la grande
-     ligne du flux, sous les ronds de l'axe. */
-  const retrait = useRetraitDuTexte();
-  /* LE SOUS-POINT COURANT : celui que le moteur dit « en cours », sinon le
-     dernier — c'est là que le regard va d'abord. */
-  const courant = React.useMemo(() => {
-    const enCours = sousPoints.find((sp) => sp.etat === 'running');
-    return (enCours ?? sousPoints[sousPoints.length - 1])?.cle;
-  }, [sousPoints]);
-
-  if (!sousPoints.length) return null;
-
-  return (
-    <li className="pl-0" data-travail-sous-points={sousPoints.length}>
-      {/* LES TÂCHES RESPIRENT (demande du 12/10/2026) : le même écart de 12 px
-          que les autres lignes de la carte, sur lequel le trait est réglé. */}
-      <ol className="flex flex-col gap-3">
-        {sousPoints.map((sousPoint) => (
-          <UnSousPointDuTravail
-            key={sousPoint.cle}
-            sousPoint={sousPoint}
-            ouvertDOffice={sousPoint.cle === courant}
-            projectId={projectId}
-          />
-        ))}
-      </ol>
-      {temps?.dureeMs !== undefined ? (
-        <p
-          className={cn('pt-1 text-[12.5px] leading-snug text-faint tabular-nums', retrait)}
-          data-duree-totale-pied={temps.dureeMs}
-        >
-          {t('Total : {v0}', { v0: dureeFine(temps.dureeMs / 1000) })}
-        </p>
-      ) : null}
-    </li>
-  );
-}
-
-/** Le ton du point d'un sous-point : rouge en échec, orange en cours, gris sinon. */
-function tonDuSousPoint(sousPoint: SousPointDuTravail): TonDuPoint {
-  if (sousPoint.sorte !== 'reflexion' && sousPoint.etat === 'running') return 'en-cours';
-  return 'neutre';
-}
-
-/**
- * UN SOUS-POINT DU TRAVAIL : son rond, son libellé, sa durée, et ses actions.
- * La ligne verticale du sous-fil suit `--faint` : elle porte l'enchaînement,
- * elle ne borde pas une zone.
- */
-function UnSousPointDuTravail({
-  sousPoint,
-  ouvertDOffice,
-  projectId,
-}: {
-  sousPoint: SousPointDuTravail;
-  ouvertDOffice: boolean;
-  projectId?: string;
-}) {
-  const [choisi, setChoisi] = React.useState<boolean | undefined>(undefined);
-  const ouvert = choisi ?? ouvertDOffice;
-  const aDesActions = sousPoint.entrees.length > 0;
-
-  return (
-    <SousPointDuFlux
-      ton={tonDuSousPoint(sousPoint)}
-      icone={sousPoint.sorte === 'reflexion' ? ICONE_DE_LA_LIGNE.reflexion : ICONE_DU_GENRE.tache}
-      attrs={{
-        'data-sous-point': sousPoint.cle,
-        'data-sous-point-sorte': sousPoint.sorte,
-        'data-sous-point-etat': sousPoint.etat ?? 'reflexion',
-        'data-sous-point-echec': sousPoint.enEchec ? 'oui' : undefined,
-        'data-sous-point-ouvert': ouvert ? 'oui' : 'non',
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => setChoisi(!ouvert)}
-        aria-expanded={ouvert}
-        data-sous-point-bascule={sousPoint.cle}
-        className="flex w-full items-baseline gap-2 text-left"
-      >
-        <span className="min-w-0 flex-1 text-[14.5px] leading-relaxed text-muted">
-          {sousPoint.traduire ? t(sousPoint.libelle) : sousPoint.libelle}
-        </span>
-        {/* Une action refusée puis reprise : la marque grise, jamais le rouge (28/10/2026). */}
-        {sousPoint.enEchec ? <MarqueEssaiRepris className="self-center" /> : null}
-        {/* LE NOMBRE D'ACTIONS PUIS LA DURÉE : c'est ce couple qui montre où un
-            tour a passé son temps, sans rien déplier. */}
-        {aDesActions ? (
-          <span className="shrink-0 text-[12.5px] text-faint" data-sous-point-actions={sousPoint.entrees.length}>
-            {sousPoint.entrees.length}
-          </span>
-        ) : null}
-        {sousPoint.dureeMs !== undefined ? (
-          <span className="shrink-0 font-mono text-[12.5px] text-faint" data-sous-point-duree={sousPoint.dureeMs}>
-            {dureeFine(sousPoint.dureeMs / 1000)}
-          </span>
-        ) : null}
-        {aDesActions ? (
-          <ChevronRight
-            className={cn('h-3.5 w-3.5 shrink-0 self-center text-faint transition-transform', ouvert && 'rotate-90')}
-            aria-hidden
-          />
-        ) : null}
-      </button>
-
-      {/* LES ACTIONS D'UN SOUS-POINT SONT SES PROPRES SOUS-POINTS, sur leur
-          ligne à elles : « Réflexion » reste un point PARENT dépliable. */}
-      {ouvert && aDesActions ? (
-        <ol className="mt-1" data-sous-point-contenu={sousPoint.cle}>
-          <RecitDuPassage entrees={sousPoint.entrees} projectId={projectId} />
-        </ol>
-      ) : null}
-    </SousPointDuFlux>
-  );
-}
-
-/**
  * QUAND UN GESTE A COMMENCÉ, ET COMBIEN DE TEMPS IL A PRIS : « il y a 26 min · 51 s ».
  *
  * EN DERNIER DANS SON BLOC (27/10/2026, captures #ae52 et #3c8a) : posée
@@ -2950,6 +2851,9 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   const [toutesLesLignes, setToutesLesLignes] = React.useState(false);
   const [enFenetre, setEnFenetre] = React.useState(false);
   const [imagePerdue, setImagePerdue] = React.useState(false);
+  /* UNE IMAGE QUI CHARGE ENCORE GARDE SA PLACE (14/11/2026, capture #013b) : son cadre a sa taille et la silhouette
+     commune y respire ; le menu ⋮ et l'étiquette n'arrivent qu'avec l'image — plus de trois points seuls. */
+  const [imageChargee, setImageChargee] = React.useState(false);
   const vignette = bloc.vignette && projectId && !imagePerdue ? bloc.vignette : null;
   /* LA CAPTURE EN GRAND S'OUVRE DANS LA GALERIE DE LA CARTE, feuilletable avec
      les autres images de la bande ; la fenêtre seule ne sert plus que si la
@@ -2959,6 +2863,9 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   const pieceDuChemin = React.useContext(PieceDUneCapture);
   const carteDuFil = React.useContext(ContexteCarteDuFil);
   const pieceDeLaVignette = vignette ? (pieceDuChemin?.(vignette) ?? null) : null;
+  /* TOUTE IMAGE DU FIL A SA RÉFÉRENCE (17/11/2026) : une capture de l'agent qui n'en a pas encore est rangée en pièce. */
+  const referenceDeLaVignette = vignette ? (repereDuChemin?.(vignette) ?? null) : null;
+  useRangementDeLaCapture(projectId, vignette, !!referenceDeLaVignette, imageChargee && !!repereDuChemin);
   const agrandir = () => {
     if (vignette && ouvrirDansLaGalerie?.(vignette)) return;
     setEnFenetre(true);
@@ -2987,6 +2894,8 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
     phrase.dit === 'agent'
       ? phrase.texte
       : t(phrase.motif, codeLu && titreLu ? { ...phrase.valeurs, v0: `${titreLu} (${codeLu})` } : phrase.valeurs);
+  /* LA PHRASE DE LA CAPTURE, ÉCRITE SOUS ELLE QUAND ELLE S'OUVRE EN GRAND (17/11/2026). */
+  if (vignette) noterLaLegende(vignette, dite);
   /* LE CODE ENTRE PARENTHÈSES EN TEXTE PÂLE, comme dans les volets du détail. */
   const diteAffichee = React.useMemo(() => {
     if (phrase.dit !== 'demon' || !codeLu || !titreLu) return dite;
@@ -3150,16 +3059,24 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
             <button
               type="button"
               data-bloc-raconte-vignette={bloc.cle}
+              data-chargee={imageChargee ? '1' : '0'}
               onClick={agrandir}
               title={t('Voir la capture en grand')}
-              className="shrink-0 overflow-hidden rounded border border-transparent bg-raised p-1 sm:p-0.5"
+              className="relative shrink-0 overflow-hidden rounded border border-transparent bg-raised p-1 sm:p-0.5"
             >
+              {!imageChargee ? <span aria-hidden data-silhouette-image className="absolute inset-0 animate-silhouette bg-faint/25" /> : null}
               <img
                 src={source}
                 alt={titre}
                 loading="lazy"
+                decoding="async"
+                onLoad={() => setImageChargee(true)}
+                ref={(el) => {
+                  /* Une image déjà en cache peut finir avant que l'écoute soit posée. */
+                  if (el?.complete && el.naturalWidth && !imageChargee) setImageChargee(true);
+                }}
                 onError={() => setImagePerdue(true)}
-                className="h-16 w-16 rounded object-cover object-left-top"
+                className={cn('relative h-16 w-16 rounded object-cover object-left-top transition-opacity duration-200', imageChargee ? 'opacity-100' : 'opacity-0')}
               />
             </button>
           ) : null}
@@ -3242,26 +3159,50 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           fil, et le clic l'ouvre en grand de toute façon. */}
       {source ? (
         <GlissableVersUnPlan attachmentId={carteDuFil ? pieceDeLaVignette : null} genre="image" nom={dite}>
-        <div className="relative mt-1 w-fit max-w-full">
+        <div className="relative mt-1 w-fit max-w-full" data-cadre-de-vignette={bloc.cle}>
+        {/* LE FOND ÉPOUSE L'IMAGE, SA RÉFÉRENCE DESSOUS (17/11/2026, #820bb) : largeur posée en pixels au chargement
+            (`poserLaLargeurDeVignette`), référence hors du bouton pour se copier (`ReferenceSousLeMedia`). */}
+        <div className="overflow-hidden rounded-md bg-raised p-1 sm:p-0.5" data-fond-de-vignette>
         <button
           type="button"
           data-bloc-raconte-vignette={bloc.cle}
+          data-chargee={imageChargee ? '1' : '0'}
           onClick={agrandir}
           title={t('Voir la capture en grand')}
-          className="relative block overflow-hidden rounded-md border border-transparent bg-raised p-1 sm:p-0.5"
+          className={cn(
+            'relative block max-w-full',
+            /* Le cadre porte sa taille tant que l'image n'est pas là : il ne s'écrase plus. */
+            !imageChargee && 'h-40 w-60',
+          )}
         >
+          {!imageChargee ? <span aria-hidden data-silhouette-image className="absolute inset-0 animate-silhouette rounded bg-faint/25" /> : null}
           <img
             src={source}
             alt={dite}
             loading="lazy"
+            decoding="async"
+            onLoad={(event) => {
+              poserLaLargeurDeVignette(event.currentTarget);
+              setImageChargee(true);
+            }}
+                ref={(el) => {
+                  /* Une image déjà en cache peut finir avant que l'écoute soit posée. */
+                  if (el?.complete && el.naturalWidth) {
+                    poserLaLargeurDeVignette(el);
+                    if (!imageChargee) setImageChargee(true);
+                  }
+                }}
             onError={() => setImagePerdue(true)}
-            className="max-h-40 max-w-[min(320px,100%)] rounded object-contain object-left-top"
+            className={cn(
+              'relative block h-auto max-h-40 max-w-full rounded object-contain transition-opacity duration-200',
+              imageChargee ? 'opacity-100' : 'opacity-0',
+            )}
           />
-          {/* LE REPÈRE COURT DE LA PIÈCE, comme sous la barre d'écriture (#ce5d). */}
-          {vignette && repereDuChemin?.(vignette) ? <EtiquetteDeVignette texte={repereDuChemin(vignette)!} /> : null}
         </button>
-        {/* UNE IMAGE REGARDÉE QUI EST UNE PIÈCE JOINTE se retravaille comme les autres médias du fil. */}
-        {carteDuFil && pieceDeLaVignette ? <MenuDuMediaDuFil cardId={carteDuFil} attachmentId={pieceDeLaVignette} /> : null}
+        {imageChargee && referenceDeLaVignette ? <ReferenceSousLeMedia texte={referenceDeLaVignette} /> : null}
+        </div>
+        {/* UNE IMAGE REGARDÉE QUI EST UNE PIÈCE JOINTE se retravaille comme les autres médias du fil — une fois là. */}
+        {imageChargee && carteDuFil && pieceDeLaVignette ? <MenuDuMediaDuFil cardId={carteDuFil} attachmentId={pieceDeLaVignette} /> : null}
         </div>
         </GlissableVersUnPlan>
       ) : null}

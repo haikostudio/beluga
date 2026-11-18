@@ -1,4 +1,4 @@
-import { ChevronDown, Loader2, TerminalSquare } from 'lucide-react';
+import { ChevronDown, Loader2, TerminalSquare } from '@/components/ui/icones';
 import { DROITE_ROBOT_DEFAUT, ROND_ROBOT } from '@beluga/shared';
 import type { EtatDuTerminal } from '@/lib/ouvrir-terminal';
 import { RondDeLaRangee } from '@/components/rangee-des-ronds';

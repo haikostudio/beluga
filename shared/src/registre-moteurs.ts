@@ -259,11 +259,6 @@ export function descriptionMoteur(id: string | null | undefined): DescriptionMot
   return tousLesMoteurs().find((m) => m.id === id);
 }
 
-/** Cet identifiant est-il un moteur utilisable ? */
-export function estUnMoteur(id: unknown): id is IdDeMoteur {
-  return typeof id === 'string' && descriptionMoteur(id) !== undefined;
-}
-
 /** Le nom court, avec un repli lisible pour un moteur inconnu. */
 export function nomCourtDuMoteur(id: string | null | undefined, repli?: string): string {
   return descriptionMoteur(id)?.nomCourt ?? ficheDuMoteur(id)?.nomCourt ?? repli ?? (id || 'moteur');

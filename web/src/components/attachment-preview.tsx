@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Download, Eye, FileArchive, Image as ImageIcon, Images, Loader2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Eye, FileArchive, Image as ImageIcon, Images, Loader2, X } from '@/components/ui/icones';
 import {
   Attachment,
   CADRAGE_INITIAL,
@@ -42,7 +42,9 @@ import { BoutonCopierDocument } from '@/components/bouton-copier-document';
 import { PastilleDeFichier, VignetteDImage, adresseDePiece, estUnPdf } from '@/components/pastille-de-fichier';
 import { LecteurVideo, type ApercuDeVideo } from '@/components/lecteur-video';
 import { LecteurSon } from '@/components/lecteur-son';
+import { CarteDePlaquetteDuFil } from '@/components/carte-de-plaquette';
 import { client } from '@/lib/client';
+import { useTelephone } from '@/lib/telephone';
 import { useTelechargement } from '@/lib/telechargement';
 import { bytes, cn, dateHeure } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -144,10 +146,19 @@ const SceneDImages = React.forwardRef<
   const dernierToucher = React.useRef<{ t: number; x: number; y: number } | null>(null);
   const enRoute = React.useRef(false);
 
+  /*
+   * LE CHARGEMENT DE L'IMAGE MONTRÉE, SUIVI (06/11/2026, captures #95c30 et #ca9f : un exemple ouvert en grand restait
+   * VIDE sur iPhone). Une roue tant qu'elle arrive ; une erreur réessaie deux fois (adresse neuve, jamais le cache) ;
+   * au-delà, la fenêtre le DIT, avec le téléchargement — jamais un cadre vide.
+   */
+  const [etatImage, setEtatImage] = React.useState<'chargement' | 'pret' | 'erreur'>('chargement');
+  const [essai, setEssai] = React.useState(0);
   /* Une autre image : le zoom repart de l'image entière. */
   React.useEffect(() => {
     setCadrage(CADRAGE_INITIAL);
     naturelle.current = null;
+    setEtatImage('chargement');
+    setEssai(0);
   }, [courante.id]);
 
   React.useEffect(() => {
@@ -316,6 +327,14 @@ const SceneDImages = React.forwardRef<
   };
 
   const zoome = cadrage.echelle > 1.001;
+  /*
+   * AUCUNE COUCHE GRAPHIQUE AU REPOS. Safari sur iPhone ne peignait pas, parfois, une image posée en couche à part
+   * (`will-change`, `translate3d`) dans la feuille aux coins arrondis qui glisse du bas : la fenêtre s'ouvrait, l'image
+   * restait vide. Au repos l'image est une image ordinaire ; la couche n'existe que pendant un zoom ou un geste, et les
+   * images voisines du carrousel sont posées à côté (`left`), sans transformation.
+   */
+  const enMouvement = zoome || enMain || glisse !== 0 || anime;
+  const sourceCourante = essai ? `${sourceDe(courante)}${sourceDe(courante).includes('?') ? '&' : '?'}essai=${essai}` : sourceDe(courante);
   return (
     <div
       ref={scene}
@@ -333,29 +352,41 @@ const SceneDImages = React.forwardRef<
       data-feuilletage={repere}
       data-visionneuse
       data-image-montree={courante.id}
+      data-image-etat={estUneImage(courante) ? etatImage : undefined}
     >
+      {estUneImage(courante) && etatImage === 'chargement' ? (
+        <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center" data-image-chargement>
+          <Loader2 className="h-6 w-6 animate-spin text-faint" />
+        </div>
+      ) : null}
+      {estUneImage(courante) && etatImage === 'erreur' ? (
+        <div className="absolute inset-0 z-[1] flex items-center justify-center p-6" data-image-erreur>
+          <p className="max-w-[360px] text-center text-[13.5px] text-muted">{t('L’image n’a pas pu s’afficher. Elle reste téléchargeable avec le bouton du haut.')}</p>
+        </div>
+      ) : null}
       <div
         className="absolute inset-0"
         style={{
-          transform: glisse ? `translate3d(${glisse}px, 0, 0)` : undefined,
+          transform: glisse || anime ? `translateX(${glisse}px)` : undefined,
           transition: anime ? `transform ${DUREE_DE_PASSAGE_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1)` : undefined,
         }}
         data-piste-carrousel
       >
         {vues.map((vue, place) => {
-          if (!vue || (place !== 1 && !feuilletable)) return null;
+          /* Les voisines ne sont posées que pendant un passage : au repos, rien hors de l'écran. */
+          if (!vue || (place !== 1 && (!feuilletable || !enMouvement))) return null;
           // Deux images : la précédente et la suivante sont la même — chaque place garde sa clé.
           const doublon = place !== 1 && vues[0]?.id === vues[2]?.id;
           return (
             <div
               key={doublon ? `${vue.id}@${place}` : vue.id}
-              className="absolute inset-0 flex items-center justify-center"
-              style={place === 1 ? undefined : { transform: `translate3d(${(place - 1) * 100}%, 0, 0)` }}
+              className="absolute inset-y-0 flex w-full items-center justify-center"
+              style={{ left: `${(place - 1) * 100}%` }}
               aria-hidden={place !== 1}
             >
               {estUneImage(vue) ? (
                 <img
-                  src={sourceDe(vue)}
+                  src={place === 1 ? sourceCourante : sourceDe(vue)}
                   alt={etiquetteDePiece(vue)}
                   draggable={false}
                   onLoad={
@@ -363,6 +394,15 @@ const SceneDImages = React.forwardRef<
                       ? (ev) => {
                           const img = ev.currentTarget;
                           naturelle.current = { l: img.naturalWidth, h: img.naturalHeight };
+                          setEtatImage('pret');
+                        }
+                      : undefined
+                  }
+                  onError={
+                    place === 1
+                      ? () => {
+                          if (essai < 2) setEssai((n) => n + 1);
+                          else setEtatImage('erreur');
                         }
                       : undefined
                   }
@@ -370,9 +410,9 @@ const SceneDImages = React.forwardRef<
                   style={
                     place === 1
                       ? {
-                          transform: zoome ? `translate3d(${cadrage.x}px, ${cadrage.y}px, 0) scale(${cadrage.echelle})` : undefined,
+                          transform: zoome ? `translate(${cadrage.x}px, ${cadrage.y}px) scale(${cadrage.echelle})` : undefined,
                           transition: fluide ? 'transform 200ms ease-out' : undefined,
-                          willChange: 'transform',
+                          willChange: zoome || enMain ? 'transform' : undefined,
                         }
                       : undefined
                   }
@@ -390,7 +430,7 @@ const SceneDImages = React.forwardRef<
 });
 
 /**
- * LES GRANDES FLÈCHES SUR LES BORDS. Elles ne s'éteignent jamais : le carrousel
+ * LES GRANDES FLÈCHES SUR LES BORDS, PARUES AU SURVOL. Elles ne s'éteignent jamais : le carrousel
  * BOUCLE (après la dernière image vient la première). Elles n'arrêtent ni le
  * glissement ni le pincement : le geste naît sur l'image, pas sur elles.
  */
@@ -409,7 +449,9 @@ function FlecheDeFeuilletage({ sens, onClick }: { sens: 'precedente' | 'suivante
       {...{ [sens === 'precedente' ? 'data-image-precedente' : 'data-image-suivante']: '' }}
       className={cn(
         'absolute top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-md bg-surface/75 text-text shadow-md backdrop-blur-sm transition-opacity sm:h-14 sm:w-11',
-        'opacity-90 hover:bg-surface hover:opacity-100 focus-visible:opacity-100',
+        /* VISIBLES AU SURVOL SEULEMENT (demande du 03/11/2026), toujours atteignables au clavier ; au doigt, on glisse
+           gauche-droite (elles restent là, invisibles, sous le pouce). */
+        'opacity-0 hover:bg-surface hover:opacity-100 focus-visible:opacity-100 group-hover/visionneuse:opacity-90',
         sens === 'precedente' ? 'left-2 sm:left-4' : 'right-2 sm:right-4',
       )}
     >
@@ -598,6 +640,7 @@ export function AttachmentPreview({
   repereDe,
   erreur,
   actionDe,
+  legendeDe,
 }: {
   item: Attachment | null;
   onClose: () => void;
@@ -632,7 +675,14 @@ export function AttachmentPreview({
    * l'en-tête : la coche d'un choix en image se coche aussi d'ici (30/10/2026).
    */
   actionDe?: (piece: Attachment) => React.ReactNode;
+  /**
+   * CE QUE L'APPELANT SAIT DU MÉDIA, ÉCRIT SOUS LUI (17/11/2026, maquette #0dbd) : lettre et référence, titre,
+   * description entière et la mention « Conseillé » — le texte d'une option en images, la légende d'une image du
+   * texte, la phrase d'une capture. Sans réponse, rien sous le média.
+   */
+  legendeDe?: (piece: Attachment) => LegendeDuMedia | null;
 }) {
+  const telephone = useTelephone();
   /* L'image montrée : celle de l'appelant, ou celle où l'on a navigué depuis. */
   const [choisie, setChoisie] = React.useState<string | null>(null);
   const [pour, setPour] = React.useState(item?.id);
@@ -718,6 +768,7 @@ export function AttachmentPreview({
   /* Le repère n'est pas redit quand il EST déjà le titre (une pièce jointe). */
   const repereBrut = repereDe?.(courante) ?? (courante.alias ? `#${courante.alias}` : null);
   const codeDeLImage = repereBrut && repereBrut !== etiquetteDePiece(courante) ? repereBrut : null;
+  const legende = legendeAffichable(legendeDe?.(courante) ?? null);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -749,11 +800,14 @@ export function AttachmentPreview({
                   nomDuLot={nomDuLot ?? t('Images')}
                 />
               )}
-              <DialogClose asChild>
-                <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label="Fermer" title={t('Fermer')} data-fermer-visionneuse>
-                  <X className="h-4 w-4" />
-                </Button>
-              </DialogClose>
+              {/* Sur téléphone, c'est une feuille : sa poignée et son voile la referment, sans croix. */}
+              {telephone ? null : (
+                <DialogClose asChild>
+                  <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label="Fermer" title={t('Fermer')} data-fermer-visionneuse>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </DialogClose>
+              )}
             </>
           }
         >
@@ -787,7 +841,8 @@ export function AttachmentPreview({
             ) : null}
           </div>
         </DialogHeader>
-        <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Sous l'entête, le doigt reste au contenu : la bande de prise de la feuille s'arrête là. */}
+        <div className="group/visionneuse relative flex min-h-0 flex-1 flex-col" data-sans-glisser-pour-fermer>
           {erreur ? (
             <div className="mx-3 mb-3 flex flex-1 items-center justify-center rounded-md bg-raised p-6 text-center" data-visionneuse-erreur>
               <p className="max-w-[420px] text-[13.5px] text-muted texte-copiable">{erreur}</p>
@@ -871,8 +926,66 @@ export function AttachmentPreview({
             </>
           ) : null}
         </div>
+        {legende ? <LegendeSousLeMedia legende={legende} /> : null}
       </FenetreDeVisionneuse>
     </Dialog>
+  );
+}
+
+/** Ce qui s'écrit sous un média ouvert en grand (`legendeDe`). */
+export interface LegendeDuMedia {
+  /** « A », « B »… : la lettre d'une option en images. */
+  lettre?: string | null;
+  /** « #ff70 » : la référence de la pièce. */
+  reference?: string | null;
+  titre?: string | null;
+  description?: string | null;
+  /** La réponse conseillée par l'agent. */
+  conseillee?: boolean;
+}
+
+/** Une légende sans titre ni description ne s'affiche pas : la date et la référence sont déjà dans l'en-tête. */
+function legendeAffichable(legende: LegendeDuMedia | null): LegendeDuMedia | null {
+  if (!legende) return null;
+  const titre = legende.titre?.trim();
+  const description = legende.description?.trim();
+  return titre || description ? { ...legende, titre, description } : null;
+}
+
+/**
+ * SOUS LE MÉDIA, CE QU'IL EST (17/11/2026, maquette #0dbd) : « A · #ff70 », le titre et « Conseillé » sur une ligne,
+ * puis la description ENTIÈRE — jamais coupée. Elle défile si elle dépasse, et tout s'y copie à la souris. Son cadre
+ * prend la hauteur de son texte, collé en bas.
+ */
+function LegendeSousLeMedia({ legende }: { legende: LegendeDuMedia }) {
+  const code = [legende.lettre, legende.reference].filter(Boolean).join(' · ');
+  return (
+    <ZoneDefilement
+      fond="hsl(var(--raised))"
+      /* À LA HAUTEUR DE SON TEXTE (17/11/2026, capture #bd76 : un grand cadre vide sous une légende d'une ligne) :
+         l'enveloppe d'une zone qui défile grandit d'office (`flex-1`) et partageait la hauteur avec l'image. `flex-none`
+         la ramène à son contenu, plafonnée à 30 % de l'écran ; l'image prend tout le reste au-dessus. */
+      classeEnveloppe="mx-3 mb-3 max-h-[30dvh] flex-none rounded-lg bg-raised"
+      data-legende-du-media
+      className="px-3.5 py-2.5"
+    >
+      <div className="flex min-w-0 items-baseline gap-2">
+        {code ? <span className="shrink-0 font-mono text-[12px] text-faint texte-copiable" data-legende-code>{code}</span> : null}
+        <span className="min-w-0 flex-1 break-words text-[14px] font-semibold leading-snug text-text texte-copiable" data-legende-titre>
+          {legende.titre}
+        </span>
+        {legende.conseillee ? (
+          <span className="shrink-0 text-[12.5px] font-medium text-accent" data-legende-conseillee>
+            {t('Conseillé')}
+          </span>
+        ) : null}
+      </div>
+      {legende.description ? (
+        <p className="mt-1 whitespace-pre-line break-words text-[13.5px] leading-relaxed text-muted texte-copiable" data-legende-description>
+          {legende.description}
+        </p>
+      ) : null}
+    </ZoneDefilement>
   );
 }
 
@@ -963,6 +1076,12 @@ export function AttachmentThumb({
         </figcaption>
       </figure>
     );
+  }
+
+  /* LE PDF D'UNE PLAQUETTE CLIENT se montre en carte d'aperçu (couverture, titre, format, « Voir dans Plaquettes ») ;
+     tout autre PDF garde sa pastille. Dans la barre d'écriture, il reste une pastille. */
+  if (!compact && item.plaquette && estUnPdf(item.mime)) {
+    return <CarteDePlaquetteDuFil item={item} onOpen={onOpen} className={className} />;
   }
 
   return (

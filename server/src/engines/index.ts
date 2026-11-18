@@ -1,4 +1,14 @@
-import { EngineId, EngineInfo, ficheDuMoteur, idsDesMoteurs, type IdDeMoteurIntegre } from '@beluga/shared';
+import {
+  EngineId,
+  EngineInfo,
+  PLAFOND_RELEVE_D_UN_MOTEUR_MS,
+  attendreAuPlus,
+  dureeEnMots,
+  ficheDuMoteur,
+  idsDesMoteurs,
+  type IdDeMoteurIntegre,
+} from '@beluga/shared';
+import { log } from '../logger.js';
 import { EngineAdapter } from './types.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
@@ -85,38 +95,36 @@ async function dresserLeCatalogue(): Promise<EngineInfo[]> {
    * somme de trois exécutables et de leurs appels réseau ; ils ne dépendent
    * pourtant pas les uns des autres. L'ordre de la liste, lui, ne bouge pas.
    */
+  const precedent = cache?.engines ?? [];
   const engines = await Promise.all(
-    idsDesMoteurs().map(async (id) => {
-      const { adapter, catalogue: lireCatalogue } = branchement(id) as Branchement;
-      const detected = await adapter.detect();
-      let models: EngineInfo['models'] = [];
-      let live = false;
-      let catalogError: string | undefined;
-      if (detected.installed) {
-        const catalogue = await lireCatalogue(detected.version ?? '');
-        models = catalogue.models;
-        live = catalogue.live;
-        catalogError = catalogue.error;
-      }
-      const info: EngineInfo = {
-        id: adapter.id,
-        label: adapter.label,
-        installed: detected.installed,
-        // L'OUTIL, séparé du moteur utilisable : Cursor peut être installé sans
-        // clé. Un adaptateur qui ne dit rien de plus retombe sur `installed`.
-        cliInstalle: detected.cliInstalle ?? detected.installed,
-        version: detected.version,
-        models,
-        // Le modèle par défaut suit l'intention de l'adaptateur (un modèle
-        // équilibré), ramenée vers un modèle qui existe vraiment — sinon on
-        // retomberait sur le premier de la liste, c'est-à-dire le plus cher.
-        defaultModel: resolveModel(models, adapter.defaultModel),
-        live,
-        // Une liste de secours ne passe pas pour la liste du moteur : le menu le dit.
-        catalogError,
-        fetchedAt: Date.now(),
-      };
-      return info;
+    idsDesMoteurs().map((id) => {
+      const { adapter } = branchement(id) as Branchement;
+      /*
+       * UN MOTEUR SOURD NE FIGE PLUS LE CATALOGUE DE TOUS (15/11/2026). Ce
+       * relevé est UNIQUE en vol (`enCours`) et attendu par chaque départ de
+       * tour : un seul exécutable qui ne rendait jamais la main suffisait à
+       * pendre tous les tours suivants jusqu'au redémarrage du serveur. Chaque
+       * moteur a donc son plafond ; passé ce délai, il garde son dernier relevé
+       * connu, ou se dit indisponible, et le journal NOMME le moteur.
+       */
+      return attendreAuPlus(releverUnMoteur(id), PLAFOND_RELEVE_D_UN_MOTEUR_MS, `relevé du moteur ${adapter.label}`, {
+        auPlafond: () =>
+          log.warn(
+            `catalogue : le moteur ${adapter.label} n’a pas répondu en ${dureeEnMots(PLAFOND_RELEVE_D_UN_MOTEUR_MS)} — dernier relevé connu gardé`,
+          ),
+        repli: () =>
+          precedent.find((info) => info.id === adapter.id) ?? {
+            id: adapter.id,
+            label: adapter.label,
+            installed: false,
+            cliInstalle: false,
+            models: [],
+            defaultModel: adapter.defaultModel,
+            live: false,
+            catalogError: `le moteur n’a pas répondu en ${dureeEnMots(PLAFOND_RELEVE_D_UN_MOTEUR_MS)}`,
+            fetchedAt: Date.now(),
+          },
+      });
     }),
   );
   cache = { at: Date.now(), engines };
@@ -128,6 +136,40 @@ async function dresserLeCatalogue(): Promise<EngineInfo[]> {
     }
   }
   return engines;
+}
+
+/** Le relevé d'UN moteur : sa version, puis la liste de ses modèles. */
+async function releverUnMoteur(id: EngineId): Promise<EngineInfo> {
+  const { adapter, catalogue: lireCatalogue } = branchement(id) as Branchement;
+  const detected = await adapter.detect();
+  let models: EngineInfo['models'] = [];
+  let live = false;
+  let catalogError: string | undefined;
+  if (detected.installed) {
+    const catalogue = await lireCatalogue(detected.version ?? '');
+    models = catalogue.models;
+    live = catalogue.live;
+    catalogError = catalogue.error;
+  }
+  const info: EngineInfo = {
+    id: adapter.id,
+    label: adapter.label,
+    installed: detected.installed,
+    // L'OUTIL, séparé du moteur utilisable : Cursor peut être installé sans
+    // clé. Un adaptateur qui ne dit rien de plus retombe sur `installed`.
+    cliInstalle: detected.cliInstalle ?? detected.installed,
+    version: detected.version,
+    models,
+    // Le modèle par défaut suit l'intention de l'adaptateur (un modèle
+    // équilibré), ramenée vers un modèle qui existe vraiment — sinon on
+    // retomberait sur le premier de la liste, c'est-à-dire le plus cher.
+    defaultModel: resolveModel(models, adapter.defaultModel),
+    live,
+    // Une liste de secours ne passe pas pour la liste du moteur : le menu le dit.
+    catalogError,
+    fetchedAt: Date.now(),
+  };
+  return info;
 }
 
 const ecouteursDuCatalogue: ((engines: EngineInfo[]) => void)[] = [];
@@ -144,7 +186,16 @@ export function aChaqueCatalogue(ecouteur: (engines: EngineInfo[]) => void): voi
 
 /** Capacité du modèle réellement retenu, telle que le catalogue l'annonce. */
 export async function contextWindowFor(engineId: EngineId, modelId?: string): Promise<number | undefined> {
-  const engine = (await listEngines()).find((entry) => entry.id === engineId);
+  /*
+   * LE DÉPART D'UN TOUR N'ATTEND PLUS UN RELEVÉ NEUF (15/11/2026). La capacité
+   * d'un modèle ne bouge pas d'un relevé à l'autre : le dernier connu, même
+   * périmé, répond tout de suite, et le relevé se rafraîchit derrière. On
+   * n'attend que lorsqu'aucun relevé n'existe encore (démarrage du démon).
+   */
+  const connus = cachedEngines();
+  if (connus.length && !enginesFrais()) void listEngines().catch(() => undefined);
+  const engines = connus.length ? connus : await listEngines();
+  const engine = engines.find((entry) => entry.id === engineId);
   if (!engine) return undefined;
   const resolved = resolveModel(engine.models, modelId ?? engine.defaultModel);
   return engine.models.find((model) => model.id === resolved)?.contextWindow;

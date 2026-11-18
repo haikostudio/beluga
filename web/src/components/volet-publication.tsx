@@ -51,7 +51,6 @@
  *     ce sont les ÉTAPES, jamais la présentation.
  */
 
-import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   Check,
@@ -68,7 +67,7 @@ import {
   UploadCloud,
   Wrench,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   CiblePublication,
   DeployRun,
@@ -85,13 +84,12 @@ import {
   parcoursDesEtapes,
   publicationADepanner,
   questionsOuvertesDuFil,
-  reponsesToutesFaites,
   titreDeLaPublication,
   type GenreDEvenement,
   type EtatDuMoment,
   type EtatDuPoint,
 } from '@beluga/shared';
-import { Chat } from '@/components/chat';
+import { AgentEnLigne } from '@/components/journal-de-l-agent';
 import { EncadreEtape } from '@/components/encadre-etape';
 import { ReglageEnLecture } from '@/components/run-selectors';
 import {
@@ -644,8 +642,16 @@ export function CorpsDuVolet({
   const [agentOuvert, setAgentOuvert] = React.useState<string | null>(null);
   /* LE FIL DE CELUI QUI PUBLIE, dans son propre tiroir empilé : ouvert par le
      bouton du pied, ou d'emblée par la porte nommée `ouvrirSur`. */
-  const [filOuvert, setFilOuvert] = React.useState(false);
-  useTiroirAdresse('fil-de-publication', filOuvert, setFilOuvert);
+  /* PLUS DE TIROIR DU FIL (décision de l'utilisateur, 08/11/2026) : celui qui publie s'affiche SUR PLACE, dans le pied
+     du volet (`AgentEnLigne`). « Ouvrir son fil » ne fait donc plus que porter le regard sur son champ. */
+  const zoneDuConducteur = React.useRef<HTMLDivElement | null>(null);
+  const setFilOuvert = React.useCallback((ouvrir: boolean) => {
+    if (!ouvrir) return;
+    window.setTimeout(() => {
+      zoneDuConducteur.current?.scrollIntoView({ block: 'nearest' });
+      zoneDuConducteur.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    }, 60);
+  }, []);
 
   const conducteur = run?.agentId ? (state.agents[run.agentId] ?? null) : null;
 
@@ -734,10 +740,6 @@ export function CorpsDuVolet({
      a un ; la mise en production pousse une VERSION. */
   const porteUnLot = etapes.some((e) => e.nature === 'lot');
   const avancement = run ? avancementDuFlux(run) : null;
-  /* DEUX RÉPONSES TOUTES FAITES, SEULEMENT SUR UNE ÉTAPE TOMBÉE : ailleurs, la
-     barre reste nue — on n'encombre pas une publication qui se passe bien. */
-  const tombee = etapes.find((e) => e.etat === 'failed');
-  const reponses = tombee ? reponsesToutesFaites(t(tombee.libelle)) : undefined;
   const tachesDuLot = porteUnLot && !!run?.taches?.length;
 
   return (
@@ -808,7 +810,7 @@ export function CorpsDuVolet({
         {tachesDuLot || lancement || controls || conducteur || boutonDepannage ? (
           <div
             className="flex shrink-0 flex-col gap-1.5 px-2 pt-2"
-            style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+            style={{ paddingBottom: `var(--pied-natif, calc(max(12px, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))` }}
             data-fenetre-pied
           >
             {tachesDuLot && run ? (
@@ -850,47 +852,30 @@ export function CorpsDuVolet({
                 {t('Voir le dernier dépannage')}
               </button>
             ) : null}
+            {/* CELUI QUI PUBLIE, SUR PLACE : ce qu'il fait en fondu, sa question avec ses choix (elle allume toujours le
+                signal orange), et un champ pour lui écrire — plus de conversation complète à ouvrir. */}
             {conducteur ? (
-              <Button
-                size="pied"
-                variant="outline"
-                onClick={() => setFilOuvert(true)}
+              <div
+                ref={zoneDuConducteur}
+                className="px-1"
+                data-volet-conversation
                 data-point-conversation={questions ? 'question' : 'libre'}
-                className={cn(questions ? 'bg-accent text-accent-fg hover:bg-accent hover:opacity-90' : undefined)}
+                {...(questions ? { 'data-questions-ouvertes': questions } : {})}
               >
-                <MessagesSquare className="h-3.5 w-3.5" />
-                {t('En parler avec celui qui publie')}
-                {/* ORANGE POUR CE QUI ATTEND : le compte des questions restées
-                    sans réponse, exactement comme sur la ligne qu'il remplace. */}
-                {questions ? (
-                  <span className="text-en-cours" data-questions-ouvertes={questions}>
-                    · {t('{v0} question(s) attend(ent) votre réponse', { v0: questions })}
-                  </span>
-                ) : null}
-              </Button>
+                <AgentEnLigne
+                  agentId={conducteur.id}
+                  projectId={run?.projectId ?? ''}
+                  invite={t(libelleDuChampDuFil(run))}
+                  depuis={run?.startedAt ?? 0}
+                  enAttente={t('Celui qui publie se met au travail…')}
+                  repere="conducteur"
+                />
+              </div>
             ) : null}
             {lancement}
           </div>
         ) : null}
       </div>
-
-      {/* LE FIL DE CELUI QUI PUBLIE, empilé au-dessus du parcours : on lui
-          parle sans perdre l'étape qu'on était en train de lire, et on la
-          retrouve en refermant. `plein` lui donne la HAUTEUR entière — sans
-          lui, un tiroir de conversation s'arrête sur son contenu. */}
-      <Drawer open={filOuvert && !!conducteur} onClose={() => setFilOuvert(false)} empile plein feuille>
-        {conducteur ? (
-          <div className="flex min-h-0 flex-1 flex-col" data-volet-conversation>
-            <EnteteDeFeuille titre={t('En parler avec celui qui publie')} info={t('questions et gestes proposés en route')} />
-            <Chat
-              agent={conducteur}
-              projectId={run?.projectId ?? ''}
-              reponsesProposees={reponses}
-              libelleDuChamp={t(libelleDuChampDuFil(run))}
-            />
-          </div>
-        ) : null}
-      </Drawer>
 
       {/* LE VOLET DE L'AGENT DE DÉPANNAGE, empilé au-dessus : sa conversation
           et son avancement, en direct, sans quitter celui de la publication. */}
@@ -915,7 +900,10 @@ export function CorpsDuVolet({
                 />
               ) : null}
             </div>
-            <Chat agent={state.agents[agentOuvert] ?? null} projectId={run?.projectId ?? ''} />
+            {/* L'AGENT DE DÉPANNAGE, SUR PLACE lui aussi : ce qu'il fait, sa question, un champ — pas de fil complet. */}
+            <div className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-4" data-depannage-en-ligne={agentOuvert}>
+              <AgentEnLigne agentId={agentOuvert} projectId={run?.projectId ?? ''} enAttente={t('L’agent cherche la cause…')} repere="depannage" />
+            </div>
           </div>
         ) : null}
       </Drawer>

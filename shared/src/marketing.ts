@@ -1,3 +1,4 @@
+import { carteDEntretienInvisible } from './entretien-invisible.js';
 import { slugEntier } from './slugs.js';
 import { CONSIGNE_DE_LA_VEILLE } from './veille-de-carte.js';
 import type { CibleSociale } from './reseaux-sociaux.js';
@@ -68,9 +69,28 @@ export const LABELS_DE_CARTES_D_ATELIER: readonly string[] = [
 ];
 
 export function carteMarketingCachee(
-  carte: { labels?: readonly string[] | null; column?: string | null } | null | undefined,
+  carte: { labels?: readonly string[] | null; column?: string | null; parcours?: { realisationSouhaitee?: boolean } | null } | null | undefined,
 ): boolean {
+  /* LA CARTE D'UNE CRÉATION DU STUDIO vit dans le Studio : jamais une ligne du projet. Une ancienne carte du Studio, rangée, garde son fil dans les archives. */
+  if (carte?.labels?.includes('studio') && carte.parcours?.realisationSouhaitee) return true;
   return !!carte?.labels?.some((l) => LABELS_DE_CARTES_D_ATELIER.includes(l)) && carte?.column !== COLONNE_OU_PARAIT_LA_CARTE_MARKETING;
+}
+
+/**
+ * LES LISTES D'AGENTS NE CACHENT PAS UN AGENT ACTIF (demande du 31/10/2026 : « toutes les tâches qui tournent avec un
+ * agent doivent être visibles dans le projet qui leur correspond, et dans le tableau de bord »). Cette règle vaut
+ * pour « Tableaux de bord », la colonne de gauche et leur recherche, et pour elles seules : le tableau de cartes, le
+ * déploiement et la reprise gardent `carteMarketingCachee`. Le directeur d'une création du Studio y reste une ligne
+ * ordinaire, même fini ; une carte d'atelier n'y paraît que le temps de son travail ; une routine d'entretien
+ * invisible n'y paraît jamais.
+ */
+export function carteCacheeDesListes(
+  carte: { labels?: readonly string[] | null; column?: string | null; parcours?: { realisationSouhaitee?: boolean } | null } | null | undefined,
+  agentActif = false,
+): boolean {
+  if (carteDEntretienInvisible(carte)) return true;
+  if (carte?.labels?.includes('studio') && carte.parcours?.realisationSouhaitee) return false;
+  return carteMarketingCachee(carte) && !agentActif;
 }
 
 export const NATURES_PRODUIT = ['site', 'boutique', 'app', 'saas'] as const;
@@ -289,10 +309,6 @@ export function parcoursDuCanal(cle: string): readonly EtapeDeParcours[] {
 
 export type Reseau = string;
 
-export function canalDuCatalogue(cle: string): CanalDuCatalogue | undefined {
-  return CATALOGUE_CANAUX.find((c) => c.cle === cle);
-}
-
 /** Les canaux où un CONTENU peut se ranger : ceux du catalogue qui se publient, plus « autre ». */
 export const CANAUX_CONTENU = [...CATALOGUE_CANAUX.filter((c) => c.publiable).map((c) => c.cle), 'autre'] as const;
 export type CanalContenu = string;
@@ -424,6 +440,12 @@ export interface ContenuMarketing {
   lienCible?: string;
   urlPubliee?: string;
   raisonEchec?: string;
+  /** D'où vient ce contenu : « changelog:… » pour une annonce écrite toute seule à la livraison. */
+  sourceRef?: string;
+  /** Une annonce automatique que le directeur a fait entrer dans le circuit (`estDansLaReserve`). */
+  sortiDeReserveLe?: number;
+  /** La campagne de cette publication (`communication_campagnes`). */
+  campagneId?: string;
   creeLe: number;
   majLe: number;
 }
@@ -1584,7 +1606,7 @@ TON OUTIL : « marketing ». Ses actions : « lire » (tout ce qui est enregistr
 
 LE RAPPORT VIT DANS TA CONVERSATION : l'utilisateur le lit dans ton fil et te répond juste dessous (« tu as oublié tel point », « change ceci »). Chaque fois que tu écris ou réécris le rapport, ta RÉPONSE FINALE est le rapport ENTIER, tel que tu l'as enregistré. Sur une demande de correction : « lire », corrige ce qui est demandé (configuration, fiche, canaux, plan, contenus), puis réécris le rapport entier avec « rapport » et rends-le.
 
-LISTE DE TÂCHES : au début d'un travail de plusieurs étapes, annonce ta liste de tâches et coche-la au fil de l'eau — l'écran la montre au-dessus du champ d'écriture. À l'initialisation et à la réanalyse, UNE tâche par point étudié : comprendre le produit, le positionnement, l'offre et le prix, la mesure, les canaux, le plan d'action, les premiers contenus, les ventes, le rapport.
+LISTE DE TÂCHES : au début d'un travail de plusieurs étapes, annonce ta liste de tâches et coche-la au fil de l'eau — l'écran la montre au-dessus du champ d'écriture. À l'initialisation et à la réanalyse, UNE tâche par point étudié : comprendre le produit, le positionnement, l'offre et le prix, la mesure, les canaux, le plan d'action, les premiers contenus, les ventes, le rapport. Après une question, quand la réponse te relance, RÉANNONCE la liste de ce qui reste avant de reprendre : l'écran ne montre que la liste du tour en cours.
 
 ${CONSIGNE_DE_LA_VEILLE}
 
@@ -1728,3 +1750,4 @@ export function demandeDeReorganisation(entree: { aujourdhui: string; rythme: Ry
 export function titreDeLAgentMarketing(nomProjet: string): string {
   return `Réseaux sociaux — ${nomProjet}`.slice(0, 80);
 }
+

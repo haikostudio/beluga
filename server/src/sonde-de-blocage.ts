@@ -31,12 +31,30 @@ export const SEUIL_DU_JOURNAL_MS = 1_000;
 export const SEUIL_DU_RELEVE_MS = 1_500;
 
 /** Ce que le fil principal dit d'une pause, à son retour. Règle pure. */
-export function phraseDeBlocage(pauseMs: number, contexte: { rssMo: number; charge: number; coeurs: number }): string {
+export function phraseDeBlocage(
+  pauseMs: number,
+  contexte: { rssMo: number; charge: number; coeurs: number; tasMo?: number; echangeMo?: number },
+): string {
+  /* Le TAS et la part du démon RANGÉE DANS L'ÉCHANGE (16/11/2026) : les gels
+     de ~1,6 s tombaient n'importe où quand le démon était à moitié sur le
+     disque ; ces deux chiffres disent si c'est encore le cas. */
+  const tas = contexte.tasMo !== undefined ? `, tas ${contexte.tasMo} Mo` : '';
+  const echange = contexte.echangeMo !== undefined ? `, dans l'échange ${contexte.echangeMo} Mo` : '';
   return (
     `le démon s'est figé ${(pauseMs / 1000).toFixed(1)} s ` +
-    `(mémoire ${contexte.rssMo} Mo, charge machine ${contexte.charge.toFixed(1)} sur ${contexte.coeurs} cœurs) — ` +
+    `(mémoire ${contexte.rssMo} Mo${tas}${echange}, charge machine ${contexte.charge.toFixed(1)} sur ${contexte.coeurs} cœurs) — ` +
     'la pile d’appels, si elle a pu être relevée, est dans data/logs/blocages.log'
   );
+}
+
+/** La part du démon rangée dans l'échange (`VmSwap`), en Mo ; absente hors Linux. */
+function echangeDuDemonMo(): number | undefined {
+  try {
+    const ligne = /^VmSwap:\s+(\d+)\s+kB/m.exec(fs.readFileSync('/proc/self/status', 'utf8'));
+    return ligne ? Math.round(Number(ligne[1]) / 1024) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function demarrerLaSondeDeBlocage(options: { fichier?: string; seuilDuReleveMs?: number } = {}): () => void {
@@ -69,6 +87,8 @@ export function demarrerLaSondeDeBlocage(options: { fichier?: string; seuilDuRel
         log.warn(
           phraseDeBlocage(pause, {
             rssMo: Math.round(process.memoryUsage.rss() / 1024 / 1024),
+            tasMo: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+            echangeMo: echangeDuDemonMo(),
             charge: os.loadavg()[0] ?? 0,
             coeurs: os.cpus().length,
           }),

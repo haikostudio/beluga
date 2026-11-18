@@ -96,8 +96,34 @@ export function mediasLivresDe(ou: { cardId?: string; agentId?: string }): Media
           ? getDb().prepare('SELECT * FROM medias_livres WHERE card_id IS NULL AND agent_id = ? ORDER BY livre_le LIMIT 500').all(ou.agentId)
           : []
     ) as Ligne[];
-    return mediasLivres(lignes.map(versMedia));
+    const couts = coutsDesPieces(lignes.map((l) => l.attachment_id));
+    return mediasLivres(lignes.map((l) => ({ ...versMedia(l), ...(couts.get(l.attachment_id) ?? {}) })));
   } catch {
     return [];
   }
+}
+
+/**
+ * PRIX AVANT, COÛT RÉEL APRÈS (01/11/2026) : ce qu'une pièce livrée a coûté, lu là
+ * où sa fabrication l'a écrit — un média de la carte (`medias_realisation`), ou une
+ * dépense du Studio qui l'a produite (personnage 3D : `details.attachmentId`).
+ */
+function coutsDesPieces(ids: readonly string[]): Map<string, { prixAnnonce: number | null; coutReel: number | null }> {
+  const couts = new Map<string, { prixAnnonce: number | null; coutReel: number | null }>();
+  if (!ids.length) return couts;
+  try {
+    const db = getDb();
+    const marques = ids.map(() => '?').join(',');
+    const depenses = db
+      .prepare(`SELECT json_extract(details, '$.attachmentId') AS piece, plafond, montant_reel FROM studio_depenses WHERE json_extract(details, '$.attachmentId') IN (${marques}) ORDER BY cree_le`)
+      .all(...ids) as { piece: string; plafond: number | null; montant_reel: number | null }[];
+    for (const d of depenses) couts.set(d.piece, { prixAnnonce: d.plafond ?? null, coutReel: d.montant_reel ?? null });
+    const medias = db
+      .prepare(`SELECT attachment_id, prix, cout_reel FROM medias_realisation WHERE attachment_id IN (${marques}) ORDER BY cree_le`)
+      .all(...ids) as { attachment_id: string; prix: number | null; cout_reel: number | null }[];
+    for (const m of medias) couts.set(m.attachment_id, { prixAnnonce: m.prix ?? null, coutReel: m.cout_reel ?? null });
+  } catch {
+    /* Une base d'avant ces tables : les médias restent livrés, sans ligne de coût. */
+  }
+  return couts;
 }

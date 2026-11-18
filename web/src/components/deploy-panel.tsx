@@ -15,7 +15,7 @@ import {
   Settings2,
   Sparkles,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Card,
   ColumnKey,
@@ -279,6 +279,7 @@ export function DeployPanel({
     if (!productionDemandee || productionDemandee.projectId !== projectId) return;
     setTiroirOuvert(true);
     setFilAgent(productionDemandee.agentId ?? null);
+    setRunDemande(productionDemandee.run ?? null);
     client.demanderProduction(null);
   }, [productionDemandee, projectId]);
   const tiroirFilAgent = (
@@ -306,6 +307,9 @@ export function DeployPanel({
    * dernière publication de CETTE étape.
    */
   const [derniereDeLEtape, setDerniereDeLEtape] = React.useState<DeployRun | null>(null);
+  /* UNE LIGNE DU FLUX OUVRE SA PROPRE MISE EN LIGNE (31/10/2026) : chaque lancement est une ligne du fil du projet,
+     et son clic relit le suivi de CE lancement, pas seulement du dernier. */
+  const [runDemande, setRunDemande] = React.useState<DeployRun | null>(null);
   /*
    * Les deux étapes existent pour tout projet : la règle est PURE, le bloc la
    * rejoue lui-même et s'affiche tout de suite, sans attendre le serveur.
@@ -330,6 +334,7 @@ export function DeployPanel({
     if (deploiementDemande.selection) {
       setSelectionDemandee(deploiementDemande.nonce);
     } else {
+      setRunDemande(deploiementDemande.run ?? null);
       setProcessOuvert(true);
       setAgentDemande(deploiementDemande.agentId ? { id: deploiementDemande.agentId, nonce: deploiementDemande.nonce } : null);
     }
@@ -339,7 +344,10 @@ export function DeployPanel({
      le seul parcours, sans réempiler l'agent. */
   const etaitOuvert = React.useRef(processOuvert);
   React.useEffect(() => {
-    if (etaitOuvert.current && !processOuvert) setAgentDemande(null);
+    if (etaitOuvert.current && !processOuvert) {
+      setAgentDemande(null);
+      setRunDemande(null);
+    }
     etaitOuvert.current = processOuvert;
   }, [processOuvert]);
 
@@ -763,9 +771,10 @@ export function DeployPanel({
      arrêtés, sans aucun minuteur — ils ne partent qu'au déploiement suivant,
      qui repart de zéro. Au repos : ni barre ni chiffre. */
   const suiviVisible = !!suivi && (enRoute || tombee || reussiteVisible);
-  /* Le chiffre est orangé pendant la mise en ligne ; seul l'échec s'en
-     détache, en rouge. */
-  const teintePourcentColonne = tombee ? 'text-danger' : 'text-en-cours';
+  /* Le chiffre suit la teinte « en cours » sur un bouton gris ; seul l'échec s'en détache, en rouge.
+     SUR LE BOUTON PLEIN (noir en clair, blanc en sombre), chiffre et barre prennent l'ENCRE du bouton : la teinte
+     « en cours » est monochrome, elle vaut l'aplat lui-même et s'y effaçait. L'échec reste rouge. */
+  const teintePourcentSurLeBouton = (plein: boolean) => (tombee ? 'text-danger' : plein ? 'text-accent-fg' : 'text-en-cours');
   /* L'EFFACEMENT EN DOUCEUR : un démontage sec ne se fond pas. Barre et
      chiffre passent donc d'abord à l'opacité zéro, et ne se retirent qu'une
      fois le fondu joué. Il ne concerne QUE la réussite : un échec garde
@@ -930,7 +939,8 @@ export function DeployPanel({
 
   /* La publication que le FIL raconte : la mienne si elle existe, sinon la
      dernière de cette étape, relue dans l'historique. */
-  const runDuFil = mienne ? run : derniereDeLEtape;
+  const runDuFil =
+    runDemande && runDemande.id !== run?.id ? (state.deploys[projectId]?.id === runDemande.id ? state.deploys[projectId] : runDemande) : mienne ? run : derniereDeLEtape;
 
   /* Ma publication tourne : le bouton porte alors l'étape en cours au lieu du
      verbe, et le déroulé reflète les états réels. */
@@ -938,7 +948,11 @@ export function DeployPanel({
   /* LES DEUX ÉTATS DU BOUTON DE LANCEMENT, lus aussi par le chevron qui vit
      dans le même bloc : PLEIN quand il y a de quoi lancer, PÂLI quand il est
      éteint sans avancée à montrer. */
-  const lancementPlein = !publicationEnCours && (aPublier > 0 || !!etape?.sansLot);
+  /* UN BOUTON QUI MONTRE UN TRAVAIL EN COURS GARDE SON FOND PLEIN (carte « Réponses mises en page et boutons
+     contrastés », capture #039b) : pendant une mise en ligne, le bouton reste noir en clair (blanc en sombre), éteint
+     mais lisible (`disabled:opacity-100`), avec son étape, son pourcentage et sa barre — plus jamais un gris pâle à côté
+     d'un chevron plein. Seul un bouton qui n'a RIEN à faire passe en gris. */
+  const lancementPlein = publicationEnCours || enRoute || aPublier > 0 || !!etape?.sansLot;
   const lancementPali =
     !(publicationEnCours || suiviVisible) &&
     ((!etape?.sansLot && !aPublier) || busy || active || busyAgents.length > 0 || !!productionBloquee);
@@ -1238,7 +1252,7 @@ export function DeployPanel({
              un bouton qui se voit encore éteint, quand il n'y a rien à
              publier) sans le trait. `default` reste le bouton plein dès qu'un
              lot attend. */
-          variant={!publicationEnCours && (aPublier || etape.sansLot) ? 'default' : 'subtle'}
+          variant={lancementPlein ? 'default' : 'subtle'}
           size="sm"
           /* Pendant une mise en ligne le bouton est éteint (on ne relance
              pas), mais il reste LISIBLE : il porte l'avancée.
@@ -1307,7 +1321,7 @@ export function DeployPanel({
                 className={cn(
                   'shrink-0 text-[12px] font-semibold tabular-nums transition-opacity duration-700 motion-reduce:transition-none',
                   suiviVisible ? 'opacity-100' : 'opacity-0',
-                  teintePourcentColonne,
+                  teintePourcentSurLeBouton(lancementPlein),
                 )}
                 data-pourcent-colonne={suivi.pourcent}
               >
@@ -1320,7 +1334,7 @@ export function DeployPanel({
                 )}
                 pourcent={suivi.pourcent}
                 erreur={tombee}
-                teinte={suivi.etat === 'reussie' ? 'success' : 'en-cours'}
+                teinte={suivi.etat === 'reussie' ? 'success' : lancementPlein ? 'sur-accent' : 'en-cours'}
                 data-barre-colonne={projectId}
               />
             </>
@@ -1439,9 +1453,9 @@ export function DeployPanel({
                 </p>
               ) : null}
               <Button
-                variant={!publicationEnCours && (aPublier || etape.sansLot) ? 'default' : 'subtle'}
+                variant={lancementPlein ? 'default' : 'subtle'}
                 size="pied"
-                className="min-w-0 gap-1.5"
+                className={cn('min-w-0 gap-1.5', publicationEnCours && 'disabled:opacity-100')}
                 data-lancer-depuis-la-page
                 title={!publicationEnCours && !busy ? raisonBloquee ?? undefined : undefined}
                 disabled={
@@ -1507,9 +1521,9 @@ export function DeployPanel({
           Pendant une publication, le bouton dit l'étape traitée. */}
       <div className="flex items-stretch gap-px" data-bouton-reuni>
         <Button
-          variant={publicationEnCours ? 'outline' : aPublier || etape.sansLot ? 'default' : 'outline'}
+          variant={lancementPlein ? 'default' : 'outline'}
           size="sm"
-          className="min-w-0 flex-1 overflow-hidden rounded-r-none border-0"
+          className={cn('min-w-0 flex-1 overflow-hidden rounded-r-none border-0', publicationEnCours && 'disabled:opacity-100')}
           data-bouton-publication
           disabled={
             publicationEnCours ||
@@ -1735,10 +1749,17 @@ export function DeployPanel({
  * lot.
  */
 /** L'infobulle d'un bouton d'étape qui mène à l'agent de configuration. */
+const CLES_TITRE_VERS_L_AGENT = {
+  question: 'Répondre à l’agent',
+  travail: 'Agent au travail…',
+  dev: 'Configurer le déploiement',
+  production: 'Configurer la mise en production',
+} as const;
+/** La clé française de l'infobulle — traduite par l'appelant (`t(titreVersLAgent(…))`). */
 function titreVersLAgent(cible: 'dev' | 'production', etat: EtatDuBoutonDeConfiguration): string {
-  if (etat === 'question') return 'Répondre à l’agent';
-  if (etat === 'travail') return 'Agent au travail…';
-  return cible === 'dev' ? 'Configurer le déploiement' : 'Configurer la mise en production';
+  if (etat === 'question') return CLES_TITRE_VERS_L_AGENT.question;
+  if (etat === 'travail') return CLES_TITRE_VERS_L_AGENT.travail;
+  return CLES_TITRE_VERS_L_AGENT[cible];
 }
 
 /** Roue pendant un tour, bulle de question quand l'agent attend, étincelles sinon. */
@@ -2521,7 +2542,16 @@ export function BoutonInfosPublication({
  * (30/10/2026), il est dans la page du déploiement, ouverte par la flèche du
  * bouton « Déployer ».
  */
-function InterrupteurDeploiementAuto({ projectId, actif }: { projectId: string; actif: boolean }) {
+export function InterrupteurDeploiementAuto({
+  projectId,
+  actif,
+  sansLibelle = false,
+}: {
+  projectId: string;
+  actif: boolean;
+  /** Dans « Publier » (13/11/2026) : l'interrupteur seul, en tête de « À déployer », expliqué par son infobulle. */
+  sansLibelle?: boolean;
+}) {
   const [enVol, setEnVol] = React.useState<boolean | null>(null);
 
   // Le serveur a parlé : on lâche l'état optimiste et on suit de nouveau le projet.
@@ -2544,7 +2574,7 @@ function InterrupteurDeploiementAuto({ projectId, actif }: { projectId: string; 
       )}
     >
       <label className="mr-1 inline-flex shrink-0 cursor-pointer items-center gap-2 text-[12.5px] text-muted" data-reglage-deploiement-automatique>
-        <span className="hidden sm:inline">{t('Automatique')}</span>
+        {sansLibelle ? null : <span className="hidden sm:inline">{t('Automatique')}</span>}
         <Switch
           checked={affiche}
           attente={enVol !== null}

@@ -24,7 +24,9 @@ import {
   typeDuSystemeDeFichiers,
   type MontageDuSysteme,
 } from '@beluga/shared';
-import { CONFIG } from './config.js';
+import os from 'node:os';
+import { CONFIG, PATHS } from './config.js';
+import { dossiersDeLecture } from './pieces-jointes.js';
 
 function dossierLocalDesCopies(): string {
   const impose = process.env.BELUGA_COPIES?.trim();
@@ -89,4 +91,14 @@ export function dossierDeCarte(racine: string, titre: string, cardId: string): s
   const historique = cheminDossierDeCarte(racine, titre, cardId);
   if (actuel !== historique && !fs.existsSync(actuel) && fs.existsSync(historique)) return historique;
   return actuel;
+}
+
+/**
+ * LES RACINES OÙ UN AGENT REGARDE RÉELLEMENT SES IMAGES, servies par `/api/capture` : le projet, les données, le
+ * dossier temporaire, les MÉDIAS FABRIQUÉS (`PATHS.medias`, disque de stockage — un chef de marque y range ses
+ * visuels et les joint à sa réponse : sans elle, chaque vignette tombait en 404 pendant tout son tour, 03/11/2026),
+ * les pièces jointes (disque de stockage compris) et les copies de travail des cartes du projet.
+ */
+export function racinesDesImagesDEtape(projectPath: string): string[] {
+  return [projectPath, CONFIG.dataDir, os.tmpdir(), PATHS.medias, ...dossiersDeLecture(), ...racinesDesCopiesDuProjet(projectPath)];
 }

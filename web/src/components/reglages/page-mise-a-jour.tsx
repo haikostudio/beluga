@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowUpRight, Loader2, RefreshCw, RotateCw } from 'lucide-react';
+import { ArrowUpRight, Loader2, RefreshCw, RotateCw } from '@/components/ui/icones';
 import type { EtatDesNouveautes } from '@beluga/shared';
 import { Groupe } from '@/components/reglages/communs';
 import { LigneDEtat } from '@/components/installation/sections';

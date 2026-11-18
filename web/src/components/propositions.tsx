@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AlertCircle, Check, ChevronDown, CornerDownLeft, GitMerge, LayoutGrid, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, CornerDownLeft, GitMerge, LayoutGrid, Loader2 } from '@/components/ui/icones';
 import {
   Message,
   descriptionRepliable,
@@ -15,16 +15,21 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { Markdown, apercuSansMarques } from '@/lib/markdown';
+
 
 type Proposition = Message['proposals'][number];
 
 /**
- * L'ICÔNE DU PROJET OÙ LA CARTE VA NAÎTRE, posée devant le titre d'une carte
- * proposée — vignette « Suggestion de carte », bandeau hors carte et pastille
- * de la carte acceptée. Le nom du projet se lit en infobulle. Projet
- * introuvable : rien, plutôt qu'une icône fausse (`projetAfficheDeLaProposition`).
+ * LE PROJET OÙ LA CARTE VA NAÎTRE, écrit en clair sur une ligne AU-DESSUS du
+ * titre d'une carte proposée : sa petite icône suivie de son nom — vignette
+ * « Suggestion de carte », bandeau hors carte et pastille de la carte acceptée.
+ * L'icône seule devant le titre ne disait pas assez où la carte allait
+ * (capture #8640, 16/11/2026). Nom long : tronqué dans son cadre. Projet
+ * introuvable ou archivé : rien, plutôt qu'un projet faux
+ * (`projetAfficheDeLaProposition`).
  */
-export function IconeDuProjetDAccueil({
+export function LigneDuProjetDAccueil({
   proposal,
   agentId,
   fond,
@@ -45,15 +50,16 @@ export function IconeDuProjetDAccueil({
   });
   if (!projet) return null;
   return (
-    <span
+    <div
       data-projet-de-proposition={projet.id}
       title={t('Projet de la carte : {v0}', { v0: projet.name })}
-      aria-label={t('Projet de la carte : {v0}', { v0: projet.name })}
-      role="img"
-      className={cn('flex shrink-0', className)}
+      className={cn('flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted', className)}
     >
-      <IconeDeProjet projet={projet} projets={state.projects} fond={fond} />
-    </span>
+      <span className="flex shrink-0" aria-hidden>
+        <IconeDeProjet projet={projet} projets={state.projects} fond={fond} />
+      </span>
+      <span data-nom-projet-de-proposition className="min-w-0 truncate">{projet.name}</span>
+    </div>
   );
 }
 
@@ -132,7 +138,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
   return (
     <div
       data-bandeau="propositions"
-      className="shrink-0 border-t border-accent/30 bg-gradient-to-b from-surface to-surface/0"
+      className="shrink-0 bg-surface"
     >
       <div className="flex items-center gap-1.5 px-4 pt-1.5 text-[12px] text-muted">
         {/* TOUT L'ENTÊTE REPLIE ET DÉPLIE : un clic n'importe où sur la ligne
@@ -468,14 +474,12 @@ export function VignetteProposition({
       <div className="px-2.5 py-2">
         {editing ? (
           <>
-            <div className="flex items-center gap-1.5">
-              <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" />
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                className="min-w-0 flex-1 rounded border border-border bg-base px-2 py-1 text-[14px] font-medium text-text outline-none focus:border-accent"
-              />
-            </div>
+            <LigneDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" className="mb-1" />
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              className="w-full min-w-0 rounded border border-border bg-base px-2 py-1 text-[14px] font-medium text-text outline-none focus:border-accent"
+            />
             <Textarea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -485,10 +489,8 @@ export function VignetteProposition({
           </>
         ) : (
           <>
-            <div className="flex items-start gap-1.5">
-              <IconeDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" className="mt-[2px]" />
-              <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-text">{title}</p>
-            </div>
+            <LigneDuProjetDAccueil proposal={proposal} agentId={agentId} fond="hsl(var(--bg))" className="mb-1" />
+            <p data-titre-de-proposition className="min-w-0 text-[14px] font-medium leading-snug text-text">{title}</p>
             {description ? (
               ouverte || !repliable ? (
                 /* Dépliée, la description défile DANS la vignette : le bandeau
@@ -497,13 +499,11 @@ export function VignetteProposition({
                   classeEnveloppe={cn('mt-1 flex-none', repliable && 'max-h-[min(28vh,160px)]')}
                   className="pr-1"
                 >
-                  <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
-                    {description}
-                  </p>
+                  <Markdown content={description} enTexte className="text-[13px] leading-relaxed text-muted [&_p]:mb-1.5" />
                 </ZoneDefilement>
               ) : (
                 <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-muted">
-                  {description}
+                  {apercuSansMarques(description)}
                 </p>
               )
             ) : null}

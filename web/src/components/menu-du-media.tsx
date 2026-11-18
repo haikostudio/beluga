@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Check, ChevronLeft, Clapperboard, Download, Footprints, Loader2, MessageSquarePlus, Move3d, RotateCw, ScanFace, SlidersHorizontal, SunMedium, Undo2, X } from 'lucide-react';
+import { useContexteDePose, useEtatDuGlisserVersUnePiste } from '@/components/pose-sur-piste';
+import { Check, ChevronLeft, Clapperboard, Download, Eraser, Footprints, ListPlus, Loader2, MessageSquarePlus, Move3d, Plus, RotateCw, ScanFace, SlidersHorizontal, SunMedium, Undo2, X } from '@/components/ui/icones';
 import {
   ANGLES_DE_VUE,
   PARAMETRES_DES_ANGLES,
@@ -344,6 +345,13 @@ function ListeDesPlans({
  * retire la validation, sans jamais toucher au fichier. Violet une fois validé,
  * discret avant. Plusieurs brouillons d'une même génération peuvent l'être.
  */
+/**
+ * LA CONVERSATION DU STUDIO AVANCE PAR QUESTIONS ET RÉPONSES (01/11/2026,
+ * capture #6db2) : aucun « Valider » sur un média de son fil ; on garde une
+ * version en répondant à l'agent. Les cartes de média du tableau gardent leur bouton.
+ */
+export const ContexteConversationDuStudio = React.createContext(false);
+
 export function BoutonValider({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
   const [enVol, setEnVol] = React.useState(false);
   const [plansOuverts, setPlansOuverts] = React.useState(false);
@@ -438,11 +446,16 @@ export function MenuDuMedia({
   const [inscrit, setInscrit] = React.useState<MediaDuSuivi | null>(null);
   const media = donne.id ? donne : (inscrit ?? donne);
   const agentId = agentDuFil ?? carte?.agentId ?? media.agentId ?? null;
+  const conversationDuStudio = React.useContext(ContexteConversationDuStudio);
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [reglages, setReglages] = React.useState(false);
   const [panneau, setPanneau] = React.useState<OperationDuPanneau | null>(null);
   /* LE SECOND NIVEAU DU MENU : la liste des plans, ouverte par « Valider ». Le menu rouvert repart du premier. */
-  const [niveau, setNiveau] = React.useState<'actions' | 'plans'>('actions');
+  const [niveau, setNiveau] = React.useState<'actions' | 'plans' | 'pistes'>('actions');
+  /* AU STUDIO, TOUT MÉDIA S'AJOUTE À UNE PISTE, À TOUT MOMENT, MÊME APRÈS UNE VALIDATION (02/11/2026). */
+  const pose = useContexteDePose();
+  /* UN GLISSER VERS UNE PISTE NE LAISSE AUCUN MENU OUVERT. */
+  const glisserVersUnePiste = !!useEtatDuGlisserVersUnePiste();
   const plans = usePlansPourLeMedia(cardId, media);
   const pret = media.etat === 'fini' && !!media.attachmentId;
   const piece: Attachment | null = media.attachmentId
@@ -452,6 +465,8 @@ export function MenuDuMedia({
   const { etat: telechargement, lancer: telecharger } = useTelechargement(piece ? [{ adresse: adresseDePiece(piece.id, true), nom: piece.name }] : []);
   if (!pret) return null;
   const retenu = !!media.retenuLe;
+  /* DANS LA CONVERSATION DU STUDIO, on ne valide plus depuis le menu ; seule la validation déjà donnée s'y retire. */
+  const validerDansLeMenu = retenu || !conversationDuStudio;
 
   /* UNE CRÉATION DE MÉDIA : la validation ne réveille pas l'agent, et chaque option qui fabrique ouvre son panneau. */
   const creation = carteDeMedia(carte);
@@ -495,10 +510,22 @@ export function MenuDuMedia({
       setEnCours(null);
     }
   };
+  const genreDuSegment = media.genre === 'son' ? 'audio' : media.genre;
+  const pistesPossibles = pose ? pose.pistes(genreDuSegment, media.capacite) : [];
+  const ajouterALaPiste = async (cible: { pisteId?: string; nouvellePiste?: boolean }, fermer: () => void) => {
+    if (enCours || !pose || !media.attachmentId) return;
+    setEnCours(cible.nouvellePiste ? 'nouvelle-piste' : 'piste');
+    try {
+      await pose.poser({ attachmentId: media.attachmentId, ...cible, valider: true });
+      fermer();
+    } finally {
+      setEnCours(null);
+    }
+  };
   const ouvrirLePanneau = (operation: OperationDuPanneau, fermer: () => void) => void apresInscription(fermer, () => setPanneau(operation));
   /* L'ANIMATION ATTEND LE SECOND TEMPS D'UNE VIDÉO (toutes les images d'abord), et une image validée. */
   const animer =
-    media.genre === 'image' && retenu && !!carte && typesDeMediaDeLaRealisation(carte.realisation).includes('video') && animationPermise({ types: typesDeMediaDeLaRealisation(carte.realisation), carte }).ok;
+    media.genre === 'image' && (retenu || conversationDuStudio) && !!carte && typesDeMediaDeLaRealisation(carte.realisation).includes('video') && animationPermise({ types: typesDeMediaDeLaRealisation(carte.realisation), carte }).ok;
   const operations: OperationDuPanneau[] =
     media.genre === 'image' ? ['visage', 'lumiere', 'angles', 'consigne', ...(animer ? (['animer'] as const) : [])] : media.genre === 'video' ? ['gestes', 'consigne'] : [];
   const ICONES: Record<OperationDuPanneau, React.ReactNode> = {
@@ -525,17 +552,33 @@ export function MenuDuMedia({
         repere={`media-${media.id || media.attachmentId}`}
         className={cn('bg-surface/85', className)}
         taille="icon-sm"
+        fermerSi={glisserVersUnePiste}
         onOuvert={(ouvert) => {
           if (!ouvert) setNiveau('actions');
         }}
       >
-        {(fermer) => niveau === 'plans' && plans && !retenu ? (
+        {(fermer) => niveau === 'pistes' && pose ? (
+          <div className="flex flex-col gap-0.5" data-menu-media-pistes>
+            <ActionTiroir icone={<ChevronLeft className="h-4 w-4" />} onClick={() => setNiveau('actions')} data-menu-media-pistes-retour="">
+              {t('Retour')}
+            </ActionTiroir>
+            {pistesPossibles.map((p) => (
+              <ActionTiroir key={p.id} icone={enCours === 'piste' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />} onClick={() => void ajouterALaPiste({ pisteId: p.id }, fermer)} disabled={!!enCours} data-media-piste={p.id}>
+                {pose.nomDePiste(p)}
+              </ActionTiroir>
+            ))}
+            {/* POSER SANS RIEN REMPLACER : une piste neuve de son type, quoi qu'il y ait ailleurs. */}
+            <ActionTiroir icone={enCours === 'nouvelle-piste' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} onClick={() => void ajouterALaPiste({ nouvellePiste: true }, fermer)} disabled={!!enCours} data-media-nouvelle-piste="">
+              {t('Nouvelle piste')}
+            </ActionTiroir>
+          </div>
+        ) : niveau === 'plans' && plans && !retenu ? (
           <ListeDesPlans cardId={cardId} media={media} plans={plans} assurer={assurer} fermer={fermer} retour={() => setNiveau('actions')} />
         ) : (
           <div className="flex flex-col gap-0.5" data-menu-media={media.id || undefined} data-menu-media-piece={media.attachmentId ?? undefined} data-menu-media-genre={media.genre}>
             {/* « VALIDER » EN PREMIER (26/10/2026) : le média rejoint le volet et servira au montage. Dans une
                 vidéo découpée en plans, il ouvre d'abord la liste des plans (28/10/2026). */}
-            <ActionTiroir
+            {validerDansLeMenu ? <ActionTiroir
               icone={enCours === 'suivi' ? <Loader2 className="h-4 w-4 animate-spin" /> : retenu ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               onClick={() => (!retenu && plans ? setNiveau('plans') : void basculerLeSuivi(fermer))}
               disabled={!!enCours}
@@ -543,7 +586,31 @@ export function MenuDuMedia({
               {...(!retenu && plans ? { 'data-media-retenir-par-plan': '' } : {})}
             >
               {creation ? (retenu ? t('Retirer la validation') : t('Valider')) : retenu ? t('Retirer du suivi') : t('Ajouter au suivi')}
-            </ActionTiroir>
+            </ActionTiroir> : null}
+            {pose ? (
+              <ActionTiroir
+                icone={enCours === 'piste' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListPlus className="h-4 w-4" />}
+                onClick={() => setNiveau('pistes')}
+                disabled={!!enCours}
+                data-media-ajouter-a-la-piste=""
+              >
+                {t('Ajouter à la piste')}
+              </ActionTiroir>
+            ) : null}
+            {/* LE FOND, SANS AGENT NI FRAIS, pour un fichier de la création : remplacé partout où il est posé. */}
+            {pose && media.attachmentId && media.genre !== 'son' ? (
+              <ActionTiroir
+                icone={pose.etatDuFond(media.attachmentId) === 'en-cours' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}
+                onClick={() => {
+                  pose.gesteDuFond(pose.etatDuFond(media.attachmentId!) === 'retire' ? 'remettre' : 'retirer', media.attachmentId!);
+                  fermer();
+                }}
+                disabled={!!enCours || pose.etatDuFond(media.attachmentId) === 'en-cours'}
+                {...(pose.etatDuFond(media.attachmentId) === 'retire' ? { 'data-media-remettre-le-fond': '' } : { 'data-media-retirer-le-fond': '' })}
+              >
+                {pose.etatDuFond(media.attachmentId) === 'en-cours' ? t('Fond en cours de retrait…') : pose.etatDuFond(media.attachmentId) === 'retire' ? t('Remettre le fond') : t('Retirer le fond')}
+              </ActionTiroir>
+            ) : null}
             {/* LES OPTIONS QUI FABRIQUENT : chacune ouvre son panneau, prix sur le bouton. */}
             {creation
               ? operations.map((operation) => (
@@ -761,8 +828,9 @@ function ReglagesDuMedia({ ouvert, onFermer, media, agentId }: { ouvert: boolean
 export function MenuDeLaPiece({ cardId, attachmentId, className }: { cardId: string | null | undefined; attachmentId: string | null | undefined; className?: string }) {
   const media = useMediaDeProduction(cardId, { attachmentId });
   const cartes = useApp().cards;
+  const conversationDuStudio = React.useContext(ContexteConversationDuStudio);
   if (!cardId || !media) return null;
-  const creation = carteDeMedia(cartes[cardId]);
+  const creation = carteDeMedia(cartes[cardId]) && !conversationDuStudio;
   return (
     <div className={cn('absolute right-1 top-1 z-[1] flex items-center gap-1', className)}>
       {creation ? <BoutonValider cardId={cardId} media={media} /> : media.retenuLe ? <MarqueDansLeSuivi /> : null}

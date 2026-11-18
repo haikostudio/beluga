@@ -1,110 +1,69 @@
 /*
- * LA PAGE D'UN PROJET, SANS TABLEAU (demande du 30/10/2026 : « supprime le
- * kanban, ouvre le projet sur le dernier agent »).
+ * LA PAGE D'ACCUEIL D'UN PROJET (11/11/2026 : « quand je sélectionne le nom du
+ * projet en haut, ça doit pointer sur cette page »).
  *
- * Sur ordinateur, la liste des agents vit dans la colonne de gauche et le
- * projet s'ouvre sur son DERNIER agent (`app.tsx`, reprise par projet) : cette
- * page ne se voit donc que lorsqu'aucun agent n'est ouvert — un accueil qui
- * invite à en lancer un, sans jamais créer de carte d'office. Sur téléphone, la
- * page EST la liste, en plein écran : un toucher ouvre la conversation, la
- * flèche de la barre d'en-tête y ramène.
+ * Depuis le 14/11/2026, le nom d'un projet — dans la colonne de gauche comme dans le fil — mène TOUJOURS ici (plus
+ * de reprise automatique du dernier agent) : le tableau de ses tâches, ses chiffres, puis — pour l'administrateur
+ * seul — ses coûts (ce qu'aurait facturé une agence, et les jetons au tarif plein). Sur téléphone, les tâches
+ * s'ouvrent par le bouton « Tâches » du haut (`feuille-des-taches.tsx`).
  *
  * Les deux gestes de mise en ligne — « Déployer » et « Mise en production » —
  * vivaient sur le tableau. Ce sont les MÊMES composants, montés ici : dans la
  * barre d'en-tête sur ordinateur, dans le menu à trois points sur téléphone.
  */
 import * as React from 'react';
-import { Bot, Loader2, Plus } from 'lucide-react';
-import { carteMarketingCachee, type Card } from '@beluga/shared';
-import { GestesDePage } from '@/components/entete-de-zone';
+import type { Card } from '@beluga/shared';
 import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
-import { ListeDesAgents } from '@/components/liste-des-agents';
-import { BoutonNouvelleTache, useNouvelleTache } from '@/components/nouvelle-tache';
-import { Button } from '@/components/ui';
-import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
+import { SilhouetteRubrique } from '@/components/silhouettes';
+import { FournirLeProjetDuService } from '@/components/projet-du-service';
+import { CLASSE_LARGEUR_DE_CONTENU, CLASSE_MARGES_DE_PAGE } from '@/components/ui';
+import { TableauDesTaches } from '@/components/tableau-des-taches';
 import { t } from '@/lib/langue';
-import { useApp, useCanal } from '@/lib/use-app';
+import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
+import { cn } from '@/lib/utils';
+
+/* Le résumé ne se télécharge qu'à l'ouverture de l'accueil (un écran qu'on n'a pas ouvert ne se télécharge pas). */
+const Dashboard = React.lazy(() => import('@/components/dashboard').then((m) => ({ default: m.Dashboard })));
 
 export function PageDuProjet({ projectId, onOuvrir }: { projectId: string; onOuvrir: (card: Card) => void }) {
   const telephone = useTelephone();
+  const state = useApp();
+  const projet = state.projects.find((p) => p.id === projectId) ?? null;
+  const projetDuResume = React.useMemo(() => (projet ? { id: projet.id, name: projet.name, path: projet.path } : null), [projet?.id, projet?.name, projet?.path]);
+  const ouvrirParId = React.useCallback(
+    (cardId: string) => {
+      const card = state.cards[cardId];
+      if (card) onOuvrir(card);
+    },
+    [state.cards, onOuvrir],
+  );
+  /*
+   * L'ACCUEIL D'UN PROJET EN UNE SEULE PAGE QUI DÉFILE, SANS ONGLETS (décision de l'utilisateur du 14/11/2026, remplace
+   * les onglets « Résumé / Facturation » du 13/11/2026) : en haut, le TABLEAU DES TÂCHES du projet seul — les quinze
+   * dernières, puis la pagination ; dessous, les chiffres et l'activité au fil des jours ; tout en bas, la facturation,
+   * pour l'administrateur seul. La période vit au coin haut droit (dans les trois points sur téléphone).
+   */
+  const telephoneSansTableau = telephone;
+  let facturation: React.ReactNode = null;
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
-      {telephone ? (
-        <GestesDePublicationDeCarte projectId={projectId} enMenu />
-      ) : (
-        <GestesDePage>
-          <GestesDePublicationDeCarte projectId={projectId} />
-        </GestesDePage>
-      )}
-      {telephone ? (
-        <ListeDesAgents projectId={projectId} pleinePage onOuvrir={onOuvrir} />
-      ) : (
-        <AccueilDuProjet projectId={projectId} />
-      )}
-    </div>
-  );
-}
-
-/** Aucun agent ouvert : une invitation, et le geste qui en lance un. */
-function AccueilDuProjet({ projectId }: { projectId: string }) {
-  const state = useApp();
-  const canal = useCanal();
-  const { busy, ouvrir } = useNouvelleTache(projectId);
-  const peutLancer = aLeNiveauSurLeProjet(state, projectId, 'travailler');
-  const aDesAgents = React.useMemo(
-    () => Object.values(state.cards).some((card) => card.projectId === projectId && !carteMarketingCachee(card)),
-    [state.cards, projectId],
-  );
-  return (
-    <div className="grid min-h-0 flex-1 place-items-center px-6" data-accueil-du-projet={aDesAgents ? 'agents' : 'vide'}>
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-surface text-muted">
-          <Bot className="h-6 w-6" aria-hidden />
-        </span>
-        <h2 className="text-[17px] font-semibold tracking-tight text-text">
-          {aDesAgents ? t('Choisissez un agent') : t('Lancez votre premier agent')}
-        </h2>
-        <p className="text-[14px] leading-relaxed text-muted">
-          {aDesAgents
-            ? t('Ouvrez un agent dans la liste de gauche pour reprendre la conversation, ou lancez-en un nouveau.')
-            : t('Décrivez ce que vous voulez : l’agent en discute avec vous, puis s’y met.')}
-        </p>
-        {peutLancer ? (
-          <Button
-            variant="creation"
-            size="lg"
-            className="mt-1 gap-2"
-            data-accueil-lancer-un-agent
-            disabled={busy || canal.gele}
-            title={canal.gele ? canal.raison : undefined}
-            onClick={() => void ouvrir()}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            {t('Lancer un agent')}
-          </Button>
-        ) : null}
+      {/* SUR ORDINATEUR, « PUBLIER » VIT DANS LA BARRE DU PROJET (`menu-publier.tsx`, refonte du 13/11/2026) ; sur
+          téléphone, les deux gestes restent dans le menu à trois points. */}
+      {telephone ? <GestesDePublicationDeCarte projectId={projectId} enMenu /> : null}
+      <div className="flex min-h-0 flex-1 flex-col" data-accueil-du-projet="page">
+        <FournirLeProjetDuService value={projetDuResume}>
+          <React.Suspense fallback={<div className={cn('mx-auto w-full pt-6', CLASSE_LARGEUR_DE_CONTENU, CLASSE_MARGES_DE_PAGE)}><SilhouetteRubrique /></div>}>
+            {/* LE NOM DU PROJET EN GRAND TITRE, comme une page de service (16/11/2026, capture #8891) : la recherche et le
+                filtre des tâches montent sur sa ligne, à droite, avec la période — plus de petit titre « Tâches ». */}
+            <Dashboard
+              titre={projet?.name}
+              avant={telephoneSansTableau ? null : <TableauDesTaches projectId={projectId} onOuvrir={onOuvrir} titre={null} />}
+              apres={facturation ? <div className="pt-6" data-facturation-de-l-accueil>{facturation}</div> : null}
+            />
+          </React.Suspense>
+        </FournirLeProjetDuService>
       </div>
     </div>
-  );
-}
-
-/** La colonne de gauche d'un projet, sur ordinateur : « Lancer un agent », puis la liste. */
-export function ColonneDesAgents({
-  projectId,
-  carteOuverte,
-  onOuvrir,
-}: {
-  projectId: string;
-  carteOuverte: string | null;
-  onOuvrir: (card: Card) => void;
-}) {
-  return (
-    <ListeDesAgents
-      projectId={projectId}
-      carteOuverte={carteOuverte}
-      onOuvrir={onOuvrir}
-      entete={<BoutonNouvelleTache projectId={projectId} />}
-    />
   );
 }

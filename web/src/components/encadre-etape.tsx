@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronRight, CircleAlert, RotateCcw } from 'lucide-react';
+import { ChevronRight, CircleAlert, RotateCcw } from '@/components/ui/icones';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { CheminCliquable } from '@/lib/chemin-cliquable';

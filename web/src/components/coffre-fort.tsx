@@ -1,5 +1,7 @@
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
+import { RechercheDePage } from '@/components/ui/recherche-en-icone';
+import { ChampDeRecherche } from '@/components/ui/champ-de-recherche';
 import {
   Archive,
   ArchiveRestore,
@@ -33,7 +35,7 @@ import {
   Ticket,
   Trash2,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   AccesCoffre,
   Attachment,
@@ -80,6 +82,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DansUneFenetreDeService,
   Input,
   Textarea,
   ZoneDefilement,
@@ -87,6 +90,7 @@ import {
   FormulaireEnColonnes,
   LigneFormulaire,
   Tooltip,
+  TELEPHONE_SOUS_UN_BLOC,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
 import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
@@ -97,6 +101,7 @@ import { IconeDeGenre, ImageDePiece, adresseDePiece } from '@/components/pastill
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
+import { useTelephone } from '@/lib/telephone';
 import { PasAPas } from '@/components/pas-a-pas';
 import { bytes, cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
@@ -225,6 +230,13 @@ export function CoffreFort({
      par type et « Archives » ; la barre d'en-tête n'a plus ces deux gestes.
      Sur téléphone, rien ne change : ils restent dans la page. */
   const dansLaColonne = useColonneDeService();
+  const telephoneDuCoffre = useTelephone();
+  /* DANS LA FENÊTRE DE SERVICE (15/11/2026), « Nouvel accès » est le bouton du bas : le relais du bas
+     (`ChevronDesOptions`) ne fait qu'un clic synthétique sur le geste caché de la colonne, et un déclencheur de
+     menu ne s'ouvre qu'à l'appui — rien ne s'ouvrait. Le coffre y pose donc son propre bouton à menu. */
+  const enFenetre = React.useContext(DansUneFenetreDeService);
+  /* Sur ordinateur, dans les colonnes et hors des archives, la fiche s'ouvre dans le volet de droite. */
+  const ficheEnVolet = !!fiche && !!dansLaColonne && !telephoneDuCoffre && !archivesOuvertes;
   /** Le type d'accès retenu dans la colonne ; `null` : tous. */
   const [typeRetenu, setTypeRetenu] = React.useState<TypeAcces | null>(null);
   /* Les images citées par les fiches, par identifiant : leurs vignettes. */
@@ -371,27 +383,55 @@ export function CoffreFort({
     <>
       <Drawer open={open} onClose={onClose} enPage={enPage}>
         {dansLaColonne ? (
-          /* SUR ORDINATEUR, « NOUVEAU DOSSIER » SE POSE À DROITE DU TITRE (demande
-             du 20/10/2026) : la colonne ne garde que « Nouvel accès » comme geste
-             qui crée. Sur téléphone, le titre ne se dessine pas et le geste reste
-             dans le menu à trois points. */
-          <div className="flex min-w-0 shrink-0 items-start gap-3">
-            <TitreDePage className="min-w-0 flex-1">{t('Coffre-fort')}</TitreDePage>
-            <Button
-              variant="subtle"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setEdition({ dossier: null })}
-              data-coffre-nouveau-dossier
-              aria-label="Nouveau dossier"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-              {t('Nouveau dossier')}
-            </Button>
-          </div>
+          /* SUR ORDINATEUR, LE COFFRE VIT DANS SA GRANDE FENÊTRE (13/11/2026, maquette #f83d) : en tête, la recherche
+             sur toute la largeur ; « Nouveau dossier » rejoint le chevron des options, au coin. */
+          <>
+            <TitreDePage className="sr-only">{t('Coffre-fort')}</TitreDePage>
+            <div className="shrink-0 pb-3 pr-14">
+              <ChampDeRecherche
+                valeur={recherche}
+                onChange={setRecherche}
+                placeholder={t('Chercher un accès, un dossier, un projet…')}
+                aria-label="Chercher dans le coffre-fort"
+                data-coffre-recherche
+              />
+            </div>
+            <OptionsDePage>
+              <OptionDePage icone={<FolderPlus className="h-3.5 w-3.5" />} onClick={() => setEdition({ dossier: null })} data-coffre-nouveau-dossier>
+                {t('Nouveau dossier')}
+              </OptionDePage>
+            </OptionsDePage>
+          </>
         ) : (
           <TitreDePage>{t('Coffre-fort')}</TitreDePage>
         )}
+        {dansLaColonne && enFenetre && !telephoneDuCoffre ? (
+          <GestePrincipal>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <BoutonPrincipal data-coffre-creer-en-bas>
+                  <Plus className="h-3 w-3" />
+                  {t('Nouvel accès')}
+                </BoutonPrincipal>
+              </DropdownMenuTrigger>
+              {/* La liste monte AU-DESSUS du bouton, à sa largeur. */}
+              <DropdownMenuContent
+                side="top"
+                align="start"
+                className="sm:w-[var(--radix-dropdown-menu-trigger-width)]"
+                onCloseAutoFocus={(event) => event.preventDefault()}
+                data-coffre-types-en-bas
+              >
+                <DropdownMenuLabel>{t('Type d’accès')}</DropdownMenuLabel>
+                {TYPES_ACCES.map((type) => (
+                  <DropdownMenuItem key={type} data-coffre-type={type} onSelect={() => creerUnAcces(type)}>
+                    {t(LIBELLE_TYPE_ACCES[type])}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </GestePrincipal>
+        ) : null}
         {dansLaColonne ? null : (
           <>
           {/* SUR TÉLÉPHONE : « Archives » est une ligne du menu à trois points,
@@ -495,19 +535,25 @@ export function CoffreFort({
           </nav>
         </ColonneDeService>
 
-        <div className="shrink-0 pb-4">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder={t('Chercher par nom, dossier, projet ou type…')}
-              className="h-10 rounded-xl pl-10 text-[14px]"
-              autoComplete="off"
-              data-coffre-recherche
-            />
-          </div>
-        </div>
+        {/* SUR ORDINATEUR, LA LOUPE EN HAUT À DROITE, avant « Nouvel accès » (carte « Refonte de l'espace Médias ») ; le
+            champ pleine largeur au téléphone. */}
+        <RechercheDePage
+          telephone={
+            <div className={cn('shrink-0 pb-4', TELEPHONE_SOUS_UN_BLOC)}>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+                <Input
+                  value={recherche}
+                  onChange={(e) => setRecherche(e.target.value)}
+                  placeholder={t('Chercher par nom, dossier, projet ou type…')}
+                  className="h-10 rounded-xl pl-10 text-[14px]"
+                  autoComplete="off"
+                  data-coffre-recherche
+                />
+              </div>
+            </div>
+          }
+        />
 
         <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
           {!recu.current && echec && !chargement ? (
@@ -520,12 +566,14 @@ export function CoffreFort({
                 {t('Réessayer')}
               </Button>
             </div>
-          ) : !recu.current ? (
+          ) : !recu.current && !ficheEnVolet ? (
             /* Les accès à venir en silhouette, jamais une phrase d'attente :
                l'état vide ne se dit qu'une fois la liste réellement reçue —
                lien coupé compris, la lecture repart seule à son retour. */
             <SilhouetteCoffre />
-          ) : rienAMontrer ? (
+          ) : rienAMontrer && !ficheEnVolet ? (
+            /* Un coffre vide (ou pas encore lu) n'empêche pas la fiche neuve de s'ouvrir dans son volet : « Nouvel
+               accès » ne faisait rien sur un coffre sans accès (15/11/2026). */
             recherche || typeRetenu ? (
               <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun accès ne correspond.')}</p>
             ) : (
@@ -541,6 +589,28 @@ export function CoffreFort({
               />
             )
           ) : (
+            dansLaColonne ? (
+              /* LE DÉTAIL DANS UN VOLET À DROITE DES COLONNES (13/11/2026, capture #a0c2 : « comme dans le Finder ») :
+                 la rangée garde son défilement de côté, le volet reste fixe à sa droite. */
+              <div className="flex h-full min-h-[420px] min-w-0" data-coffre-avec-volet={ficheEnVolet ? '' : undefined}>
+                <ColonnesDuCoffre
+                  fiche={
+                    ficheEnVolet ? (
+                      <FicheAcces key={fiche?.id ?? 'nouveau'} enVolet fiche={fiche} pieces={pieces} dossiers={dossiers} onClose={() => setFiche(null)} onListe={recevoir} />
+                    ) : null
+                  }
+                  arbre={arbre}
+                  visee={fiche?.id ?? null}
+                  nomProjet={nomProjet}
+                  onOuvrir={setFiche}
+                  onChoisirUnDossier={() => {
+                    if (ficheEnVolet) setFiche(null);
+                  }}
+                  onModifier={(dossier) => setEdition({ dossier })}
+                  onSousDossier={(dossier) => setEdition({ dossier: null, parentId: dossier.id })}
+                />
+              </div>
+            ) : (
             <div className={CLASSE_GROUPE_DE_LIGNES} data-coffre-liste="actifs">
               {arbre.racines.map((noeud) => (
                 <BrancheDeDossier
@@ -578,6 +648,7 @@ export function CoffreFort({
                 </>
               ) : null}
             </div>
+            )
           )}
         </ZoneDefilement>
       </Drawer>
@@ -596,7 +667,7 @@ export function CoffreFort({
 
       {/* Le détail : empilé par-dessus la liste — ou par-dessus les archives. */}
       <FicheAcces
-        fiche={fiche}
+        fiche={ficheEnVolet ? null : fiche}
         pieces={pieces}
         dossiers={dossiers}
         onClose={() => setFiche(null)}
@@ -791,6 +862,171 @@ function BrancheDeDossier({
         <LigneAcces key={acces.id} acces={acces} projet={nomProjet(acces.projectId)} onOuvrir={() => onOuvrir(acces)} />
       ))}
     </LigneDeDossier>
+  );
+}
+
+/**
+ * LE COFFRE EN COLONNES, FAÇON MAC (décision du 13/11/2026, maquette #f83d : « une arborescence de colonnes : quand on
+ * clique sur un dossier, ça ouvre à droite une nouvelle colonne »). La première colonne porte les dossiers de la
+ * racine (et les fiches sans dossier) ; choisir un dossier ouvre sa colonne à droite — ses sous-dossiers, puis ses
+ * fiches. Le dossier choisi de chaque colonne est en violet ; une fiche s'ouvre dans le VOLET DE DÉTAIL posé à droite
+ * de la rangée (13/11/2026, capture #a0c2), l'accès choisi en violet ; choisir un dossier ou la croix le referme. La
+ * rangée défile de côté et se cale sur la dernière colonne ouverte. Les gestes d'un dossier (sous-dossier,
+ * modification) restent derrière ses trois points.
+ */
+function ColonnesDuCoffre({
+  arbre,
+  visee,
+  nomProjet,
+  onOuvrir,
+  onChoisirUnDossier,
+  onModifier,
+  onSousDossier,
+  fiche,
+}: {
+  /**
+   * LA FICHE OUVERTE, DERNIÈRE COLONNE DE LA RANGÉE (14/11/2026, « quand je clique sur un élément, ça doit l'ouvrir à
+   * la suite de la dernière colonne et décaler les précédentes, comme dans le Finder ») : un peu plus large qu'une
+   * colonne ; la rangée glisse jusqu'à elle, les colonnes d'avant s'effacent en fondu sur le bord gauche.
+   */
+  fiche?: React.ReactNode;
+  arbre: ReturnType<typeof construireArbreDeDossiers>;
+  visee: string | null;
+  nomProjet: (projectId: string | null) => string | undefined;
+  onOuvrir: (acces: AccesCoffre) => void;
+  /** Choisir un dossier referme le volet de détail. */
+  onChoisirUnDossier?: () => void;
+  onModifier: (dossier: DossierCoffre) => void;
+  onSousDossier: (dossier: DossierCoffre) => void;
+}) {
+  const [chemin, setChemin] = React.useState<string[]>([]);
+  const rangee = React.useRef<HTMLDivElement | null>(null);
+  /* Les colonnes du chemin choisi ; un dossier disparu (recherche, archivage) coupe le chemin à lui. */
+  const colonnes: { dossiers: NoeudDeDossier[]; acces: AccesCoffre[]; choisi: string | null }[] = [];
+  let niveau: { dossiers: NoeudDeDossier[]; acces: AccesCoffre[] } = { dossiers: arbre.racines, acces: arbre.acces };
+  for (let i = 0; ; i++) {
+    const id = chemin[i] ?? null;
+    const noeud = id ? niveau.dossiers.find((n) => n.dossier.id === id) ?? null : null;
+    colonnes.push({ ...niveau, choisi: noeud ? noeud.dossier.id : null });
+    if (!noeud) break;
+    niveau = { dossiers: noeud.enfants, acces: noeud.acces };
+  }
+  const profondeur = colonnes.length;
+  const ficheOuverte = !!fiche;
+  const [decalee, setDecalee] = React.useState(false);
+  React.useEffect(() => {
+    const el = rangee.current;
+    if (!el) return;
+    el.scrollTo({ left: el.scrollWidth, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }, [profondeur, ficheOuverte, visee]);
+  return (
+    <div
+      ref={rangee}
+      onScroll={(e) => setDecalee(e.currentTarget.scrollLeft > 4)}
+      className={cn(
+        'flex h-full min-h-[420px] min-w-0 flex-1 overflow-x-auto overflow-y-hidden scroll-smooth rounded-2xl bg-surface [scrollbar-width:thin]',
+        /* Les colonnes poussées à gauche s'effacent en fondu sur le bord (un masque, pas une couleur). */
+        decalee && '[mask-image:linear-gradient(to_right,transparent,black_48px)]',
+      )}
+      data-coffre-liste="actifs"
+      data-coffre-colonnes={profondeur}
+      data-coffre-fiche-en-colonne={ficheOuverte ? '' : undefined}
+    >
+      {colonnes.map((colonne, rang) => (
+        <div
+          key={rang}
+          className="flex h-full w-[248px] shrink-0 flex-col shadow-[inset_-1px_0_0_hsl(var(--border))]"
+          data-coffre-colonne={rang}
+        >
+          <ZoneDefilement fond="hsl(var(--surface))" classeEnveloppe="min-h-0 flex-1" className="flex flex-col gap-0.5 p-1.5">
+            {colonne.dossiers.map((noeud) => {
+              const choisi = colonne.choisi === noeud.dossier.id;
+              return (
+                <div
+                  key={noeud.dossier.id}
+                  className={cn('group/dossier flex items-center rounded-lg transition-colors', choisi ? 'bg-ligne-active text-text' : 'text-text hover:bg-raised')}
+                  data-coffre-dossier={noeud.dossier.id}
+                  data-ouvert={choisi ? 'oui' : 'non'}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2.5 text-left"
+                    onClick={() => {
+                      setChemin([...chemin.slice(0, rang), noeud.dossier.id]);
+                      onChoisirUnDossier?.();
+                    }}
+                    data-coffre-dossier-bascule
+                    aria-expanded={choisi}
+                  >
+                    <Folder className={cn('h-4 w-4 shrink-0', choisi ? 'text-text' : 'text-muted')} />
+                    <span className="min-w-0 flex-1 truncate text-[13.5px]" data-coffre-dossier-nom>
+                      {noeud.dossier.nom}
+                    </span>
+                    <span className={cn('shrink-0 text-[12px] tabular-nums', choisi ? 'text-muted' : 'text-faint')} data-coffre-dossier-nombre>
+                      {noeud.total}
+                    </span>
+                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0', choisi ? 'text-text' : 'text-faint')} />
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        title={t('Actions du dossier')}
+                        aria-label="Actions du dossier"
+                        data-coffre-dossier-actions
+                        className="mr-1 flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-opacity hover:text-text focus-visible:opacity-100 group-hover/dossier:opacity-100 data-[state=open]:opacity-100"
+                      >
+                        <EllipsisVertical className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
+                      <DropdownMenuItem onSelect={() => onSousDossier(noeud.dossier)} data-coffre-dossier-sous-dossier>
+                        <FolderPlus className="h-3.5 w-3.5" />
+                        {t('Nouveau sous-dossier')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onModifier(noeud.dossier)} data-coffre-dossier-modifier>
+                        <Pencil className="h-3.5 w-3.5" />
+                        {t('Modifier le dossier')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })}
+            {colonne.dossiers.length && colonne.acces.length ? (
+              <p className="px-2.5 pb-1 pt-2 text-[12px] text-faint" data-coffre-sans-dossier={rang === 0 ? '' : undefined}>
+                {rang === 0 ? t('Sans dossier') : t('Accès')}
+              </p>
+            ) : null}
+            {colonne.acces.map((acces) => {
+              const choisi = visee === acces.id;
+              const projet = nomProjet(acces.projectId);
+              return (
+                <button
+                  key={acces.id}
+                  type="button"
+                  className={cn('flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors', choisi ? 'bg-ligne-active text-text' : 'text-text hover:bg-raised')}
+                  onClick={() => {
+                    /* Comme dans le Finder : ouvrir un accès d'une colonne referme les colonnes qui la suivent. */
+                    setChemin(chemin.slice(0, rang));
+                    onOuvrir(acces);
+                  }}
+                  title={projet ? `${acces.nom} · ${projet}` : acces.nom}
+                  data-coffre-acces={acces.id}
+                >
+                  <span className={cn('flex shrink-0 [&>svg]:h-4 [&>svg]:w-4', choisi ? 'text-text' : 'text-muted')}>{ICONE_DU_TYPE[acces.type]}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13.5px]">{acces.nom}</span>
+                </button>
+              );
+            })}
+            {!colonne.dossiers.length && !colonne.acces.length ? (
+              <p className="px-2.5 py-2 text-[12.5px] text-faint">{t('Ce dossier est vide.')}</p>
+            ) : null}
+          </ZoneDefilement>
+        </div>
+      ))}
+      {fiche}
+    </div>
   );
 }
 
@@ -1021,7 +1257,7 @@ function FicheDossier({
                 onChange={(e) => setNom(e.target.value)}
                 maxLength={NOM_DOSSIER_MAX}
                 placeholder={t('Ex. Serveur OVH')}
-                className="h-8 text-[13px]"
+                className="sm:h-8 sm:text-[13px]"
                 autoComplete="off"
                 data-coffre-dossier-champ-nom
               />
@@ -1167,7 +1403,13 @@ function FicheAcces({
   dossiers,
   onClose,
   onListe,
+  enVolet = false,
 }: {
+  /**
+   * LE VOLET DE DÉTAIL, À DROITE DES COLONNES (13/11/2026, capture #a0c2 : « comme dans le Finder ») : la même fiche,
+   * posée dans la page à côté de la rangée de colonnes au lieu d'une page empilée par-dessus. Ordinateur seulement.
+   */
+  enVolet?: boolean;
   fiche: AccesCoffre | null;
   /** Les images déjà connues du coffre, pour les vignettes de la fiche ouverte. */
   pieces: Attachment[];
@@ -1209,6 +1451,17 @@ function FicheAcces({
   const aCompleter = champsACompleter({ type, champs });
   /** Le nom ENREGISTRÉ de la fiche — celui du fil d'Ariane et du grand titre. */
   const titreDeLaFiche = fiche?.id ? fiche.nom || t('Accès') : t('Nouvel accès');
+  const telephone = useTelephone();
+  const etiquettesDeLaFiche = (
+    <>
+      {aCompleter.length && !archivee ? (
+        <Badge tone="attention" data-coffre-fiche-a-completer>
+          {t('À compléter')}
+        </Badge>
+      ) : null}
+      <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[type] ?? LIBELLE_TYPE_ACCES.autre)}</Badge>
+    </>
+  );
 
   const enregistrer = async () => {
     if (!fiche) return;
@@ -1271,6 +1524,186 @@ function FicheAcces({
     }
   };
 
+  const formulaire = (
+    <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+      <FormulaireEnColonnes data-coffre-fiche>
+        <Champ libelle={t('Nom')}>
+          <Input
+            value={nom}
+            onChange={(e) => setNom(e.target.value)}
+            maxLength={NOM_ACCES_MAX}
+            placeholder={t('Comment reconnaître cet accès')}
+            className="sm:h-8 sm:text-[13px]"
+            autoComplete="off"
+            data-coffre-nom
+          />
+        </Champ>
+
+        <Champ libelle={t('Projet')}>
+          <ListeDeroulante
+            valeur={projectId ?? ''}
+            titre={t('Projet')}
+            repere="coffre-projet"
+            data-coffre-projet
+            /* Une fiche rangée dans un dossier suit le projet du dossier. */
+            desactivee={Boolean(dossierId) || archivee}
+            onChoisir={(valeur) => setProjectId(valeur || null)}
+            options={[
+              { valeur: '', libelle: t('Général') },
+              /* Les membres d'un projet réuni se rangent sous lui, en retrait. */
+              ...projetsEnArbre(state.projects).map((ligne) => ({
+                valeur: ligne.projet.id,
+                libelle: libelleDansUnMenu(ligne.projet.name, ligne),
+                attributs: { 'data-membre-de': ligne.parentId },
+              })),
+            ]}
+          />
+        </Champ>
+
+        {dossiers.length || dossierId ? (
+          <Champ libelle={t('Dossier')}>
+            <ListeDeroulante
+              valeur={dossierId ?? ''}
+              titre={t('Dossier')}
+              repere="coffre-dossier"
+              data-coffre-dossier-choix
+              desactivee={archivee}
+              onChoisir={(valeur) => {
+                setDossierId(valeur || null);
+                const choisi = dossiers.find((d) => d.id === valeur);
+                if (choisi) setProjectId(choisi.projectId);
+              }}
+              options={[
+                { valeur: '', libelle: t('Aucun dossier') },
+                ...dossiers
+                  .map((d) => ({ valeur: d.id, libelle: cheminDuDossier(dossiers, d.id).join(SEPARATEUR_AFFICHAGE) }))
+                  .sort((a, b) => a.libelle.localeCompare(b.libelle)),
+              ]}
+            />
+          </Champ>
+        ) : null}
+
+        {champsDuType(type).map((champ) => (
+          <ChampValeur
+            key={champ.cle}
+            champ={champ}
+            valeur={champs[champ.cle] ?? ''}
+            onChange={(valeur) => setChamps((avant) => ({ ...avant, [champ.cle]: valeur }))}
+          />
+        ))}
+
+        <CasesEnPlus cases={champsLibres} onChange={setChampsLibres} figee={archivee} />
+
+        {aCompleter.length && !archivee ? (
+          <p className="text-[12px] leading-relaxed text-faint" data-coffre-message-a-completer>
+            {t('À compléter : {cases}. La fiche est gardée telle quelle en attendant.', {
+              cases: aCompleter.map((c) => t(c.libelle)).join(` ${t('ou')} `),
+            })}
+          </p>
+        ) : null}
+
+        <Champ libelle={t('Note')}>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder={t('À quoi sert cet accès (aucune valeur ici : chaque valeur a sa case)')}
+            className="text-[13px]"
+            data-coffre-note
+          />
+        </Champ>
+
+        <ImagesDeLaFiche images={images} onChange={setImages} figee={archivee} />
+
+        {archivee && fiche ? (
+          <p className="text-[12px] leading-relaxed text-faint" data-coffre-archive-info>
+            {t('Fiche archivée : elle sera effacée le {date}, sauf si vous la restaurez.', {
+              date: dateEffacement(fiche),
+            })}
+          </p>
+        ) : null}
+      </FormulaireEnColonnes>
+    </ZoneDefilement>
+  );
+  const boutonsDuPied = (
+    <>
+    {archivee ? (
+      <Button variant="subtle" size="sm" onClick={restaurer} disabled={enCours} data-coffre-restaurer>
+        {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArchiveRestore className="h-3 w-3" />}
+        {t('Restaurer')}
+      </Button>
+    ) : (
+      <Button
+        variant={telephone ? 'principal' : 'subtle'}
+        size={telephone ? 'md' : 'sm'}
+        onClick={enregistrer}
+        disabled={enCours || !nom.trim()}
+        data-coffre-enregistrer
+      >
+        {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+        {t('Enregistrer')}
+      </Button>
+    )}
+    {fiche?.id && !archivee ? (
+      <Button variant="ghost" size="sm" onClick={() => setASupprimer(true)} data-coffre-supprimer>
+        <Trash2 className="h-3 w-3" />
+        {t('Retirer')}
+      </Button>
+    ) : null}
+    </>
+  );
+  const confirmation = (
+    <ConfirmDialog
+      open={aSupprimer}
+      onClose={() => setASupprimer(false)}
+      title={t('Retirer cet accès ?')}
+      description={t(
+        'La fiche part aux archives : elle se restaure pendant six mois, puis elle est effacée pour de bon.',
+      )}
+      confirmLabel={t('Retirer')}
+      danger
+      onConfirm={supprimer}
+    />
+  );
+
+  if (enVolet) {
+    return (
+      <>
+        <aside
+          /* LA DERNIÈRE COLONNE DE LA RANGÉE (Finder, 14/11/2026) : un peu plus large qu'une colonne, sans bouton fermer —
+             un clic dans une colonne d'avant ou Échap la referme. */
+          className="flex h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden bg-surface shadow-[inset_1px_0_0_hsl(var(--border))]"
+          data-coffre-volet-detail={fiche?.id ?? 'nouveau'}
+          aria-label={titreDeLaFiche}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              onClose();
+            }
+          }}
+        >
+          <div className="flex shrink-0 items-start gap-2 px-3 pb-1 pt-3">
+            <h3 className="min-w-0 flex-1 break-words text-[16px] font-semibold leading-snug text-text" data-grand-titre-de-fiche>
+              {titreDeLaFiche}
+            </h3>
+
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 pb-2">{etiquettesDeLaFiche}</div>
+          {fiche?.dossierId && cheminDuDossier(dossiers, fiche.dossierId).length ? (
+            <p className="shrink-0 truncate px-3 pb-3 text-[12.5px] text-faint" data-coffre-fiche-chemin>
+              {cheminDuDossier(dossiers, fiche.dossierId).join(SEPARATEUR_AFFICHAGE)}
+            </p>
+          ) : null}
+          {formulaire}
+          <div className="flex shrink-0 items-center gap-2 px-3 pb-3 pt-2" data-coffre-volet-pied>
+            {boutonsDuPied}
+          </div>
+        </aside>
+        {confirmation}
+      </>
+    );
+  }
+
   return (
     <>
       <Drawer open={fiche !== null} onClose={onClose} empile>
@@ -1278,14 +1711,13 @@ function FicheAcces({
             Coffre-fort › son nom » ; son type se pose à droite de la barre
             d'en-tête de la page. */}
         <DialogTitle className="min-w-0 truncate px-3 pb-2">{titreDeLaFiche}</DialogTitle>
-        <GestesDePage className="px-3">
-          {aCompleter.length && !archivee ? (
-            <Badge tone="attention" data-coffre-fiche-a-completer>
-              {t('À compléter')}
-            </Badge>
-          ) : null}
-          <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[type] ?? LIBELLE_TYPE_ACCES.autre)}</Badge>
-        </GestesDePage>
+        {/* SUR TÉLÉPHONE (capture #a93c, 03/11/2026), LA FICHE EST UNE FEUILLE : son titre est celui de la feuille, et
+            l'étiquette de son type se lit SOUS lui, en entier — plus serrée sur deux lignes à droite du titre. */}
+        {telephone ? null : (
+          <GestesDePage className="px-3">
+            {etiquettesDeLaFiche}
+          </GestesDePage>
+        )}
 
         {/* ET IL SE LIT EN GRAND, EN TÊTE DE LA PAGE — le dessin d'un titre de
             page (`TitreDePage`), avec de l'air au-dessus : le formulaire ne
@@ -1293,158 +1725,37 @@ function FicheAcces({
             qu'on est en train de taper. LE TITRE DE LA PAGE RESTE UNIQUE : celui
             du fil d'Ariane est lu à voix haute, celui-ci n'en est que le dessin
             (`aria-hidden`), pour ne pas le dire deux fois. */}
-        <p
-          aria-hidden
-          data-grand-titre-de-fiche
-          className="shrink-0 break-words px-3 pb-5 pt-5 text-[26px] font-semibold leading-tight tracking-tight text-text sm:pb-6 sm:pt-8"
-        >
-          {titreDeLaFiche}
-        </p>
+        {/* Sur téléphone, le titre de la feuille suffit : plus de grand titre qui le répète dessous. */}
+        {telephone ? (
+          <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 px-3 pb-2" data-coffre-fiche-etiquettes>
+            {etiquettesDeLaFiche}
+          </div>
+        ) : (
+          <p
+            aria-hidden
+            data-grand-titre-de-fiche
+            className="shrink-0 break-words px-3 pb-5 pt-5 text-[18px] font-semibold leading-tight tracking-tight text-text sm:pb-6 sm:pt-8"
+          >
+            {titreDeLaFiche}
+          </p>
+        )}
         {/* Où la fiche est rangée : le chemin complet de son dossier, sous son nom. */}
         {fiche?.dossierId && cheminDuDossier(dossiers, fiche.dossierId).length ? (
-          <p className="-mt-3 shrink-0 truncate px-3 pb-4 text-[12.5px] text-faint" data-coffre-fiche-chemin>
+          <p className={cn('shrink-0 truncate px-3 pb-4 text-[12.5px] text-faint', telephone ? 'pb-2 text-center' : '-mt-3')} data-coffre-fiche-chemin>
             {cheminDuDossier(dossiers, fiche.dossierId).join(SEPARATEUR_AFFICHAGE)}
           </p>
         ) : null}
 
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <FormulaireEnColonnes data-coffre-fiche>
-            <Champ libelle={t('Nom')}>
-              <Input
-                value={nom}
-                onChange={(e) => setNom(e.target.value)}
-                maxLength={NOM_ACCES_MAX}
-                placeholder={t('Comment reconnaître cet accès')}
-                className="h-8 text-[13px]"
-                autoComplete="off"
-                data-coffre-nom
-              />
-            </Champ>
+        {formulaire}
 
-            <Champ libelle={t('Projet')}>
-              <ListeDeroulante
-                valeur={projectId ?? ''}
-                titre={t('Projet')}
-                repere="coffre-projet"
-                data-coffre-projet
-                /* Une fiche rangée dans un dossier suit le projet du dossier. */
-                desactivee={Boolean(dossierId) || archivee}
-                onChoisir={(valeur) => setProjectId(valeur || null)}
-                options={[
-                  { valeur: '', libelle: t('Général') },
-                  /* Les membres d'un projet réuni se rangent sous lui, en retrait. */
-                  ...projetsEnArbre(state.projects).map((ligne) => ({
-                    valeur: ligne.projet.id,
-                    libelle: libelleDansUnMenu(ligne.projet.name, ligne),
-                    attributs: { 'data-membre-de': ligne.parentId },
-                  })),
-                ]}
-              />
-            </Champ>
-
-            {dossiers.length || dossierId ? (
-              <Champ libelle={t('Dossier')}>
-                <ListeDeroulante
-                  valeur={dossierId ?? ''}
-                  titre={t('Dossier')}
-                  repere="coffre-dossier"
-                  data-coffre-dossier-choix
-                  desactivee={archivee}
-                  onChoisir={(valeur) => {
-                    setDossierId(valeur || null);
-                    const choisi = dossiers.find((d) => d.id === valeur);
-                    if (choisi) setProjectId(choisi.projectId);
-                  }}
-                  options={[
-                    { valeur: '', libelle: t('Aucun dossier') },
-                    ...dossiers
-                      .map((d) => ({ valeur: d.id, libelle: cheminDuDossier(dossiers, d.id).join(SEPARATEUR_AFFICHAGE) }))
-                      .sort((a, b) => a.libelle.localeCompare(b.libelle)),
-                  ]}
-                />
-              </Champ>
-            ) : null}
-
-            {champsDuType(type).map((champ) => (
-              <ChampValeur
-                key={champ.cle}
-                champ={champ}
-                valeur={champs[champ.cle] ?? ''}
-                onChange={(valeur) => setChamps((avant) => ({ ...avant, [champ.cle]: valeur }))}
-              />
-            ))}
-
-            <CasesEnPlus cases={champsLibres} onChange={setChampsLibres} figee={archivee} />
-
-            {aCompleter.length && !archivee ? (
-              <p className="text-[12px] leading-relaxed text-faint" data-coffre-message-a-completer>
-                {t('À compléter : {cases}. La fiche est gardée telle quelle en attendant.', {
-                  cases: aCompleter.map((c) => t(c.libelle)).join(` ${t('ou')} `),
-                })}
-              </p>
-            ) : null}
-
-            <Champ libelle={t('Note')}>
-              <Textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder={t('À quoi sert cet accès (aucune valeur ici : chaque valeur a sa case)')}
-                className="text-[13px]"
-                data-coffre-note
-              />
-            </Champ>
-
-            <ImagesDeLaFiche images={images} onChange={setImages} figee={archivee} />
-
-            {archivee && fiche ? (
-              <p className="text-[12px] leading-relaxed text-faint" data-coffre-archive-info>
-                {t('Fiche archivée : elle sera effacée le {date}, sauf si vous la restaurez.', {
-                  date: dateEffacement(fiche),
-                })}
-              </p>
-            ) : null}
-          </FormulaireEnColonnes>
-        </ZoneDefilement>
-
-        <DialogFooter className="justify-start px-3 pt-2">
-          {archivee ? (
-            <Button variant="subtle" size="sm" onClick={restaurer} disabled={enCours} data-coffre-restaurer>
-              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArchiveRestore className="h-3 w-3" />}
-              {t('Restaurer')}
-            </Button>
-          ) : (
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={enregistrer}
-              disabled={enCours || !nom.trim()}
-              data-coffre-enregistrer
-            >
-              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-              {t('Enregistrer')}
-            </Button>
-          )}
-          {fiche?.id && !archivee ? (
-            <Button variant="ghost" size="sm" onClick={() => setASupprimer(true)} data-coffre-supprimer>
-              <Trash2 className="h-3 w-3" />
-              {t('Retirer')}
-            </Button>
-          ) : null}
+        {/* SUR TÉLÉPHONE, LE PIED DES FEUILLES : le geste principal pleine largeur,
+            « Retirer » dessous, discret — plus deux petits boutons sur une bande à part. */}
+        <DialogFooter className="justify-start px-3 pt-2" pleineLargeur={telephone}>
+          {boutonsDuPied}
         </DialogFooter>
       </Drawer>
 
-      <ConfirmDialog
-        open={aSupprimer}
-        onClose={() => setASupprimer(false)}
-        title={t('Retirer cet accès ?')}
-        description={t(
-          'La fiche part aux archives : elle se restaure pendant six mois, puis elle est effacée pour de bon.',
-        )}
-        confirmLabel={t('Retirer')}
-        danger
-        onConfirm={supprimer}
-      />
+      {confirmation}
     </>
   );
 }

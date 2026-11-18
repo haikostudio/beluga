@@ -88,6 +88,14 @@ export function titreDeLaCarteDeSuite(nomDuProjet: string): string {
   return `Construction de « ${nomDuProjet} »`;
 }
 
+/**
+ * LE RÉSUMÉ DU POINT « DEMANDE » de la carte de construction, en mots courants :
+ * la demande entière (le briefing) se lit en dessous, le cahier en pièce jointe.
+ */
+export function resumeDeLaDemandeDeSuite(nomDuProjet: string): string {
+  return `Construire l'application « ${nomDuProjet} » d'après son cahier des charges terminé, joint à cette demande.`;
+}
+
 /** La marque d'une partie encore à trancher, dans le document. */
 export const MARQUE_A_VOIR = 'à voir';
 

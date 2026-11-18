@@ -57,7 +57,7 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   ActionTiroir,
   BlocRepliable,

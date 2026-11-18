@@ -20,7 +20,7 @@ import {
   TriangleAlert,
   Wrench,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import type { GenreDeBloc } from '@beluga/shared';
 import { PointDuFil, type TonDuPoint } from '@/components/point-du-fil';
 import { cn } from '@/lib/utils';

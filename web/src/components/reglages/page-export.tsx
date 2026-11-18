@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   Database,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   BulleInfo,
   Button,

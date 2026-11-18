@@ -33,7 +33,7 @@ import {
 import { bus } from './bus.js';
 import { ouvrirLeCadrage } from './cadrage.js';
 import { getMeta, setMeta } from './db.js';
-import { ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
+import { ajouterAuJournal, entreesDuJournal, phaseDeLaCarte } from './journal-carte.js';
 import { log } from './logger.js';
 import { agentsActifs, isRunning, sendPrompt } from './runtime.js';
 import * as store from './store.js';
@@ -82,6 +82,27 @@ export async function ouvrirLeCadrageDeLaCarte(
     return null;
   });
   if (!cadrage) return null;
+  ecrireLaDemandeDeNaissance(card, cadrage);
+  if (premierTour === 'en-serie') {
+    void cadrerEnSerie(cadrage.id, card.id, demandeDeCadrageDeNaissance(card, auteur, { sansTemoin: true }), card.title);
+  } else if (premierTour) {
+    /* `silent` : la demande ouvre DÉJÀ la conversation (`filAvecLaSynthese`),
+       une bulle d'utilisateur la redirait. Passe par `sendPrompt` : choix du
+       compte, file d'attente faute de quota. */
+    void sendPrompt(cadrage.id, demandeDeCadrageDeNaissance(card, auteur), { template: 'none', silent: true }).catch(
+      (err) => log.error(`le cadrage de « ${card.title} » n'a pas pu partir`, err),
+    );
+  }
+  return cadrage;
+}
+
+/**
+ * LE JALON « DEMANDE » D'UNE CARTE NÉE SANS MESSAGE : le premier tour part en `silent`, et seul un message
+ * d'utilisateur écrit ce jalon. Écrit une fois — un filet qui relance un cadrage jamais parti (`relancerLeCadrageJamaisParti`)
+ * l'écrit aussi s'il manque : sans lui, la bulle de demande restait vide (carte de nuit, capture #6e9b).
+ */
+export function ecrireLaDemandeDeNaissance(card: Card, cadrage: Agent): void {
+  if (entreesDuJournal(card.id).some((e) => e.nature === 'jalon' && e.libelle === 'Demande')) return;
   const demande = demandeAfficheeDeProposition(card);
   const jalon = ajouterAuJournal({
     cardId: card.id,
@@ -94,17 +115,6 @@ export async function ouvrirLeCadrageDeLaCarte(
     donnees: demande.resume ? { resumeDemande: demande.resume } : undefined,
   });
   if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
-  if (premierTour === 'en-serie') {
-    void cadrerEnSerie(cadrage.id, card.id, demandeDeCadrageDeNaissance(card, auteur, { sansTemoin: true }), card.title);
-  } else if (premierTour) {
-    /* `silent` : la demande ouvre DÉJÀ la conversation (`filAvecLaSynthese`),
-       une bulle d'utilisateur la redirait. Passe par `sendPrompt` : choix du
-       compte, file d'attente faute de quota. */
-    void sendPrompt(cadrage.id, demandeDeCadrageDeNaissance(card, auteur), { template: 'none', silent: true }).catch(
-      (err) => log.error(`le cadrage de « ${card.title} » n'a pas pu partir`, err),
-    );
-  }
-  return cadrage;
 }
 
 /* ------------------------------------------------------------------ */
@@ -184,6 +194,7 @@ export function relancerLeCadrageJamaisParti(card: Card, mode: 'en-serie' | 'ouv
   const agent = cadrageDeLaCarteJamaisParti(card);
   if (!agent) return false;
   const auteur = auteurDeLaCarte(card);
+  ecrireLaDemandeDeNaissance(card, agent);
   if (mode === 'en-serie') {
     void cadrerEnSerie(agent.id, card.id, demandeDeCadrageDeNaissance(card, auteur, { sansTemoin: true }), card.title);
     return true;

@@ -3,7 +3,7 @@ import {
   Database,
   Loader2,
   Save,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Button,
 } from '@/components/ui';

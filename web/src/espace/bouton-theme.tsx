@@ -16,7 +16,7 @@
  * état et un geste.
  */
 import * as React from 'react';
-import { Moon, Sun, SunMoon } from 'lucide-react';
+import { Moon, Sun, SunMoon } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 

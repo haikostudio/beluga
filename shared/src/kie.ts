@@ -264,8 +264,27 @@ export const MODELES_KIE: readonly ModeleKie[] = [
   {
     id: 'ai-music-api/generate', nom: 'Suno V6 (par kie.ai)', capacite: 'musique', qualite: 5, usage: 'musique originale de 10 s à 6 min, instrumentale par défaut',
     page: '../suno-api/generate-music',
-    entrees: [texte('prompt'), oui('custom_mode', true), oui('instrumental', true), choix('model', ['V6', 'V6_MINI', 'V6_WILD'], true), { nom: 'duration', type: 'number', min: 10, max: 360, requis: false }],
-    defauts: { custom_mode: false, instrumental: true, model: 'V6' }, tarif: ['suno, generate music'],
+    entrees: [texte('prompt'), texte('title'), texte('style'), texte('lyrics'), oui('custom_mode', true), oui('instrumental', true), choix('model', ['V6', 'V6_MINI', 'V6_WILD'], true), { nom: 'duration', type: 'number', min: 10, max: 360, requis: false }],
+    defauts: { custom_mode: true, instrumental: true, model: 'V6' }, tarif: ['suno, generate music'],
+  },
+
+  /* ---- présentateur parlant (31/10/2026) : un portrait et une voix finie deviennent une vidéo face caméra ---- */
+  /* Schémas lus sur docs.kie.ai/market/kling/ai-avatar-*.md et infinitalk/from-audio.md ; « prompt » est OBLIGATOIRE et
+     décrit l'expression, les gestes et la caméra (la parole vient de la voix). Tarifs : 8 et 16 crédits la seconde. */
+  {
+    id: 'kling/ai-avatar-pro', nom: 'Kling AI Avatar Pro', capacite: 'avatar', qualite: 5, usage: 'un portrait (image, 10 Mo au plus) dit une voix finie, face caméra, en 1080p ; voix de 5 min au plus',
+    page: 'kling/ai-avatar-pro', entrees: [texte('image_url', true), texte('audio_url', true), texte('prompt', true)], defauts: {}, tarif: ['kling ai avatar', 'pro'],
+  },
+  {
+    id: 'kling/ai-avatar-standard', nom: 'Kling AI Avatar Standard', capacite: 'avatar', qualite: 4, usage: 'même présentateur parlant en 720p, moitié prix',
+    page: 'kling/ai-avatar-standard', entrees: [texte('image_url', true), texte('audio_url', true), texte('prompt', true)], defauts: {}, tarif: ['kling ai avatar', 'standard'],
+  },
+
+  /* ---- visage remplacé dans une vidéo (31/10/2026) : schéma lu sur docs.kie.ai/market/wan/2-2-animate-replace.md ---- */
+  {
+    id: 'wan/2-2-animate-replace', nom: 'Wan 2.2 Animate Replace', capacite: 'visage-video', qualite: 4, usage: 'la personne de la photo remplace celle de la vidéo, gestes et expressions gardés (vidéo et photo de 10 Mo au plus)',
+    page: 'wan/2-2-animate-replace', entrees: [texte('video_url', true), texte('image_url', true), choix('resolution', ['480p', '580p', '720p'], false, '480p'), oui('nsfw_checker')],
+    defauts: { resolution: '720p' }, tarif: ['animate replace', '720p'],
   },
 
   /* ---- synchronisation labiale ---- */
@@ -276,6 +295,32 @@ export const MODELES_KIE: readonly ModeleKie[] = [
     defauts: { mode: 'lite' }, tarif: ['volcengine, lip sync'],
   },
 ];
+
+/**
+ * LA COMMANDE DE SUNO, TOUJOURS EN MODE PERSONNALISÉ (`docs.kie.ai/suno-api/generate-music`, relu le 31/10/2026) :
+ * `duration` n'y est admis qu'avec `custom_mode: true` (422 sinon), ce mode exige `title` et un `style`, et hors de
+ * ce mode une simple consigne ne suffit pas non plus. La consigne devient donc le style et le titre ; `prompt` y
+ * vaut des PAROLES : une musique instrumentale ne l'envoie pas, sinon la consigne serait prise pour un texte à chanter.
+ */
+export function corpsDeMusiqueSuno(corps: Record<string, unknown>): Record<string, unknown> {
+  const consigne = String(corps.prompt ?? '').trim();
+  const instrumental = corps.instrumental !== false;
+  const { prompt, ...reste } = corps;
+  const coupe = consigne.length > 80 ? consigne.slice(0, 80).replace(/\s+\S*$/, '') : consigne;
+  return {
+    ...reste,
+    ...(instrumental || !prompt ? {} : { prompt }),
+    custom_mode: true,
+    instrumental,
+    title: String(corps.title ?? '').trim() || coupe || 'Musique',
+    style: String(corps.style ?? '').trim() || consigne.slice(0, 1000) || 'instrumental',
+  };
+}
+
+/** Le corps tel qu'il part chez kie.ai : TOUTE commande passe ici, le plan d'une carte comme le Studio. */
+export function corpsDeCommandeKie(modele: string, corps: Record<string, unknown>): Record<string, unknown> {
+  return modele === 'ai-music-api/generate' ? corpsDeMusiqueSuno(corps) : corps;
+}
 
 /** Un modèle du catalogue kie.ai (la capacité tranche quand il en sert plusieurs). */
 export function modeleKie(id: unknown, capacite?: unknown): ModeleKie | undefined {
@@ -365,10 +410,16 @@ export function fichierDuResultatKie(data: any): string | null {
  * LA RÉPONSE AU SUIVI : encore en cours, fini (avec le fichier et le COÛT RÉEL
  * en dollars, depuis `creditsConsumed`), ou en échec avec la raison de kie.ai.
  */
-export function lireSuiviKie(statut: number, corps: any, suivi = ''): EtatDeGeneration {
+/**
+ * `ageMs` : depuis quand le travail a été commandé. Juste après `createTask`, kie.ai répond parfois 422
+ * « recordInfo is null » le temps d'enregistrer le travail : pendant {@link GRACE_DU_SUIVI_KIE_MS}, c'est une attente,
+ * pas un échec (l'écran disait « kie.ai ne retrouve plus ce travail » sur un travail qui venait de partir).
+ */
+export const GRACE_DU_SUIVI_KIE_MS = 120_000;
+export function lireSuiviKie(statut: number, corps: any, suivi = '', ageMs = Number.POSITIVE_INFINITY): EtatDeGeneration {
   if (statut >= 500 || statut === 429) return { etat: 'attente', suivi };
   const code = Number(corps?.code ?? statut);
-  if (code === 422) return { etat: 'echec', raison: 'kie.ai ne retrouve plus ce travail' };
+  if (code === 422) return ageMs < GRACE_DU_SUIVI_KIE_MS ? { etat: 'attente', suivi } : { etat: 'echec', raison: 'kie.ai ne retrouve plus ce travail' };
   if (code === 429 || code >= 500) return { etat: 'attente', suivi };
   if (code !== 200) return refusKie(code, corps);
   const d = corps?.data ?? {};

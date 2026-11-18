@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check } from '@/components/ui/icones';
 import { LANGUES } from '@beluga/shared';
 import { CLASSE_GROUPE_DE_LIGNES, CLASSE_LIGNE_DE_GROUPE } from '@/components/ui';
 import { Groupe } from '@/components/reglages/communs';

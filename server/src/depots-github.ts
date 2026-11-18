@@ -15,12 +15,20 @@ import {
   adresseDeClone,
   depotsDepuisLApi,
   dossierPourDepot,
+  jugerAdresseDemandee,
   refusAvantMontage,
   refusDossierOccupe,
 } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
-import { EtapeCreation, etapeAdressePublique, portDuNouveauProjet, registerProject } from './projects.js';
+import {
+  EtapeCreation,
+  SurProgresDuMontage,
+  carnetDuMontage,
+  etapeAdressePublique,
+  portDuNouveauProjet,
+  registerProject,
+} from './projects.js';
 import { assurerLesBranchesDeLaRegle } from './branche-de-deploiement.js';
 import * as store from './store.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
@@ -153,6 +161,8 @@ export interface MontageDepuisGithub {
   sousDomaine?: string;
   /** Le port sur lequel le projet écoute sur le serveur. */
   port?: number;
+  /** Chaque étape commencée ou finie, dite à l'écran qui suit le montage. */
+  surProgres?: SurProgresDuMontage;
 }
 
 /**
@@ -201,6 +211,9 @@ export async function monterDepuisGithub(
   input: MontageDepuisGithub,
 ): Promise<{ project: ReturnType<typeof registerProject>; etapes: EtapeCreation[] }> {
   const { depot } = input;
+  const { etapes, commencer, noter, ajouter } = carnetDuMontage(input.surProgres);
+  // Les refus qui suivent (fiche du dépôt, dossier occupé) se lisent pendant que la récupération tourne.
+  commencer('clone');
 
   const dejaLa = refusAvantMontage(depot, store.listProjects(true));
   if (dejaLa) throw new Error(dejaLa);
@@ -216,10 +229,6 @@ export async function monterDepuisGithub(
   if (fs.existsSync(cible)) throw new Error(refusDossierOccupe(slug));
   // Le port AVANT le clone : un port déjà attribué à un autre projet est un refus.
   const port = await portDuNouveauProjet(input.port);
-
-  const etapes: EtapeCreation[] = [];
-  const noter = (titre: string, fait: boolean, detail?: string, titreSiEchec?: string) =>
-    etapes.push({ titre: fait ? titre : (titreSiEchec ?? titre), fait, detail });
 
   // Le dossier des projets appartient à l'administrateur : même convention que
   // pour un projet neuf (voir createProjectFolder), on crée avec élévation puis
@@ -237,7 +246,7 @@ export async function monterDepuisGithub(
   }
 
   await clonerLeDepot(depot, cible);
-  noter('Dépôt récupéré sur le serveur', true, `${depot.slug} → ${cible}`);
+  noter('clone', true, `${depot.slug} → ${cible}`);
 
   /*
    * LA BRANCHE DE DÉPLOIEMENT, DÈS LA REPRISE. Un dépôt qui a déjà son « dev »
@@ -246,18 +255,18 @@ export async function monterDepuisGithub(
    * principale et poussée. Dans les deux cas, la règle s'applique dès la
    * première carte : chaque tâche sur sa branche, fusion sur « dev » au clic.
    */
+  commencer('branches');
   const posees = await assurerLesBranchesDeLaRegle(cible);
-  noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '), 'Branches « dev » et « main » pas en place');
+  noter('branches', posees.ok, posees.details.join(' ; '));
 
   /*
    * L'adresse publique, AVANT l'inscription : c'est elle que le projet garde et
    * que chaque déploiement contrôlera à la fin. Un échec n'arrête rien.
    */
-  const adresse = await etapeAdressePublique({
-    sousDomaine: input.sousDomaine,
-    port: input.sousDomaine?.trim() ? port : input.port,
-  });
-  if (adresse.etape) etapes.push(adresse.etape);
+  const saisieAdresse = { sousDomaine: input.sousDomaine, port: input.sousDomaine?.trim() ? port : input.port };
+  if (jugerAdresseDemandee(saisieAdresse).demandee) commencer('adresse');
+  const adresse = await etapeAdressePublique(saisieAdresse);
+  if (adresse.etape) ajouter('adresse', adresse.etape);
 
   log.info(`projet ajouté depuis GitHub : ${depot.slug} → ${cible}`);
   const project = registerProject({
@@ -271,6 +280,6 @@ export async function monterDepuisGithub(
       posees.branches.dev || posees.branches.production ? posees.branches : undefined,
     deploiement: reglageDeDeploiementConstate(cible),
   });
-  noter('Projet inscrit dans la colonne de gauche', true);
+  noter('inscription', true);
   return { project, etapes };
 }

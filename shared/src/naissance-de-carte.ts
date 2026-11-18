@@ -20,6 +20,9 @@
  */
 
 import { COLONNES_AVANT_LE_TRAVAIL } from './columns.js';
+import { LABEL_AUTO_AMELIORATION } from './auto-amelioration.js';
+import { LABEL_MARKETING } from './marketing.js';
+import { LABEL_VEILLE_COMPETENCES } from './veille-competences.js';
 
 /** Qui pose la carte : c'est ce que la demande de secours nomme. */
 export type AuteurDeCarte =
@@ -48,6 +51,24 @@ export interface CarteANaitre {
   description?: string;
   briefing?: string;
   origin?: 'user' | 'agent';
+}
+
+/**
+ * QUI A ÉCRIT LA DEMANDE D'UNE CARTE POSÉE PAR UN AGENT, pour la mention sous sa bulle (« écrite par l'agent
+ * d'amélioration de la nuit »). Lu sur ses étiquettes, puis sur le TITRE de l'agent qui l'a posée (`origineAgentId`) :
+ * une carte de nuit n'a pas toujours son étiquette. Une carte de l'utilisateur : `undefined`, aucune mention.
+ */
+export function auteurDeLaDemandeEcrite(
+  carte: { origin?: 'user' | 'agent'; labels?: readonly string[] },
+  agentDOrigine?: { role?: string; title?: string } | null,
+): AuteurDeCarte | undefined {
+  if (carte.origin !== 'agent') return undefined;
+  const labels = carte.labels ?? [];
+  const titre = (agentDOrigine?.title ?? '').toLowerCase();
+  if (labels.includes(LABEL_AUTO_AMELIORATION) || labels.includes(LABEL_VEILLE_COMPETENCES) || /auto-am[ée]lioration|nuit|veille/.test(titre)) return 'nuit';
+  if (labels.includes(LABEL_MARKETING) || /marketing/.test(titre)) return 'marketing';
+  if (/chef/.test(titre)) return 'chef';
+  return 'agent';
 }
 
 /** L'auteur retenu quand l'appelant ne le dit pas : lu sur l'origine de la carte. */

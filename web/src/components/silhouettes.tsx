@@ -15,33 +15,15 @@
  * qu'une fois les données réellement reçues.
  */
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import {
   COLONNES_DEMANDE,
-  COLONNES_AFFICHEES,
-  COLUMN_LABELS,
-  COULEURS_COLONNES_DEMANDE,
   TITRES_COLONNES_DEMANDE,
 } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
-import {
-  CLASSES_ALERTE_RANGEE,
-  CLASSES_PIED_RANGEE,
-  CLASSES_TETE_RANGEE,
-  CLASSE_HAUTEUR_CARTE_EN_ROUTE,
-  CLASSE_HAUTEUR_CORPS_EN_ROUTE,
-  CLASSES_BANDE,
-  CLASSES_EMPILEMENT,
-  CLASSES_RAIL,
-  classesRangee,
-  classesColonneEnRoute,
-  classesRailEnRoute,
-  CLASSES_LISTE_COLONNE_EN_ROUTE,
-  CLASSES_TETE_COLONNE_EN_ROUTE,
-} from '@/lib/gabarit-tableau';
-import { CLASSES_LISTE_ONGLETS, DialogTitle } from '@/components/ui';
+import { CLASSE_GROUPE_DE_LIGNES, DialogTitle } from '@/components/ui';
 
 /**
  * La brique de base : un bloc gris qui respire. Elle emprunte la couleur des
@@ -77,23 +59,17 @@ function Bloc({
 /** Des largeurs qui varient : des barres toutes égales ne ressemblent à rien. */
 const LARGEURS = ['w-[72%]', 'w-[54%]', 'w-[83%]', 'w-[61%]', 'w-[76%]', 'w-[48%]'];
 
-/**
- * La largeur de chaque onglet de colonne en silhouette, à peu près celle de son
- * libellé suivi de son compte. Rien ne dépend de ces valeurs : seule la HAUTEUR
- * de la rangée compte pour que les colonnes ne bougent pas.
- */
-const ONGLETS_LARGEURS = ['w-[96px]', 'w-[84px]', 'w-[88px]', 'w-[92px]', 'w-[80px]'];
-
 /* ------------------------------------------------------------------ */
-/* La colonne de gauche : des lignes de projet                        */
+/* Les projets du service Marketing (la colonne de gauche n'en a plus)  */
 /* ------------------------------------------------------------------ */
 
+/** Au gabarit de `CLASSE_LIGNE_DE_SERVICE`. */
 export function SilhouetteProjets({ lignes = 5 }: { lignes?: number }) {
   return (
-    <Bloc zone="projets" className="px-1 py-1">
+    <Bloc zone="projets">
       {Array.from({ length: lignes }, (_, index) => (
-        <div key={index} className="mb-0.5 flex items-center gap-1.5 rounded-md px-2 py-1.5">
-          <Silhouette className="h-3.5 w-3.5 shrink-0 rounded-sm" />
+        <div key={index} className="flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5">
+          <Silhouette className="h-4 w-4 shrink-0 rounded-sm" />
           <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
         </div>
       ))}
@@ -102,176 +78,31 @@ export function SilhouetteProjets({ lignes = 5 }: { lignes?: number }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le tableau : ses colonnes, quelques cartes dans chacune             */
-/* ------------------------------------------------------------------ */
-
-/**
- * UNE CARTE EN SILHOUETTE, AU GABARIT DE LA VRAIE. Elle reprend trait pour
- * trait le cadre d'une carte du tableau (`CardTile`) : même arrondi, même
- * bordure, même fond, mêmes marges intérieures. Sans cela, les cartes réelles
- * arrivaient à une autre taille que leur silhouette et toute la colonne
- * sursautait au moment du remplacement.
- */
-function SilhouetteCarte({ variante }: { variante: number }) {
-  return (
-    <div className="h-full rounded-md border border-border bg-raised px-2.5 py-2">
-      {/* La ligne du titre : l'icône du moteur, puis le titre lui-même — sur
-          deux lignes une fois sur trois, comme les vrais titres. */}
-      <div className="flex items-start gap-1.5">
-        <Silhouette className="mt-[2px] h-3 w-3 shrink-0 rounded-sm" />
-        <div className="min-w-0 flex-1">
-          <Silhouette className={cn('h-3', LARGEURS[variante % LARGEURS.length])} />
-          {variante % 3 !== 2 ? <Silhouette className="mt-1.5 h-3 w-[42%]" /> : null}
-        </div>
-      </div>
-      {/* Le pied de carte : ses deux ou trois repères en pastilles. */}
-      <div className="mt-2 flex gap-1.5">
-        <Silhouette className="h-2.5 w-10 rounded-full" />
-        <Silhouette className="h-2.5 w-14 rounded-full" />
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* La page « En route » : la ligne de tête et la carte                 */
 /* ------------------------------------------------------------------ */
 
-/**
- * LA LISTE D'UNE COLONNE DE LA PAGE « EN ROUTE », partagée avec sa silhouette :
- * rien ne saute à l'arrivée. Une liste, tous projets mélangés, dans chacune des
- * trois colonnes (« Actifs », « Terminer », « Archiver »). Le `pt-3` laisse la place à la
- * pastille bleue « rendu non consulté », qui déborde de 12 px au-dessus du coin
- * haut droit de la carte : sans lui, la zone qui défile la coupait sur la
- * première carte de la liste.
- */
+/** La grille des bandes en tête de la page « En route ». */
 export const GRILLE_EN_ROUTE = 'grid grid-cols-1 gap-4';
-
-/**
- * LES CARTES D'UNE COLONNE EN ATTENTE. Chaque carte a la hauteur FIXE de la
- * carte en route (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), exactement comme la vraie,
- * et la même forme : le projet et l'état DANS la carte, en haut, le titre sur
- * deux lignes, puis la frise des étapes — ni description ni ancienneté. Posée par la page dans une colonne dont la liste n'est
- * pas arrivée.
- */
-export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
-  return (
-    <Bloc zone="en-route" className={GRILLE_EN_ROUTE}>
-      {Array.from({ length: nombre }, (_, index) => (
-        <div key={index} className={cn('flex flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)}>
-          <div className="flex h-full flex-col rounded-md border border-border bg-raised px-4 py-3.5">
-            <div className="mb-1.5 flex h-[22px] items-center gap-1.5">
-              <Silhouette className="h-2.5 w-24" />
-              <Silhouette className="ml-auto h-2.5 w-16" />
-            </div>
-            <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
-              <div className="flex items-start gap-1.5">
-                <div className="min-w-0 flex-1">
-                  <Silhouette className="mt-1 h-3.5 w-[88%]" />
-                  <Silhouette className={cn('mt-2 h-3.5', LARGEURS[index % LARGEURS.length])} />
-                </div>
-              </div>
-            </div>
-            {/* La frise des étapes, au même endroit que sur la vraie carte. */}
-            <div className="mt-2.5 flex h-2.5 shrink-0 items-center">
-              <Silhouette className="h-1.5 w-full" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </Bloc>
-  );
-}
 
 /**
  * LA PAGE ENTIÈRE EN ATTENTE, posée ICI, dans le premier morceau, et non dans
  * celui de la page : elle tient la place pendant que la page elle-même se
- * télécharge. Le MÊME rail et les MÊMES trois colonnes que la vraie page
- * (`lib/gabarit-tableau.ts`), leurs vrais titres à leur vraie place.
+ * télécharge. La même colonne que la vraie page (`en-route.tsx`) : le champ de
+ * recherche, puis la liste unique des agents.
  */
 export function SilhouetteEnRoute() {
   const telephone = useTelephone();
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-silhouette-page-en-route>
-      <div className={cn(classesRailEnRoute(telephone), 'min-h-0 flex-1 overflow-hidden')}>
-        {([t('Actifs'), t('Terminer'), t('Archiver')] as const).map((titre, rang) => (
-          <div key={titre} className={classesColonneEnRoute(telephone)}>
-            <div className={CLASSES_TETE_COLONNE_EN_ROUTE}>
-              <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{titre}</h2>
-              <Silhouette className="h-2.5 w-6 rounded-sm" />
-            </div>
-            <div className={cn(CLASSES_LISTE_COLONNE_EN_ROUTE, 'min-h-0 flex-1 overflow-hidden')}>
-              <SilhouetteListeEnRoute nombre={rang === 0 ? 6 : 4} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Combien de cartes montrer par rangée. Les rangées de travail en portent
- * quelques-unes, celles de fin moins : on ne promet pas un tableau plein là
- * où il est presque toujours vide.
- */
-const CARTES_PAR_COLONNE: Record<string, number> = {
-  planned: 4,
-  running: 3,
-  done: 2,
-  to_deploy: 2,
-  archived: 2,
-};
-
-/*
- * LES COLONNES SONT DÉJÀ À LEUR PLACE FINALE. La silhouette pose le MÊME rail,
- * le MÊME empilement, les MÊMES colonnes, bandeaux, bandes et pied que le vrai
- * tableau (`board.tsx`) : toutes ces mesures viennent du gabarit partagé
- * (`lib/gabarit-tableau.ts`), jamais d'une copie. Conséquence voulue : au
- * remplacement, AUCUNE colonne ne se déplace, ni de côté ni en hauteur.
- *
- * « À déployer » porte l'emplacement de son message et son pied : ils se
- * dessinent à leur vraie taille (le bouton de réglage du bandeau, `h-6`, et
- * celui de mise en ligne du pied, `h-7`).
- */
-export function SilhouetteTableau() {
-  const telephone = useTelephone();
-  return (
-    <Bloc zone="tableau" className="flex h-full min-h-0 flex-1 flex-col">
-      <div className={cn(CLASSES_RAIL, 'min-h-0 flex-1 overflow-hidden')}>
-        <div className={CLASSES_EMPILEMENT}>
-          {COLONNES_AFFICHEES.map((column, rang) => (
-            <div key={column} data-silhouette-colonne={column} className={classesRangee(telephone)}>
-              <div className="flex h-full w-full flex-col">
-                {/* Le bandeau garde son VRAI libellé, à sa vraie place : la mise
-                    en page est connue d'avance, seul le compte des cartes
-                    manque. */}
-                <div className={CLASSES_TETE_RANGEE}>
-                  <h2 className="shrink-0 whitespace-nowrap text-[13px] font-medium uppercase tracking-wide text-faint">
-                    {t(COLUMN_LABELS[column])}
-                  </h2>
-                  <Silhouette className="h-2.5 w-3 rounded-sm" />
-                  {column === 'to_deploy' ? <Silhouette className="ml-auto h-6 w-16 rounded-md" /> : null}
-                </div>
-                {column === 'to_deploy' || column === 'archived' ? <div className={CLASSES_ALERTE_RANGEE} /> : null}
-                <div className={cn(CLASSES_BANDE, 'overflow-hidden')}>
-                  {Array.from({ length: CARTES_PAR_COLONNE[column] ?? 2 }, (_, index) => (
-                    <div key={index} className="w-full shrink-0">
-                      <SilhouetteCarte variante={rang + index} />
-                    </div>
-                  ))}
-                </div>
-                {column === 'to_deploy' ? (
-                  <div className={CLASSES_PIED_RANGEE}>
-                    <Silhouette className="h-7 w-full rounded-md" />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ))}
+      <div className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden', !telephone && 'max-w-[820px] px-6 pt-4')}>
+        <div className={cn('shrink-0 pb-2', telephone ? 'px-4 pt-3' : 'pt-1')}>
+          <div className="h-[38px] rounded-lg bg-surface sm:h-8" data-silhouette-recherche />
+        </div>
+        <div className={telephone ? 'px-2' : undefined}>
+          <SilhouetteAgents lignes={8} pleinePage={telephone} avecProjet />
         </div>
       </div>
-    </Bloc>
+    </div>
   );
 }
 
@@ -279,26 +110,26 @@ export function SilhouetteTableau() {
 /* La conversation : quelques bulles alternées                         */
 /* ------------------------------------------------------------------ */
 
+/** Au gabarit du fil (`chat.tsx`, `message-view.tsx`) : l'agent en pleine largeur, sans bulle ; la demande en bulle à droite. */
 export function SilhouetteConversation({ bulles = 4 }: { bulles?: number }) {
   return (
-    <Bloc zone="conversation" className="flex flex-col gap-3 p-3">
-      {Array.from({ length: bulles }, (_, index) => {
-        const aDroite = index % 2 === 1;
-        return (
-          <div key={index} className={cn('flex', aDroite ? 'justify-end' : 'justify-start')}>
-            <div
-              className={cn(
-                'flex w-[78%] flex-col gap-1.5 rounded-lg p-2.5',
-                aDroite ? 'items-end bg-surface' : 'bg-transparent',
-              )}
-            >
-              <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
-              <Silhouette className="h-3 w-[90%]" />
-              {aDroite ? null : <Silhouette className="h-3 w-[65%]" />}
+    <Bloc zone="conversation" className="flex flex-col gap-4 p-3">
+      {Array.from({ length: bulles }, (_, index) =>
+        index % 2 === 1 ? (
+          <div key={index} className="flex justify-end">
+            <div className="flex w-[min(78%,520px)] flex-col gap-1.5 rounded-lg rounded-br-sm bg-raised px-3 py-2">
+              <Barre className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
+              <Barre className="h-3 w-[90%]" />
             </div>
           </div>
-        );
-      })}
+        ) : (
+          <div key={index} className="flex flex-col gap-1.5">
+            <Barre className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
+            <Barre className="h-3 w-[90%]" />
+            <Barre className="h-3 w-[65%]" />
+          </div>
+        ),
+      )}
     </Bloc>
   );
 }
@@ -322,10 +153,10 @@ export function SilhouetteConversation({ bulles = 4 }: { bulles?: number }) {
 export function SilhouetteParcours({ points = 4 }: { points?: number }) {
   return (
     <Bloc zone="parcours" className="px-3 py-3">
-      <ol className="relative">
+      <ol className="relative flex flex-col gap-6">
         <span className="absolute bottom-6 top-6 left-[11px] w-px bg-faint/40" aria-hidden />
         {Array.from({ length: points }, (_, index) => (
-          <li key={index} className="relative flex gap-2.5 pb-4">
+          <li key={index} className="relative flex gap-2.5">
             <Silhouette className="z-10 h-[22px] w-[22px] shrink-0 rounded-full" />
             <div className="flex-1 space-y-1.5 pt-0.5">
               <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
@@ -339,33 +170,19 @@ export function SilhouetteParcours({ points = 4 }: { points?: number }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le tiroir d'une carte : titre, onglets, barre d'étapes et fil       */
+/* La page d'une carte : le fil en attente, puis le pied de saisie       */
 /* ------------------------------------------------------------------ */
 
 /**
- * LE TIROIR ENTIER, TANT QUE LA CARTE N'A RIEN DIT.
+ * LA PAGE D'UNE CARTE, TANT QU'ELLE N'A RIEN DIT.
  *
- * Une carte arrive dans le magasin avec l'instantané de son projet ; son
- * JOURNAL et son FIL, eux, ne sont réclamés qu'à l'ouverture du tiroir. Entre
- * les deux, le tiroir se dessinait quand même : titre, onglets, et surtout la
- * BARRE D'ÉTAPES calculée sur un journal absent — d'où « Travail » et
- * « Rapport » en ROUGE sur une carte qui n'a encore rien reçu, et l'impression
- * très nette d'une carte plantée.
+ * Une carte arrive dans le magasin avec l'instantané de son projet ; son JOURNAL et
+ * son FIL, eux, ne sont réclamés qu'à l'ouverture. Cette silhouette prend la place du
+ * corps de la page, sans AUCUNE couleur d'état ni étape inventée. Le titre vit dans la
+ * barre d'en-tête, déjà réelle (`card-panel.tsx`), et la page n'a plus de rangée d'onglets.
  *
- * Cette silhouette prend donc la place du tiroir entier, TITRE COMPRIS, et ne
- * porte AUCUNE couleur d'état : ni rouge, ni orange, ni bleu.
- *
- * ELLE DESSINE LES TROIS ZONES FIXES, ET RIEN ENTRE ELLES. Une silhouette
- * n'est pas un décor : elle ne vaut que pour ce qui ne BOUGERA PAS de place
- * quand le vrai contenu arrivera — l'entête (titre, pastilles, bouton), la
- * rangée d'onglets, et le PIED DE SAISIE, qui est toujours là, toujours à la
- * même hauteur. Entre les deux, ni frise d'étapes ni bulles grises : leur
- * nombre et leur taille sont inventés, et cinq étages de gris font une attente
- * plus lourde qu'un écran calme. Au milieu, un seul signal : le rond qui
- * tourne, au centre de l'espace laissé libre.
- *
- * La barre de parcours en POINTS reste dehors, pour la même raison que la
- * frise : son nombre de points dépend de la carte, on ne l'invente pas.
+ * ELLE NE DESSINE QUE CE QUI NE BOUGERA PAS : le PIED DE SAISIE, toujours là et toujours
+ * à la même hauteur. Au-dessus, un seul signal : le rond qui tourne.
  */
 export function SilhouetteTiroirCarte() {
   return (
@@ -373,44 +190,9 @@ export function SilhouetteTiroirCarte() {
       {/* Le tiroir reste une boîte de dialogue : elle DOIT porter son titre
           pour les lecteurs d'écran, même quand il n'y a rien à lire encore. */}
       <DialogTitle className="sr-only">{t('Chargement de la tâche')}</DialogTitle>
-      {/* Le titre, aux marges exactes de l'en-tête réel (`card-panel.tsx`) :
-          rien ne saute quand le vrai titre le remplace. */}
-      <div className="shrink-0 px-4 pb-[13px]">
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            {/* Chaque brique tient dans la HAUTEUR DE SA LIGNE réelle — celle du
-                titre, celle de la rangée d'étiquettes : l'entête fait alors les
-                mêmes 57 px que le vrai, et les onglets ne remontent pas. */}
-            <div className="flex h-[22px] items-center">
-              <Silhouette className="h-4 w-[62%] bg-raised" />
-            </div>
-            <div className="mt-1 flex h-[19px] items-center gap-1.5">
-              <Silhouette className="h-3.5 w-16 rounded-full bg-raised" />
-              <Silhouette className="h-3.5 w-20 rounded-full bg-raised" />
-            </div>
-          </div>
-          <Silhouette className="h-6 w-6 shrink-0 rounded-md bg-raised" />
-        </div>
-      </div>
-
-      {/* La rangée d'onglets, dans le MÊME cadre de verre que la vraie
-          (`card-panel.tsx`) : sans ce cadre, ses marges et sa bordure, les
-          onglets en silhouette se posaient une quinzaine de pixels trop haut,
-          et toute la rangée sautait à l'arrivée du contenu. */}
-      <div
-        className="mx-4 mt-1 shrink-0 overflow-hidden rounded-md border border-border/40 bg-raised/35 px-1.5 py-1"
-        data-silhouette-onglets
-      >
-        <div className={cn(CLASSES_LISTE_ONGLETS, 'flex w-full justify-start overflow-hidden bg-transparent')}>
-          {ONGLETS_LARGEURS.slice(0, 4).map((largeur, rang) => (
-            <Silhouette key={rang} className={cn('h-7 shrink-0 rounded bg-raised', largeur)} />
-          ))}
-        </div>
-      </div>
-
-      {/* ENTRE LES ONGLETS ET LE PIED, RIEN QU'UN ROND QUI TOURNE : le
-          « chargement » que l'on cherche des yeux quand un écran attend. Il
-          prend tout l'espace restant, donc il tombe en son centre. */}
+      {/* AU-DESSUS DU PIED, RIEN QU'UN ROND QUI TOURNE : le « chargement » que l'on
+          cherche des yeux quand un écran attend. Il prend tout l'espace restant,
+          donc il tombe en son centre. */}
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <Loader2 data-silhouette-rond className="h-6 w-6 animate-spin text-faint" />
       </div>
@@ -419,8 +201,8 @@ export function SilhouetteTiroirCarte() {
           monté par `chat.tsx`) : le bandeau du geste principal sur toute la
           largeur, puis le champ d'écriture et sa rangée d'icônes — deux à
           gauche (joindre, contexte), deux à droite (micro, envoi). Le vrai pied
-          le remplace sans rien décaler : 36 px pour le bandeau, 85 px pour le
-          champ, mesurés sur le vrai. La bande de travail (« l'agent
+          le remplace sans rien décaler : 36 px pour le bandeau, la ligne des
+          étapes décrochée au-dessus du champ, 85 px pour le champ, mesurés sur le vrai. La bande de travail (« l'agent
           attend… ») en est absente : elle ne paraît que par moments, et un
           gris qui s'ajoute vaut moins qu'un pied stable. Les briques restent
           en `bg-raised` : posées sur `--surface`, celles en `--border`
@@ -429,7 +211,15 @@ export function SilhouetteTiroirCarte() {
         <div className="mb-2">
           <Silhouette className="h-9 w-full rounded-lg bg-raised" />
         </div>
-        <div className="flex h-[85px] flex-col justify-between rounded-lg border border-border">
+        {/* LA LIGNE DES ÉTAPES, DÉCROCHÉE AU-DESSUS DU CHAMP ET À SA LARGEUR (13/11/2026) : un rond, le nom de l'étape,
+            son rang ; elle passe sous le champ de 12 px, comme la vraie (`TravailEnCours`, `chat.tsx`). */}
+        <div className="relative z-0 -mb-3 rounded-t-lg bg-decroche px-3 pb-5 pt-1" data-silhouette-etapes>
+          <div className="flex h-5 items-center gap-2">
+            <Silhouette className="h-3.5 w-3.5 shrink-0 rounded-full bg-raised" />
+            <Silhouette className="h-3 w-28 bg-raised" />
+          </div>
+        </div>
+        <div className="relative z-10 flex h-[85px] flex-col justify-between rounded-lg border border-border bg-bg">
           <div className="flex h-[42px] items-center px-3">
             <Silhouette className="h-3.5 w-[46%] bg-raised" />
           </div>
@@ -471,14 +261,14 @@ export function SilhouettePageReglages() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Les quatre écrans-outils : Notes, Coffre-fort, Backups, Surveillance */
+/* Les écrans-outils : Coffre-fort, Backups, Surveillance              */
 /* ------------------------------------------------------------------ */
 
 /*
- * POURQUOI CES QUATRE-LÀ NE PRENNENT PAS `bg-border`.
+ * POURQUOI CES ÉCRANS-LÀ NE PRENNENT PAS `bg-border`.
  *
  * Les silhouettes du démarrage se posent sur le fond de page (`--bg`), où
- * `--border` se lit. Ces quatre écrans, eux, s'affichent tantôt en TIROIR (fond
+ * `--border` se lit. Ces écrans, eux, s'affichent tantôt en TIROIR (fond
  * `--surface`), tantôt en VUE CENTRALE (fond `--bg`) — et dans les palettes
  * sombres `--border` (9 %) frôle `--surface` (8 %) : les barres y
  * disparaissaient. `--faint` à un quart d'opacité, lui, tranche sur les deux
@@ -492,34 +282,25 @@ function Barre({ className }: { className?: string }) {
   return <Silhouette className={cn(BARRE, className)} />;
 }
 
-/** Le cadre d'une ligne de liste, au gabarit exact des vraies lignes. */
+/** Une ligne de liste regroupée, au gabarit exact des vraies (`CLASSE_LIGNE_DE_GROUPE`) : aucun cadre. */
 function LigneEnSilhouette({ className, children }: { className?: string; children: React.ReactNode }) {
-  return (
-    <div className={cn('rounded-md border border-border bg-bloc px-2.5 py-2', className)}>{children}</div>
-  );
+  return <div className={cn('rounded-xl px-3.5 py-3', className)}>{children}</div>;
 }
 
-/**
- * LES NOTES : une pile de lignes — titre court, extrait long, puis la rangée
- * des repères (projet, importance, échéance). Les vraies lignes n'ont ni
- * bordure ni fond tant qu'elles ne sont pas ouvertes : la silhouette non plus,
- * sinon la liste se remplirait de cadres au remplacement.
- */
-export function SilhouetteNotes({ lignes = 7 }: { lignes?: number }) {
+/** Les deux lignes de texte d'une liste regroupée, à leur hauteur réelle (14,5 puis 12 px). */
+function TitreEtDetail({ rang, pastille, detail = 'w-[240px] max-w-full' }: { rang: number; pastille?: boolean; detail?: string }) {
   return (
-    <Bloc zone="notes" className="flex flex-col gap-1">
-      {Array.from({ length: lignes }, (_, index) => (
-        <div key={index} className="rounded-md px-2.5 py-2">
-          <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
-          <Barre className="mt-1.5 h-3 w-[86%]" />
-          <div className="mt-2 flex items-center gap-1.5">
-            <Barre className="h-4 w-24 rounded" />
-            {index % 3 === 0 ? <Barre className="h-4 w-16 rounded" /> : null}
-            <Barre className="h-3 w-14 rounded" />
-          </div>
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex h-5 items-center gap-1.5">
+        <div className="min-w-0 max-w-[260px] flex-1">
+          <Barre className={cn('h-3.5', LARGEURS[rang % LARGEURS.length])} />
         </div>
-      ))}
-    </Bloc>
+        {pastille ? <Barre className="ml-auto h-4 w-16 shrink-0 rounded" /> : null}
+      </div>
+      <div className="flex h-4 items-center">
+        <Barre className={cn('h-3', detail)} />
+      </div>
+    </div>
   );
 }
 
@@ -563,18 +344,10 @@ export function SilhouetteAccesClients({ lignes = 3 }: { lignes?: number }) {
  */
 export function SilhouetteCoffre({ lignes = 6 }: { lignes?: number }) {
   return (
-    <Bloc zone="coffre" className="flex flex-col gap-1">
+    <Bloc zone="coffre" className={CLASSE_GROUPE_DE_LIGNES}>
       {Array.from({ length: lignes }, (_, index) => (
         <LigneEnSilhouette key={index}>
-          <div className="flex items-center gap-1.5">
-            {/* Le nom garde une largeur de NOM, pas toute la ligne : une barre
-                étirée d'un bord à l'autre ne ressemble à aucun accès réel. */}
-            <div className="min-w-0 max-w-[260px] flex-1">
-              <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
-            </div>
-            <Barre className="h-4 w-16 shrink-0 rounded" />
-          </div>
-          <Barre className="mt-1.5 h-3 w-[210px] max-w-full" />
+          <TitreEtDetail rang={index} pastille detail="w-[210px] max-w-full" />
         </LigneEnSilhouette>
       ))}
     </Bloc>
@@ -670,19 +443,10 @@ export function SilhouetteBackups({ lignes = 6, fiches }: { lignes?: number; fic
  */
 export function SilhouetteSurveillance({ lignes = 4 }: { lignes?: number }) {
   return (
-    <Bloc zone="surveillance" className="flex flex-col gap-1">
+    <Bloc zone="surveillance" className={CLASSE_GROUPE_DE_LIGNES}>
       {Array.from({ length: lignes }, (_, index) => (
-        <LigneEnSilhouette key={index} className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <div className="min-w-0 max-w-[260px] flex-1">
-                <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
-              </div>
-              <Barre className="h-4 w-16 shrink-0 rounded" />
-            </div>
-            <Barre className="mt-0.5 h-3 w-[240px] max-w-full" />
-          </div>
-          <Barre className="h-4 w-4 shrink-0 rounded" />
+        <LigneEnSilhouette key={index}>
+          <TitreEtDetail rang={index} pastille />
         </LigneEnSilhouette>
       ))}
     </Bloc>
@@ -690,67 +454,60 @@ export function SilhouetteSurveillance({ lignes = 4 }: { lignes?: number }) {
 }
 
 /**
- * L'ATELIER MARKETING : la liste des projets — le nom, la nature à droite, puis
- * la barre d'avancement et la prochaine action. Mêmes hauteurs que les vraies
- * lignes (`marketing.tsx`, `LigneProjet`).
+ * LE SERVICE MARKETING : le tableau des projets, chaque ligne séparée d'un trait, le nom
+ * à gauche et ses repères à droite (`marketing.tsx`, `LigneProjet`).
  */
 export function SilhouetteMarketing({ lignes = 4 }: { lignes?: number }) {
   return (
-    <Bloc zone="marketing" className="flex flex-col gap-1">
+    <Bloc zone="marketing" className="flex flex-col">
       {Array.from({ length: lignes }, (_, index) => (
-        <LigneEnSilhouette key={index} className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <div className="min-w-0 max-w-[260px] flex-1">
-                <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
-              </div>
-              <Barre className="h-4 w-16 shrink-0 rounded" />
-            </div>
-            <Barre className="mt-0.5 h-3 w-[240px] max-w-full" />
-          </div>
-        </LigneEnSilhouette>
-      ))}
-    </Bloc>
-  );
-}
-
-/**
- * UN ATELIER EN GRILLE (un service en vignettes) : des vignettes avec leur titre, en
- * attendant les données de l'écran.
- */
-export function SilhouetteAtelier({ vignettes = 6 }: { vignettes?: number }) {
-  return (
-    <Bloc zone="atelier" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-      {Array.from({ length: vignettes }, (_, index) => (
-        <div key={index} className="flex flex-col overflow-hidden rounded-md bg-bloc">
-          <Barre className="aspect-[4/5] w-full rounded-none" />
-          <div className="flex flex-col gap-1 px-2.5 py-2">
+        <div key={index} className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
+          <Barre className="h-4 w-4 shrink-0 rounded-sm" />
+          <div className="min-w-0 max-w-[260px] flex-1">
             <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
-            <Barre className="h-3 w-[60%]" />
           </div>
+          <Barre className="ml-auto h-3 w-12 shrink-0" />
+          <Barre className="h-3 w-16 shrink-0 max-sm:hidden" />
         </div>
       ))}
     </Bloc>
   );
 }
 
+/** UN ATELIER PRIVÉ tant que son morceau arrive : une liste regroupée. */
+export function SilhouetteAtelier({ lignes = 6 }: { lignes?: number }) {
+  return (
+    <Bloc zone="atelier" className={CLASSE_GROUPE_DE_LIGNES}>
+      {Array.from({ length: lignes }, (_, index) => (
+        <LigneEnSilhouette key={index}>
+          <TitreEtDetail rang={index} />
+        </LigneEnSilhouette>
+      ))}
+    </Bloc>
+  );
+}
+
 /**
- * LE SERVICE STATISTIQUES : la liste des sites mesurés — un nom, son adresse,
- * sa petite courbe de tendance —, en attendant `statistiques.lister`.
+ * LE SERVICE STATISTIQUES : le tableau des sites mesurés — le nom et l'adresse, la
+ * petite courbe dès `sm`, puis les chiffres (`statistiques.tsx`).
  */
 export function SilhouetteStatistiques({ lignes = 5 }: { lignes?: number }) {
   return (
-    <Bloc zone="statistiques" className="flex flex-col gap-1">
+    <Bloc zone="statistiques" className="flex flex-col">
       {Array.from({ length: lignes }, (_, index) => (
-        <LigneEnSilhouette key={index} className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <div className="min-w-0 max-w-[260px]">
-              <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
+        <div key={index} className="flex items-center gap-3 border-t border-border/60 px-2 py-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex h-5 items-center">
+              <Barre className={cn('h-3.5 max-w-[260px]', LARGEURS[index % LARGEURS.length])} />
             </div>
-            <Barre className="mt-0.5 h-3 w-[200px] max-w-full" />
+            <div className="flex h-4 items-center">
+              <Barre className="h-3 w-[200px] max-w-full" />
+            </div>
           </div>
-          <Barre className="h-5 w-16 shrink-0 rounded" />
-        </LigneEnSilhouette>
+          <Barre className="hidden h-6 w-20 shrink-0 rounded sm:block" />
+          <Barre className="h-3 w-8 shrink-0" />
+          <Barre className="hidden h-3 w-8 shrink-0 sm:block" />
+        </div>
       ))}
     </Bloc>
   );
@@ -775,10 +532,11 @@ export function SilhouetteStatistiques({ lignes = 5 }: { lignes?: number }) {
 /** Le ton d'une colonne de demandes — recopié de `espace-client.tsx`, qui est
  *  chargé à la demande : l'importer ici tirerait tout son morceau dans le
  *  paquet principal. Toute retouche là-bas se recopie ici. */
-const TON_COLONNE_DEMANDE: Record<'neutre' | 'orange' | 'bleu', string> = {
-  neutre: 'text-muted',
-  orange: 'text-warning',
-  bleu: 'text-info',
+const TON_COLONNE_DEMANDE: Record<string, { fond: string; texte: string }> = {
+  'a-faire': { fond: 'bg-colonne-gris-fond', texte: 'text-muted' },
+  'en-cours': { fond: 'bg-colonne-bleu-fond', texte: 'text-colonne-bleu' },
+  termine: { fond: 'bg-colonne-vert-fond', texte: 'text-colonne-vert' },
+  valide: { fond: 'bg-colonne-vert-fond', texte: 'text-colonne-vert' },
 };
 
 /** Combien de demandes montrer par colonne : quelques-unes à faire, moins ensuite. */
@@ -786,6 +544,7 @@ const DEMANDES_PAR_COLONNE: Record<string, number> = {
   'a-faire': 3,
   'en-cours': 2,
   termine: 2,
+  valide: 1,
 };
 
 /**
@@ -815,7 +574,7 @@ function SilhouetteDemande({ variante }: { variante: number }) {
 }
 
 /**
- * LE CORPS DE LA MESSAGERIE : l'entête, les onglets du téléphone, les trois
+ * LE CORPS DE LA MESSAGERIE : l'entête, les onglets du téléphone, les quatre
  * colonnes. Les TITRES DE COLONNES sont les vrais, à leur vraie couleur — ils
  * ne dépendent d'aucune donnée du serveur, seulement de la colonne, et les
  * poser d'emblée évite qu'ils apparaissent d'un coup à la fin du chargement.
@@ -840,22 +599,18 @@ function CorpsDesDemandes() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden p-3">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="flex flex-col gap-3 md:flex-row">
           {COLONNES_DEMANDE.map((colonne, rang) => (
             <div
               key={colonne}
               data-silhouette-colonne-demande={colonne}
               /* Sur téléphone, une seule colonne est visible : la première,
                  comme l'onglet retenu par défaut dans le vrai écran. */
-              className={cn('flex flex-col gap-2', rang === 0 ? '' : 'hidden md:flex')}
+              className={cn('flex min-w-[220px] flex-1 basis-0 flex-col gap-2', rang === 0 ? '' : 'hidden md:flex')}
             >
-              <div className="hidden items-center justify-between px-0.5 md:flex">
-                <span
-                  className={cn(
-                    'text-[12px] font-medium uppercase tracking-wide',
-                    TON_COLONNE_DEMANDE[COULEURS_COLONNES_DEMANDE[colonne]],
-                  )}
-                >
+              <div className={cn('mt-1 hidden items-center gap-2 rounded-lg py-1.5 pl-2.5 pr-1 md:flex', TON_COLONNE_DEMANDE[colonne]?.fond)}>
+                <Barre className="h-4 w-4 rounded-sm" />
+                <span className={cn('min-w-0 truncate text-[13.5px] font-medium', TON_COLONNE_DEMANDE[colonne]?.texte)}>
                   {t(TITRES_COLONNES_DEMANDE[colonne])}
                 </span>
                 <Barre className="h-2.5 w-3 rounded-sm" />
@@ -988,27 +743,15 @@ export function SilhouetteRubrique() {
 }
 
 /**
- * LA PAGE « RÉSUMÉ » PENDANT LE TÉLÉCHARGEMENT DE SON MORCEAU : l'entête (titre
- * à gauche, période à droite), la colonne des rubriques dès `md`, puis une
- * rubrique en attente.
+ * LA PAGE « RÉSUMÉ » PENDANT LE TÉLÉCHARGEMENT DE SON MORCEAU. La période vit dans la
+ * barre d'en-tête et les rubriques dans la colonne de gauche : seule la rubrique attend ici.
  */
 export function SilhouetteResume() {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-silhouette="resume-page">
-      <div className="flex h-[45px] shrink-0 items-center gap-2 border-b border-border px-3">
-        <Barre className="h-4 w-20" />
-        <Barre className="ml-auto h-7 w-[220px] rounded-md" />
-      </div>
-      <div className="flex min-h-0 flex-1">
-        <div className="hidden w-56 shrink-0 flex-col gap-1.5 px-2 py-3 md:flex">
-          {Array.from({ length: 11 }, (_, index) => (
-            <Barre key={index} className={cn('h-5', LARGEURS[index % LARGEURS.length])} />
-          ))}
-        </div>
-        <div className="min-w-0 flex-1 px-3 py-3">
-          <div className="mx-auto w-full max-w-[1100px]">
-            <SilhouetteRubrique />
-          </div>
+      <div className="min-w-0 flex-1 overflow-hidden px-3 py-3">
+        <div className="mx-auto w-full max-w-[1100px]">
+          <SilhouetteRubrique />
         </div>
       </div>
     </div>
@@ -1020,39 +763,15 @@ export function SilhouetteResume() {
 /* ------------------------------------------------------------------ */
 
 /**
- * LA PAGE « MÉDIAS » (mode Réalisation) : le titre d'une carte, puis une
- * rangée de vignettes carrées, au gabarit des vraies (`medias-page.tsx`).
- */
-export function SilhouetteMedias({ groupes = 2 }: { groupes?: number }) {
-  return (
-    <Bloc zone="medias" className="flex flex-col gap-6">
-      {Array.from({ length: groupes }, (_, index) => (
-        <div key={index} className="flex flex-col gap-2">
-          <Barre className={cn('h-4', LARGEURS[index % LARGEURS.length], 'max-w-[320px]')} />
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {Array.from({ length: 4 }, (_, i) => (
-              <Barre key={i} className="aspect-square w-full rounded-xl" />
-            ))}
-          </div>
-        </div>
-      ))}
-    </Bloc>
-  );
-}
-
-/**
  * LES TÂCHES RÉCURRENTES : la liste des veilles — la raison, puis la carte et
  * les horaires. Mêmes hauteurs que les vraies lignes (`taches-recurrentes.tsx`).
  */
 export function SilhouetteTachesRecurrentes({ lignes = 4 }: { lignes?: number }) {
   return (
-    <Bloc zone="taches-recurrentes" className="flex flex-col gap-1">
+    <Bloc zone="taches-recurrentes" className={CLASSE_GROUPE_DE_LIGNES}>
       {Array.from({ length: lignes }, (_, index) => (
-        <LigneEnSilhouette key={index} className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Barre className={cn('h-3.5 max-w-[360px]', LARGEURS[index % LARGEURS.length])} />
-            <Barre className="h-3 w-[260px] max-w-full" />
-          </div>
+        <LigneEnSilhouette key={index}>
+          <TitreEtDetail rang={index} detail="w-[260px] max-w-full" />
         </LigneEnSilhouette>
       ))}
     </Bloc>
@@ -1063,18 +782,80 @@ export function SilhouetteTachesRecurrentes({ lignes = 4 }: { lignes?: number })
 /* La liste des agents d'un projet (ou de tous, sur « Tableaux de bord ») */
 /* ------------------------------------------------------------------ */
 
-/** Des lignes d'agent : une icône, un titre, la branche dessous, un badge à droite. */
-export function SilhouetteAgents({ lignes = 6, pleinePage = false }: { lignes?: number; pleinePage?: boolean }) {
+/** Des lignes d'agent, au gabarit de `LigneAgent` : l'icône, le titre, la branche dessous, un badge à droite. */
+export function SilhouetteAgents({
+  lignes = 6,
+  pleinePage = false,
+  avecProjet = false,
+}: {
+  lignes?: number;
+  pleinePage?: boolean;
+  /** La liste de tous les projets : le rond d'état porte la pastille du projet. */
+  avecProjet?: boolean;
+}) {
   return (
-    <Bloc zone="agents" className="flex flex-col gap-0.5 py-1">
+    <Bloc zone="agents" className="flex flex-col gap-0.5">
       {Array.from({ length: lignes }, (_, index) => (
-        <div key={index} className={cn('flex items-center gap-2.5 rounded-lg px-2.5', pleinePage ? 'py-3' : 'py-2')}>
-          <Silhouette className="h-4 w-4 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
-            <Silhouette className={cn('h-2', LARGEURS[(index + 2) % LARGEURS.length], 'opacity-60')} />
+        <div key={index} className={cn('flex items-center gap-2.5 rounded-lg', pleinePage ? 'px-3 py-3' : 'px-2.5 py-2')}>
+          <Silhouette className={cn('shrink-0 rounded-full', avecProjet ? 'h-6 w-6' : 'h-3.5 w-3.5')} />
+          <div className="min-w-0 flex-1">
+            <div className="flex h-[18px] items-center">
+              <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
+            </div>
+            <div className="mt-0.5 flex h-[13px] items-center">
+              <Silhouette className={cn('h-2', LARGEURS[(index + 2) % LARGEURS.length], 'opacity-60')} />
+            </div>
           </div>
-          <Silhouette className="h-[18px] w-12 shrink-0 rounded-md" />
+          {/* Le badge et, dessous, la date de la dernière activité. */}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Silhouette className="h-3.5 w-12 rounded-[4px]" />
+            <Silhouette className="h-2 w-10 opacity-60" />
+          </div>
+        </div>
+      ))}
+    </Bloc>
+  );
+}
+
+/** LE STUDIO : la grille de vignettes de ses créations, en attendant `studio.lister` ou l'ouverture d'une création. */
+export function SilhouetteStudio({ vignettes = 6 }: { vignettes?: number }) {
+  return <SilhouetteAtelier lignes={vignettes} />;
+}
+
+/**
+ * LA LISTE D'UN SERVICE, TELLE QU'ELLE S'AFFICHE DANS SA PAGE (15/11/2026, « toutes les silhouettes doivent correspondre à
+ * leur page ») : la tête grise du tableau commun (`ui/tableau.tsx`, fond `--tableau-entete`), puis des lignes aérées —
+ * l'icône et le nom à gauche, le projet, l'état, la date au bout. Sur téléphone, des lignes seules, comme le tableau.
+ */
+export function SilhouetteTableauDeService({ lignes = 6, zone = 'tableau-de-service' }: { lignes?: number; zone?: string }) {
+  const telephone = useTelephone();
+  return (
+    <Bloc zone={zone} className="flex flex-col">
+      <div className="flex h-11 items-center gap-6 rounded-lg bg-tableau-entete px-3">
+        <Silhouette className="h-2.5 w-20" />
+        {telephone ? null : (
+          <>
+            <Silhouette className="ml-auto h-2.5 w-16" />
+            <Silhouette className="h-2.5 w-20" />
+            <Silhouette className="h-2.5 w-16" />
+          </>
+        )}
+      </div>
+      {Array.from({ length: lignes }, (_, index) => (
+        <div key={index} className="flex h-[57px] items-center gap-3 border-b border-faint/15 px-3">
+          <Silhouette className="h-6 w-6 shrink-0 rounded-md" />
+          <div className="min-w-0 flex-1">
+            <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length], 'max-w-[320px]')} />
+          </div>
+          {telephone ? (
+            <Silhouette className="h-2.5 w-10 shrink-0 opacity-60" />
+          ) : (
+            <>
+              <Silhouette className="h-3 w-24 shrink-0" />
+              <Silhouette className="h-3 w-28 shrink-0" />
+              <Silhouette className="h-2.5 w-10 shrink-0 opacity-60" />
+            </>
+          )}
         </div>
       ))}
     </Bloc>

@@ -1,4 +1,6 @@
 /*
+ * UNE DEMANDE COMPLEXE FAIT RECOMMANDER LE PLAN (11/11/2026 : elle ne l'allume plus toute seule — l'agent le
+ * propose dans sa question de mode, `mode-de-la-carte.ts`, et l'utilisateur confirme). Texte d'origine :
  * UNE DEMANDE COMPLEXE ALLUME TOUTE SEULE LE « CAHIER DES CHARGES ».
  *
  * L'interrupteur de la barre d'écriture (`parcours.planSouhaite`, libellé
@@ -12,6 +14,8 @@
  * touché à la main (`planSouhaite` défini, vrai ou faux) n'est plus réglé par
  * le démon.
  */
+
+import { REGLE_DU_NOMBRE_DE_QUESTIONS } from './posture-de-conseiller.js';
 
 export interface JugementDeComplexite {
   complexe: boolean;
@@ -45,17 +49,13 @@ export function jugerLaComplexite(texte: string, nombreDeJointes = 0): JugementD
   return { complexe: raisons.length > 0, raisons };
 }
 
-/** Le démon doit-il allumer l'interrupteur ? Jamais s'il a déjà été touché. */
-export function allumerLeCahierToutSeul(planSouhaite: boolean | undefined, jugement: JugementDeComplexite): boolean {
-  return planSouhaite === undefined && jugement.complexe;
-}
-
 /** La consigne jointe au tour de cadrage d'une demande complexe. */
 export function consigneDeDemandeComplexe(jugement: JugementDeComplexite): string {
   return (
-    `DEMANDE COMPLEXE (${jugement.raisons.join(', ')}) : le cahier des charges est allumé. ` +
+    `DEMANDE COMPLEXE (${jugement.raisons.join(', ')}) : le plan est confirmé. ` +
     "Avant de cadrer, pose avec l'outil « ask_user » les questions qui tranchent les choix structurants — " +
-    'une question par décision, deux à cinq au total, chacune avec ton option recommandée en premier — ; ' +
-    "ne demande pas ce que tu peux trancher en lisant. Le plan suit ensuite la TAILLE de la demande : un volet par sujet, chacun avec ses étapes et sa vérification."
+    'une question par décision, chacune avec ton option recommandée en premier — ; ' +
+    `${REGLE_DU_NOMBRE_DE_QUESTIONS} ` +
+    "Le plan suit ensuite la TAILLE de la demande : un volet par sujet, chacun avec ses étapes et sa vérification."
   );
 }

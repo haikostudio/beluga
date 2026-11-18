@@ -300,3 +300,48 @@ export function etapeAOuvrir(etapes: readonly EtapeDuVolet[]): DeployStepKey | n
   if (jouees.length) return jouees[jouees.length - 1].cle;
   return etapes[0].cle;
 }
+
+/* ------------------------------------------------------------------ */
+/* LE LIBELLÉ COURT, DANS LE MENU « PUBLIER »                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE NOM D'UNE ÉTAPE DANS LA LISTE COCHÉE DU MENU « PUBLIER » (13/11/2026, maquette #625e validée) : un geste en
+ * mots courants, à l'infinitif — « Construire l'application », jamais « Construction » ni « build ». Il vit ici, en
+ * données, comme les autres phrases d'étape (MEM-3119) : le composant ne fait que le dessiner. `{n}` : le nombre de
+ * tâches du lot (déploiement seulement).
+ */
+const COURTS: Record<CiblePublication, Partial<Record<DeployStepKey, string>>> = {
+  dev: {
+    merge: 'Réunir le travail des {n} tâches',
+    commit: 'Enregistrer le travail réuni',
+    push: 'Envoyer sur le dépôt',
+    build: 'Construire l’application',
+    publish: 'Mettre la nouvelle version en ligne',
+    restart: 'Redémarrer quand plus rien ne tourne',
+  },
+  production: {
+    merge: 'Reporter la version déployée',
+    commit: 'Enregistrer le report',
+    push: 'Envoyer sur le dépôt',
+    build: 'Préparer le paquet',
+    publish: 'Transférer chez le client',
+    restart: 'Relancer le service du client',
+  },
+};
+
+/** Le libellé court d'une étape. Une seule tâche au lot : « Réunir le travail de la tâche ». */
+export function libelleCourtDeLEtape(cle: DeployStepKey, cible?: CiblePublication, taches = 0): string {
+  const table = COURTS[cible === 'production' ? 'production' : 'dev'];
+  const brut = table[cle] ?? descriptionDeLEtape(cle, cible).libelle;
+  if (cle === 'merge' && cible !== 'production') {
+    if (taches === 1) return 'Réunir le travail de la tâche';
+    if (taches < 1) return 'Réunir le travail des tâches';
+  }
+  return brut.replace('{n}', String(taches));
+}
+
+/** La phrase grise sous une étape qu'un agent a réparée en silence (`step.reparation.essais > 0`). */
+export const PHRASE_REPARATION_SILENCIEUSE = 'Un réglage a été corrigé tout seul, ça continue.';
+/** La phrase sous l'étape restée bloquée après ses trois réparations. */
+export const PHRASE_REPARATION_ABANDONNEE = 'Trois réparations essayées, sans succès.';

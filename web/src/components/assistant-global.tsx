@@ -1,23 +1,25 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, ChevronDown, Loader2, MessageCircleQuestion, RotateCw, X } from 'lucide-react';
+import { RotateCw, X } from '@/components/ui/icones';
 import {
   HAUT_ENTETE,
   MARGE_CHAT,
-  ROND_ROBOT,
-  chatDeLAssistant,
-  droiteDuRobot,
   estTelephoneChat,
+  nomDeLAssistant,
+  voletDeLAssistant,
   type Agent,
   type ChatAssistant,
   type FenetreChat,
 } from '@beluga/shared';
 import { Chat } from '@/components/chat';
-import { RangeeDesRonds } from '@/components/rangee-des-ronds';
+import { IconeTroisBarres } from '@/components/ondes-de-voix';
+import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { SilhouetteConversation } from '@/components/silhouettes';
-import { Button, CLASSE_POINT_DE_BOUTON, Tooltip } from '@/components/ui';
+import { Button, Drawer, EnteteDeFeuille, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
-import { poserAgentDeLAssistant, useEtatAssistant } from '@/lib/assistant-global';
+import { poserAgentDeLAssistant, useBoutonDuBord, useEtatAssistant } from '@/lib/assistant-global';
+import { useDirectVu } from '@/lib/etat-vocal';
+import { useSurfaceDeJarvis } from '@/lib/morphing-du-bord';
 import { usePointerDrag, type DragItem } from '@/lib/dnd';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -27,38 +29,32 @@ function lireFenetre(): FenetreChat {
   return typeof window === 'undefined' ? { width: 1280, height: 800 } : { width: window.innerWidth, height: window.innerHeight };
 }
 
-/** Le glisser n'a aucune cible : le robot et la poignée se suivent au pointeur. */
+/** Le glisser n'a aucune cible : la poignée se suit au pointeur. */
 const SANS_CIBLE = () => null;
 
 /**
- * L'ASSISTANT GLOBAL — le robot en bas à droite de TOUTE l'application
- * (`shared/src/assistant-global.ts`, demande du 02.10.2026).
+ * L'ASSISTANT GLOBAL — LE VOLET FLOTTANT DU CHEF D'ORCHESTRE, PARTOUT (`shared/src/assistant-global.ts`).
  *
- * SUR ORDINATEUR, le robot glisse À L'HORIZONTALE le long du bas de l'écran ;
- * le chat s'ouvre juste au-dessus et le SUIT. Le chat s'agrandit en largeur et
- * en hauteur par sa poignée du coin haut gauche. La place du robot, la taille
- * et l'état ouvert se retiennent dans le compte (`CLE_ASSISTANT_GLOBAL`). Robot
- * et poignée passent par le SEUL glisser de l'application (`usePointerDrag`).
+ * LE BOUTON DU BORD EST SA SEULE ENTRÉE (carte « Jarvis : volet, voix et rapidité », 16/11/2026) : le robot du bas à
+ * droite et ses doublons (bouton de l'entête et ligne du menu sur téléphone) ont disparu. Le volet s'ouvre DU CÔTÉ
+ * du bouton (`voletDeLAssistant`) ; il s'agrandit par sa poignée, au coin opposé à son ancrage. La taille et l'état
+ * ouvert se retiennent dans le compte (`CLE_ASSISTANT_GLOBAL`). La poignée passe par le SEUL glisser de
+ * l'application (`usePointerDrag`). Sur téléphone, il s'ancre SOUS L'ENTÊTE, pleine largeur, au-dessus du menu du bas.
  *
- * SUR TÉLÉPHONE, PLUS DE ROBOT FLOTTANT : l'assistant s'ouvre depuis le bouton
- * de l'entête, juste avant le menu (`BoutonAssistantEntete`), et le chat
- * s'ancre SOUS L'ENTÊTE, pleine largeur, au-dessus du menu du bas.
+ * C'EST AUSSI LE LIEU DE LA VOIX : la conversation vocale (« Dis Jarvis », Cmd+Espace, le bouton voix de la zone
+ * d'écriture) parle au MÊME agent. Depuis le 17/11/2026, RIEN n'entre dans le fil pendant la voix : la zone d'écriture
+ * laisse place aux bulles et aux ondes (`voix-du-champ.tsx`, posées par le `Chat` lui-même), et la synthèse de fin
+ * s'ajoute au brouillon. Les RÉGLAGES de l'agent montent dans l'entête, juste à gauche de la croix. Le volet porte `data-volet-de-jarvis` (hors de
+ * portée, `lib/gestes-de-jarvis.ts`) : les gestes de Jarvis à l'écran n'y jouent jamais, et un appui dedans ne les
+ * arrête pas (MEM-7570). Pas `data-module-voix` : ce repère reste au seul bouton du bord, lu par les contrôles.
  *
- * Dans les deux cas, la hauteur est bornée par la zone sûre du haut (barre
- * d'état de l'iPhone) et par le clavier, comme les tiroirs (`--zone-sure-haut`,
- * `--clavier`) : la fenêtre ne passe plus jamais sous la barre d'état.
- *
- * Le chat est la conversation ordinaire (`Chat`) d'un agent ordinaire (18/10/2026) :
- * même barre d'écriture que les tâches, même choix du modèle (le bouton de
- * réglages de la barre). Plus d'interrupteur ni de bande de niveau : seuls les
- * suppressions et les envois aux clients attendent l'accord, tenu par le
- * démon, pas par cet écran.
+ * Dans les deux cas, la hauteur est bornée par la zone sûre du haut (barre d'état de l'iPhone) et par le clavier,
+ * comme les tiroirs (`--zone-sure-haut`, `--clavier`) : la fenêtre ne passe plus jamais sous la barre d'état.
  */
 export function AssistantGlobal() {
   const state = useApp();
-  const { retenu, retenir: setBrut, agent: agentDuMagasin, travaille, questions } = useEtatAssistant();
+  const { retenu, retenir: setBrut, agent: agentDuMagasin, agentId: agentDeLaVoix } = useEtatAssistant();
   const [geste, setGeste] = React.useState<ChatAssistant | null>(null);
-  /* Le coin est au robot partout : l'écran Marketing n'a plus de rond à lui (20/10/2026). */
   const etat = geste ?? retenu;
 
   const [fenetre, setFenetre] = React.useState<FenetreChat>(lireFenetre);
@@ -68,8 +64,20 @@ export function AssistantGlobal() {
     return () => window.removeEventListener('resize', suivre);
   }, []);
   const telephone = estTelephoneChat(fenetre);
-  const droiteRobot = droiteDuRobot(etat.droite, fenetre.width);
-  const vu = chatDeLAssistant(etat, fenetre);
+  const bouton = useBoutonDuBord();
+  const vu = voletDeLAssistant(etat, fenetre, bouton);
+  const direct = useDirectVu();
+  // La voix d'une CARTE ne touche pas au volet : seule celle de l'assistant (ou encore sans agent connu) le met en mode voix.
+  const enVoix = direct.etat !== 'eteint' && (direct.agentId === null || direct.agentId === agentDeLaVoix);
+  /* LE VOLET PASSE TOUJOURS DEVANT LES PAGES, FICHES, FEUILLES ET FENÊTRES DE SERVICE (`z-[56]`, demande du 18/11/2026,
+     capture #5f80c : la fiche d'une demande de la Messagerie, ouverte après lui au même étage `z-40`, le masquait).
+     Plus seulement en voix : un appui dedans ne referme jamais la page ou la fenêtre dessous (`data-au-dessus-de-tout`),
+     et une fenêtre modale ne lui vole ni le focus ni la molette (`lib/au-dessus-des-fenetres.ts`). Les menus (z-[60]+)
+     et les infobulles restent au-dessus de lui. */
+  /* SUR ORDINATEUR, LE BOUTON DU BORD SE TRANSFORME EN CE VOLET ET REVIENT À SA PLACE QUAND IL SE FERME (17/11/2026,
+     `lib/morphing-du-bord.ts`). Sur téléphone, le volet est une feuille du bas : elle garde son propre mouvement. */
+  const sectionRef = React.useRef<HTMLElement | null>(null);
+  useSurfaceDeJarvis('volet', sectionRef, !telephone && etat.ouvert);
 
   /* -------- L'agent : chargé à la première ouverture seulement -------- */
   const [agentId, setAgentId] = React.useState<string | null>(null);
@@ -81,7 +89,6 @@ export function AssistantGlobal() {
       .then(async (r) => {
         await client.chargerAgent(r.agent.id);
         setAgentId(r.agent.id);
-        // Le bouton de l'entête (téléphone) lit l'agent dans le magasin partagé.
         poserAgentDeLAssistant(r.agent.id);
       })
       .catch((err: unknown) => setErreur(err instanceof Error ? err.message : String(err)));
@@ -91,31 +98,20 @@ export function AssistantGlobal() {
   }, [etat.ouvert, agentId, charger]);
 
   const agent = agentDuMagasin;
-  const vide = agent ? (state.messages[agent.id]?.length ?? 0) === 0 : true;
+  const vide = agent ? (state.messages[agent.id]?.length ?? 0) === 0 && !enVoix : true;
 
-  /* -------- Le glisser : robot (horizontal) et poignée (taille) -------- */
+  /* -------- La poignée (taille), au coin opposé à l'ancrage -------- */
   const depart = React.useRef<{ x: number; y: number; etat: ChatAssistant } | null>(null);
   const dernier = React.useRef<ChatAssistant | null>(null);
-  const vientDeGlisser = React.useRef(false);
-  const fenetreRef = React.useRef(fenetre);
-  fenetreRef.current = fenetre;
+  const sensRef = React.useRef(vu.poignee);
+  sensRef.current = vu.poignee;
   const lacher = React.useCallback(
-    (item: DragItem) => {
+    (_item: DragItem) => {
       const fin = dernier.current;
       depart.current = null;
       dernier.current = null;
       setGeste(null);
-      if (!fin) return;
-      setBrut(fin);
-      /* Le relâchement d'un glissement DU ROBOT est suivi d'un clic sur lui :
-         ce clic-là n'ouvre ni ne ferme. Le drapeau tombe juste après, pour ne
-         jamais avaler le clic suivant (celui d'après un redimensionnement). */
-      if (item.kind === 'robot') {
-        vientDeGlisser.current = true;
-        window.setTimeout(() => {
-          vientDeGlisser.current = false;
-        }, 0);
-      }
+      if (fin) setBrut(fin);
     },
     [setBrut],
   );
@@ -125,178 +121,151 @@ export function AssistantGlobal() {
     if (!dragging || !pointer || !origine) return;
     const dx = pointer.x - origine.x;
     const dy = pointer.y - origine.y;
-    const suite =
-      dragging.kind === 'robot'
-        ? { ...origine.etat, droite: droiteDuRobot(origine.etat.droite - dx, fenetreRef.current.width) }
-        : { ...origine.etat, largeur: origine.etat.largeur - dx, hauteur: origine.etat.hauteur - dy };
+    const suite = { ...origine.etat, largeur: origine.etat.largeur + sensRef.current.sensX * dx, hauteur: origine.etat.hauteur + sensRef.current.sensY * dy };
     dernier.current = suite;
     setGeste(suite);
   }, [dragging, pointer]);
-  const commencer = (kind: 'robot' | 'poignee') => (event: React.PointerEvent) => {
+  const commencer = (event: React.PointerEvent) => {
     if (telephone) return;
     // La taille part de ce qui est AFFICHÉ (déjà bornée par l'écran).
     depart.current = { x: event.clientX, y: event.clientY, etat: { ...etat, largeur: vu.largeur, hauteur: vu.hauteur } };
-    start(event, { id: `assistant-${kind}`, kind, label: 'Assistant' });
+    start(event, { id: 'assistant-poignee', kind: 'poignee', label: 'Assistant' });
   };
-
-  const ouvrirFermer = () => {
-    if (vientDeGlisser.current) {
-      vientDeGlisser.current = false;
-      return;
-    }
-    setBrut({ ...retenu, ouvert: !retenu.ouvert });
-  };
-
 
   if (typeof document === 'undefined') return null;
 
+  const titre = t('Assistant {v0}', { v0: nomDeLAssistant(state.settings) });
+  const fermer = () => setBrut({ ...retenu, ouvert: false });
+  const croix = (
+    <>
+      {agent ? <BoutonReglagesAgent agent={agent} dansLEntete /> : null}
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 text-muted"
+      onClick={fermer}
+      aria-label="Fermer l’assistant"
+      title={t('Fermer l’assistant')}
+    >
+      <X className="h-3.5 w-3.5" />
+    </Button>
+    </>
+  );
+  const conversation = (
+      <div className="flex min-h-0 flex-1 flex-col" data-assistant-conversation={agent ? 'oui' : 'chargement'}>
+        {erreur ? (
+          <div className="flex flex-col items-start gap-2 px-4 py-3">
+            <p className="text-[13px] leading-snug text-danger">{erreur}</p>
+            <Button size="sm" variant="subtle" onClick={() => charger(false)}>
+              <RotateCw className="h-3.5 w-3.5" />
+              {t('Réessayer')}
+            </Button>
+          </div>
+        ) : !agent ? (
+          <div className="px-4">
+            <SilhouetteConversation bulles={2} />
+          </div>
+        ) : (
+          <>
+            {vide ? (
+              <p className="px-4 pt-3 text-[13px] leading-snug text-muted" data-assistant-accueil>
+                {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, réseaux sociaux, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}
+              </p>
+            ) : null}
+            <Chat
+              agent={agent}
+              projectId={agent.projectId}
+              nouveauDepart
+              creuxReserveAilleurs
+              libelleDuChamp={t('Écrire à l’assistant')}
+              sansReglagesDuChamp
+            />
+          </>
+        )}
+      </div>
+  );
+
   /*
-   * LA HAUTEUR EST BORNÉE COMME CELLE DES TIROIRS : la règle pure ne connaît ni
-   * la zone sûre du haut (barre d'état de l'iPhone, `--zone-sure-haut`) ni le
-   * clavier (`--clavier`) ; l'écran les retire ici. Sur téléphone, le chat est
-   * tenu par son HAUT (sous l'entête, zone sûre comprise) et son BAS (au-dessus
-   * du menu du bas, ou du clavier quand il est ouvert) : sa hauteur en découle.
+   * SUR TÉLÉPHONE, L'ASSISTANT EST UNE FEUILLE DU BAS (décision de l'utilisateur du 17/11/2026, comme tout panneau qui
+   * monte du bas sur téléphone : `Drawer feuille`) — poignée, titre « Assistant <nom> » centré, croix ; on la referme
+   * d'un glissé, de la croix ou d'un appui sur le voile. Elle remplace l'ancien cadre posé sous l'entête (MEM-3996).
+   * Elle passe toujours devant les pages et fenêtres ouvertes (`z-[56]`, MEM-7570, 18/11/2026).
    */
-  const place: React.CSSProperties =
-    telephone && vu.haut !== undefined
-      ? {
-          left: vu.droite,
-          right: vu.droite,
-          top: `calc(${vu.haut}px + var(--zone-sure-haut, 0px))`,
-          bottom: `max(calc(${vu.bas}px + env(safe-area-inset-bottom, 0px) + var(--hauteur-terminal, 0px)), calc(var(--clavier, 0px) + 8px))`,
-        }
-      : {
-          right: vu.droite,
-          // Le terminal ouvert soulève l'application : le chat monte avec la rangée des ronds.
-          bottom: `calc(${vu.bas}px + var(--hauteur-terminal, 0px))`,
-          width: vu.largeur,
-          height: vu.hauteur,
-          maxHeight: `calc(100dvh - ${vu.bas + HAUT_ENTETE + MARGE_CHAT}px - var(--zone-sure-haut, 0px) - var(--clavier, 0px) - var(--hauteur-terminal, 0px))`,
-        };
+  if (telephone) {
+    return (
+      <Drawer open={etat.ouvert} onClose={fermer} feuille hauteurFixe className="z-[56]">
+        <EnteteDeFeuille
+          titre={<span data-titre-de-l-assistant>{titre}</span>}
+          gauche={<IconeTroisBarres className="shrink-0 scale-[0.6] text-text" vivante={enVoix} />}
+          droite={croix}
+          data-entete-de-l-assistant
+        />
+        <div
+          data-assistant-chat={agentId ?? 'chargement'}
+          data-assistant-ancre="feuille"
+          data-volet-de-jarvis
+          data-mode-voix={enVoix ? '' : undefined}
+          data-au-dessus-de-tout
+          className="flex min-h-0 flex-1 flex-col"
+          style={{ ['--marge-de-page' as string]: '8px' }}
+        >
+          {conversation}
+        </div>
+      </Drawer>
+    );
+  }
+
+  if (!etat.ouvert) return null;
+
+  /*
+   * LA HAUTEUR EST BORNÉE COMME CELLE DES TIROIRS : la règle pure ne connaît ni la zone sûre du haut (barre d'état de
+   * l'iPhone, `--zone-sure-haut`) ni le clavier (`--clavier`) ; l'écran les retire ici.
+   */
+  const place: React.CSSProperties = {
+    ...(vu.gauche !== undefined ? { left: vu.gauche } : {}),
+    ...(vu.droite !== undefined ? { right: vu.droite } : {}),
+    ...(vu.haut !== undefined ? { top: `calc(${vu.haut}px + var(--zone-sure-haut, 0px))` } : {}),
+    // Le terminal ouvert soulève l'application : le volet monte avec lui.
+    ...(vu.bas !== undefined ? { bottom: `calc(${vu.bas}px + var(--hauteur-terminal, 0px))` } : {}),
+    width: vu.largeur,
+    height: vu.hauteur,
+    maxHeight: `calc(100dvh - ${(vu.bas ?? 16) + HAUT_ENTETE + MARGE_CHAT}px - var(--zone-sure-haut, 0px) - var(--clavier, 0px) - var(--hauteur-terminal, 0px))`,
+  };
+  const poignee = vu.poignee;
 
   return createPortal(
-    <>
-      {/* Sur téléphone, le robot ne flotte plus : le bouton de l'entête le remplace. */}
-      {!telephone ? (
-      <RangeeDesRonds droite={droiteRobot}>
-      <button
-        type="button"
-        onPointerDown={commencer('robot')}
-        onClick={ouvrirFermer}
-        data-assistant-robot
-        data-ouvert={etat.ouvert ? 'oui' : 'non'}
-        data-glisse={dragging?.kind === 'robot' ? 'oui' : undefined}
-        aria-expanded={etat.ouvert}
-        aria-label={etat.ouvert ? 'Fermer l’assistant' : 'Ouvrir l’assistant'}
-        title={etat.ouvert ? t('Fermer l’assistant') : t('Ouvrir l’assistant — glisser pour le déplacer')}
-        className="relative grid cursor-grab place-items-center rounded-full bg-text text-bg shadow-xl transition-transform hover:scale-105 active:cursor-grabbing"
-        style={{
-          width: ROND_ROBOT,
-          height: ROND_ROBOT,
-          touchAction: 'none',
-        }}
-      >
-        {etat.ouvert ? <ChevronDown className="h-5 w-5" /> : travaille ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}
-        {!etat.ouvert && questions > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-warning text-sur-etat" data-assistant-question>
-            <MessageCircleQuestion className="h-2.5 w-2.5" />
-          </span>
-        ) : null}
-      </button>
-      </RangeeDesRonds>
-      ) : null}
-
-      {etat.ouvert ? (
-        <section
-          data-assistant-chat={agentId ?? 'chargement'}
-          data-assistant-ancre={telephone ? 'entete' : 'robot'}
-          className="fixed z-40 flex flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-faint/30"
-          style={place}
-        >
-          <header className="flex shrink-0 items-center gap-2 bg-raised px-3 py-2 text-[13px] font-medium text-text">
-            <Bot className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <span className="min-w-0 flex-1 truncate">{t('Assistant Beluga')}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 text-muted"
-              onClick={() => setBrut({ ...retenu, ouvert: false })}
-              aria-label="Fermer l’assistant"
-              title={t('Fermer l’assistant')}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </header>
-          {!telephone ? (
-            <span
-              data-assistant-poignee
-              onPointerDown={commencer('poignee')}
-              title={t('Tirer pour redimensionner')}
-              className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
-              style={{ touchAction: 'none' }}
-            />
-          ) : null}
-
-          <div className="flex min-h-0 flex-1 flex-col" data-assistant-conversation={agent ? 'oui' : 'chargement'}>
-            {erreur ? (
-              <div className="flex flex-col items-start gap-2 px-4 py-3">
-                <p className="text-[13px] leading-snug text-danger">{erreur}</p>
-                <Button size="sm" variant="subtle" onClick={() => charger(false)}>
-                  <RotateCw className="h-3.5 w-3.5" />
-                  {t('Réessayer')}
-                </Button>
-              </div>
-            ) : !agent ? (
-              <div className="px-4">
-                <SilhouetteConversation bulles={2} />
-              </div>
-            ) : (
-              <>
-                {vide ? (
-                  <p className="px-4 pt-3 text-[13px] leading-snug text-muted" data-assistant-accueil>
-                    {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, réseaux sociaux, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}
-                  </p>
-                ) : null}
-                <Chat agent={agent} projectId={agent.projectId} nouveauDepart creuxReserveAilleurs libelleDuChamp={t('Écrire à l’assistant')} />
-              </>
-            )}
-          </div>
-
-        </section>
-      ) : null}
-    </>,
+    <section
+      ref={sectionRef}
+      data-assistant-chat={agentId ?? 'chargement'}
+      data-assistant-ancre={bouton.bord}
+      data-volet-de-jarvis
+      data-mode-voix={enVoix ? '' : undefined}
+      data-au-dessus-de-tout
+      className="pointer-events-auto fixed z-[56] flex flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-faint/30"
+      /* LE CHAMP D'ÉCRITURE A LA MÊME MARGE SUR SES TROIS BORDS (16/11/2026, capture #b82e) : le pied en tiroir
+         garde 8 px en bas (`dansTiroir`, composer.tsx), donc les côtés passent de 16 à 8 px ICI SEULEMENT —
+         `--marge-de-page` n'est lue dans le volet que par la barre d'écriture et son repère de tâches. */
+      style={{ ...place, ['--marge-de-page' as string]: '8px' }}
+    >
+      <header className="flex shrink-0 items-center gap-2 bg-raised px-3 py-2 text-[13px] font-medium text-text">
+        <IconeTroisBarres className="shrink-0 scale-[0.6] text-text" vivante={enVoix} />
+        <span className="min-w-0 flex-1 truncate" data-titre-de-l-assistant>{titre}</span>
+        {croix}
+      </header>
+      <span
+        data-assistant-poignee
+        onPointerDown={commencer}
+        title={t('Tirer pour redimensionner')}
+        className={cn(
+          'absolute z-10 h-4 w-4',
+          poignee.horizontal === 'gauche' ? 'left-0' : 'right-0',
+          poignee.vertical === 'haut' ? 'top-0' : 'bottom-0',
+          poignee.sensX === poignee.sensY ? 'cursor-nwse-resize' : 'cursor-nesw-resize',
+        )}
+        style={{ touchAction: 'none' }}
+      />
+      {conversation}
+    </section>,
     document.body,
-  );
-}
-
-/**
- * LE BOUTON DE L'ASSISTANT DANS L'ENTÊTE — SUR TÉLÉPHONE SEULEMENT, juste avant
- * le menu des trois points (demande du 02.10.2026). Il remplace le robot
- * flottant : même état (préférence du compte), mêmes signes — roue quand
- * l'assistant travaille, point orange (celui de tous les boutons de l'entête,
- * `CLASSE_POINT_DE_BOUTON`) quand une question l'attend. Le chat s'ouvre
- * juste en dessous, ancré sous l'entête.
- */
-export function BoutonAssistantEntete() {
-  const { retenu, travaille, questions, basculer } = useEtatAssistant();
-  const libelle = retenu.ouvert ? t('Fermer l’assistant') : t('Ouvrir l’assistant');
-  return (
-    <Tooltip label={libelle}>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', retenu.ouvert && 'text-text')}
-        onClick={basculer}
-        data-assistant-entete
-        data-ouvert={retenu.ouvert ? 'oui' : 'non'}
-        aria-expanded={retenu.ouvert}
-        aria-label={libelle}
-      >
-        {travaille && !retenu.ouvert ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
-        {!retenu.ouvert && questions > 0 ? (
-          <span aria-hidden className={cn(CLASSE_POINT_DE_BOUTON, 'bg-warning')} data-assistant-question />
-        ) : null}
-      </Button>
-    </Tooltip>
   );
 }

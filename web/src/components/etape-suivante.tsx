@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight } from '@/components/ui/icones';
 import {
   COLUMN_LABELS,
   Card,

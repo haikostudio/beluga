@@ -18,6 +18,11 @@ import type { GenreMessage, ReseauSocial } from '@beluga/shared';
 export interface IdentifiantsApplication {
   clientId: string;
   secret: string;
+  /**
+   * La configuration de connexion de l'application (Meta : « Facebook Login for Business », config_id). Réglée, elle
+   * fait passer Instagram par la connexion UNIFIÉE : un compte professionnel sans page Facebook se relie aussi.
+   */
+  configConnexion?: string;
 }
 
 export interface Jetons {
@@ -92,6 +97,16 @@ export interface PublicationConnue {
   contenuId: string;
 }
 
+/**
+ * LES CHIFFRES LUS CHEZ UN RÉSEAU : tout est CUMULÉ. Un chiffre que le réseau ne
+ * donne pas (droit absent, métrique retirée) vaut `null`, jamais 0 et jamais une
+ * panne du compte : la publication et la relève des messages n'en dépendent pas.
+ */
+export interface StatistiquesLues {
+  abonnes: number | null;
+  publications: { distantId: string; vues: number | null; commentaires: number | null; reactions: number | null }[];
+}
+
 export interface Adaptateur {
   /** L'adresse où l'utilisateur donne son accord. `verificateur` sert aux réseaux qui exigent PKCE. */
   urlDeConnexion(p: { app: IdentifiantsApplication; retour: string; etat: string; verificateur: string }): string;
@@ -101,8 +116,14 @@ export interface Adaptateur {
   publier(p: { app: IdentifiantsApplication; ctx: ContexteCompte; article: ArticleAPublier }): Promise<Publie>;
   lireCommentaires?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; publications: PublicationConnue[] }): Promise<MessageRelu[]>;
   repondreCommentaire?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; message: { distantId: string; fil: string }; texte: string }): Promise<{ distantId: string; url?: string }>;
+  /** MASQUER un commentaire reçu (il disparaît du public, sans être effacé) — `MODERATION_DES_COMMENTAIRES`. */
+  masquerCommentaire?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; message: { distantId: string; fil: string } }): Promise<void>;
+  /** SUPPRIMER pour de bon un commentaire reçu, là où le réseau l'ouvre à la marque. */
+  supprimerCommentaire?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; message: { distantId: string; fil: string } }): Promise<void>;
   lireMessages?(p: { app: IdentifiantsApplication; ctx: ContexteCompte }): Promise<MessageRelu[]>;
   repondreMessage?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; message: { fil: string; auteurId?: string }; texte: string }): Promise<{ distantId: string }>;
+  /** Relevé quotidien de l'audience, sur les seuls réseaux qui l'ouvrent. */
+  lireStatistiques?(p: { app: IdentifiantsApplication; ctx: ContexteCompte; publications: PublicationConnue[] }): Promise<StatistiquesLues>;
 }
 
 /**
@@ -160,6 +181,16 @@ export async function appel<T = any>(url: string, init: RequestInit & { delaiMs?
     throw new ErreurReseau(messageDErreur(corps, reponse.status), reponse.status, aRelier);
   }
   return { corps: corps as T, entetes: reponse.headers, statut: reponse.status };
+}
+
+/** Un chiffre qui peut manquer : le refus du réseau vaut « non fourni », pas une panne. */
+export async function chiffre(lire: () => Promise<unknown>): Promise<number | null> {
+  try {
+    const n = Number(await lire());
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 export function formulaire(champs: Record<string, string | number | undefined | null>): URLSearchParams {

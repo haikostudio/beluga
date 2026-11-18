@@ -99,6 +99,11 @@ export async function joindreUnFichier(opts: {
   attendreStable?: boolean;
   /** La pièce vient de l'agent (outil de jointure, capture rangée) : elle porte `deLAgent`. */
   deLAgent?: boolean;
+  /**
+   * SANS IDENTIFIANT COURT : la pastille du champ montre alors le NOM (l'étiquette d'un style de la bibliothèque du
+   * Studio, « Style Néon », 31/10/2026) au lieu de « #1a0c ».
+   */
+  sansAlias?: boolean;
 }): Promise<ResultatDeJointure> {
   const { fichier } = opts;
   const mime = mimeDuFichier(fichier);
@@ -120,7 +125,7 @@ export async function joindreUnFichier(opts: {
   const id = store.newId();
   const attachment = Attachment.parse({
     id,
-    alias: aliasDePieceJointe(id, store.aliasDesPiecesJointes()),
+    ...(opts.sansAlias ? {} : { alias: aliasDePieceJointe(id, store.aliasDesPiecesJointes()) }),
     projectId: opts.projectId,
     name: nomSansCollision(opts.nom?.trim() || path.basename(fichier), dejaUtilises),
     mime,
@@ -186,4 +191,46 @@ export async function rattacherParAlias(opts: {
     if (jointure.ok) rendues.push({ alias: source.alias, attachment: jointure.attachment });
   }
   return rendues;
+}
+
+/**
+ * UNE CAPTURE PRISE PAR L'AGENT REÇOIT SA RÉFÉRENCE (décision du 17/11/2026 : « toute image du fil a sa référence »).
+ *
+ * Une image regardée par l'agent (son outil de capture, un fichier qu'il ouvre) n'était pas une pièce jointe : sa
+ * vignette n'avait aucun « #1a0c ». Elle est rangée la PREMIÈRE FOIS qu'un écran l'affiche, par le même chemin qu'un
+ * fichier joint — disque de stockage, empreinte, alias — et son chemin d'origine est noté sur la pièce
+ * (`Attachment.chemins`) pour que la vignette la retrouve. Idempotent : la même image (même empreinte) rend la pièce
+ * existante, et deux écrans qui la demandent ensemble attendent le même rangement.
+ */
+const rangementsEnCours = new Map<string, Promise<Attachment | null>>();
+
+export function rangerUneCaptureDeLAgent(opts: {
+  projectId: string;
+  /** Le chemin tel que le journal le cite (clé de la vignette). */
+  chemin: string;
+  /** Le fichier réel, déjà vérifié dans les racines autorisées. */
+  fichier: string;
+}): Promise<Attachment | null> {
+  const cle = `${opts.projectId}\u0000${opts.chemin}`;
+  const enCours = rangementsEnCours.get(cle);
+  if (enCours) return enCours;
+  const rangement = (async () => {
+    const connue = store.listAttachments(opts.projectId).find((a) => a.chemins?.includes(opts.chemin));
+    if (connue) return connue;
+    const jointure = await joindreUnFichier({
+      projectId: opts.projectId,
+      fichier: opts.fichier,
+      nom: path.basename(opts.fichier),
+      deLAgent: true,
+    });
+    if (!jointure.ok) return null;
+    const piece = jointure.attachment;
+    if (piece.chemins?.includes(opts.chemin)) return piece;
+    const notee = Attachment.parse({ ...piece, chemins: [...(piece.chemins ?? []), opts.chemin] });
+    store.saveAttachment(notee);
+    bus.emit({ type: 'attachments', projectId: opts.projectId, items: store.listAttachments(opts.projectId) });
+    return notee;
+  })().finally(() => rangementsEnCours.delete(cle));
+  rangementsEnCours.set(cle, rangement);
+  return rangement;
 }

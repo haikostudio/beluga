@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2 } from '@/components/ui/icones';
 import {
   ANGLES_DE_VUE,
   PARAMETRES_DES_ANGLES,

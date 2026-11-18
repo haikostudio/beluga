@@ -30,6 +30,7 @@
 
 import { VUES_CENTRALES, type VueCentrale } from './vue-centrale.js';
 import { RUBRIQUE_CONFIG_PAR_DEFAUT } from './config-projet-rubriques.js';
+import { cheminDeLAncienneCommunication } from './communication-v2.js';
 
 /** Un tableau de bord, avec sa carte ouverte par-dessus quand il y en a une. */
 type CarteSurTableauDeBord<V extends 'tableau-de-bord' | 'en-route'> = {
@@ -65,7 +66,6 @@ type EcranDeBase =
    * neuf doit ouvrir LE BON projet avant d'ouvrir sa fenêtre.
    */
   | { vue: 'config-projet'; projectId: string; rubrique?: string }
-  | { vue: 'notes'; noteId?: string }
   | { vue: 'coffre'; ficheId?: string }
   /*
    * La mémoire : la PORTÉE (le classeur d'un projet, ou le global), la fiche
@@ -76,9 +76,15 @@ type EcranDeBase =
   | { vue: 'memoire'; porteeId?: string; ficheId?: string; uniteId?: string }
   | { vue: 'backups'; siteId?: string }
   | { vue: 'surveillance'; siteId?: string }
+  /* LA SÉCURITÉ : la liste des projets suivis, ou la page d'un projet (« #securite/<projet> »). */
+  | { vue: 'securite'; projetId?: string }
   /* L'atelier Réseaux sociaux, ouvert sur UN projet : « #reseaux-sociaux/<projet> » (vue interne « marketing » ;
      l'ancienne adresse « #marketing/<projet> » reste LUE, pour les liens déjà partis). */
   | { vue: 'marketing'; projectId?: string }
+  /* Communication 2 : « #communication2/<marque>/<étape>/<élément…> » (`shared/src/communication-v2.ts`). */
+  | { vue: 'communication2'; chemin?: string }
+  /* Le Studio, ouvert sur UNE création : « #studio/<création> ». */
+  | { vue: 'studio'; creationId?: string }
   /* Le service Statistiques, ouvert sur UN site mesuré : « #statistiques/<espace> ». */
   | { vue: 'statistiques'; siteId?: string }
   /* Les médias fabriqués, ouverts sur UN projet : « #medias/<projet> ». */
@@ -86,12 +92,22 @@ type EcranDeBase =
   /* Les tâches récurrentes d'UN projet, et la veille ouverte dans son tiroir :
      « #taches-recurrentes/<projet>/veille/<veille> ». */
   | { vue: 'taches-recurrentes'; projectId?: string; veilleId?: string }
+  /* LES PLAQUETTES CLIENT (carte « Refonte de l'espace Plaquettes ») : toutes (« #plaquettes »), filtrées sur un projet
+     (« #plaquettes/<projet> »), et celle ouverte dans son tiroir (« #plaquettes/<projet>/<plaquette> », ou
+     « #plaquettes/tous/<plaquette> » quand la liste n'est pas filtrée). */
+  | { vue: 'plaquettes'; projectId?: string; plaquetteId?: string }
   /*
    * L'ESPACE CLIENT, OUVERT SUR UNE FICHE. C'est l'adresse que portent les
    * courriels envoyés à Haiko : un clic doit tomber sur le bon client ET la
    * bonne demande, prêt à répondre — pas sur un tableau à refouiller.
    */
-  | { vue: 'espace'; clientId?: string; demandeId?: string };
+  | { vue: 'espace'; clientId?: string; demandeId?: string }
+  /*
+   * LE CALENDRIER DE TOUTES LES PUBLICATIONS (15/11/2026, « chaque service a son adresse ») : « #calendrier », et la
+   * publication ouverte dans son aperçu, « #calendrier/<contenu> ». Recharger rend le même écran ; Précédent referme
+   * l'aperçu, puis le calendrier.
+   */
+  | { vue: 'calendrier'; contenuId?: string };
 
 /**
  * L'écran décrit par l'adresse, avec la PILE DES TIROIRS ouverts par-dessus :
@@ -153,7 +169,6 @@ const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
   projet: 'projet',
   'tableau-de-bord': 'tableau-de-bord',
   'en-route': 'en-route',
-  notes: 'notes',
   coffre: 'coffre',
   memoire: 'memoire',
   /* « espace-client » s'écrit « espace » dans l'adresse : c'est le mot que
@@ -161,10 +176,14 @@ const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
   'espace-client': 'espace',
   backups: 'backups',
   surveillance: 'surveillance',
+  securite: 'securite',
   marketing: 'marketing',
+  communication2: 'communication2',
+  studio: 'studio',
   statistiques: 'statistiques',
   medias: 'medias',
   'taches-recurrentes': 'taches-recurrentes',
+  plaquettes: 'plaquettes',
 };
 
 /** Et le chemin inverse, calculé une fois plutôt que réécrit à la main. */
@@ -217,6 +236,9 @@ export function slugTitre(titre: string): string {
  * Le fragment (sans le « # ») qui décrit un écran. L'appelant y met le « # »
  * lui-même. Un écran d'accueil rend une chaîne vide.
  */
+/** Le segment d'une plaquette ouverte sans filtre de projet (« #plaquettes/tous/<plaquette> »). */
+const TOUTES_LES_PLAQUETTES = 'tous';
+
 export function construireFragment(ecran: EcranNavigateur): string {
   const base = construireFragmentSansTiroirs(ecran);
   const tiroirs = (ecran.tiroirs ?? []).filter(nomDeTiroirValide);
@@ -235,8 +257,6 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       return fragmentDeCarteSurTableau('tableau-de-bord', ecran);
     case 'en-route':
       return fragmentDeCarteSurTableau('en-route', ecran);
-    case 'notes':
-      return ecran.noteId ? `notes/${encodeURIComponent(ecran.noteId)}` : 'notes';
     case 'coffre':
       return ecran.ficheId ? `coffre/${encodeURIComponent(ecran.ficheId)}` : 'coffre';
     case 'memoire': {
@@ -252,9 +272,15 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       return ecran.siteId ? `backups/${encodeURIComponent(ecran.siteId)}` : 'backups';
     case 'surveillance':
       return ecran.siteId ? `surveillance/${encodeURIComponent(ecran.siteId)}` : 'surveillance';
+    case 'securite':
+      return ecran.projetId ? `securite/${encodeURIComponent(ecran.projetId)}` : 'securite';
     case 'marketing':
       /* « <projet> », « <projet>/<rubrique> » ou « <projet>/canaux/<canal> » : chaque morceau son segment. */
       return ecran.projectId ? `${ADRESSE_RESEAUX_SOCIAUX}/${ecran.projectId.split('/').map(encodeURIComponent).join('/')}` : ADRESSE_RESEAUX_SOCIAUX;
+    case 'communication2':
+      return ecran.chemin ? `communication2/${ecran.chemin.split('/').map(encodeURIComponent).join('/')}` : 'communication2';
+    case 'studio':
+      return ecran.creationId ? `studio/${encodeURIComponent(ecran.creationId)}` : 'studio';
     case 'statistiques':
       /* « <site> », « <site>/parcours » ou « liste/<groupe> » : chaque morceau son segment. */
       return ecran.siteId ? `statistiques/${ecran.siteId.split('/').map(encodeURIComponent).join('/')}` : 'statistiques';
@@ -264,6 +290,13 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       if (!ecran.projectId) return 'taches-recurrentes';
       const base = `taches-recurrentes/${encodeURIComponent(ecran.projectId)}`;
       return ecran.veilleId ? `${base}/veille/${encodeURIComponent(ecran.veilleId)}` : base;
+    }
+    case 'calendrier':
+      return ecran.contenuId ? `calendrier/${encodeURIComponent(ecran.contenuId)}` : 'calendrier';
+    case 'plaquettes': {
+      if (!ecran.projectId && !ecran.plaquetteId) return 'plaquettes';
+      const base = `plaquettes/${ecran.projectId ? encodeURIComponent(ecran.projectId) : TOUTES_LES_PLAQUETTES}`;
+      return ecran.plaquetteId ? `${base}/${encodeURIComponent(ecran.plaquetteId)}` : base;
     }
     case 'espace': {
       if (!ecran.clientId) return 'espace';
@@ -363,9 +396,11 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     }
     return { vue: tete };
   }
-  if (tete === 'notes') {
-    const noteId = decodeSegment(morceaux[1] ?? '');
-    return noteId ? { vue: 'notes', noteId } : { vue: 'notes' };
+  /* LE SERVICE NOTES (retiré le 11/11/2026) : son ancienne adresse rend l'accueil, jamais une page vide — comme toute adresse inconnue. */
+  if (tete === 'notes') return { vue: 'accueil' };
+  if (tete === 'calendrier') {
+    const contenuId = decodeSegment(morceaux[1] ?? '');
+    return contenuId ? { vue: 'calendrier', contenuId } : { vue: 'calendrier' };
   }
   if (tete === 'coffre') {
     const ficheId = decodeSegment(morceaux[1] ?? '');
@@ -395,10 +430,27 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const siteId = decodeSegment(morceaux[1] ?? '');
     return siteId ? { vue: 'surveillance', siteId } : { vue: 'surveillance' };
   }
+  if (tete === 'securite') {
+    const projetId = decodeSegment(morceaux[1] ?? '');
+    return projetId ? { vue: 'securite', projetId } : { vue: 'securite' };
+  }
   if (tete === ADRESSE_RESEAUX_SOCIAUX || tete === 'marketing') {
     /* LE PROJET, PUIS SA RUBRIQUE ET LE CANAL OUVERT : relus en un seul chemin, l'écran le découpe. */
     const projectId = morceaux.slice(1, 4).map((m) => decodeSegment(m)).filter(Boolean).join('/');
     return projectId ? { vue: 'marketing', projectId } : { vue: 'marketing' };
+  }
+  /* L'ANCIEN ESPACE COMMUNICATION (retiré le 11/11/2026) : son adresse ouvre le même lieu du nouveau. */
+  if (tete === 'communication') {
+    const chemin = cheminDeLAncienneCommunication(morceaux.slice(1).map((m) => decodeSegment(m)).filter(Boolean).join('/'));
+    return chemin ? { vue: 'communication2', chemin } : { vue: 'communication2' };
+  }
+  if (tete === 'communication2') {
+    const chemin = morceaux.slice(1).map((m) => decodeSegment(m)).filter(Boolean).join('/');
+    return chemin ? { vue: 'communication2', chemin } : { vue: 'communication2' };
+  }
+  if (tete === 'studio') {
+    const creationId = decodeSegment(morceaux[1] ?? '');
+    return creationId ? { vue: 'studio', creationId } : { vue: 'studio' };
   }
   if (tete === 'statistiques') {
     /* LE SITE, PUIS SON ONGLET (« parcours »), OU LE GROUPE DE LA LISTE (« liste/<groupe> ») : relus en un seul chemin. */
@@ -413,6 +465,12 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const projectId = decodeSegment(morceaux[1] ?? '');
     const veilleId = projectId && morceaux[2] === 'veille' ? decodeSegment(morceaux[3] ?? '') : '';
     return { vue: 'taches-recurrentes', ...(projectId ? { projectId } : {}), ...(veilleId ? { veilleId } : {}) };
+  }
+  if (tete === 'plaquettes') {
+    const segment = decodeSegment(morceaux[1] ?? '');
+    const projectId = segment === TOUTES_LES_PLAQUETTES ? '' : segment;
+    const plaquetteId = segment ? decodeSegment(morceaux[2] ?? '') : '';
+    return { vue: 'plaquettes', ...(projectId ? { projectId } : {}), ...(plaquetteId ? { plaquetteId } : {}) };
   }
   if (tete === 'espace') {
     const clientId = decodeSegment(morceaux[1] ?? '');
@@ -495,7 +553,6 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
     );
   }
   if (a.vue === 'reglages' && b.vue === 'reglages') return (a.page ?? '') === (b.page ?? '');
-  if (a.vue === 'notes' && b.vue === 'notes') return (a.noteId ?? '') === (b.noteId ?? '');
   if (a.vue === 'coffre' && b.vue === 'coffre') return (a.ficheId ?? '') === (b.ficheId ?? '');
   if (a.vue === 'memoire' && b.vue === 'memoire') {
     return (
@@ -506,12 +563,19 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
   }
   if (a.vue === 'backups' && b.vue === 'backups') return (a.siteId ?? '') === (b.siteId ?? '');
   if (a.vue === 'surveillance' && b.vue === 'surveillance') return (a.siteId ?? '') === (b.siteId ?? '');
+  if (a.vue === 'securite' && b.vue === 'securite') return (a.projetId ?? '') === (b.projetId ?? '');
   if (a.vue === 'marketing' && b.vue === 'marketing') return (a.projectId ?? '') === (b.projectId ?? '');
+  if (a.vue === 'communication2' && b.vue === 'communication2') return (a.chemin ?? '') === (b.chemin ?? '');
+  if (a.vue === 'studio' && b.vue === 'studio') return (a.creationId ?? '') === (b.creationId ?? '');
   if (a.vue === 'statistiques' && b.vue === 'statistiques') return (a.siteId ?? '') === (b.siteId ?? '');
   if (a.vue === 'medias' && b.vue === 'medias') return (a.projectId ?? '') === (b.projectId ?? '');
   /* Ouvrir une veille est une destination : Précédent referme son tiroir. */
   if (a.vue === 'taches-recurrentes' && b.vue === 'taches-recurrentes')
     return (a.projectId ?? '') === (b.projectId ?? '') && (a.veilleId ?? '') === (b.veilleId ?? '');
+  if (a.vue === 'plaquettes' && b.vue === 'plaquettes')
+    return (a.projectId ?? '') === (b.projectId ?? '') && (a.plaquetteId ?? '') === (b.plaquetteId ?? '');
+  /* Ouvrir l'aperçu d'une publication est une destination : Précédent le referme. */
+  if (a.vue === 'calendrier' && b.vue === 'calendrier') return (a.contenuId ?? '') === (b.contenuId ?? '');
   /*
    * DEUX ADRESSES D'ESPACE MÈNENT AU MÊME ÉCRAN. La fiche ouverte est un
    * détail d'affichage à l'intérieur de cet écran, pas une destination à part :
@@ -640,19 +704,25 @@ function idDeCarte(segment: string): string {
  * l'aller-retour « écran → adresse → écran » sans ouvrir un navigateur.
  */
 export type ElementVise = {
-  notes?: string | null;
   coffre?: string | null;
   memoirePortee?: string | null;
   memoireFiche?: string | null;
   memoireUnite?: string | null;
   backups?: string | null;
   surveillance?: string | null;
+  /* La sécurité : le projet suivi ouvert. */
+  securite?: string | null;
   marketing?: string | null;
+  communication2?: string | null;
+  studio?: string | null;
   statistiques?: string | null;
   medias?: string | null;
   /* Les tâches récurrentes : le projet choisi, puis la veille ouverte. */
   recurrentes?: string | null;
   recurrenteVeille?: string | null;
+  /* Les plaquettes client : le projet choisi, puis la plaquette ouverte. */
+  plaquettesProjet?: string | null;
+  plaquette?: string | null;
 };
 
 /**
@@ -662,18 +732,22 @@ export type ElementVise = {
  */
 export function elementViseDeLEcran(ecran: EcranNavigateur): ElementVise {
   return {
-    notes: ecran.vue === 'notes' ? ecran.noteId ?? null : null,
     coffre: ecran.vue === 'coffre' ? ecran.ficheId ?? null : null,
     memoirePortee: ecran.vue === 'memoire' ? ecran.porteeId ?? null : null,
     memoireFiche: ecran.vue === 'memoire' ? ecran.ficheId ?? null : null,
     memoireUnite: ecran.vue === 'memoire' ? ecran.uniteId ?? null : null,
     backups: ecran.vue === 'backups' ? ecran.siteId ?? null : null,
     surveillance: ecran.vue === 'surveillance' ? ecran.siteId ?? null : null,
+    securite: ecran.vue === 'securite' ? ecran.projetId ?? null : null,
     marketing: ecran.vue === 'marketing' ? ecran.projectId ?? null : null,
+    communication2: ecran.vue === 'communication2' ? ecran.chemin ?? null : null,
+    studio: ecran.vue === 'studio' ? ecran.creationId ?? null : null,
     statistiques: ecran.vue === 'statistiques' ? ecran.siteId ?? null : null,
     medias: ecran.vue === 'medias' ? ecran.projectId ?? null : null,
     recurrentes: ecran.vue === 'taches-recurrentes' ? ecran.projectId ?? null : null,
     recurrenteVeille: ecran.vue === 'taches-recurrentes' ? ecran.veilleId ?? null : null,
+    plaquettesProjet: ecran.vue === 'plaquettes' ? ecran.projectId ?? null : null,
+    plaquette: ecran.vue === 'plaquettes' ? ecran.plaquetteId ?? null : null,
   };
 }
 
@@ -711,8 +785,6 @@ export function ecranDeLaVue(etat: {
           : {};
       return etat.vue === 'en-route' ? { vue: 'en-route', ...carte } : { vue: 'tableau-de-bord', ...carte };
     }
-    case 'notes':
-      return { vue: 'notes', ...(element.notes ? { noteId: element.notes } : {}) };
     case 'coffre':
       return { vue: 'coffre', ...(element.coffre ? { ficheId: element.coffre } : {}) };
     case 'memoire':
@@ -732,8 +804,14 @@ export function ecranDeLaVue(etat: {
       return { vue: 'backups', ...(element.backups ? { siteId: element.backups } : {}) };
     case 'surveillance':
       return { vue: 'surveillance', ...(element.surveillance ? { siteId: element.surveillance } : {}) };
+    case 'securite':
+      return { vue: 'securite', ...(element.securite ? { projetId: element.securite } : {}) };
     case 'marketing':
       return { vue: 'marketing', ...(element.marketing ? { projectId: element.marketing } : {}) };
+    case 'communication2':
+      return { vue: 'communication2', ...(element.communication2 ? { chemin: element.communication2 } : {}) };
+    case 'studio':
+      return { vue: 'studio', ...(element.studio ? { creationId: element.studio } : {}) };
     case 'statistiques':
       return { vue: 'statistiques', ...(element.statistiques ? { siteId: element.statistiques } : {}) };
     case 'medias':
@@ -743,6 +821,12 @@ export function ecranDeLaVue(etat: {
         vue: 'taches-recurrentes',
         ...(element.recurrentes ? { projectId: element.recurrentes } : {}),
         ...(element.recurrentes && element.recurrenteVeille ? { veilleId: element.recurrenteVeille } : {}),
+      };
+    case 'plaquettes':
+      return {
+        vue: 'plaquettes',
+        ...(element.plaquettesProjet ? { projectId: element.plaquettesProjet } : {}),
+        ...(element.plaquette ? { plaquetteId: element.plaquette } : {}),
       };
     case 'espace-client':
       return {

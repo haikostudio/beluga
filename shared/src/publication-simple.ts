@@ -451,7 +451,7 @@ export function promptInitialisationProduction(ctx: ContexteDInitialisation): st
     'Ta démarche, dans cet ordre :',
     '1. Analyse le projet : sa pile, sa construction, ses scripts de déploiement, ses automatismes GitHub, ses fichiers de configuration serveur. Le coffre-fort (outil coffre_fort) contient les accès : lis-le, ne recopie JAMAIS un secret dans une commande — réfère-toi aux fichiers ou variables déjà présents sur ce serveur.',
     '2. INTERROGE l’utilisateur avec l’outil ask_user sur tout ce qui décide du processus et que le projet ne dit pas avec certitude : où tourne la production (ce serveur, un autre serveur, un hébergeur, une procédure GitHub), comment on y accède, ce qu’il faut y faire, ce qu’on contrôle à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer l’instance de production, même si tu crois la connaître.',
-    '3. Prépare ce qui doit l’être (fichiers du projet, machine de production), sans jamais mettre en production.',
+    '3. Prépare ce qui doit l’être (fichiers du projet, machine de production), sans jamais mettre en production. Si le code du projet n’a pas encore rejoint la branche de travail (il vit encore sur la branche d’une carte), ne fusionne RIEN et ne le demande pas : écris seulement les fichiers de mise en production, la carte apportera son travail au prochain « Publier ».',
     '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle s’affiche telle quelle sur la page « Mise en production » du projet, au-dessus du bouton qui lance. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
@@ -497,14 +497,34 @@ export type ContexteDuDeploiement = {
 };
 
 /**
+ * LES TROIS CHOIX FAITS D'OFFICE POUR LE DÉPLOIEMENT (15/11/2026) — repris par la consigne de premier tour et par
+ * le rappel de chaque message (`consigneDeConfiguration`), pour que l'agent ne les redemande jamais.
+ */
+export const TROIS_CHOIX_DU_DEPLOIEMENT =
+  '(a) OÙ : sur CE serveur. Une autre machine seulement si l’utilisateur l’écrit lui-même : cherche alors son accès dans le coffre-fort (outil coffre_fort, « lister » avant toute question), tes étapes s’y connectent en ssh NON interactif (clé, « -o BatchMode=yes », délai borné), et le champ « cible » nomme cette machine. ' +
+  '(b) COMMENT TOURNE LA VERSION DE TRAVAIL : en VERSION CONSTRUITE, comme en production — construction optimisée, puis relance du service qui la sert — jamais en mode atelier (serveur de développement qui suit les fichiers). ' +
+  '(c) LE TRAVAIL PAS ENCORE RÉUNI : si le code du projet n’a pas encore rejoint la branche de travail (il vit encore sur la branche d’une carte), ne fusionne RIEN toi-même : écris seulement les fichiers de déploiement ; la carte apportera son travail au prochain « Publier », puisque Beluga fusionne le lot avant ton processus.';
+
+/**
  * LE PROMPT DE L'AGENT DE CONFIGURATION DU DÉPLOIEMENT (29/09/2026). Même
  * démarche que la mise en production — analyser, interroger, rendre le
- * processus — mais pour la version de TRAVAIL. Par défaut sur CE serveur ;
- * depuis le 10/10/2026, l'agent DEMANDE d'abord si le déploiement vise ce
- * serveur ou une autre machine désignée par l'utilisateur (accès cherché dans
- * le coffre-fort, commandes ssh non interactives). Tant qu'aucun processus
+ * processus — mais pour la version de TRAVAIL. Tant qu'aucun processus
  * n'est écrit, le projet ne déploie pas — sauf Beluga et les projets `herite`,
  * qui gardent le déroulé commun.
+ *
+ * TROIS RÉPONSES D'OFFICE, POUR TOUS LES PROJETS (décision de l'utilisateur du
+ * 15/11/2026, captures #6f5ab et #ceec6) — plus aucune question à leur sujet :
+ *  - OÙ : sur CE serveur (la question du 10/10/2026 est retirée) ; une autre
+ *    machine seulement si l'utilisateur l'écrit lui-même (coffre-fort, ssh
+ *    non interactif) ;
+ *  - COMMENT tourne la version de travail : en VERSION CONSTRUITE, comme en
+ *    production (construction optimisée puis relance du service), jamais en
+ *    mode atelier (serveur de développement) ;
+ *  - LE TRAVAIL PAS ENCORE RÉUNI sur la branche de travail : l'agent ne fusionne
+ *    rien, il écrit seulement les fichiers de déploiement ; la carte l'apportera
+ *    au prochain « Publier » (Beluga fusionne le lot avant le processus).
+ * Il ne pose plus « au moins une question » : seulement ce que le projet ne dit
+ * pas, et son explication rappelle ces trois choix (« pour changer, écrivez-le-moi »).
  */
 export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): string {
   return [
@@ -533,9 +553,9 @@ export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): str
     '1. Analyse le projet : sa pile, sa construction, ses services système (systemctl), son serveur de développement, ses scripts de mise à jour.',
     ctx.estBeluga
       ? '2. Beluga Build se déploie toujours sur ce serveur : ne pose pas la question de la machine.'
-      : '2. DEMANDE D’ABORD OÙ DÉPLOYER, avec ask_user : sur ce serveur (choix par défaut, recommandé) ou sur une autre machine. Si c’est une autre machine, demande laquelle, puis cherche son accès dans le coffre-fort (outil coffre_fort, « lister » avant toute question) ; tes étapes s’y connectent alors en ssh NON interactif (clé, « -o BatchMode=yes », délai borné), et le champ « cible » nomme cette machine. Un accès absent du coffre se dit en clair, avec ce qui manque.',
-    '3. INTERROGE l’utilisateur avec l’outil ask_user sur ce que le projet ne dit pas avec certitude : quoi construire, quel service relancer, quoi contrôler à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer le déroulé.',
-    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape. Elle reste lisible dans cette conversation ; la rubrique « Déploiement » des réglages, elle, n’en montre que les étapes et le résumé. Puis le processus dans ce bloc exact, en fin de réponse :',
+      : `2. TROIS CHOIX SONT DÉJÀ FAITS, POUR TOUS LES PROJETS : ne les demande JAMAIS. ${TROIS_CHOIX_DU_DEPLOIEMENT}`,
+    '3. INTERROGE l’utilisateur avec l’outil ask_user SEULEMENT sur ce que le projet ne dit pas avec certitude : quoi construire, quel service relancer, quoi contrôler à la fin. Une question par appel, avec des choix quand c’est possible. Ce que le projet dit clairement ne se demande pas.',
+    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape — et rappelle les choix faits d’office (ce serveur, version construite comme en production, travail apporté par les cartes au prochain « Publier ») : « pour en changer, écrivez-le-moi ». Elle reste lisible dans cette conversation ; la rubrique « Déploiement » des réglages, elle, n’en montre que les étapes et le résumé. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
     '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.exemple.com, service autoproject-mon-projet »…", "adresse": "https://mon-projet.exemple.com", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
@@ -579,6 +599,7 @@ export function consigneDeConfiguration(cible: 'dev' | 'production' = 'productio
   const rubrique = cible === 'dev' ? '« Déploiement »' : '« Mise en production »';
   return [
     `Tu es l’agent de CONFIGURATION ${etape} de ce projet : l’utilisateur te parle depuis la rubrique ${rubrique} des réglages du projet.`,
+    cible === 'dev' ? `Choix déjà faits, à ne jamais redemander (l’utilisateur peut seul en changer, en l’écrivant) : ${TROIS_CHOIX_DU_DEPLOIEMENT}` : `Le travail pas encore réuni sur la branche de travail ne se fusionne jamais par toi : la carte l’apportera au prochain « Publier ».`,
     `Tiens-en compte. S’il te manque quelque chose de décisif, pose-le avec ask_user. Si le processus change, rends ton explication en mots simples puis le bloc ${DEBUT_PROCESSUS} … ${FIN_PROCESSUS} COMPLET (avec ses champs « cible » et « adresse »), en fin de réponse : c’est lui qui met à jour le processus affiché dans la rubrique. Sinon, réponds simplement.`,
     `Fichiers du projet modifiés : « git add » nommé fichier par fichier, un commit poussé sur la branche de travail, et dis ce que tu as changé. Tu ne lances JAMAIS ${cible === 'dev' ? 'le déploiement' : 'la mise en production'} : seul le bouton de l’utilisateur le fait.`,
   ].join('\n');

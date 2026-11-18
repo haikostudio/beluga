@@ -20,6 +20,7 @@ import {
   cibleInterrompue,
   contenuAPublier,
   estReseauSocial,
+  memeCompteSocial,
   etatDuCompte,
   raisonDuBilan,
   raisonMediaManquant,
@@ -28,6 +29,18 @@ import {
   texteDuReseau,
   trierMessages,
   REPONSE_SOCIALE_MAX,
+  bilanDAudience,
+  jourDecale,
+  type EnAttenteSociale,
+  type PublicationChiffree,
+  type ReleveAudience,
+  type TuileDeReseau,
+  type VueDAudience,
+  candidatsDesPagesMeta,
+  projetDUnePageMeta,
+  raisonModerationImpossible,
+  type GesteDeModeration,
+  DUREE_ENVOI_CHROME_MAX_MS,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
@@ -57,6 +70,14 @@ import { type CompteTrouve, type ContexteCompte, type IdentifiantsApplication, t
  */
 
 /** L'adresse de retour de TOUTES les connexions : celle à déclarer dans chaque application développeur. */
+/** Les marques de Communication, lues à la source (sans passer par communication.ts, qui écrit en lisant). */
+function marquesDeCommunication(): { nom: string; principal: string | null; projets: string[] }[] {
+  const db = getDb();
+  const lignes = db.prepare('SELECT id, nom, projet_principal FROM communication_marques').all() as { id: string; nom: string; projet_principal: string | null }[];
+  const lire = db.prepare('SELECT project_id FROM communication_marque_projets WHERE marque_id = ?');
+  return lignes.map((m) => ({ nom: m.nom, principal: m.projet_principal, projets: (lire.all(m.id) as { project_id: string }[]).map((l) => l.project_id) }));
+}
+
 export function adresseDeRetour(): string {
   return `${adresseDeBeluga()}/m/oauth/retour`;
 }
@@ -114,9 +135,15 @@ interface LigneApplication {
   maj_le: number;
 }
 
+/** L'ID de la configuration de connexion unifiée Meta (Instagram sans page) : un réglage, pas un secret. */
+const CLE_CONFIG_CONNEXION = (app: ApplicationSociale) => `reseaux:${app}:config-connexion`;
+const configConnexion = (app: ApplicationSociale): string | undefined => (app === 'meta' ? getMeta(CLE_CONFIG_CONNEXION(app)) || undefined : undefined);
+
 function depuisLigneApplication(l: LigneApplication | undefined, app: ApplicationSociale): ApplicationDeveloppeur {
   if (!l) return { application: app, etat: 'absente', aUnSecret: false, majLe: 0 };
+  const config = configConnexion(app);
   return {
+    ...(config ? { configConnexion: config } : {}),
     application: app,
     etat: (ETATS_APPLICATION as readonly string[]).includes(l.etat) ? (l.etat as EtatApplication) : 'absente',
     clientId: l.client_id ?? undefined,
@@ -139,7 +166,8 @@ function identifiants(app: ApplicationSociale): IdentifiantsApplication {
   const l = getDb().prepare('SELECT * FROM marketing_applications WHERE application = ?').get(app) as LigneApplication | undefined;
   const secret = lireSecret(l?.secret_ref);
   if (!l?.client_id || !secret) throw new ErreurReseau('l’application de ce réseau n’a pas encore ses identifiants');
-  return { clientId: l.client_id, secret };
+  const config = configConnexion(app);
+  return { clientId: l.client_id, secret, ...(config ? { configConnexion: config } : {}) };
 }
 
 export type ResultatApplication = { ok: true; application: ApplicationDeveloppeur } | { ok: false; raison: string };
@@ -149,13 +177,19 @@ export type ResultatApplication = { ok: true; application: ApplicationDeveloppeu
  * de création (outil « marketing », action « application »). Le secret part au
  * coffre, jamais dans la table ; ce qui n'est pas redit est gardé.
  */
-export function ecrireApplication(entree: { application?: unknown; reseau?: unknown; clientId?: unknown; secret?: unknown; etat?: unknown; note?: unknown; cardId?: string | null }): ResultatApplication {
+export function ecrireApplication(entree: { application?: unknown; reseau?: unknown; clientId?: unknown; secret?: unknown; etat?: unknown; note?: unknown; cardId?: string | null; configConnexion?: unknown }): ResultatApplication {
   const app = (APPLICATIONS_SOCIALES as readonly string[]).includes(String(entree.application))
     ? (String(entree.application) as ApplicationSociale)
     : estReseauSocial(entree.reseau)
       ? FICHES_RESEAUX[entree.reseau].application
       : null;
   if (!app) return { ok: false, raison: 'Réseau ou application inconnus.' };
+  if (typeof entree.configConnexion === 'string') {
+    const config = entree.configConnexion.trim();
+    if (app !== 'meta') return { ok: false, raison: 'Seule l’application Meta a une configuration de connexion unifiée.' };
+    if (config && !/^\d{5,30}$/.test(config)) return { ok: false, raison: 'L’ID de configuration Meta est une suite de chiffres (Cas d’utilisation Instagram → connexion unifiée).' };
+    setMeta(CLE_CONFIG_CONNEXION(app), config);
+  }
   const avant = getDb().prepare('SELECT * FROM marketing_applications WHERE application = ?').get(app) as LigneApplication | undefined;
   const clientId = typeof entree.clientId === 'string' && entree.clientId.trim() ? entree.clientId.trim().slice(0, 300) : (avant?.client_id ?? null);
   let secretRef = avant?.secret_ref ?? null;
@@ -243,7 +277,35 @@ function depuisLigneCompte(l: LigneCompte): CompteSocial {
     erreur: l.erreur ?? undefined,
     creeLe: l.cree_le,
     majLe: l.maj_le,
+    mode: parChrome(l) ? 'chrome' : 'officiel',
   };
+}
+
+/** UN COMPTE PUBLIÉ PAR CHROME (09/11/2026) : relié sans jeton, son mode vit dans `details` — aucune colonne de plus. */
+function parChrome(l: Pick<LigneCompte, 'details'>): boolean {
+  return details(l as LigneCompte).mode === 'chrome';
+}
+
+/**
+ * RELIE UN COMPTE QUI PUBLIERA PAR CHROME (la voie officielle refusée, payante ou trop lente) : une ligne « relie » sans
+ * jeton, qui retient la personne dont le Chrome publiera et ce Chrome. Son identifiant distant est son nom : relier
+ * deux fois le même compte met la ligne à jour, jamais une seconde.
+ */
+export function relierParChrome(projectId: string, reseau: ReseauSocial, e: { nom: string; compteBeluga: string; appareilId?: string | null }, maintenant = Date.now()): CompteSocial {
+  if (!store.getProject(projectId)) throw new Error('projet introuvable');
+  const nom = e.nom.trim().slice(0, 160) || FICHES_RESEAUX[reseau].libelle;
+  const distant = `chrome:${nom.toLowerCase()}`;
+  const avant = getDb().prepare('SELECT id, cree_le FROM marketing_comptes WHERE project_id = ? AND reseau = ? AND distant_id = ?').get(projectId, reseau, distant) as { id: string; cree_le: number } | undefined;
+  const id = avant?.id ?? `sc_${crypto.randomBytes(6).toString('base64url')}`;
+  getDb()
+    .prepare(
+      `INSERT INTO marketing_comptes (id, project_id, reseau, distant_id, nom, avatar, etat, jeton_ref, rafraichissement_ref, expire_le, details, erreur, cree_le, maj_le)
+       VALUES (?, ?, ?, ?, ?, NULL, 'relie', NULL, NULL, NULL, ?, NULL, ?, ?)
+       ON CONFLICT(project_id, reseau, distant_id) DO UPDATE SET nom = excluded.nom, etat = 'relie', details = excluded.details, erreur = NULL, maj_le = excluded.maj_le`,
+    )
+    .run(id, projectId, reseau, distant, nom, JSON.stringify({ mode: 'chrome', compteBeluga: e.compteBeluga, appareilId: e.appareilId ?? null }), avant?.cree_le ?? maintenant, maintenant);
+  diffuser(projectId);
+  return lireCompte(id)!;
 }
 
 function ligneCompte(id: string): LigneCompte | undefined {
@@ -325,9 +387,26 @@ export function enregistrerComptes(projectId: string, trouves: CompteTrouve[], m
       )
       .run(id, projectId, t.reseau, t.distantId, t.nom.slice(0, 160), t.avatar ?? null, jetonRef, rafraichissementRef, t.jetons.expireLe ?? null, JSON.stringify(t.details ?? {}), avant?.cree_le ?? maintenant, maintenant);
     sortie.push(lireCompte(id)!);
+    ceder(projectId, t.reseau, t.nom, id);
   }
   diffuser(projectId);
   return sortie;
+}
+
+/**
+ * LA LIGNE « PAR CHROME » CÈDE LA PLACE À LA VOIE OFFICIELLE (12/11/2026) : relié faute de mieux par Chrome, un compte
+ * l'est ensuite par l'API (@belugabuild, par la connexion unifiée) ; ses envois en attente passent au compte officiel
+ * et la ligne Chrome s'en va — jamais deux fois la même marque sur un réseau (`memeCompteSocial`).
+ */
+function ceder(projectId: string, reseau: ReseauSocial, nom: string, versId: string): void {
+  const base = getDb();
+  const lignes = base.prepare("SELECT * FROM marketing_comptes WHERE project_id = ? AND reseau = ? AND distant_id LIKE 'chrome:%'").all(projectId, reseau) as LigneCompte[];
+  for (const l of lignes) {
+    if (!parChrome(l) || !memeCompteSocial(l.nom, nom)) continue;
+    base.prepare("UPDATE OR IGNORE marketing_publications SET compte_id = ? WHERE compte_id = ? AND etat != 'publie'").run(versId, l.id);
+    retirerCompte(l.id, projectId);
+    log.info(`réseaux : ${reseau} « ${l.nom} » relié par l’API, sa ligne par Chrome lui cède la place`);
+  }
 }
 
 /** RETIRE UN COMPTE : ses jetons partent aux archives du coffre, ses envois en attente et ses messages avec lui. */
@@ -353,7 +432,7 @@ export function retirerCompte(id: string, projectId?: string): { ok: boolean; ra
 /** RENOUVELLE L'ACCÈS d'un compte (et des comptes qui partagent son jeton). */
 export async function renouvelerCompte(id: string): Promise<void> {
   const l = ligneCompte(id);
-  if (!l) return;
+  if (!l || parChrome(l)) return;
   const reseau = l.reseau as ReseauSocial;
   const adaptateur = adaptateurDe(reseau);
   if (!adaptateur.rafraichir) return;
@@ -422,11 +501,44 @@ export async function terminerConnexion(params: URLSearchParams, maintenant = Da
   try {
     const trouves = await adaptateurDe(c.reseau).echangerCode({ app: identifiants(FICHES_RESEAUX[c.reseau].application), retour: adresseDeRetour(), code, verificateur: c.verificateur });
     if (!trouves.length) {
-      const quoi = c.reseau === 'instagram' ? 'aucun compte Instagram professionnel relié à une de vos pages Facebook' : c.reseau === 'facebook' ? 'aucune page Facebook' : 'aucun compte';
+      const quoi =
+        c.reseau === 'instagram'
+          ? identifiants('meta').configConnexion
+            ? 'aucun compte Instagram professionnel (choisissez-le dans la fenêtre de Meta, ou « Continuer avec Instagram »)'
+            : 'aucun compte Instagram professionnel relié à une de vos pages Facebook'
+          : c.reseau === 'facebook' ? 'aucune page Facebook' : 'aucun compte';
       return { ok: false, raison: `La connexion a marché, mais ce compte n’ouvre ${quoi}.`, projectId: c.projectId, reseau: c.reseau };
     }
-    const comptes = enregistrerComptes(c.projectId, trouves);
-    log.info(`réseaux : ${comptes.length} compte(s) ${c.reseau} relié(s) au projet ${c.projectId}`);
+    /* META : CHAQUE PAGE ET CHAQUE COMPTE INSTAGRAM VA À LA MARQUE DONT IL PORTE LE NOM (03/11/2026), le projet du
+       clic garde le reste ; les autres réseaux restent au projet du clic. */
+    const parProjet = new Map<string, CompteTrouve[]>();
+    const projets =
+      FICHES_RESEAUX[c.reseau].application === 'meta'
+        ? candidatsDesPagesMeta(
+            store.listProjects().filter((p) => !p.archived || p.marqueSansDepot).map((p) => ({ id: p.id, nom: p.name, regroupement: p.regroupement })),
+            marquesDeCommunication(),
+          )
+        : [];
+    /* UN COMPTE SANS PROJET À SON NOM n'est gardé par le projet du clic que si Meta n'en a rendu qu'un (12/11/2026). */
+    const ecartes: string[] = [];
+    for (const t of trouves) {
+      const cible = projets.length ? projetDUnePageMeta(t.nom ?? '', projets, c.projectId, trouves.length === 1) : c.projectId;
+      if (!cible) {
+        ecartes.push(t.nom ?? t.distantId);
+        continue;
+      }
+      parProjet.set(cible, [...(parProjet.get(cible) ?? []), t]);
+    }
+    if (!parProjet.size) {
+      return { ok: false, raison: `La connexion a marché, mais aucun des comptes rendus ne porte le nom d’un projet (${ecartes.join(', ')}).`.slice(0, 300), projectId: c.projectId, reseau: c.reseau };
+    }
+    if (ecartes.length) log.info(`réseaux : ${ecartes.length} compte(s) ${c.reseau} écarté(s), aucun projet à leur nom : ${ecartes.join(', ')}`);
+    const comptes = [...parProjet].flatMap(([projet, liste]) => {
+      const faits = enregistrerComptes(projet, liste);
+      if (projet !== c.projectId) diffuser(projet);
+      return faits;
+    });
+    log.info(`réseaux : ${trouves.length} compte(s) ${c.reseau} relié(s), répartis sur ${parProjet.size} projet(s) depuis ${c.projectId}`);
     return { ok: true, projectId: c.projectId, reseau: c.reseau, comptes };
   } catch (err: any) {
     log.warn(`réseaux : connexion ${c.reseau} impossible`, err?.message ?? err);
@@ -651,6 +763,17 @@ export async function publierContenu(contenuId: string, declencheur: 'programme'
         finir(contenuId, cible.compteId, { etat: 'echec', raison: manque });
         continue;
       }
+      if (parChrome(l)) {
+        /* PAR CHROME : un agent poste dans le Chrome retenu ; l'envoi reste « en cours » jusqu'à ce qu'il rende l'adresse
+           du post (`rendreEnvoiParChrome`). Chrome fermé : un départ programmé ATTEND (il repart à la réouverture), un
+           « Publier maintenant » le dit. */
+        const { envoyerParChrome } = await import('./publication-par-chrome.js');
+        const r = await envoyerParChrome({ contenu: c, compte, details: details(l), medias, texte: texteDuReseau(compte.reseau, c.texte, lien), lien: lien ?? c.lienCible ?? null });
+        if (r.parti) continue;
+        if (declencheur === 'programme') getDb().prepare("UPDATE marketing_publications SET etat = 'en_attente', tente_le = NULL WHERE contenu_id = ? AND compte_id = ? AND etat = 'en_cours'").run(contenuId, cible.compteId);
+        else finir(contenuId, cible.compteId, { etat: 'echec', raison: r.raison });
+        continue;
+      }
       try {
         const r = await adaptateurDe(compte.reseau).publier({
           app: identifiants(FICHES_RESEAUX[compte.reseau].application),
@@ -671,6 +794,25 @@ export async function publierContenu(contenuId: string, declencheur: 'programme'
     enVol.delete(contenuId);
     diffuser(c.projectId);
   }
+}
+
+/**
+ * L'AGENT QUI A PUBLIÉ PAR CHROME REND SON RÉSULTAT (outil « marketing », action « publication »). Seul un envoi
+ * « en cours » d'un compte Chrome de CE projet se clôt : un second rendu, ou un envoi déjà publié, est refusé — c'est
+ * ce qui empêche tout double envoi.
+ */
+export function rendreEnvoiParChrome(projectId: string, contenuId: string, compteId: string, r: { url?: string | null; echec?: string | null }): { ok: true } | { ok: false; raison: string } {
+  const l = ligneCompte(compteId);
+  if (!l || l.project_id !== projectId || !parChrome(l)) return { ok: false, raison: 'Ce compte ne publie pas par Chrome dans ce projet.' };
+  const p = getDb().prepare('SELECT etat FROM marketing_publications WHERE contenu_id = ? AND compte_id = ?').get(contenuId, compteId) as { etat: string } | undefined;
+  if (!p) return { ok: false, raison: 'Aucun envoi de ce contenu sur ce compte.' };
+  if (p.etat !== 'en_cours') return { ok: false, raison: p.etat === 'publie' ? 'Cet envoi est déjà publié : ne republie pas.' : 'Cet envoi n’est pas en cours.' };
+  const url = typeof r.url === 'string' && /^https?:\/\//.test(r.url.trim()) ? r.url.trim() : null;
+  if (url) finir(contenuId, compteId, { etat: 'publie', distantId: url, url });
+  else finir(contenuId, compteId, { etat: 'echec', raison: String(r.echec ?? '').trim() || 'L’agent n’a pas pu publier dans Chrome.' });
+  conclure(contenuId);
+  diffuser(projectId);
+  return { ok: true };
 }
 
 /** L'ÉTAPE DU CONTENU d'après ses envois : « Publié » quand tous sont partis, « En échec » (dit en clair) sinon. */
@@ -711,6 +853,7 @@ interface LigneMessage {
   contenu_id: string | null;
   brouillon: string | null;
   url: string | null;
+  masque_le?: number | null;
 }
 
 function depuisLigneMessage(l: LigneMessage): MessageSocial {
@@ -729,6 +872,7 @@ function depuisLigneMessage(l: LigneMessage): MessageSocial {
     contenuId: l.contenu_id ?? undefined,
     brouillon: l.brouillon ?? undefined,
     url: l.url ?? undefined,
+    masqueLe: l.masque_le ?? undefined,
   };
 }
 
@@ -757,7 +901,7 @@ export async function releverCompte(id: string, maintenant = Date.now()): Promis
   const l = ligneCompte(id);
   if (!l) return 0;
   const compte = depuisLigneCompte(l);
-  if (compte.etat !== 'relie') return 0;
+  if (compte.etat !== 'relie' || parChrome(l)) return 0;
   const fiche = FICHES_RESEAUX[compte.reseau];
   const adaptateur = adaptateurDe(compte.reseau);
   let nouveaux = 0;
@@ -858,6 +1002,35 @@ export async function repondre(messageId: string, texte: unknown, projectId?: st
   }
 }
 
+/**
+ * MASQUER OU SUPPRIMER UN COMMENTAIRE REÇU (décision de l'utilisateur du 04/11/2026) — seulement là où le réseau le
+ * permet (`raisonModerationImpossible`, shared/src/moderation-commentaires.ts), et seulement sur le clic de
+ * l'utilisateur. Masqué, le commentaire reste dans la page, marqué ; supprimé, il disparaît aussi d'ici.
+ */
+export async function modererCommentaire(messageId: string, geste: GesteDeModeration): Promise<{ ok: true } | { ok: false; raison: string }> {
+  const m = getDb().prepare('SELECT * FROM marketing_messages WHERE id = ?').get(messageId) as LigneMessage | undefined;
+  if (!m) return { ok: false, raison: 'Commentaire introuvable.' };
+  if (m.genre !== 'commentaire' || m.sortant) return { ok: false, raison: 'Seul un commentaire reçu se masque ou se supprime.' };
+  const l = ligneCompte(m.compte_id);
+  if (!l) return { ok: false, raison: 'Ce compte a été retiré.' };
+  const reseau = l.reseau as ReseauSocial;
+  const refus = raisonModerationImpossible(reseau, geste);
+  if (refus) return { ok: false, raison: refus };
+  const adaptateur = adaptateurDe(reseau);
+  const faire = geste === 'masquer' ? adaptateur.masquerCommentaire : adaptateur.supprimerCommentaire;
+  if (!faire) return { ok: false, raison: raisonModerationImpossible(reseau, geste) ?? 'Geste indisponible.' };
+  try {
+    await faire.call(adaptateur, { app: identifiants(FICHES_RESEAUX[reseau].application), ctx: contexte(l), message: { distantId: m.distant_id, fil: m.fil } });
+  } catch (err: any) {
+    if (err instanceof ErreurReseau && err.aRelier) marquerCompte(l.id, 'a_relier', String(err.message));
+    return { ok: false, raison: `${FICHES_RESEAUX[reseau].libelle} a refusé : ${err?.message ?? err}`.slice(0, 400) };
+  }
+  if (geste === 'supprimer') getDb().prepare('DELETE FROM marketing_messages WHERE id = ?').run(messageId);
+  else getDb().prepare('UPDATE marketing_messages SET masque_le = ?, lu = 1 WHERE id = ?').run(Date.now(), messageId);
+  diffuser(m.project_id);
+  return { ok: true };
+}
+
 /** L'AGENT PROPOSE une réponse : elle attend sous le message, jamais envoyée sans le bouton. */
 export function proposerReponse(messageId: string, texte: unknown, projectId: string): ResultatReponse {
   const m = getDb().prepare('SELECT * FROM marketing_messages WHERE id = ?').get(messageId) as LigneMessage | undefined;
@@ -883,9 +1056,12 @@ const RELEVE_MS = 10 * 60_000;
  */
 export async function tourDePublication(maintenant = Date.now(), releve = false): Promise<number> {
   const base = getDb();
-  const coupes = (base.prepare("SELECT * FROM marketing_publications WHERE etat = 'en_cours'").all() as LignePublication[]).filter((l) =>
-    cibleInterrompue({ etat: 'en_cours', tenteLe: l.tente_le ?? undefined }, maintenant),
-  );
+  /* Un envoi PAR CHROME est un agent qui travaille : il a droit à plus de temps qu'un appel d'API. */
+  const coupes = (base.prepare("SELECT * FROM marketing_publications WHERE etat = 'en_cours'").all() as LignePublication[]).filter((l) => {
+    const compte = ligneCompte(l.compte_id);
+    if (compte && parChrome(compte)) return !l.tente_le || maintenant - l.tente_le > DUREE_ENVOI_CHROME_MAX_MS;
+    return cibleInterrompue({ etat: 'en_cours', tenteLe: l.tente_le ?? undefined }, maintenant);
+  });
   for (const l of coupes) {
     finir(l.contenu_id, l.compte_id, { etat: 'echec', raison: 'Envoi interrompu (redémarrage) : vérifiez sur le réseau s’il est paru avant de relancer.' });
     conclure(l.contenu_id);
@@ -903,12 +1079,165 @@ export async function tourDePublication(maintenant = Date.now(), releve = false)
     if (r.ok) envoyes += 1;
   }
 
-  const comptes = base.prepare("SELECT * FROM marketing_comptes WHERE etat = 'relie'").all() as LigneCompte[];
+  /* L'ALERTE « CHROME FERMÉ », une heure avant un envoi par Chrome. */
+  try {
+    const { veillerLesEnvoisParChrome } = await import('./publication-par-chrome.js');
+    await veillerLesEnvoisParChrome(maintenant);
+  } catch (err) {
+    log.warn('réseaux : veille des envois par Chrome impossible', String(err));
+  }
+
+  /* Un compte publié par Chrome n'a ni jeton à renouveler ni interface à relever. */
+  const comptes = (base.prepare("SELECT * FROM marketing_comptes WHERE etat = 'relie'").all() as LigneCompte[]).filter((l) => !parChrome(l));
   for (const l of comptes) {
     if (aRenouveler(depuisLigneCompte({ ...l }), maintenant)) await renouvelerCompte(l.id);
   }
-  if (releve) for (const l of comptes) await releverCompte(l.id, maintenant);
+  if (releve) {
+    for (const l of comptes) {
+      await releverCompte(l.id, maintenant);
+      await releverAudience(l.id, maintenant);
+    }
+  }
   return envoyes;
+}
+
+/* ------------------------------------------------------------------ */
+/* L'audience : un relevé par jour, puis des bilans                     */
+/* ------------------------------------------------------------------ */
+
+/** Les publications dont on suit les chiffres : assez pour la plus longue période et sa comparaison. */
+const PUBLICATIONS_CHIFFREES_JOURS = 180;
+
+function jourLocal(instant: number): string {
+  const d = new Date(instant);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * RELÈVE L'AUDIENCE D'UN COMPTE, UNE FOIS PAR JOUR (le minuteur repasse toutes
+ * les dix minutes : le relevé du jour déjà écrit l'arrête). Un refus du réseau
+ * ne touche JAMAIS à l'état du compte : la relève des messages s'en charge déjà,
+ * et un droit « chiffres » manquant n'empêche ni de publier ni de répondre.
+ * Rend vrai si un relevé a été écrit.
+ */
+export async function releverAudience(id: string, maintenant = Date.now()): Promise<boolean> {
+  const l = ligneCompte(id);
+  if (!l) return false;
+  const compte = depuisLigneCompte(l);
+  const adaptateur = adaptateurDe(compte.reseau);
+  if (compte.etat !== 'relie' || parChrome(l) || !adaptateur.lireStatistiques) return false;
+  const jour = jourLocal(maintenant);
+  const base = getDb();
+  if (base.prepare("SELECT 1 FROM marketing_audience WHERE compte_id = ? AND publication = '' AND jour = ?").get(id, jour)) return false;
+  try {
+    const publications = base
+      .prepare("SELECT distant_id AS distantId, contenu_id AS contenuId FROM marketing_publications WHERE compte_id = ? AND etat = 'publie' AND distant_id IS NOT NULL AND publie_le > ?")
+      .all(id, maintenant - PUBLICATIONS_CHIFFREES_JOURS * 86_400_000) as { distantId: string; contenuId: string }[];
+    const lus = await adaptateur.lireStatistiques({ app: identifiants(FICHES_RESEAUX[compte.reseau].application), ctx: contexte(l), publications });
+    const contenus = new Map(publications.map((p) => [p.distantId, p.contenuId]));
+    const ecrire = base.prepare(
+      `INSERT OR REPLACE INTO marketing_audience (compte_id, project_id, reseau, publication, contenu_id, jour, abonnes, vues, commentaires, reactions, releve_le)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    base.transaction(() => {
+      ecrire.run(id, l.project_id, compte.reseau, '', null, jour, lus.abonnes, null, null, null, maintenant);
+      for (const p of lus.publications) {
+        ecrire.run(id, l.project_id, compte.reseau, p.distantId, contenus.get(p.distantId) ?? null, jour, null, p.vues, p.commentaires, p.reactions, maintenant);
+      }
+    })();
+    diffuser(l.project_id);
+    return true;
+  } catch (err: any) {
+    log.warn(`réseaux : relevé d'audience impossible (${compte.reseau})`, err?.message ?? err);
+    return false;
+  }
+}
+
+interface LigneAudience {
+  compte_id: string;
+  publication: string;
+  contenu_id: string | null;
+  jour: string;
+  abonnes: number | null;
+  vues: number | null;
+  commentaires: number | null;
+  reactions: number | null;
+}
+
+const versReleve = (l: LigneAudience): ReleveAudience => ({
+  compteId: l.compte_id,
+  publication: l.publication,
+  jour: l.jour,
+  abonnes: l.abonnes,
+  vues: l.vues,
+  commentaires: l.commentaires,
+  reactions: l.reactions,
+});
+
+function enAttenteDuProjet(projectId: string): EnAttenteSociale {
+  const base = getDb();
+  const messages = base.prepare('SELECT genre, COUNT(*) AS n FROM marketing_messages WHERE project_id = ? AND lu = 0 AND sortant = 0 GROUP BY genre').all(projectId) as { genre: string; n: number }[];
+  const contenus = base.prepare("SELECT COUNT(*) AS n FROM marketing_contenus WHERE project_id = ? AND etape = 'a_valider'").get(projectId) as { n: number };
+  return {
+    messages: messages.filter((m) => m.genre !== 'commentaire').reduce((s, m) => s + m.n, 0),
+    commentaires: messages.filter((m) => m.genre === 'commentaire').reduce((s, m) => s + m.n, 0),
+    contenus: contenus.n,
+  };
+}
+
+/** LA VUE D'ENSEMBLE D'UN PROJET : ce qui attend, le bilan de la période, une tuile par compte, ses publications. */
+export function vueDAudienceDuProjet(projectId: string, periode: number, maintenant = Date.now()): VueDAudience {
+  const aujourdhui = jourLocal(maintenant);
+  /* Deux périodes, plus de quoi connaître le compteur à la veille de la première. */
+  const depuis = jourDecale(aujourdhui, -(periode * 2 + 370));
+  const lignes = getDb().prepare('SELECT * FROM marketing_audience WHERE project_id = ? AND jour >= ?').all(projectId, depuis) as LigneAudience[];
+  const releves = lignes.map(versReleve);
+  const reseaux = listerComptes(projectId).map((c): TuileDeReseau => {
+    const duCompte = releves.filter((r) => r.compteId === c.id);
+    return {
+      compteId: c.id,
+      reseau: c.reseau,
+      nom: c.nom,
+      ouvert: !!adaptateurDe(c.reseau).lireStatistiques,
+      releve: duCompte.length > 0,
+      bilan: bilanDAudience(duCompte, periode, aujourdhui),
+    };
+  });
+  /* Le dernier relevé de chaque publication, les plus récemment publiées d'abord. */
+  const publications = getDb()
+    .prepare(
+      `SELECT p.contenu_id AS contenuId, c.titre AS titre, p.reseau AS reseau, p.url AS url, p.publie_le AS publieLe, a.vues AS vues, a.commentaires AS commentaires, a.reactions AS reactions
+       FROM marketing_publications p
+       JOIN marketing_contenus c ON c.id = p.contenu_id
+       LEFT JOIN marketing_audience a ON a.compte_id = p.compte_id AND a.publication = p.distant_id
+         AND a.jour = (SELECT MAX(jour) FROM marketing_audience b WHERE b.compte_id = p.compte_id AND b.publication = p.distant_id)
+       WHERE c.project_id = ? AND p.etat = 'publie'
+       ORDER BY p.publie_le DESC LIMIT 12`,
+    )
+    .all(projectId) as PublicationChiffree[];
+  return { periode, attente: enAttenteDuProjet(projectId), bilan: bilanDAudience(releves, periode, aujourdhui), reseaux, publications };
+}
+
+/** L'ACCUEIL DU SERVICE : les mêmes chiffres, tous projets confondus, puis un résumé par projet. */
+export function vueDAudienceDesProjets(projets: readonly { projectId: string; nom: string; actif?: boolean }[], periode: number, maintenant = Date.now()): VueDAudience {
+  const aujourdhui = jourLocal(maintenant);
+  const vues = projets.map((p) => ({ projet: p, vue: vueDAudienceDuProjet(p.projectId, periode, maintenant) }));
+  const ids = new Set(projets.map((p) => p.projectId));
+  const lignes = (getDb().prepare('SELECT * FROM marketing_audience WHERE jour >= ?').all(jourDecale(aujourdhui, -(periode * 2 + 370))) as (LigneAudience & { project_id: string })[]).filter((l) => ids.has(l.project_id));
+  return {
+    periode,
+    attente: vues.reduce<EnAttenteSociale>(
+      (t, { vue }) => ({ messages: t.messages + vue.attente.messages, commentaires: t.commentaires + vue.attente.commentaires, contenus: t.contenus + vue.attente.contenus }),
+      { messages: 0, commentaires: 0, contenus: 0 },
+    ),
+    bilan: bilanDAudience(lignes.map(versReleve), periode, aujourdhui),
+    reseaux: vues.flatMap(({ vue }) => vue.reseaux),
+    publications: vues
+      .flatMap(({ vue }) => vue.publications)
+      .sort((a, b) => (b.publieLe ?? 0) - (a.publieLe ?? 0))
+      .slice(0, 12),
+    projets: vues.map(({ projet, vue }) => ({ projectId: projet.projectId, nom: projet.nom, actif: projet.actif !== false, comptes: vue.reseaux.length, attente: vue.attente, bilan: vue.bilan })),
+  };
 }
 
 /** Démarre le minuteur (chaque minute ; la relève toutes les dix). `BELUGA_PUBLICATION_SOCIALE=0` le coupe. */

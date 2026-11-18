@@ -12,6 +12,7 @@
  * navigateur — sans cela, l'ancien continuerait de recevoir les alertes du
  * nouveau.
  */
+import { CLE_ABONNEMENT_IPHONE, plateformeNative } from '@/lib/natif';
 
 /** La clé publique VAPID arrive en base64url : le navigateur veut des octets. */
 function enOctets(base64: string): ArrayBuffer {
@@ -121,6 +122,11 @@ export type EtatDeCetAppareil =
   | { etat: 'active'; endpoint: string };
 
 export async function etatDeCetAppareil(): Promise<EtatDeCetAppareil> {
+  /* L'APPLICATION IPHONE reçoit ses notifications par APNs (`lib/natif.ts`) : son abonnement est celui du jeton. */
+  if (plateformeNative() === 'ios') {
+    const endpoint = window.localStorage.getItem(CLE_ABONNEMENT_IPHONE);
+    return endpoint ? { etat: 'active', endpoint } : { etat: 'eteinte' };
+  }
   const surIphone = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   const installee =
     (navigator as { standalone?: boolean }).standalone === true ||

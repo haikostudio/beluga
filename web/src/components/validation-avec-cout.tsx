@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -10,7 +10,7 @@ import { useClasseDuCadreDeQuestion } from '@/lib/cadre-de-question';
  * (27/10/2026, captures #ca355 : l'ancien bloc « Devis » empilait tableau,
  * total, mode d'emploi, champ de réponse et quatre boutons pour un seul clic).
  *
- * Un titre, une ligne de description, « Valider · prix » et « Refuser ». Rien
+ * Un titre, une ligne de description, « Générer · prix » et « Refuser ». Rien
  * d'autre : pour changer quelque chose, on l'écrit dans le champ principal de
  * la conversation. Le composant ne connaît aucun chemin réseau — ce que valent
  * « valider » et « refuser » arrive par `onValider` et `onRefuser` — : il sert
@@ -28,9 +28,21 @@ export function ValidationAvecCout({
   repere,
   onValider,
   onRefuser,
+  ligne,
+  note,
+  bloque = false,
 }: {
   titre: string;
   description?: string;
+  /**
+   * LA LIGNE SOUS LE TITRE, QUAND ELLE EST UN CHOIX (01/11/2026, maquette #81ce) : le menu des modèles d'une
+   * génération remplace la description. Absente : la description en texte, comme avant.
+   */
+  ligne?: React.ReactNode;
+  /** Une ligne discrète de plus (« Conseillé à la place de Kling 3.0 : … »). */
+  note?: string | null;
+  /** Le bouton qui valide est retenu (un changement de modèle est en route). */
+  bloque?: boolean;
   /** Le coût déjà écrit (« 0,09 $ », « prix non publié »), posé dans le bouton. Vide : « Valider » seul. */
   cout?: string | null;
   entete?: React.ReactNode;
@@ -62,9 +74,16 @@ export function ValidationAvecCout({
       <p className={cn('text-[14px] font-medium leading-snug text-text', entete ? 'mt-1.5' : undefined)} data-validation-titre="">
         {titre}
       </p>
-      {description ? (
+      {ligne ? (
+        <div className="mt-0.5 min-w-0">{ligne}</div>
+      ) : description ? (
         <p className="mt-0.5 truncate text-[12.5px] text-faint" title={description} data-validation-description="">
           {description}
+        </p>
+      ) : null}
+      {note ? (
+        <p className="mt-0.5 text-[12.5px] leading-snug text-faint" data-validation-note="">
+          {note}
         </p>
       ) : null}
       {onValider || onRefuser ? (
@@ -75,12 +94,12 @@ export function ValidationAvecCout({
               size="sm"
               data-valider-avec-cout=""
               aria-busy={enVol === 'valider'}
-              disabled={!!enVol}
+              disabled={!!enVol || bloque}
               onClick={() => void agir('valider')}
               className="gap-1 bg-accent text-accent-fg hover:opacity-90"
             >
               {enVol === 'valider' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              {enVol === 'valider' ? t('Validation lancée…') : cout ? t('Valider · {cout}', { cout }) : t('Valider')}
+              {enVol === 'valider' ? t('Génération lancée…') : cout ? t('Générer · {prix}', { prix: cout }) : t('Valider')}
             </Button>
           ) : null}
           {onRefuser ? (

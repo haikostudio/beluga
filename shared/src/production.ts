@@ -257,6 +257,14 @@ export function lotValideParLaReponse(reponse: string | undefined): boolean {
   return /^\s*(valider|lancer|accepter|oui|g[ée]n[ée]rer)(?![a-zà-ÿ])/i.test(reponse ?? '');
 }
 
+/** LA RÉPONSE QUI ARRÊTE « Quelle version gardez-vous ? » : rien n'est validé, l'agent ne propose rien d'autre (01/11/2026). */
+export const OPTION_ARRET_DU_CHOIX = 'Aucune, on arrête là';
+
+/** La réponse à un choix de version demande-t-elle d'arrêter ? Le libellé, ou la même chose écrite à la main. */
+export function choixArrete(reponse: string | undefined): boolean {
+  return /^\s*(aucune|on arr[êe]te|arr[êe]te|stop)(?![a-zà-ÿ])/i.test(reponse ?? '');
+}
+
 /** Le bouton d'une génération d'une création de média : son prix dessus, un clic vaut accord (26/10/2026). */
 export const REPONSE_GENERER_LE_LOT = 'Générer';
 
@@ -297,6 +305,11 @@ export const DevisDeLaQuestion = z.object({
    * propre bouton « Générer · prix » — un clic vaut accord et lance le lot.
    */
   bouton: z.boolean().optional(),
+  /**
+   * LE MODÈLE CONSEILLÉ À LA PLACE DE CELUI UTILISÉ JUSTE AVANT (01/11/2026) : « Conseillé à la place de Kling 3.0 :
+   * … », une ligne discrète de l'encart (`noteDuModeleConseille`). Absente quand l'agent repart du même modèle.
+   */
+  conseil: z.string().max(240).optional(),
 });
 export type DevisDeLaQuestion = z.infer<typeof DevisDeLaQuestion>;
 
@@ -332,18 +345,43 @@ export function descriptionDUneGeneration(lignes: DevisDeLaQuestion['lignes']): 
 
 /**
  * UNE VALIDATION DE GÉNÉRATION N'ARRÊTE PAS L'AGENT (27/10/2026). Le bouton
- * « Valider · prix » d'une création de média se tranche côté démon, au clic
+ * « Générer · prix » d'une création de média se tranche côté démon, au clic
  * (`trancherLeLotDuClic`), sans réponse à rendre à un tour : plusieurs
  * peuvent donc rester ouvertes à la fois — une par plan, posées d'un coup — et
  * aucune ne ferme la barre d'écriture. Toute autre question bloque (DEC-026).
  */
-export function validationNonBloquante(question: { devis?: { bouton?: boolean } | null } | null | undefined): boolean {
-  return !!question?.devis?.bouton;
+export function validationNonBloquante(
+  question: { devis?: { bouton?: boolean } | null; placeDuMedia?: unknown; depenseDuFil?: unknown; gesteAValider?: unknown; relaiDe?: unknown } | null | undefined,
+): boolean {
+  /* « Remplacer ou ajouter ? » d'un média validé : posée par le démon, tranchée au clic, aucun tour ne l'attend (31/10/2026).
+     Un geste préparé par un agent (publication, réponse au client) et le miroir d'un bouton à prix du Studio aussi (02/11/2026). */
+  return !!question?.devis?.bouton || !!question?.placeDuMedia || !!question?.depenseDuFil || !!question?.gesteAValider || !!question?.relaiDe;
+}
+
+/**
+ * LA VOIX FINALE ET LE PERSONNAGE 3D SE PROPOSENT DANS LA CONVERSATION
+ * (01/11/2026) : même encart et même règle qu'un lot — un clic sur « Générer ·
+ * prix » lance, « Refuser » ne dépense rien, personne n'est réveillé. La voix
+ * garde son plafond VU pour refuser un prix qui a monté (`validerVoixFinales`) ;
+ * le 3D renvoie à sa dépense déjà posée.
+ */
+export const DepenseDuFil = z.object({
+  genre: z.enum(['voix', 'modele3d']),
+  creationId: z.string(),
+  plafond: z.number().nullable(),
+  depenseId: z.string().optional(),
+  refaire: z.boolean().optional(),
+});
+export type DepenseDuFil = z.infer<typeof DepenseDuFil>;
+
+/** Seul le bouton lance : le libellé EXACT « Générer », jamais une phrase écrite qui lui ressemblerait. */
+export function depenseAccordeeParLaReponse(reponse: string | undefined): boolean {
+  return reponse === REPONSE_GENERER_LE_LOT;
 }
 
 /**
  * LA QUESTION D'UNE GÉNÉRATION D'UNE CRÉATION DE MÉDIA (26/10/2026) : pas de
- * choix à cocher, le devis porte son bouton « Valider · prix » — un clic vaut
+ * choix à cocher, le devis porte son bouton « Générer · prix » — un clic vaut
  * accord et lance la génération ; « Refuser » ne dépense rien.
  *
  * ALLÉGÉE (27/10/2026) : un titre, UNE ligne de description (le modèle et le
@@ -356,14 +394,14 @@ export function questionDUneGeneration(e: {
   titre: string;
   lignes: DevisDeLaQuestion['lignes'];
   depense: number;
+  conseil?: string | null;
 }): { question: string; description: string; options: { label: string; description: string }[]; devis: DevisDeLaQuestion } {
   const { connu, sansPrix } = totalDuLot(e.lignes);
-  const n = e.lignes.length;
   return {
     question: `Générer « ${e.titre} » ?`,
     description: descriptionDUneGeneration(e.lignes),
     options: [],
-    devis: { lotId: e.lotId, titre: e.titre, lignes: e.lignes, total: connu, sansPrix, budget: null, depense: e.depense, bouton: true },
+    devis: { lotId: e.lotId, titre: e.titre, lignes: e.lignes, total: connu, sansPrix, budget: null, depense: e.depense, bouton: true, ...(e.conseil ? { conseil: e.conseil.slice(0, 240) } : {}) },
   };
 }
 
@@ -771,4 +809,26 @@ export interface EtatDeProduction {
   medias: MediaDuSuivi[];
   budget: number | null;
   depense: number;
+  /**
+   * LE FILM DE LA CARTE, QUAND IL VIT AU STUDIO (15/11/2026, capture #abd87) : les images et extraits réellement posés
+   * sur sa ligne de temps (montrés sous « Esquisses »), puis les exports finis du film (sous « Montage »). Absent pour
+   * une carte sans création au Studio.
+   */
+  film?: FilmDeLaCarte;
+}
+
+/** Une pièce du film de la carte : son fichier, son genre, son nom lisible. */
+export interface PieceDuFilm {
+  attachmentId: string;
+  genre: 'image' | 'video' | 'son';
+  nom: string;
+}
+
+export interface FilmDeLaCarte {
+  /** La version courante du montage. */
+  version: number;
+  /** Les médias posés sur la ligne de temps de la version courante, sans doublon, dans l'ordre d'apparition. */
+  posees: PieceDuFilm[];
+  /** Les exports finis du film, du plus récent au plus ancien. */
+  exports: (PieceDuFilm & { version: number; duree?: number })[];
 }

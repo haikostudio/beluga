@@ -2,7 +2,7 @@
  * LE VOLET DE DROITE DEVIENT UNE FEUILLE DU BAS SUR TÉLÉPHONE (demande du
  * 25/10/2026, capture #f41f) : tout ce que l'ordinateur ouvre à droite de la
  * conversation — plan, suivi de production, montage, aperçu du site — monte
- * sur téléphone dans un tiroir haut, la conversation restant visible derrière
+ * sur téléphone dans un tiroir haut, la conversation restant montée derrière
  * un voile. Jamais plus en page entière.
  *
  * Ce n'est PAS le `Drawer feuille` des écrans : celui-ci démonte son contenu
@@ -11,33 +11,37 @@
  * dans le fil). La page de la carte habille donc son propre volet — le même
  * élément sur ordinateur et sur téléphone — avec ce cadre-ci.
  *
- * On le referme en touchant le voile, en tirant la poignée (ou la bande du
- * haut) vers le bas, par Échap, ou par la flèche de l'en-tête de la page. Le
- * glissement ne part JAMAIS du contenu : le Studio de montage y a ses propres
- * gestes.
+ * On le referme en touchant le voile, en tirant la poignée vers le bas — au
+ * doigt, toute la bande des 100 px du haut, comme toute feuille
+ * (`useGlisserPourFermer`, demande du 31/10/2026) —, par Échap, ou par la
+ * flèche de l'en-tête de la page. Plus bas, le doigt reste au contenu : le
+ * Studio de montage y a ses propres gestes.
  */
 import * as React from 'react';
-import { X } from 'lucide-react';
+import { X } from '@/components/ui/icones';
+import { CLASSE_BARRE_DE_PRISE, CLASSE_COINS_DE_FEUILLE, CLASSE_PRISE_DE_FEUILLE, HAUTEUR_DE_FEUILLE_HAUTE } from '@/components/ui';
+import { useGlisserPourFermer } from '@/lib/glisser-pour-fermer';
+import { useVoileAffiche } from '@/lib/barre-de-l-heure';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 
-/** La hauteur de la feuille : haute, mais elle laisse voir la page au-dessus. */
-const HAUTEUR_DE_FEUILLE = 'calc(92dvh - var(--clavier, 0px))';
+/** La hauteur de la feuille : au même niveau que le menu principal, juste sous la barre de l'heure. */
+const HAUTEUR_DE_FEUILLE = HAUTEUR_DE_FEUILLE_HAUTE;
 
 /** Les classes du cadre posé sur le volet quand il est une feuille. */
-export const CLASSE_FEUILLE_DU_VOLET =
-  'fixed inset-x-0 z-50 flex flex-col overflow-hidden rounded-t-xl bg-surface shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)] animate-slide-sheet';
+export const CLASSE_FEUILLE_DU_VOLET = cn(
+  'fixed inset-x-0 z-50 flex flex-col overflow-hidden bg-surface shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)] animate-slide-sheet',
+  CLASSE_COINS_DE_FEUILLE,
+);
 
 export function useFeuilleDuVolet(ouverte: boolean, onFermer: () => void) {
-  const [decalage, setDecalage] = React.useState(0);
-  const depart = React.useRef<number | null>(null);
   const fermer = React.useRef(onFermer);
   fermer.current = onFermer;
+  const glisser = useGlisserPourFermer(() => fermer.current(), ouverte);
 
   React.useEffect(() => {
     if (!ouverte) return;
-    setDecalage(0);
     const touche = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       /* Une fenêtre ou un menu posés PAR-DESSUS (visionneuse, menu « … ») prennent
@@ -49,43 +53,23 @@ export function useFeuilleDuVolet(ouverte: boolean, onFermer: () => void) {
     return () => window.removeEventListener('keydown', touche);
   }, [ouverte]);
 
-  const tirer = {
-    onPointerDown: (event: React.PointerEvent) => {
-      if ((event.target as Element).closest('button:not([data-poignee-du-volet])')) return;
-      depart.current = event.clientY;
-      try {
-        (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
-      } catch {
-        /* rien à capturer : les écouteurs suffisent */
-      }
-    },
-    onPointerMove: (event: React.PointerEvent) => {
-      if (depart.current === null) return;
-      setDecalage(Math.max(0, event.clientY - depart.current));
-    },
-    onPointerUp: () => {
-      if (depart.current === null) return;
-      depart.current = null;
-      const tire = decalage;
-      setDecalage(0);
-      if (tire > 110) fermer.current();
-    },
-  };
-
   const style: React.CSSProperties = {
     bottom: 'var(--clavier, 0px)',
     height: HAUTEUR_DE_FEUILLE,
-    paddingBottom: 'var(--zone-sure-bas, 0px)',
-    transform: decalage ? `translateY(${decalage}px)` : undefined,
-    transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+    paddingBottom: 'var(--marge-bas-hors-clavier, 0px)',
+    /* La feuille a compté la marche du bas : son contenu ne la recompte pas. */
+    ['--marche-du-bas' as string]: '0px',
+    ['--pied-natif' as string]: 'var(--pied-natif-dedans)',
     ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
   };
 
-  return { tirer, style };
+  /** `feuille` se pose sur l'élément de la feuille : sa bande du haut se tire au doigt. */
+  return { tirer: glisser.poignee, style, feuille: glisser.feuille };
 }
 
 /** Le voile derrière la feuille : un appui le referme, rien de dessous ne réagit. */
 export function VoileDuVolet({ onFermer }: { onFermer: () => void }) {
+  useVoileAffiche();
   return (
     <div
       data-voile-tiroir
@@ -101,43 +85,29 @@ export function VoileDuVolet({ onFermer }: { onFermer: () => void }) {
 }
 
 /**
- * La bande du haut de la feuille : la poignée au centre, et une croix à droite
- * quand le document n'a pas déjà la sienne (le plan en porte une).
+ * La bande du haut de la feuille : la poignée au centre, et RIEN d'autre. La
+ * feuille n'existe que sur téléphone, où AUCUN tiroir ne porte de croix
+ * (31/10/2026, capture #ecc5) : on la referme en la tirant, par le voile ou
+ * par la poignée touchée.
  */
 export function PoigneeDuVolet({
   tirer,
   onFermer,
-  croix,
 }: {
   tirer: ReturnType<typeof useFeuilleDuVolet>['tirer'];
   onFermer: () => void;
-  croix: boolean;
 }) {
   return (
     <div
       {...tirer}
-      onPointerCancel={tirer.onPointerUp}
+      onPointerDown={(event) => {
+        tirer.onPointerDown(event);
+      }}
       data-bande-du-volet
-      className="relative flex h-8 shrink-0 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+      data-poignee-tiroir
+      className={cn(CLASSE_PRISE_DE_FEUILLE, 'relative h-8 items-center')}
     >
-      <button
-        type="button"
-        data-poignee-du-volet
-        aria-label="Fermer"
-        onClick={onFermer}
-        className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text"
-      />
-      {croix ? (
-        <button
-          type="button"
-          data-fermer-le-volet
-          aria-label="Fermer"
-          onClick={onFermer}
-          className="absolute right-2 top-1 flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-raised hover:text-text"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      ) : null}
+      <button type="button" data-poignee-du-volet aria-label="Fermer" onClick={onFermer} className={CLASSE_BARRE_DE_PRISE} />
     </div>
   );
 }
@@ -147,8 +117,8 @@ export function PoigneeDuVolet({
  * fermer le volet, et ça doit être le cas pour tous les volets que tu ouvres à
  * droite »). La même que celle du plan (`data-fermer-le-plan`), posée au bout
  * de la ligne de titre du suivi, des studios photo et son et de la page
- * Téléchargement. Sur téléphone, le volet est une feuille du bas dont la bande
- * porte déjà sa croix (`PoigneeDuVolet`) : celle-ci ne s'y montre pas.
+ * Téléchargement. Sur téléphone, le volet est une feuille du bas, sans croix
+ * (`PoigneeDuVolet`) : celle-ci ne s'y montre pas.
  */
 export function CroixDuVolet({ genre, onFermer, className }: { genre: string; onFermer: () => void; className?: string }) {
   const telephone = useTelephone();

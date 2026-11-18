@@ -51,7 +51,27 @@ export const ACTIONS_AVEC_PROFIL: readonly EtapeParcours['action'][] = ['aller',
 /* Le modèle                                                            */
 /* ------------------------------------------------------------------ */
 
-export type EtatVeille = 'en_cours' | 'levee' | 'expiree' | 'abandonnee';
+/* « attend_deploiement » (carte « Communication 2 : finitions et chats », décision de l'utilisateur) : la veille d'un
+   travail FINI ne court pas encore — la carte part « À déployer », et la veille s'arme une fois la carte en ligne. */
+export type EtatVeille = 'en_cours' | 'levee' | 'expiree' | 'abandonnee' | 'attend_deploiement';
+
+/**
+ * LE MOMENT D'UNE VEILLE. « pour-continuer » (défaut, et toute veille d'avant) : l'agent attend un tiers pour
+ * POURSUIVRE — la carte se met en pause sur place, la levée le relance. « apres-deploiement » : le travail est FINI et
+ * la veille contrôle son résultat EN LIGNE — la carte se range normalement (« À déployer »), la veille s'arme au
+ * déploiement (ou au rangement en « Archivé » d'un projet sans déploiement), et sa levée NOTE le constat sans relancer
+ * l'agent ni déplacer la carte (« Archivé » et « À déployer » ne se rouvrent que sur un geste humain).
+ */
+export type MomentDeVeille = 'pour-continuer' | 'apres-deploiement';
+
+export function lireMomentDeVeille(v: unknown): MomentDeVeille {
+  return v === 'apres-deploiement' ? 'apres-deploiement' : 'pour-continuer';
+}
+
+/** La veille d'après déploiement peut-elle s'armer ? Sa carte est en ligne, ou rangée sans déploiement. */
+export function carteEnLignePourLaVeille(card: { column: string; deployedAt?: number | null } | null | undefined): boolean {
+  return !!card && (!!card.deployedAt || card.column === 'archived');
+}
 
 /**
  * QUAND LE BLOCAGE EST-IL LEVÉ ?
@@ -97,6 +117,8 @@ export interface VeilleDeCarte {
   questionMessageId?: string;
   /** Quand la veille a cessé de courir ; absente tant qu'elle court. */
   termineA?: number;
+  /** Absent : « pour-continuer » (les veilles d'avant gardent leur comportement). */
+  moment?: MomentDeVeille;
 }
 
 /**
@@ -110,6 +132,7 @@ export interface ResumeDeVeille {
   echeance: number;
   prochainControleA?: number;
   dernierControle?: ControleDeVeille;
+  moment?: MomentDeVeille;
 }
 
 /* ------------------------------------------------------------------ */
@@ -155,9 +178,11 @@ export function veilleEchue(veille: Pick<VeilleDeCarte, 'etat' | 'echeance'>, ma
  * garde la rangée habituelle : son arrêt doit rester à portée.
  */
 export function veilleTientLaRangee(
-  veille: Pick<ResumeDeVeille, 'etat'> | null | undefined,
+  veille: Pick<ResumeDeVeille, 'etat' | 'moment'> | null | undefined,
   agentAuTravail: boolean,
 ): boolean {
+  /* La veille d'après déploiement ne tient jamais la rangée : la carte est rangée, la veille n'est qu'un contrôle. */
+  if (veille?.moment === 'apres-deploiement') return false;
   return !agentAuTravail && (veille?.etat === 'en_cours' || veille?.etat === 'expiree');
 }
 
@@ -248,6 +273,7 @@ export function resumeDeVeille(veille: VeilleDeCarte): ResumeDeVeille {
     echeance: veille.echeance,
     ...(veille.etat === 'en_cours' ? { prochainControleA: veille.prochainControleA } : {}),
     ...(veille.dernierControle ? { dernierControle: veille.dernierControle } : {}),
+    ...(veille.moment === 'apres-deploiement' ? { moment: veille.moment } : {}),
   };
 }
 
@@ -299,6 +325,46 @@ export function messageDeBlocageLeve(raison: string): string {
   return `Le blocage est levé : ${raison}. La veille l’a constaté par son contrôle. Reprends la tâche là où tu t’étais arrêté.`;
 }
 
+/** La note écrite dans le fil quand la veille d'après déploiement passe : un constat, sans relance. */
+export function noteDeControlePasse(raison: string): string {
+  return `Contrôle passé après la mise en ligne : ${raison}. La veille s’arrête ; rien d’autre n’est à faire.`;
+}
+
+/**
+ * LA RÉPARATION D'UNE VEILLE EN PANNE (décision du 11/11/2026) : le bouton
+ * « Demander à l'agent de réparer » relance l'agent avec ce message. Jamais de
+ * relance automatique sur panne : l'agent ne travaille qu'au clic. La recette
+ * citée est TOUJOURS celle de `recetteAffichable` (aucune valeur saisie).
+ */
+export function messageDeReparation(veille: Pick<VeilleDeCarte, 'raison' | 'recette' | 'dernierControle'>, heure: string): string {
+  const recette = recetteAffichable(veille.recette);
+  const ce =
+    recette.recette.type === 'parcours'
+      ? `le parcours sur ${recette.url} (${recette.recette.etapes.length} étape(s))`
+      : `l’adresse ${recette.url}${recette.recette.type === 'appel' ? ' (appel direct)' : ''}`;
+  const detail = veille.dernierControle?.detail ? ` Détail du dernier contrôle (${heure}) : ${veille.dernierControle.detail}.` : ` Dernier contrôle : ${heure}.`;
+  return (
+    `Ta veille « ${veille.raison} » est EN PANNE : son contrôle n’arrive plus à joindre ce qu’il surveille, ${ce}.${detail} ` +
+    `L’utilisateur te demande de la réparer : regarde pourquoi ce contrôle échoue (service arrêté, adresse changée, page modifiée, session expirée), ` +
+    `relance ou remplace ce qu’elle interroge, puis repose la veille par « veille_poser » avec une recette qui passe. ` +
+    `Si ce qu’elle attendait est déjà arrivé, dis-le et reprends la tâche.`
+  );
+}
+
+/** Ce que l'écran dit après « Vérifier maintenant », selon l'issue rendue. */
+export type ResultatDeVerification = { genre: 'info' | 'success' | 'error'; texte: string; detail?: string };
+export function resultatDeVerification(issue: IssueDeControle | undefined, detail?: string): ResultatDeVerification {
+  if (issue === 'levee') return { genre: 'success', texte: 'C’est arrivé : l’agent reprend la tâche.' };
+  if (issue === 'pas-encore') return { genre: 'info', texte: 'Vérifié : rien de nouveau pour l’instant.' };
+  if (issue === 'panne') return { genre: 'error', texte: 'Le contrôle n’arrive plus à joindre ce qu’il surveille.', ...(detail ? { detail } : {}) };
+  return { genre: 'info', texte: 'Contrôle fait.' };
+}
+
+/** Le bouton de réparation : une veille qui court ET dont le DERNIER contrôle est en panne. */
+export function veilleAReparer(veille: Pick<ResumeDeVeille, 'etat' | 'dernierControle'> | null | undefined): boolean {
+  return !!veille && veille.etat === 'en_cours' && veille.dernierControle?.issue === 'panne';
+}
+
 /** Le message qui relance l'agent à la demande de l'utilisateur, à l'échéance. */
 export function messageDeRelanceApresEcheance(raison: string): string {
   return `La veille « ${raison} » est arrivée à échéance sans que son contrôle passe. L’utilisateur te demande de reprendre : regarde toi-même où en est le blocage, puis poursuis ou dis ce qui manque.`;
@@ -309,7 +375,7 @@ export function messageDeRelanceApresEcheance(raison: string): string {
  * extérieure se confie à une veille, jamais à « relancez-moi dans une heure ».
  */
 export const CONSIGNE_DE_LA_VEILLE =
-  'ATTENTE EXTÉRIEURE : si tu dépends d’un tiers qui doit valider, propager ou répondre (profil vérifié par un réseau, domaine, revue d’une boutique…), ne demande pas à l’utilisateur de te relancer. Pose une veille avec « veille_poser » : un contrôle gratuit et sans secret, essayé d’abord, qui te relance seul quand il passe (48 h au plus). Puis termine ton tour par une phrase courte qui dit ce qu’on attend.';
+  'ATTENTE EXTÉRIEURE : si tu dépends d’un tiers qui doit valider, propager ou répondre (profil vérifié par un réseau, domaine, revue d’une boutique…), ne demande pas à l’utilisateur de te relancer. Pose une veille avec « veille_poser » : un contrôle gratuit et sans secret, essayé d’abord, qui te relance seul quand il passe (48 h au plus). Ton travail est FINI et la veille ne fait que contrôler son résultat une fois en ligne : « moment: apres-deploiement » — la carte part « À déployer » et la veille démarre au déploiement. Puis termine ton tour par une phrase courte qui dit ce qu’on attend.';
 
 /* ------------------------------------------------------------------ */
 /* Le service « Tâches récurrentes »                                    */
@@ -352,40 +418,4 @@ export function recetteAffichable(recette: RecetteDeVeille): RecetteDeVeille {
       etapes: recette.recette.etapes.map((e) => (e.action === 'remplir' ? { action: 'remplir', selecteur: e.selecteur } : e)),
     },
   };
-}
-
-export interface ProjetDeVeilles {
-  projectId: string | null;
-  actives: VeilleListee[];
-  historique: VeilleListee[];
-}
-
-/**
- * RANGER LES VEILLES PAR PROJET (décision du 22/10/2026 : les actives en
- * haut, les terminées dessous dans « Historique »). Dans un projet, les
- * actives viennent par prochain contrôle, l'historique du plus récent au plus
- * ancien. Les projets qui ont une veille active passent devant, puis par
- * dernière activité. Une veille dont la carte a disparu se range sous
- * `projectId: null`, en dernier.
- */
-export function rangerLesVeillesParProjet(veilles: readonly VeilleListee[]): ProjetDeVeilles[] {
-  const parProjet = new Map<string | null, ProjetDeVeilles>();
-  for (const v of veilles) {
-    const groupe = parProjet.get(v.projectId) ?? { projectId: v.projectId, actives: [], historique: [] };
-    (veilleActive(v) ? groupe.actives : groupe.historique).push(v);
-    parProjet.set(v.projectId, groupe);
-  }
-  const finDe = (v: VeilleListee) => v.termineA ?? v.dernierControle?.a ?? v.creeA;
-  const activite = (g: ProjetDeVeilles) =>
-    Math.max(0, ...g.actives.map((v) => v.dernierControle?.a ?? v.creeA), ...g.historique.map(finDe));
-  const groupes = [...parProjet.values()];
-  for (const g of groupes) {
-    g.actives.sort((a, b) => (a.prochainControleA ?? a.echeance) - (b.prochainControleA ?? b.echeance));
-    g.historique.sort((a, b) => finDe(b) - finDe(a));
-  }
-  return groupes.sort((a, b) => {
-    if ((a.projectId === null) !== (b.projectId === null)) return a.projectId === null ? 1 : -1;
-    if (!!a.actives.length !== !!b.actives.length) return a.actives.length ? -1 : 1;
-    return activite(b) - activite(a);
-  });
 }

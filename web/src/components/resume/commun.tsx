@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useProjetDuService } from '@/components/projet-du-service';
 import { couleurIntensite, FUSEAU, periodePartielle, type ResumeDeRubrique, type RubriqueDuResume } from '@beluga/shared';
 import { BulleInfo } from '@/components/ui';
 import { SilhouetteRubrique } from '@/components/silhouettes';
@@ -30,17 +31,19 @@ export function useResume<R extends ResumeDeRubrique>(
   fin: number,
 ): { donnees: R | null; erreur: boolean } {
   const [etat, setEtat] = React.useState<{ donnees: R | null; erreur: boolean }>({ donnees: null, erreur: false });
+  /* DANS UN PROJET (l'accueil d'un projet, ou son onglet « Résumé ») : ses chiffres seulement (13/11/2026). */
+  const projectId = useProjetDuService()?.id;
   React.useEffect(() => {
     let vivant = true;
     setEtat({ donnees: null, erreur: false });
     client
-      .call({ type: 'stats.resume', rubrique, debut, fin }, 120000)
+      .call({ type: 'stats.resume', rubrique, debut, fin, ...(projectId ? { projectId } : {}) }, 120000)
       .then((data) => vivant && setEtat({ donnees: data as R, erreur: false }))
       .catch(() => vivant && setEtat({ donnees: null, erreur: true }));
     return () => {
       vivant = false;
     };
-  }, [rubrique, debut, fin]);
+  }, [rubrique, debut, fin, projectId]);
   return etat;
 }
 
@@ -89,7 +92,7 @@ function AvisDePeriode({ donnees }: { donnees: ResumeDeRubrique }) {
 /* ------------------------------------------------------------------ */
 
 export function Tuiles({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{children}</div>;
+  return <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" data-chiffres-cles>{children}</div>;
 }
 
 export function Tuile({

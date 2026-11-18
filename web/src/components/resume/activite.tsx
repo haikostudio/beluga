@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Activity, BookOpen, Clock, Gauge, History, ListChecks, Repeat, TrendingUp } from 'lucide-react';
+import { useProjetDuService } from '@/components/projet-du-service';
+import { Activity, BookOpen, Clock, Gauge, History, ListChecks, Repeat, TrendingUp } from '@/components/ui/icones';
 import {
   couleurIntensite,
   type MesureDeTache,
@@ -48,6 +49,8 @@ import {
 export function RubriqueEnsemble({ debut, fin }: ProprietesDeRubrique) {
   const etat = useResume<ResumeEnsemble>('ensemble', debut, fin);
   const state = useApp();
+  /* Dans un projet, le classement des projets n'a qu'une ligne : il ne s'affiche pas. */
+  const dansUnProjet = !!useProjetDuService();
   const [taille, setTaille] = useTailleDePage();
   return (
     <EtatDeRubrique etat={etat}>
@@ -62,18 +65,22 @@ export function RubriqueEnsemble({ debut, fin }: ProprietesDeRubrique) {
                 icone={<Clock className="h-3.5 w-3.5" />}
                 titre={t('Temps de travail')}
                 valeur={dureeEnClair(d.secondes)}
-                dessous={t('Cumul des agents, tous projets')}
+                dessous={dansUnProjet ? t('Cumul des agents sur ce projet') : t('Cumul des agents, tous projets')}
                 repere="temps"
               />
               <Tuile
                 icone={<ListChecks className="h-3.5 w-3.5" />}
                 titre={t('Tâches exécutées')}
                 valeur={nombre(d.taches)}
-                dessous={t('{v0} projet{v1} concerné{v2}', {
-                  v0: d.projets.length,
-                  v1: d.projets.length > 1 ? 's' : '',
-                  v2: d.projets.length > 1 ? 's' : '',
-                })}
+                dessous={
+                  dansUnProjet
+                    ? t('sur la période')
+                    : t('{v0} projet{v1} concerné{v2}', {
+                        v0: d.projets.length,
+                        v1: d.projets.length > 1 ? 's' : '',
+                        v2: d.projets.length > 1 ? 's' : '',
+                      })
+                }
                 repere="taches"
               />
               <Tuile
@@ -105,6 +112,7 @@ export function RubriqueEnsemble({ debut, fin }: ProprietesDeRubrique) {
               />
             </Section>
 
+            {dansUnProjet ? null : (
             <Section titre={t('Projets les plus travaillés')} icone={<Gauge className="h-3.5 w-3.5 text-faint" />}>
               <TableauDeDonnees
                 repere="projets"
@@ -137,6 +145,7 @@ export function RubriqueEnsemble({ debut, fin }: ProprietesDeRubrique) {
                 ]}
               />
             </Section>
+            )}
           </>
         );
       }}

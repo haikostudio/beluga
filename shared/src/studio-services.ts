@@ -24,7 +24,7 @@ import { KIE_API, MODELES_KIE, lireCommandeKie, lireSuiviKie, modeleKie, requete
  * (`SERVICES_CACHES`, `shared/src/services-de-generation.ts`) : leur entrée
  * reste ici, prête à être rallumée.
  */
-export const IDS_SERVICES_CREATION = ['kie', 'higgsfield', 'byteplus', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter'] as const;
+export const IDS_SERVICES_CREATION = ['kie', 'higgsfield', 'byteplus', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter', 'meshy'] as const;
 export type IdServiceCreation = (typeof IDS_SERVICES_CREATION)[number];
 
 export type RatioClip = '16:9' | '9:16' | '1:1';
@@ -161,6 +161,15 @@ export const SERVICES_CREATION: readonly ServiceDeCreation[] = [
     champs: CLE,
     modeles: [],
   },
+  {
+    /* LE SERVICE 3D DU STUDIO (01/11/2026) : personnages 3D animés, payés en crédits prépayés. CE NOM EXACT retrouve la fiche « Studio — Meshy ». */
+    id: 'meshy',
+    nom: 'Meshy',
+    description: 'Personnages 3D animés d’après une image (modèle, squelette et mouvements), payés en crédits Meshy.',
+    adresseCle: 'https://www.meshy.ai/developers/keys',
+    champs: CLE,
+    modeles: [],
+  },
 ];
 
 export function serviceDeCreation(id: unknown): ServiceDeCreation | undefined {
@@ -260,6 +269,8 @@ export function requeteDeTest(service: IdServiceCreation, cle: string): RequeteH
     fal: 'https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai/veo3/fast',
     replicate: 'https://api.replicate.com/v1/account',
     openrouter: 'https://openrouter.ai/api/v1/key',
+    // Le solde : gratuit, 401 sur une fausse clé.
+    meshy: 'https://api.meshy.ai/openapi/v1/balance',
   };
   return { methode: 'GET', adresse: adresse[service], entetes };
 }
@@ -340,6 +351,8 @@ export function requeteDeCreation(service: IdServiceCreation, modele: string, cl
       };
     case 'openrouter':
       throw new Error('OpenRouter ne fabrique pas d’extrait par cette voie');
+    case 'meshy':
+      throw new Error('Meshy ne fabrique que des personnages 3D (action « modele3d » du Studio)');
   }
 }
 

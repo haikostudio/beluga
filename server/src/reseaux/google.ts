@@ -1,5 +1,5 @@
 import { DROITS_DEMANDES } from '@beluga/shared';
-import { type Adaptateur, type IdentifiantsApplication, type Jetons, type MessageRelu, ErreurReseau, adresse, appel, echeance, formulaire, instantDe, lireOctets, premierMedia } from './commun.js';
+import { chiffre, type Adaptateur, type IdentifiantsApplication, type Jetons, type MessageRelu, ErreurReseau, adresse, appel, echeance, formulaire, instantDe, lireOctets, premierMedia } from './commun.js';
 
 /**
  * YOUTUBE ET LA FICHE GOOGLE (Business Profile) — une seule application Google.
@@ -77,6 +77,35 @@ export const youtube: Adaptateur = {
     return { distantId: fin.corps.id, url: `https://www.youtube.com/watch?v=${fin.corps.id}` };
   },
 
+  async lireStatistiques({ ctx, publications }) {
+    const abonnes = await chiffre(async () => {
+      const r = await appel<{ items?: { statistics?: { subscriberCount?: string; hiddenSubscriberCount?: boolean } }[] }>(
+        adresse('https://www.googleapis.com/youtube/v3/channels', { part: 'statistics', id: ctx.distantId }),
+        { headers: auth(ctx.jeton) },
+      );
+      const s = r.corps.items?.[0]?.statistics;
+      return s && !s.hiddenSubscriberCount ? (s.subscriberCount ?? null) : null;
+    });
+    const lignes = [];
+    /* L'interface prend cinquante vidéos à la fois. */
+    for (let i = 0; i < publications.length; i += 50) {
+      const lot = publications.slice(i, i + 50);
+      let items: { id: string; statistics?: { viewCount?: string; commentCount?: string; likeCount?: string } }[] = [];
+      try {
+        const r = await appel<{ items?: typeof items }>(adresse('https://www.googleapis.com/youtube/v3/videos', { part: 'statistics', id: lot.map((p) => p.distantId).join(',') }), { headers: auth(ctx.jeton) });
+        items = r.corps.items ?? [];
+      } catch {
+        /* Non fournis. */
+      }
+      for (const p of lot) {
+        const s = items.find((v) => v.id === p.distantId)?.statistics;
+        const nombre = (v: string | undefined) => (v === undefined ? null : Number(v));
+        lignes.push({ distantId: p.distantId, vues: nombre(s?.viewCount), commentaires: nombre(s?.commentCount), reactions: nombre(s?.likeCount) });
+      }
+    }
+    return { abonnes, publications: lignes };
+  },
+
   async lireCommentaires({ ctx, publications }) {
     const sortie: MessageRelu[] = [];
     for (const p of publications) {
@@ -108,6 +137,14 @@ export const youtube: Adaptateur = {
       body: JSON.stringify({ snippet: { parentId: message.distantId, textOriginal: texte } }),
     });
     return { distantId: r.corps.id };
+  },
+
+  /* YouTube Data API : le statut « rejected » retire le commentaire de la vue publique (le propriétaire de la chaîne). */
+  async masquerCommentaire({ ctx, message }) {
+    await appel(adresse('https://www.googleapis.com/youtube/v3/comments/setModerationStatus', { id: message.distantId, moderationStatus: 'rejected' }), {
+      method: 'POST',
+      headers: auth(ctx.jeton),
+    });
   },
 };
 

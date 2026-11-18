@@ -1,5 +1,8 @@
 import * as React from 'react';
 
+/** Posé par la seule mesure du clavier (`app.tsx`) quand `--clavier` change. */
+export const EVENEMENT_MESURE_DU_CLAVIER = 'beluga:mesure-du-clavier';
+
 /** Le temps de passer au champ suivant avant de tout retirer (`focusout`). */
 const DELAI_DE_RETRAIT_MS = 150;
 /** Deux lignes : le champ ne descend jamais plus bas, même sous un très grand clavier. */
@@ -24,6 +27,8 @@ const BANDE_DE_FIL = 64;
  * Aucun second suivi du clavier : on lit `--clavier`, la seule mesure de
  * l'application, une image APRÈS que `app.tsx` l'a posée (ses écouteurs sont
  * branchés après les nôtres : un effet d'enfant passe avant celui du parent).
+ * Cette mesure peut changer sans qu'aucun de nos événements ne parte (clavier
+ * remonté sans `resize`) : elle le signale par `EVENEMENT_MESURE_DU_CLAVIER`.
  */
 export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTMLElement | null>, cle?: string) {
   React.useEffect(() => {
@@ -79,6 +84,7 @@ export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTML
     vue?.addEventListener('resize', plusTard);
     vue?.addEventListener('scroll', plusTard);
     window.addEventListener('resize', plusTard);
+    window.addEventListener(EVENEMENT_MESURE_DU_CLAVIER, plusTard);
     noeud.addEventListener('focusin', entree);
     noeud.addEventListener('focusout', sortie);
     noeud.addEventListener('input', plusTard);
@@ -88,6 +94,7 @@ export function useEcritureAuClavier(actif: boolean, ecran: React.RefObject<HTML
       vue?.removeEventListener('resize', plusTard);
       vue?.removeEventListener('scroll', plusTard);
       window.removeEventListener('resize', plusTard);
+      window.removeEventListener(EVENEMENT_MESURE_DU_CLAVIER, plusTard);
       noeud.removeEventListener('focusin', entree);
       noeud.removeEventListener('focusout', sortie);
       noeud.removeEventListener('input', plusTard);

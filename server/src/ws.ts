@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { chercherDesFichiers, lireLaCorbeille, lireLeDossier, mettreALaCorbeille, projetsRanges, rangerLesFichiers, renommerUnFichier, restaurerUnFichier } from './fichiers-ranges.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   evenementSansEntretienInvisible,
@@ -48,11 +49,11 @@ import {
   cadrageRouvertApresRapport,
   iterationAFermer,
   carteEnCadrage,
-  allumerLeCahierToutSeul,
   raisonDAttendreLeLancement,
   suiteDuPlanAttendu,
   questionsSansReponse,
   consigneDeDemandeComplexe,
+  consigneDeLaQuestionDeMode,
   jugerLaComplexite,
   messageDeLaCarteVaAuCadrage,
   messageOuvreUneNouvelleCarte,
@@ -90,19 +91,24 @@ import {
   commandeAutorisee,
   estCollaborateur,
   peutVoirProjet,
+  CARTES_DE_LA_RECHERCHE_DE_COLONNE,
   evenementAutorise,
   evenementOuvertParUnService,
   commandeOuverteAuCompte,
+  trierLaRechercheGlobale,
+  type ResultatDeRechercheGlobale,
   type CompteUtilisateur,
   fusionDesProcedures,
   PROJET_DU_COFFRE,
-  EDITION_EN_FILE_PERIMEE_MS,
   lireSourceFournie,
   type SourceDuClonage,
+  texteDeReponseTardive,
+  titreDEtape,
 } from '@beluga/shared';
 import { compteEstSuperAdministrateur } from './super-admin.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { agirSurLaBranche, branchesDeLaCarte } from './gestion-de-branche.js';
+import { viderLaFileEnRendant } from './file-rendue.js';
 import * as store from './store.js';
 import { machineHebergee } from './offre-hebergee.js';
 import { evenementPourCollaborateur, refusDeLaCommande, reponsePourLeCollaborateur } from './vue-collaborateur.js';
@@ -163,6 +169,7 @@ import {
 import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, basculerVoie, connexionsEnCours, demarrerConnexion, envoyerCode, recevoirAdresseDeRetour, reprendreConnexion } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
+import { noterLInterlocuteur } from './interlocuteur.js';
 import { repondreErreurDeTour } from './erreur-de-tour.js';
 import { supprimerLaCarteSiVide } from './carte-vide.js';
 import { supprimerLaCarte } from './suppression-carte.js';
@@ -176,6 +183,7 @@ import {
   comptesOccupes,
   isRunning,
   brancherFinDeTourDeCadrage,
+  brancherFinDeTourDeTache,
   agentsActifs,
   reprendreLaFile,
 } from './runtime.js';
@@ -196,6 +204,7 @@ import {
   lireLeDocumentDuProjet,
   mettreEnPause,
   ouvrirLeCahierDesCharges,
+  rattraperLaDemandeDeLaSuite,
   reprendre,
 } from './cahier-des-charges.js';
 import {
@@ -228,6 +237,8 @@ import {
 } from './regroupements.js';
 import { appliquerChiffrageDiscute, ecartChiffrage, startCard, tick, validerCarte, validerLaComprehension } from './scheduler.js';
 import { createCard } from './tools.js';
+import { chartesDuDepot, poserLEtatDeLaCharte } from './chartes.js';
+import { carteDeCharteOuverte, poserLaCarteDeCharte } from './chartes-de-projets.js';
 import { iconeManquante, recupererFaviconEnTache } from './favicon.js';
 import {
   deployableCards,
@@ -243,6 +254,9 @@ import {
   avertissementsDeLaSelection,
   etatDeLaProduction,
   depotsTouchesParLesCartes,
+  tachesAMettreEnProduction,
+  publicationsEnAttente,
+  verifierLaMiseEnProductionPartielle,
 } from './deploy.js';
 import { reconcilierLaCarte } from './rattrapage-ecartee.js';
 import { mettreLaCarteEnPause, rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
@@ -283,7 +297,6 @@ function etatDuCoffre() {
 }
 
 import { phrasePourLEcran } from './explication-d-erreur.js';
-import { enregistrerNote, listerNotes, piecesDesNotes, supprimerNote } from './notes.js';
 import { etatDuJuge, listerLesTraces, testerLaCle } from './jugement-rapide.js';
 import {
   ajouterSite,
@@ -372,7 +385,7 @@ import {
   ordreDeMoteursComplet,
 } from '@beluga/shared';
 import { createHash } from 'node:crypto';
-import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee, ligneDeFermetureDuCanal } from '@beluga/shared';
+import { SERVICE_DU_DIRECTEUR, estPeriodeAudience, PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee, ligneDeFermetureDuCanal } from '@beluga/shared';
 import { estFinie, peutEtreRangee, validationNonBloquante } from '@beluga/shared';
 import { detailPourCetEcran, elargirLePerimetre } from './perimetre-ecran.js';
 import { consigneAjoutDeMoteur, rappelAjoutDeMoteur } from '@beluga/shared';
@@ -388,15 +401,17 @@ import {
 import { competencesAExplorer, dossierDesCompetences, lirePool, modeDEmploiDeLaFiche } from './competences.js';
 import { nomsSemes } from './semis-competences.js';
 import { relevesDesCommandes } from './commandes-slash.js';
-import { scanProjects, registerProject, createProjectFolder } from './projects.js';
+import { scanProjects, registerProject, creerProjetLeger, createProjectFolder, type EtapeCreation, type SurProgresDuMontage } from './projects.js';
 import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
 import { etatDesCategories, exporterDonnees, importerDonnees, lireDepot } from './export-donnees.js';
-import { digestText, listVoices, raisonDeLaVoixMuette } from './voice.js';
 import { notify } from './notify.js';
 import { attacherLaVoieDuTerminal } from './ws-terminal.js';
+import { attacherLaVoieChrome, verifierLaVoie } from './extension-chrome.js';
+import { ROUTE_WS_CHROME } from '@beluga/shared';
 import { log } from './logger.js';
+import { modeDejaConfirme } from './mode-de-la-carte.js';
 
 /**
  * LE CANAL TEMPS RÉEL PART COMPRESSÉ. Tout ce que l'écran reçoit passe par
@@ -425,9 +440,25 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
   // l'application (`server/src/ws-terminal.ts`).
   const wssTerminal = attacherLaVoieDuTerminal();
 
+  /* LA VOIE DE L'EXTENSION CHROME : sa propre salle, gardée par la clé SIGNÉE de l'appareil — jamais par le témoin
+     de session (`server/src/extension-chrome.ts`). */
+  const wssChrome = attacherLaVoieChrome();
+
   server.on('upgrade', (req, socket, head) => {
     if (!req.url?.startsWith('/ws')) {
       socket.destroy();
+      return;
+    }
+    if (req.url.split('?')[0] === ROUTE_WS_CHROME) {
+      const params = new URL(req.url, 'http://local').searchParams;
+      const porte = verifierLaVoie({ id: params.get('id'), ts: params.get('ts'), sig: params.get('sig') });
+      const titulaire = porte ? compteParId(porte.compteId) : null;
+      if (!porte || !titulaire || !titulaire.actif) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      wssChrome.handleUpgrade(req, socket, head, (ws) => wssChrome.emit('connection', ws, req, porte));
       return;
     }
     const compte = identiteDeLaRequete(req);
@@ -493,8 +524,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
      * qui a demandé cette conversation. Tout le reste part comme avant.
      */
     const perimetre = { projet: null as string | null, agents: new Set<string>(), cartes: new Set<string>() };
-    /* LE SUPER ADMINISTRATEUR SE RECONNAÎT UNE FOIS, À LA CONNEXION, POUR CE COMPTE (`shared/src/studio-reserve.ts`). */
-    const studioOuvert = compteEstSuperAdministrateur(compte);
+    /* LE STUDIO EST UN SERVICE COMME LES AUTRES (décision du 30/10/2026) : ouvert à l'administrateur connecté, plus au seul super administrateur. */
+    const studioOuvert = compte.role === 'admin';
     const send = (brut: ServerEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (!evenementAutorise(compte.role, brut.type) && !evenementOuvertParUnService(compte, brut.type)) return;
@@ -594,10 +625,9 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       });
       ws.on('close', () => {
         unsubscribe();
-        /* Le canal parti ne tient plus ses modifications : le délai court depuis maintenant. */
-        for (const agentId of store.lacherLesEditionsDuCanal(ws)) {
-          setTimeout(() => reprendreLaFile(agentId), EDITION_EN_FILE_PERIMEE_MS + 1_000).unref?.();
-        }
+        /* Le canal parti NE LÂCHE AUCUNE MODIFICATION (04/11/2026) : une demande
+           ouverte dans la barre d'écriture reste retenue jusqu'à « Enregistrer »
+           ou « Annuler », quel que soit l'écran qui revient. */
       });
       ws.on('error', () => unsubscribe());
       return;
@@ -653,6 +683,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       studioOuvert,
       offreHebergee: machineHebergee(),
       role: compte.role === 'membre' || compte.role === 'lecteur' ? compte.role : 'admin',
+      compte: { id: compte.id, nomAffiche: compte.nomAffiche || compte.identifiant, prenom: compte.prenom ?? '' },
       settings: store.getSettings(),
       prefs,
       projects: projets,
@@ -669,6 +700,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         agentsDuPremierEnvoi(store.agentsActifsOuRecents(Date.now() - FRAICHEUR_AGENT_MS), null, Date.now()),
       ),
       productions: store.productionsAAfficher(Date.now()),
+      deploiements: store.deploiementsAAfficher(Date.now()),
       openedProjectId: projetOuvert ?? undefined,
     });
 
@@ -679,6 +711,13 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     void import('./veille-de-carte.js')
       .then(({ compterLesVeillesActives }) => send({ type: 'veilles.compte', actives: compterLesVeillesActives(), a: Date.now() }))
       .catch((err) => log.warn('compte des veilles indisponible', err?.message ?? err));
+    /* Les soldes des services d'IA DÉJÀ relevés (point orange du pied de colonne) : jamais un relevé ici. */
+    void import('./services-ia-releve.js')
+      .then(({ dernierReleveDesServicesIa }) => {
+        const releve = dernierReleveDesServicesIa();
+        if (releve) send({ type: 'servicesIa', ...releve });
+      })
+      .catch((err) => log.warn('soldes des services d’IA indisponibles', err?.message ?? err));
 
     // Ce qui manquait au premier envoi arrive dès qu'il est prêt, par les
     // événements que l'interface écoute déjà. Une panne ici n'a jamais empêché
@@ -947,6 +986,10 @@ export async function demanderLePlan(cardId: string): Promise<{ ok: true; numero
  */
 /* Branché sur la fin de CHAQUE tour de cadrage (`runtime.ts`) : pas par
    `onComplete`, qui retirerait la demande de la file d'attente faute de quota. */
+/* LE MODE AUTO RELIT LE BILAN DE CHAQUE TOUR DE TÂCHE (`mode-auto.ts`) : rien, une relance, ou l'arrêt. */
+brancherFinDeTourDeTache((cardId, agentId, ok, debut) => {
+  void import('./mode-auto.js').then(({ apresLeTourDeTache }) => apresLeTourDeTache(cardId, agentId, ok, debut));
+});
 brancherFinDeTourDeCadrage((cardId, agentId, ok) => {
   const parcours = store.getCard(cardId)?.parcours;
   /* UNE CRÉATION DE MÉDIA NE SE LANCE JAMAIS D'ELLE-MÊME (26/10/2026) : le
@@ -971,6 +1014,8 @@ async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: 
   const raison = raisonDAttendreLeLancement({
     actif: true,
     tourReussi: tourReussi && !isRunning(agentId),
+    /* UN MESSAGE ATTEND SON TOUR (DEC-486) : il passe avant le lancement ; la fin de son tour rappellera. */
+    fileNonVide: store.listQueue(agentId).length > 0 || agentsActifs().includes(agentId),
     ...(comprise?.texte?.trim() ? { comprehensionAt: comprise.at } : {}),
     questionEnAttente,
     planSouhaite: !!card.parcours.planSouhaite,
@@ -1022,14 +1067,13 @@ async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: 
 }
 
 /**
- * UNE DEMANDE COMPLEXE ALLUME LE « CAHIER DES CHARGES » (`shared/src/demande-complexe.ts`).
- *
- * Sur un message de cadrage jugé complexe, l'interrupteur s'allume tout seul —
- * une seule fois, et jamais s'il a déjà été touché à la main — et le tour
- * emporte la consigne qui fait poser davantage de questions. Rend cette
- * consigne, ou rien.
+ * LA QUESTION DE MODE ET L'INDICE DE COMPLEXITÉ (11/11/2026). Les interrupteurs du champ ont disparu : au PREMIER tour
+ * d'une carte en cadrage qui n'a ni mode ni compréhension, l'agent reçoit la consigne de la question de mode
+ * (`consigneDeLaQuestionDeMode`) ; une demande jugée complexe n'allume plus le plan toute seule, elle fait
+ * RECOMMANDER le plan dans cette question. Le plan confirmé garde la consigne des questions d'une demande complexe.
+ * Rend la consigne, ou rien.
  */
-function allumerSurDemandeComplexe(
+function consigneDuModeEtDeLaComplexite(
   agent: { role: string; cardId?: string },
   texte: string,
   nombreDeJointes: number,
@@ -1037,22 +1081,14 @@ function allumerSurDemandeComplexe(
   if (agent.role !== 'cadrage' || !agent.cardId) return undefined;
   const card = store.getCard(agent.cardId);
   if (!card || !carteEnCadrage(card)) return undefined;
-  /* UNE CRÉATION DE MÉDIA N'A NI CAHIER NI PLAN (demande du 25/10/2026,
-     capture #d326) : sa chaîne se lit dans le suivi à droite. */
+  /* UNE CRÉATION DE MÉDIA N'A NI CAHIER NI PLAN (demande du 25/10/2026, capture #d326). */
   if (card.parcours?.realisationSouhaitee) return undefined;
   const jugement = jugerLaComplexite(texte, nombreDeJointes);
-  if (!jugement.complexe) return undefined;
-  if (allumerLeCahierToutSeul(card.parcours?.planSouhaite, jugement)) {
-    const ecrite = store.saveCard({
-      ...card,
-      parcours: { ...(card.parcours ?? { plans: [] }), planSouhaite: true, planAutomatique: true },
-    });
-    bus.emit({ type: 'card.upsert', card: ecrite });
-  } else if (!store.getCard(agent.cardId)?.parcours?.planSouhaite) {
-    // Éteint à la main : l'utilisateur ne veut pas de plan, on ne force rien.
-    return undefined;
+  const sansMode = !card.parcours?.planSouhaite; /* le mode « Création » est retiré (12/11/2026) */
+  if (sansMode && !card.parcours?.comprehension && !modeDejaConfirme(card.id)) {
+    return consigneDeLaQuestionDeMode(jugement.complexe ? jugement : null);
   }
-  return consigneDeDemandeComplexe(jugement);
+  return jugement.complexe && card.parcours?.planSouhaite ? consigneDeDemandeComplexe(jugement) : undefined;
 }
 
 /**
@@ -1067,7 +1103,7 @@ function allumerSurDemandeComplexe(
  * plus en cadrage, ou quand aucune compréhension n'existe encore — la règle
  * « pas de plan sans compréhension » ne bouge pas.
  */
-function annoncerPlanDuMemeTour(
+export function annoncerPlanDuMemeTour(
   agent: { id: string; role: string; cardId?: string },
 ): { consigne: string; noterLeJalon: () => void } | undefined {
   if (agent.role !== 'cadrage' || !agent.cardId) return undefined;
@@ -1149,6 +1185,41 @@ const DELAI_D_INTEGRATION_MS = 3000;
  * la carte naît quand même (elle arrive par `card.upsert`), seule la réponse
  * part sans son identifiant.
  */
+/**
+ * LE MONTAGE SE SUIT EN DIRECT : l'état entier repart vers le SEUL compte qui a
+ * lancé la création, sous l'identifiant tiré par son écran. Sans identifiant
+ * (ancien écran, agent), rien ne part : la réponse finale suffit.
+ */
+function suiviDuMontage(suivi: string | undefined, compteId: string): SurProgresDuMontage | undefined {
+  if (!suivi) return undefined;
+  return (etapes, enCours) => bus.emit({ type: 'project.montage', suivi, etapes, enCours, pour: compteId });
+}
+
+/**
+ * La carte du cahier des charges, dernière étape du montage : elle tourne à
+ * l'écran pendant sa pose, puis se coche. Une pose plus lente que le délai
+ * n'est pas un échec — la carte arrive, l'écran l'ouvre en la guettant.
+ */
+async function poserLaCarteDuCahierSuivie(
+  etapes: EtapeCreation[],
+  suivre: SurProgresDuMontage | undefined,
+  poser: () => Promise<Card | null>,
+): Promise<Card | null> {
+  suivre?.(etapes.map((etape) => ({ ...etape })), 'cahier');
+  const carte = await poser().catch((err) => {
+    log.warn('carte du cahier des charges impossible à poser', err);
+    return undefined;
+  });
+  etapes.push({
+    cle: 'cahier',
+    titre: titreDEtape('cahier', carte !== undefined),
+    fait: carte !== undefined,
+    detail: carte === null ? 'la carte arrive dans le tableau' : undefined,
+  });
+  suivre?.(etapes.map((etape) => ({ ...etape })));
+  return carte ?? null;
+}
+
 async function carteDuCahierSansRetenir(project: Project, description?: string, source?: SourceDuClonage): Promise<Card | null> {
   const pose = ouvrirLeCahierDesCharges(project, description, source);
   const delai = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000).unref?.());
@@ -1174,9 +1245,9 @@ function oublierLeBrouillonDeReponse(cle: string): void {
  * plus que la clé (`partiel`), `null` disant qu'elle a disparu ; l'écran la
  * fusionne (`fusionnerLesReglages`). Le bloc entier ne part qu'à la connexion.
  */
-function diffuserLeReglage(cle: string): void {
+function diffuserLeReglage(cle: string, onglet?: string): void {
   const valeur = store.readPreference(cle);
-  bus.emit({ type: 'prefs', prefs: { [cle]: valeur ?? null }, partiel: true });
+  bus.emit({ type: 'prefs', prefs: { [cle]: valeur ?? null }, partiel: true, ...(onglet ? { onglet } : {}) });
 }
 
 /**
@@ -1325,11 +1396,83 @@ export function commandeCommeLUtilisateur(cmd: ClientEnvelope['cmd'], compte: Co
   return handleCommand(cmd, compte);
 }
 
+/** Les gestes humains qui font travailler un agent retiennent leur auteur. */
+function retenirLInterlocuteur(cmd: { type: string } & Record<string, any>, compte: CompteUtilisateur): void {
+  try {
+    if (cmd.type === 'agent.prompt' && typeof cmd.agentId === 'string') noterLInterlocuteur({ agentId: cmd.agentId }, compte);
+    else if (cmd.type === 'question.answer' && typeof cmd.messageId === 'string') {
+      const agentId = store.getMessage(cmd.messageId)?.agentId;
+      if (agentId) noterLInterlocuteur({ agentId }, compte);
+    } else if (cmd.type === 'card.start' && typeof cmd.id === 'string') noterLInterlocuteur({ cardId: cmd.id }, compte);
+  } catch (err) {
+    log.warn('interlocuteur non retenu', err);
+  }
+}
+
+/**
+ * ⌘F ÉLARGI (carte « Lecteur de charte : commentaires et barre ») : chaque source est lue par SA commande de liste,
+ * passée par les MÊMES portes que si la page l'avait demandée — ouverte au compte (`commandeOuverteAuCompte`), dans
+ * sa portée (`refusDeLaCommande`), réponse ramenée à ses projets (`reponsePourLeCollaborateur`). Une source fermée
+ * ou en panne est simplement absente. Du coffre, seuls le nom, le type et le dossier d'une fiche sont gardés.
+ */
+async function rechercheGlobale(texte: string, compte: CompteUtilisateur): Promise<{ resultats: ResultatDeRechercheGlobale[] }> {
+  if (texte.trim().length < 2) return { resultats: [] };
+  const juge = compte.role === 'admin' ? compte : (compteParId(compte.id) ?? compte);
+  const lire = async <T,>(cmd: Record<string, unknown> & { type: string }): Promise<T | null> => {
+    const commande = cmd as unknown as ClientEnvelope['cmd'];
+    if (!commandeOuverteAuCompte(juge, commande.type) || refusDeLaCommande(compte, commande)) return null;
+    try {
+      return reponsePourLeCollaborateur(compte, commande, await handleCommand(commande, compte)) as T;
+    } catch {
+      return null;
+    }
+  };
+  const [chartes, coffre, studio, memoire, sites] = await Promise.all([
+    lire<{ plaquettes?: { id: string; titre: string; projectId?: string; marque?: string }[] }>({ type: 'plaquettes.toutes' }),
+    lire<{ acces?: { id: string; nom: string; type?: string; dossierChemin?: string | null; projectId?: string | null }[] }>({ type: 'coffre.lister' }),
+    lire<{ creations?: { id: string; titre: string; projet?: string; projectId?: string }[] }>({ type: 'studio.lister' }),
+    lire<{ trouvees?: { unite: { id: string; titre: string; titreHumain?: string; portee?: string } }[] }>({ type: 'memoire.chercher', recherche: texte.trim() }),
+    lire<{ sites?: { id: string; nom: string; adresse?: string | null }[] }>({ type: 'statistiques.lister' }),
+  ]);
+  const nomDuProjet = (id?: string | null) => (id ? (store.getProject(id)?.name ?? '') : '');
+  return {
+    resultats: trierLaRechercheGlobale(
+      {
+        ...(chartes ? { chartes: (chartes.plaquettes ?? []).map((p) => ({ id: p.id, titre: p.titre, projectId: p.projectId ?? null, projet: nomDuProjet(p.projectId), marque: p.marque ?? '' })) } : {}),
+        /* JAMAIS une valeur ni une note : le nom, le type, le dossier. */
+        ...(coffre ? { coffre: (coffre.acces ?? []).map((f) => ({ id: f.id, nom: f.nom, type: f.type ?? '', dossierChemin: f.dossierChemin ?? null, projectId: f.projectId ?? null })) } : {}),
+        ...(studio ? { studio: (studio.creations ?? []).map((c) => ({ id: c.id, titre: c.titre, projet: c.projet ?? '', projectId: c.projectId })) } : {}),
+        ...(memoire ? { memoire: (memoire.trouvees ?? []).map(({ unite: u }) => ({ id: u.id, titre: u.titre, ...(u.titreHumain ? { titreHumain: u.titreHumain } : {}), ...(u.portee ? { portee: u.portee } : {}) })) } : {}),
+        ...(sites ? { sites: (sites.sites ?? []).map((x) => ({ id: x.id, nom: x.nom, adresse: x.adresse ?? null })) } : {}),
+      },
+      texte,
+    ),
+  };
+}
+
+/**
+ * UNE COMMANDE VENUE DU PANNEAU D'UN CHROME RELIÉ (`server/src/extension-chrome.ts`) : répondre à une question,
+ * écrire à l'agent, l'arrêter. Une liste FERMÉE, passée par les MÊMES portes que l'application, avec le compte qui
+ * a relié ce Chrome — jamais plus de droits qu'à l'écran.
+ */
+const COMMANDES_DU_PANNEAU_CHROME = new Set(['question.answer', 'agent.prompt', 'agent.stop', 'queue.update', 'queue.remove', 'queue.send-now', 'queue.edition']);
+export async function commandeDUnAppareil(brute: unknown, compte: CompteUtilisateur): Promise<unknown> {
+  const commande = ClientEnvelope.shape.cmd.parse(brute);
+  if (!COMMANDES_DU_PANNEAU_CHROME.has(commande.type)) throw new Error(REFUS_HORS_PORTEE);
+  const juge = compte.role === 'admin' ? compte : (compteParId(compte.id) ?? compte);
+  if (!commandeOuverteAuCompte(juge, commande.type)) throw new Error(REFUS_HORS_PORTEE);
+  const refus = refusDeLaCommande(compte, commande);
+  if (refus) throw new Error(refus);
+  return handleCommand(commande, compte);
+}
+
 async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur, canal?: WebSocket): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
 
   const cmd: Exclude<ClientEnvelope['cmd'], CommandeDeLEspace> = commande;
+  /* QUI PARLE À L'AGENT : ses droits seront ceux de ce compte (`interlocuteur.ts`). */
+  retenirLInterlocuteur(cmd, compte);
   switch (cmd.type) {
     case 'hello':
     case 'ping':
@@ -1363,6 +1506,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         defaultEngine: cmd.defaultEngine as any,
         devUrl: cmd.devUrl,
       });
+      bus.emit({ type: 'project.upsert', project });
+      return { project };
+    }
+
+    case 'project.creerLeger': {
+      const project = await creerProjetLeger(cmd.nom);
       bus.emit({ type: 'project.upsert', project });
       return { project };
     }
@@ -1449,6 +1598,39 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const project = store.getProject(cmd.projectId);
       if (!project) throw new Error('projet introuvable');
       return copiesMortesDuProjet(project.path);
+    }
+
+    case 'chartes.lister': {
+      const project = store.getProject(cmd.projectId);
+      if (!project) throw new Error('projet introuvable');
+      const carte = carteDeCharteOuverte(project.id);
+      return {
+        chartes: chartesDuDepot(project.path, project.id).map((c) => ({
+          nom: c.nom,
+          titre: c.titre,
+          domaine: c.domaine,
+          etat: c.etat,
+          corps: c.corps,
+          modeles: c.modeles ?? null,
+          interdits: c.interdits.map((i) => i.message),
+        })),
+        carte: carte ? { id: carte.id, titre: carte.title, colonne: carte.column } : null,
+      };
+    }
+
+    case 'chartes.etat': {
+      const project = store.getProject(cmd.projectId);
+      if (!project) throw new Error('projet introuvable');
+      if (!chartesDuDepot(project.path, project.id).some((c) => c.nom === cmd.nom)) throw new Error('charte introuvable');
+      poserLEtatDeLaCharte(project.id, cmd.nom, cmd.etat);
+      return { ok: true };
+    }
+
+    case 'chartes.rediger': {
+      const project = store.getProject(cmd.projectId);
+      if (!project) throw new Error('projet introuvable');
+      const carte = poserLaCarteDeCharte(project, { lancer: true, createCard });
+      return { cardId: carte.id };
     }
 
     case 'projet.nettoyerCopies': {
@@ -1539,11 +1721,21 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       };
     }
 
+    case 'recherche.globale':
+      return rechercheGlobale(cmd.texte, compte);
+
     case 'cards.rechercher': {
-      if (!store.getProject(cmd.projectId)) throw new Error('projet introuvable');
+      if (cmd.projectId && !store.getProject(cmd.projectId)) throw new Error('projet introuvable');
+      /* Sans projet, la recherche de la colonne de gauche : le plafond ne doit pas
+         se remplir de cartes que le compte ne verra pas, d'où ce tri AVANT le SQL
+         (la réponse repasse par `reponsePourLeCollaborateur`, qui le garantit). */
       const trouvees = store.rechercherDesCartes(cmd.texte, {
         projectId: cmd.projectId,
         colonnes: cmd.column ? [cmd.column] : undefined,
+        titreSeul: cmd.titreSeul,
+        ...(cmd.projectId
+          ? {}
+          : { limite: CARTES_DE_LA_RECHERCHE_DE_COLONNE, enServiceSeulement: true, projets: compte.role === 'admin' ? undefined : (compte.projets ?? []) }),
       });
       return { cartes: trouvees.map(({ card, rang }) => ({ card, rang })) };
     }
@@ -1563,6 +1755,26 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         curseur,
         demandes: store.debutsDesDemandesDesCartes(cards),
       };
+    }
+
+    /* La liste unique par date. Un collaborateur reçoit sa part (`reponsePourLeCollaborateur`). */
+    case 'cards.parDate': {
+      const { cards, reste, curseur } = store.cartesParDate({
+        apres: cmd.apres,
+        limite: cmd.limit,
+        projectId: cmd.projectId,
+        colonne: cmd.colonne,
+      });
+      return { cards, agents: store.agentsDesCartes(cards).map(agentPourLEcran), reste, curseur };
+    }
+
+    /* Chaque mise en ligne est une ligne du flux de son projet. Un collaborateur reçoit sa part. */
+    case 'deploys.parDate':
+      return store.misesEnLigneParDate({ projectId: cmd.projectId, avant: cmd.avant, limite: cmd.limit });
+
+    case 'cards.tachesDeLaColonne': {
+      const cards = store.tachesDeLaColonne();
+      return { cards, agents: store.agentsDesCartes(cards).map(agentPourLEcran) };
     }
 
     /* L'ancienne colonne « Terminés » d'un écran d'avant : « Archiver ». */
@@ -1636,6 +1848,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'project.new': {
+      /* Une source à cloner coche d'office le cahier : c'est lui qui l'analyse. */
+      const source = lireSourceFournie(cmd.source);
+      const avecCahier = !!(cmd.cahierDesCharges || source);
+      const suivre = suiviDuMontage(cmd.suivi, compte.id);
       const { project, etapes } = await createProjectFolder({
         name: cmd.name,
         folder: cmd.folder,
@@ -1646,6 +1862,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         githubPublic: cmd.githubPublic,
         sousDomaine: cmd.sousDomaine,
         port: cmd.port,
+        surProgres: suivre,
       });
       bus.emit({ type: 'project.upsert', project });
       /* « Démarrer par un cahier des charges » : la carte naît, son agent ouvre
@@ -1653,10 +1870,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
          y entre tout de suite — mais n'attend jamais le premier tour de
          l'agent (`sendPrompt` part sans être attendu), et pas plus de quelques
          secondes la pose de la carte. */
-      /* Une source à cloner coche d'office le cahier : c'est lui qui l'analyse. */
-      const source = lireSourceFournie(cmd.source);
-      const cahier =
-        cmd.cahierDesCharges || source ? await carteDuCahierSansRetenir(project, cmd.description, source) : null;
+      const cahier = avecCahier
+        ? await poserLaCarteDuCahierSuivie(etapes, suivre, () => carteDuCahierSansRetenir(project, cmd.description, source))
+        : null;
       // Une étape ratée se dit : le projet existe quand même, mais il lui
       // manque quelque chose, et le taire ferait croire que tout est en place.
       const rates = etapes.filter((e) => !e.fait);
@@ -1680,15 +1896,19 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const lu = lireLienGithub(cmd.lien);
       if (!lu.ok || !lu.depot) throw new Error(lu.erreur ?? REFUS_LIEN_MAL_FORME);
 
+      const suivre = suiviDuMontage(cmd.suivi, compte.id);
       const { project, etapes } = await monterDepuisGithub({
         depot: lu.depot,
         nom: cmd.name,
         dossier: cmd.folder,
         sousDomaine: cmd.sousDomaine,
         port: cmd.port,
+        surProgres: suivre,
       });
       bus.emit({ type: 'project.upsert', project });
-      const cahier = cmd.cahierDesCharges ? await carteDuCahierSansRetenir(project) : null;
+      const cahier = cmd.cahierDesCharges
+        ? await poserLaCarteDuCahierSuivie(etapes, suivre, () => carteDuCahierSansRetenir(project))
+        : null;
       const ratees = etapes.filter((e) => !e.fait);
       if (ratees.length) {
         bus.toast('error', `Projet ajouté, mais ${ratees.length} étape(s) ont échoué`);
@@ -1942,6 +2162,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /* LE SERVICE « TÂCHES RÉCURRENTES » : toutes les veilles, lues au démon. */
+    case 'services.resume': {
+      const { resumeDesServices } = await import('./resume-des-services.js');
+      return resumeDesServices();
+    }
+
     case 'veilles.lister': {
       const { listerLesVeilles } = await import('./veille-de-carte.js');
       return { veilles: listerLesVeilles() };
@@ -1952,7 +2177,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const { verifierLaVeilleMaintenant } = await import('./veille-de-carte.js');
       const fait = await verifierLaVeilleMaintenant(cmd.cardId);
       if (!fait.ok) throw new Error(fait.raison);
-      return { ok: true, etat: fait.veille?.etat, issue: fait.veille?.dernierControle?.issue };
+      return { ok: true, etat: fait.veille?.etat, issue: fait.veille?.dernierControle?.issue, detail: fait.veille?.dernierControle?.detail };
+    }
+
+    /* « DEMANDER À L'AGENT DE RÉPARER » : seul ce clic relance l'agent d'une veille en panne. */
+    case 'card.veille.reparer': {
+      const { reparerLaVeille } = await import('./veille-de-carte.js');
+      const fait = await reparerLaVeille(cmd.cardId);
+      if (!fait.ok) throw new Error(fait.raison);
+      return { ok: true };
     }
 
     case 'card.finish': {
@@ -2052,21 +2285,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         lancementAutomatique: cmd.actif,
         ...(cmd.actif ? { planReclamePour: undefined } : {}),
       };
-      const ecrite = store.saveCard({ ...card, parcours });
+      const ecrite = store.saveCard({ ...card, parcours: cmd.actif ? { ...parcours, relancesAuto: 0 } : parcours });
       bus.emit({ type: 'card.upsert', card: ecrite });
-      if (cmd.actif && card.agentId && !isRunning(card.agentId)) {
-        void lancerSiAutomatique(card.id, card.agentId, true);
+      if (cmd.actif) {
+        /* AUTO ALLUMÉ : ce qui attend déjà une réponse se répond tout de suite (`mode-auto.ts`), puis le lancement
+           part s'il est prêt. */
+        const { repondreAuxQuestionsOuvertes } = await import('./mode-auto.js');
+        await repondreAuxQuestionsOuvertes(card.id).catch((err) => log.warn(`mode Auto : questions ouvertes de ${card.id}`, err));
+        if (card.agentId && !isRunning(card.agentId)) void lancerSiAutomatique(card.id, card.agentId, true);
       }
-      return { card: ecrite };
-    }
-
-    case 'card.creation.souhaitee': {
-      const card = store.getCard(cmd.cardId);
-      if (!card) throw new Error('carte introuvable');
-      const parcours = { ...(card.parcours ?? { plans: [] }), creationSouhaitee: cmd.actif };
-      const ecrite = store.saveCard({ ...card, parcours });
-      bus.emit({ type: 'card.upsert', card: ecrite });
-      return { card: ecrite };
+      return { card: store.getCard(card.id) ?? ecrite };
     }
 
     /*
@@ -2193,6 +2421,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
            cadrage et son premier tour — une carte à la fois, sous les yeux. */
         void rattraperLaCarteSansCadrage(card).catch((err) =>
           log.warn('cadrage de rattrapage impossible', err),
+        );
+        /* La carte de construction d'un cahier née sans sa demande la reçoit
+           ici, avec le cahier joint — aucun agent, aucun moteur. */
+        void rattraperLaDemandeDeLaSuite(card).catch((err) =>
+          log.warn('demande de la carte de construction impossible à écrire', err),
         );
       } else if (relancerLeCadrageJamaisParti(card, 'ouverture')) {
         /* UN CADRAGE NÉ SANS JAMAIS RECEVOIR SON PREMIER TOUR (l'agent existe,
@@ -2351,6 +2584,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
          tient encore ce brouillon (`brouillonSansLesPiecesParties`). Un refus
          plus bas les rend au champ d'écriture, qui les réenregistre. */
       oublierLesPiecesParties(agent.id, cmd.attachments ?? []);
+      /* UN MESSAGE HUMAIN REMET À ZÉRO LES RELANCES DU MODE AUTO (`mode-auto.ts`) : c'est une nouvelle demande. */
+      if (agent.cardId && store.getCard(agent.cardId)?.parcours?.relancesAuto) {
+        void import('./mode-auto.js').then(({ remettreLesRelancesAZero }) => remettreLesRelancesAZero(agent.cardId!));
+      }
       /*
        * UN MESSAGE SOUS UN RAPPORT RENDU EST UNE NOUVELLE DEMANDE, PAS UN
        * TRAVAIL. Il partait chez l'agent de tâche — le dernier de la carte —,
@@ -2455,7 +2692,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * marque la demande sur la carte pour que le filet de relance
        * (`planManquant`, `server/src/runtime.ts`) s'applique comme au clic.
        */
-      const consigneComplexe = allumerSurDemandeComplexe(agent, cmd.text, cmd.attachments?.length ?? 0);
+      const consigneComplexe = consigneDuModeEtDeLaComplexite(agent, cmd.text, cmd.attachments?.length ?? 0);
       const planDuTour = annoncerPlanDuMemeTour(agent);
       const contextePlan = [consigneComplexe, planDuTour?.consigne].filter(Boolean).join('\n\n') || undefined;
       /*
@@ -2474,6 +2711,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         : undefined;
       /* L'AGENT D'UN SERVICE (sans projet, `agent.service`) relit sa consigne à chaque message. */
       let contexteDuService: string | undefined = undefined;
+      /* L'AGENT D'UNE CHARTE relit SON document à chaque message : blocs présents, étape en cours, marque (`agent-de-charte.ts`). */
+      contexteDuService ??= (await import('./agent-de-charte.js')).contexteDeLAgentDeCharte(agent);
+      /* LE DIRECTEUR SAIT QUELLE PAGE EST OUVERTE : le contexte accompagne le message, sans jamais devenir une bulle. */
+      /* …ET L'AGENT D'UNE CAMPAGNE (10/11/2026) relit SA campagne à chaque message : fiche, stratégie, publications. */
+      const contexteDeLaPageOuverte = agent.service?.id === SERVICE_DU_DIRECTEUR ? await (await import('./directeur-marketing.js')).contexteDuChefAvecSaCampagne(agent) : undefined;
+      if (agent.service?.id === SERVICE_DU_DIRECTEUR) contexteDuService = contexteDeLaPageOuverte ?? '';
+      /* L'AGENT DE SÉCURITÉ D'UN PROJET SUIVI relit sa consigne et le DERNIER audit à chaque message (`service-securite.ts`). */
+      contexteDuService ??= estAgentAttitre(agent.id) ? (await import('./service-securite.js')).contexteDeLAgentSecurite(agent) : undefined;
       const contexteDuTour = [contexteDuConducteur, contexteConfiguration, contexteMoteur, contexteDuService, contextePlan].filter(Boolean).join('\n\n');
       /* CHAQUE AJOUT DE MOTEUR A SA CARTE, posée au premier message et passée
          en « En cours » pendant le tour ; son état est reposé après. */
@@ -2485,7 +2730,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         attachments: cmd.attachments,
         onComplete,
         // Sa carte est « En cours », mais l'agent d'ajout ne rend pas de compte rendu de tâche.
-        ...(contexteMoteur || contexteDuService ? { template: 'none' as const } : {}),
+        ...(contexteMoteur || contexteDuService !== undefined ? { template: 'none' as const } : {}),
         ...(planDuTour ? { apresLaDemande: planDuTour.noterLeJalon } : {}),
         ...(contexteDuTour ? { context: contexteDuTour } : {}),
       }).catch((err) => log.error('envoi de la demande impossible', err));
@@ -2554,8 +2799,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * « Arrêter » relançait la tâche qu'il devait arrêter. On coupe donc la
        * suite d'abord.
        */
-      const vides = store.clearQueue(cmd.agentId);
-      if (vides) bus.emit({ type: 'queue.etat', agentId: cmd.agentId, queue: [] });
+      viderLaFileEnRendant(cmd.agentId, 'Agent arrêté : votre message en attente revient dans le champ, rien n’est parti.');
 
       /*
        * L'ARRÊT RÉPOND TOUJOURS. Sans moteur en marche — préparation coincée,
@@ -2668,8 +2912,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * n'arrête rien.
        */
       for (const agent of store.listAgents()) {
-        const vides = store.clearQueue(agent.id);
-        if (vides) bus.emit({ type: 'queue.etat', agentId: agent.id, queue: [] });
+        viderLaFileEnRendant(agent.id, 'Tous les agents sont arrêtés : votre message en attente revient dans le champ.');
       }
 
       const stoppedAgents = stopAllAgents();
@@ -2830,12 +3073,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'queue.edition': {
       /* UNE DEMANDE QU'ON MODIFIE NE PART PAS : la file l'attend tant qu'elle
-         est ouverte, et repart dès qu'elle se referme (enregistrée ou annulée).
-         Un écran fermé en pleine modification : le repère périme, et la file
-         est relancée à ce moment-là. */
-      const agentId = store.marquerEditionEnFile(cmd.id, cmd.actif);
+         est ouverte, et repart dès qu'elle se referme (enregistrée ou annulée)
+         — et SEULEMENT là : un écran fermé, un canal perdu ou un serveur
+         redémarré laissent la modification ouverte (`retenueParUneEdition`).
+         `brouillon` : ce qui est tapé, gardé au fil de la frappe. */
+      const agentId = store.marquerEditionEnFile(cmd.id, cmd.actif, cmd.brouillon);
       if (!agentId) return { ok: false };
-      if (canal) store.tenirEditionParCanal(cmd.id, canal, cmd.actif);
       bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
       if (!cmd.actif) reprendreLaFile(agentId);
       return { ok: true };
@@ -2859,6 +3102,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
                 answer: cmd.answer,
                 answerAttachments: cmd.attachments ?? [],
                 answeredAt: Date.now(),
+                /* LA RÉPONSE DU MODE AUTO (`mode-auto.ts`) : la bulle dit « Choisi par Auto ». */
+                ...(cmd.parAuto ? { parAuto: true } : {}),
               }
             : q,
         ),
@@ -2866,6 +3111,36 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
       oublierLeBrouillonDeReponse(`reponse.${cmd.questionId}`);
+      /* LE MIROIR D'UN BOUTON À PRIX DU STUDIO (fil de l'agent demandeur) : le clic part vers la question
+         d'origine — UNE seule décision, l'autre bouton se ferme (`suivi-studio.ts`). */
+      if (question.relaiDe) {
+        const { fermerLesMiroirs } = await import('./suivi-studio.js');
+        const issue = await handleCommand(
+          { type: 'question.answer', messageId: question.relaiDe.messageId, questionId: question.relaiDe.questionId, answer: cmd.answer, attachments: cmd.attachments ?? [] } as ClientEnvelope['cmd'],
+          compte,
+        );
+        fermerLesMiroirs(question.relaiDe.questionId);
+        return issue;
+      }
+      /* UN GESTE PRÉPARÉ PAR UN AGENT (publication, réponse au client) : seul ce clic le fait partir, avec les droits de celui qui clique. */
+      if (question.gesteAValider) {
+        const { trancherLeGesteAValider } = await import('./services-des-agents.js');
+        const fait = await trancherLeGesteAValider(question, cmd.answer, compte).catch((err) => ({ ok: false as const, raison: String((err as Error)?.message ?? err) }));
+        if (!fait.ok) {
+          /* Rien n'est parti : le bouton revient, pour un nouvel essai une fois la cause levée. */
+          const actuel = store.getMessage(message.id);
+          if (actuel) {
+            const rendu = store.saveMessage({
+              ...actuel,
+              questions: actuel.questions.map((q) => (q.id === cmd.questionId ? { ...q, answer: undefined, answeredAt: undefined, answerAttachments: [] } : q)),
+            });
+            bus.emit({ type: 'message.upsert', message: rendu });
+          }
+          bus.toast('error', `Rien n’est parti : ${fait.raison}`, message.agentId ? store.getAgent(message.agentId)?.cardId : undefined);
+        }
+        else if (fait.fait) bus.toast('success', question.gesteAValider.genre === 'programmer' ? 'Publication programmée.' : 'Réponse envoyée au client.');
+        return { ok: fait.ok };
+      }
       /* UN CHOIX EN IMAGES TRANCHÉ rejoint le tableau d'ambiance de la carte (mode Réalisation). */
       if (question.options.some((o) => o.image)) retenirLesImagesChoisies(message.agentId, question, cmd.answer);
       /* UNE DEMANDE D'ACCORD DU RESPONSABLE CRÉATIF s'écrit dès le clic : le suivi la montre aussitôt. */
@@ -2888,6 +3163,27 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
            relance pas l'agent à chaque bouton : il lira l'état des lots à son
            prochain tour, et le démon suit lui-même les générations. */
         if (validationNonBloquante(question)) return { ok: true };
+      }
+      /* LA VOIX FINALE OU LE PERSONNAGE 3D PROPOSÉS DANS LE FIL : le clic lance, sans réveiller l'agent ; seul un clic qui n'aboutit pas le rappelle, pour qu'il le dise et repropose. */
+      if (question.depenseDuFil) {
+        const { trancherLaDepenseDuFil } = await import('./studio-depense-du-fil.js');
+        const fait = await trancherLaDepenseDuFil(question.depenseDuFil, cmd.answer).catch((err) => ({ ok: false as const, raison: String((err as Error)?.message ?? err) }));
+        if (fait.ok) return { ok: true };
+        void sendPrompt(message.agentId, texteDeReponseTardive(question.question, cmd.answer), {
+          context: `LE CLIC N’A PAS ABOUTI : ${fait.raison}. Rien n’est lancé. Dis-le en une phrase et, si c’est utile, repose une proposition à jour.`,
+        }).catch((err) => log.error('reprise après un clic non abouti impossible', err));
+        return { ok: true };
+      }
+      /* « QUELLE VERSION GARDEZ-VOUS ? » : la réponse valide la version côté démon, qui la pose sur sa piste (31/10/2026). */
+      if (question.choixDeVersion) {
+        const { trancherLeChoixDeVersion } = await import('./realisation.js');
+        consigneDeLAccord = (await trancherLeChoixDeVersion(question, cmd.answer)) ?? consigneDeLAccord;
+      }
+      /* « REMPLACER OU AJOUTER ? » d'un média validé : posée par le démon, tranchée au clic, personne n'est réveillé. */
+      if (question.placeDuMedia) {
+        const { trancherLaPlaceDuMedia } = await import('./realisation.js');
+        void trancherLaPlaceDuMedia(question, cmd.answer).catch((err) => log.warn('pose du média validé impossible', String((err as Error)?.message ?? err)));
+        return { ok: true };
       }
 
       /*
@@ -2943,9 +3239,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // question n'est rappelée qu'en tête : c'est lui qui l'a posée, il l'a
       // déjà en contexte. Les images jointes à la réponse suivent le MÊME
       // chemin que celles du fil : leurs chemins sont annoncés dans la demande.
-      const rappel = question.question.length > 80 ? `${question.question.slice(0, 80)}…` : question.question;
-      void sendPrompt(message.agentId, `Réponse à ta question « ${rappel} » : ${cmd.answer}`, {
+      void sendPrompt(message.agentId, texteDeReponseTardive(question.question, cmd.answer), {
         attachments: cmd.attachments ?? [],
+        ...(consigneDeLAccord ? { context: consigneDeLAccord } : {}),
       }).catch((err) =>
         log.error('reprise après réponse impossible', err),
       );
@@ -3202,6 +3498,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // La table dédiée garde elle aussi la version réellement validée : une
       // édition du sujet ne doit pas y laisser un ancien relais réutilisable.
       store.saveProposal(message.id, agent.projectId, decided);
+      /* UNE CARTE DE CORRECTION DE SÉCURITÉ : ses points passent « en correction », liés à la carte née. */
+      (await import('./service-securite.js')).apresDecisionDeProposition(proposal.id, cmd.accept ? cardId : undefined);
 
       // La décision est mémorisée SUR LE TABLEAU : elle survit au rechargement.
       const updatedMessage = store.saveMessage({
@@ -3451,6 +3749,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     /* LA DERNIÈRE RÉUSSITE DE CHAQUE ÉTAPE : ce qui rend stable le repère
        « Essai réussi » de la page de réglage. Lecture seule, une requête. */
+    /* LE MENU « PUBLIER » : ce qui attend la production, et l'essai à blanc d'une sélection. Lectures seules. */
+    case 'deploy.aProduire':
+      return { taches: await tachesAMettreEnProduction(cmd.projectId) };
+
+    case 'deploy.enAttente':
+      return await publicationsEnAttente();
+
+    case 'deploy.verifierProduction':
+      return { verdict: await verifierLaMiseEnProductionPartielle(cmd.projectId, cmd.selectedCardIds) };
+
     case 'deploy.reussites':
       return { reussites: store.dernieresReussitesDePublication(cmd.projectId) };
 
@@ -3462,6 +3770,162 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const nodes = listDir(project.path, cmd.path ?? '');
       bus.emit({ type: 'files', projectId: cmd.projectId, path: cmd.path ?? '', nodes });
       return { nodes };
+    }
+
+    /* -------- Fichiers rangés par projet et par service (`server/src/fichiers-ranges.ts`) -------- */
+
+    /* LES PLAQUETTES CLIENT (`server/src/plaquettes.ts`). */
+    case 'plaquettes.liste': {
+      const pl = await import('./plaquettes.js');
+      return {
+        plaquettes: pl.listerPlaquettes(cmd.projectId).map((p) => {
+          const fiche = pl.ficheDeLaPlaquette(p.id)!;
+          return {
+            id: p.id,
+            titre: p.titre,
+            version: p.version,
+            modifieLe: p.modifieLe,
+            lienActif: p.lienActif,
+            marque: p.marque.nom,
+            ouvertures: fiche.ouvertures.total,
+            derniereOuvertureLe: p.derniereOuvertureLe ?? null,
+            remarques: fiche.fils.length,
+            nonLues: fiche.nonLues,
+          };
+        }),
+      };
+    }
+    case 'plaquettes.toutes': {
+      const pl = await import('./plaquettes.js');
+      const marque = pl.projetDeLaSignature();
+      return { plaquettes: pl.listerToutesLesPlaquettes(cmd.id), marqueParDefaut: marque ? { id: marque.id, nom: marque.name } : null };
+    }
+    case 'plaquettes.fiche': {
+      const pl = await import('./plaquettes.js');
+      const fiche = pl.ficheDeLaPlaquette(cmd.id);
+      if (!fiche) throw new Error('plaquette introuvable');
+      return fiche;
+    }
+    case 'plaquettes.modifier': {
+      const pl = await import('./plaquettes.js');
+      /* L'éditeur sur place est SOUPLE : une section qu'on vide pour la réécrire n'est pas un refus. */
+      const r = pl.modifierPlaquette(cmd.id, { titre: cmd.titre, blocs: cmd.blocs, marque: cmd.marque, langue: cmd.langue, format: cmd.format, adresse: cmd.adresse }, { souple: true });
+      if (!r.ok) throw new Error(r.raison);
+      pl.refaireLePdfPlusTard(cmd.id);
+      return pl.ficheDeLaPlaquette(cmd.id)!;
+    }
+    case 'plaquettes.brouillon': {
+      const pl = await import('./plaquettes.js');
+      const r = pl.enregistrerLeBrouillon(cmd.id, { titre: cmd.titre, blocs: cmd.blocs, marque: cmd.marque, langue: cmd.langue, format: cmd.format, adresse: cmd.adresse });
+      if (!r.ok) throw new Error(r.raison);
+      return pl.ficheDeLaPlaquette(cmd.id)!;
+    }
+    case 'plaquettes.publier': {
+      const pl = await import('./plaquettes.js');
+      const avant = pl.lirePlaquette(cmd.id)?.version;
+      const r = pl.publierLeBrouillon(cmd.id, { titre: cmd.titre, blocs: cmd.blocs, marque: cmd.marque, langue: cmd.langue, format: cmd.format, adresse: cmd.adresse });
+      if (!r.ok) throw new Error(r.raison);
+      if (r.plaquette.version !== avant) pl.refaireLePdfPlusTard(cmd.id);
+      return pl.ficheDeLaPlaquette(cmd.id)!;
+    }
+    case 'plaquettes.abandonner': {
+      const pl = await import('./plaquettes.js');
+      pl.abandonnerLeBrouillon(cmd.id);
+      return pl.ficheDeLaPlaquette(cmd.id)!;
+    }
+    case 'plaquettes.lien': {
+      const pl = await import('./plaquettes.js');
+      if (!pl.regleLeLien(cmd.id, cmd.geste)) throw new Error('plaquette introuvable');
+      return pl.ficheDeLaPlaquette(cmd.id);
+    }
+    case 'plaquettes.pdf': {
+      const pl = await import('./plaquettes.js');
+      const r = await pl.fabriquerLePdf(cmd.id);
+      if (!r.ok) throw new Error(r.raison);
+      return { piece: r.piece, vignette: r.vignette ?? null };
+    }
+    case 'plaquettes.lues': {
+      const pl = await import('./plaquettes.js');
+      pl.marquerLesFilsLus(cmd.id, cmd.fil);
+      return { ok: true };
+    }
+    case 'plaquettes.repondre': {
+      const pl = await import('./plaquettes.js');
+      const p = pl.lirePlaquette(cmd.id);
+      if (!p) throw new Error('plaquette introuvable');
+      const r = pl.repondreAuFil(p, cmd.fil, { texte: cmd.texte }, { role: 'equipe', compte: pl.compteQuiCommente(compte) });
+      if (!r.ok) throw new Error(r.raison === 'introuvable' ? 'commentaire introuvable' : 'commentaire vide ou trop long');
+      return { fil: r.fil };
+    }
+    case 'plaquettes.resoudre': {
+      const pl = await import('./plaquettes.js');
+      const p = pl.lirePlaquette(cmd.id);
+      if (!p) throw new Error('plaquette introuvable');
+      const r = pl.resoudreLeFil(p, cmd.fil, cmd.resolu);
+      if (!r.ok) throw new Error('commentaire introuvable');
+      return { fil: r.fil };
+    }
+    case 'plaquettes.commenter': {
+      const pl = await import('./plaquettes.js');
+      const p = pl.lirePlaquette(cmd.id);
+      if (!p) throw new Error('plaquette introuvable');
+      const r = pl.creerUnFil(p, { texte: cmd.texte, page: cmd.page, y: cmd.y, bloc: cmd.bloc }, { role: 'equipe', compte: pl.compteQuiCommente(compte) });
+      if (!r.ok) throw new Error('commentaire vide ou trop long');
+      return { fil: r.fil };
+    }
+    case 'plaquettes.supprimerMessage': {
+      const pl = await import('./plaquettes.js');
+      const p = pl.lirePlaquette(cmd.id);
+      if (!p) throw new Error('plaquette introuvable');
+      const r = pl.supprimerUnMessage(p, cmd.fil, cmd.message, { role: 'equipe', compte: pl.compteQuiCommente(compte) });
+      if (!r.ok) throw new Error(r.raison === 'interdit' ? 'seuls vos propres messages se suppriment' : 'message introuvable');
+      return { fil: r.fil };
+    }
+    /* L'AGENT D'UN DOCUMENT (refonte du service Charte graphique) : créé à la première ouverture, puis retrouvé. */
+    case 'plaquettes.ouvrirAgent': {
+      const { ouvrirLAgentDeCharte } = await import('./agent-de-charte.js');
+      return await ouvrirLAgentDeCharte(cmd.id);
+    }
+    /* « CRÉER LA CHARTE GRAPHIQUE » : un document neuf et son agent, sans carte sur le tableau. */
+    case 'plaquettes.creerVide': {
+      const { creerUneCharteVide } = await import('./agent-de-charte.js');
+      return await creerUneCharteVide(cmd.projectId);
+    }
+    case 'plaquettes.supprimer': {
+      const pl = await import('./plaquettes.js');
+      return { ok: pl.supprimerPlaquette(cmd.id) };
+    }
+
+    case 'fichiers.dossier': {
+      const dossier = lireLeDossier(compte, cmd.chemin);
+      if (!dossier) throw new Error(REFUS_HORS_PORTEE);
+      return dossier;
+    }
+
+    case 'fichiers.dossierDuProjet': {
+      const projet = projetsRanges().find((p) => p.id === cmd.projectId);
+      if (!projet) throw new Error('projet introuvable');
+      return { chemin: projet.dossier };
+    }
+
+    case 'fichiers.recherche':
+      return chercherDesFichiers(compte, cmd.demande, { projetId: cmd.projetId ?? null });
+
+    case 'fichiers.corbeille':
+      return { fichiers: lireLaCorbeille(compte) };
+
+    case 'fichiers.renommer':
+      return { fichier: renommerUnFichier(compte, cmd.id, cmd.nom) };
+
+    case 'fichiers.supprimer':
+      return { fichier: mettreALaCorbeille(compte, cmd.id) };
+
+    case 'fichiers.restaurer':
+      return { fichier: restaurerUnFichier(compte, cmd.id) };
+
+    case 'fichiers.rangement': {
+      if (compte.role !== 'admin') throw new Error(REFUS_HORS_PORTEE);
+      return { rapport: await rangerLesFichiers({ essai: !cmd.appliquer }) };
     }
 
     case 'files.archive': {
@@ -3600,8 +4064,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'prefs.set': {
       store.writePreference(cmd.key, cmd.value);
-      // Tous les écrans ouverts suivent : même mise en page partout.
-      diffuserLeReglage(cmd.key);
+      /* Tous les écrans le reçoivent, avec l'ONGLET d'origine : un autre onglet n'en garde que le thème, la langue et
+         le brouillon (décision du 12/11/2026, `reglagesPourCetOnglet`) ; un onglet neuf repart de la base. */
+      diffuserLeReglage(cmd.key, cmd.onglet);
       return { ok: true };
     }
 
@@ -3616,9 +4081,37 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'settings.update': {
-      const settings = store.saveSettings(cmd.patch as any);
+      /* LE NOM DE L'ASSISTANT (17/11/2026) : refusé s'il ne serait pas entendu par le micro, quel que soit l'écran
+         qui l'envoie ; enregistré nettoyé, puis l'agent de l'assistant est renommé. */
+      const patch = { ...(cmd.patch as Record<string, unknown>) };
+      if ('assistantNom' in patch) {
+        const { verifierLeNomDeLAssistant } = await import('./assistant-global.js');
+        const verdict = await verifierLeNomDeLAssistant(String(patch.assistantNom ?? ''));
+        if (!verdict.nom) throw new Error('L’assistant a besoin d’un nom.');
+        if (!verdict.entendu) {
+          throw new Error(`« ${verdict.nom} » ne sera pas entendu quand vous l’appellerez. Essayez plutôt ${verdict.suggestions.map((n) => `« ${n} »`).join(', ')}.`);
+        }
+        patch.assistantNom = verdict.nom;
+      }
+      const settings = store.saveSettings(patch as any);
       bus.emit({ type: 'settings', settings });
+      if ('assistantNom' in patch) {
+        const { retitrerLAssistant } = await import('./assistant-global.js');
+        retitrerLAssistant();
+      }
       return { settings };
+    }
+
+    /* UN NOM D'ASSISTANT SERA-T-IL ENTENDU ? Vérifié pendant la saisie, avant tout enregistrement. */
+    case 'assistant.nom.verifier': {
+      const { verifierLeNomDeLAssistant } = await import('./assistant-global.js');
+      return verifierLeNomDeLAssistant(cmd.nom);
+    }
+
+    /* LE PRÉNOM DU COMPTE CONNECTÉ : l'assistant l'emploie en parlant à cette personne. Chacun ne règle que le sien. */
+    case 'compte.prenom': {
+      const { changerLePrenom } = await import('./comptes.js');
+      return { prenom: changerLePrenom(compte.id, cmd.prenom).prenom ?? '' };
     }
 
     case 'installation.etat':
@@ -3739,6 +4232,42 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'capacity.history':
       return { history: store.capacityHistory() };
+
+    case 'serveur.fiche': {
+      const { ficheDeLaMachine, historiqueDesDisques } = await import('./occupation-disque.js');
+      return {
+        fiche: await ficheDeLaMachine(),
+        capacite: store.capacityHistory(),
+        disques: historiqueDesDisques(),
+        hebergee: machineHebergee(),
+      };
+    }
+
+    case 'serveur.lourds': {
+      if (machineHebergee()) throw new Error('Cette fonction n’existe pas sur l’offre hébergée.');
+      const { etatDesPlusLourds } = await import('./occupation-disque.js');
+      return etatDesPlusLourds();
+    }
+
+    case 'serveur.releve': {
+      const { relancerLeReleve } = await import('./occupation-disque.js');
+      return relancerLeReleve();
+    }
+
+    case 'serveur.dossier': {
+      const { contenuDuDossier } = await import('./occupation-disque.js');
+      return contenuDuDossier(cmd.chemin);
+    }
+
+    case 'serveur.dossier.tailles': {
+      const { mesurerLeDossier } = await import('./occupation-disque.js');
+      return mesurerLeDossier(cmd.chemin, cmd.force === true);
+    }
+
+    case 'serveur.menage': {
+      const { demanderLeMenage } = await import('./occupation-disque.js');
+      return demanderLeMenage(cmd.chemin);
+    }
 
     case 'process.stop':
       return controlProcess(cmd.id, 'stop');
@@ -3943,10 +4472,99 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // elle pour que le profil des heures creuses remonte à deux mois.
       return { history: store.quotaHistory(cmd.days ?? 7), resume: store.quotaResume() };
 
+    case 'servicesIa.releve': {
+      // Hors du chemin des lancements : seul le volet des quotas le demande. Aucune clé dans la réponse.
+      const { soldesDesServicesIa } = await import('./services-ia-releve.js');
+      return soldesDesServicesIa(cmd.force === true);
+    }
+
     case 'amorce.history':
       return { entries: store.amorceHistory(cmd.limit ?? 40) };
 
     /* -------- Clés d'API des services extérieurs -------- */
+
+    /* -------- Le pilotage de Chrome (rubrique « Extension ») -------- */
+    case 'extension.etat': {
+      const { etatDeLExtension } = await import('./extension-chrome.js');
+      return etatDeLExtension(compte);
+    }
+    case 'extension.code': {
+      const { emettreUnCodeDeLiaison } = await import('./extension-chrome.js');
+      return emettreUnCodeDeLiaison(compte.id, Date.now(), { ordinateurId: cmd.ordinateurId ?? null, nom: cmd.nom?.trim() || null });
+    }
+    /* -------- Les ordinateurs nommés (carte « Choisir l'ordinateur visé depuis le téléphone ») -------- */
+    case 'ordinateur.creer': {
+      const { creerUnOrdinateur } = await import('./ordinateurs.js');
+      return creerUnOrdinateur(compte.id, cmd.nom);
+    }
+    case 'ordinateur.renommer': {
+      const { renommerUnOrdinateur } = await import('./ordinateurs.js');
+      if (!renommerUnOrdinateur(compte.id, cmd.id, cmd.nom)) throw new Error('Cet ordinateur n’est plus relié.');
+      return { ok: true };
+    }
+    case 'ordinateur.delier': {
+      const { delierUnOrdinateur } = await import('./ordinateurs.js');
+      if (!(await delierUnOrdinateur(compte.id, cmd.id))) throw new Error('Cet ordinateur n’est plus relié.');
+      return { ok: true };
+    }
+    case 'ordinateur.etat': {
+      const { ordinateursDuCompte, ordinateurRetenu, dernierOrdinateur } = await import('./ordinateurs.js');
+      /* Une carte retient son ordinateur même avant d'avoir son agent (avant le premier message). */
+      const agent = cmd.agentId ? store.getAgent(cmd.agentId) : undefined;
+      const carte = cmd.cardId ?? agent?.cardId ?? null;
+      return {
+        ordinateurs: await ordinateursDuCompte(compte.id),
+        retenu: carte || agent ? ordinateurRetenu(agent?.id ?? '', carte) : null,
+        dernier: dernierOrdinateur(compte.id),
+      };
+    }
+    case 'ordinateur.choisir': {
+      const { retenirLOrdinateur } = await import('./ordinateurs.js');
+      const agent = cmd.agentId ? store.getAgent(cmd.agentId) : undefined;
+      const carte = cmd.cardId ?? agent?.cardId ?? null;
+      if (!agent && !carte) throw new Error('Ni carte ni agent : rien où retenir cet ordinateur.');
+      if (!retenirLOrdinateur(compte.id, agent?.id ?? '', carte, cmd.ordinateurId)) throw new Error('Cet ordinateur n’est plus relié.');
+      return { ok: true };
+    }
+    /* -------- Le relais du Mac, pour piloter l'iPhone (rubrique « Extension ») -------- */
+    case 'relaisMac.etat': {
+      const { relaisDuCompte } = await import('./relais-mac.js');
+      const r = relaisDuCompte(compte.id);
+      return { nom: r.nom, etat: r.etat, vuLe: r.vuLe };
+    }
+    case 'relaisMac.code': {
+      const { emettreUnCodeDuRelais } = await import('./relais-mac.js');
+      return emettreUnCodeDuRelais(compte.id, Date.now(), cmd.ordinateurId ?? null);
+    }
+    case 'relaisMac.reglage': {
+      const { ouvrirUnReglageDuMac } = await import('./relais-mac.js');
+      await ouvrirUnReglageDuMac(compte.id, cmd.ordinateurId, cmd.reglage);
+      return { ok: true };
+    }
+    case 'relaisMac.delier': {
+      const { delierLeMac } = await import('./relais-mac.js');
+      if (!delierLeMac(compte.id, cmd.ordinateurId ?? null)) throw new Error('Aucun Mac n’est relié.');
+      return { ok: true };
+    }
+    case 'extension.delier': {
+      const { delierUnChrome } = await import('./extension-chrome.js');
+      if (!delierUnChrome(compte.id, cmd.id)) throw new Error('Ce Chrome n’est plus relié.');
+      return { ok: true };
+    }
+    case 'extension.site': {
+      const { reglerLeSite } = await import('./extension-chrome.js');
+      reglerLeSite(compte.id, cmd.origine, cmd.mode);
+      return { ok: true };
+    }
+    case 'extension.routine': {
+      const { reglerUneRoutine } = await import('./extension-chrome.js');
+      if (!reglerUneRoutine(compte.id, cmd.id, cmd)) throw new Error('Geste répété introuvable.');
+      return { ok: true };
+    }
+    case 'extension.routine.creer': {
+      const { creerUneRoutine } = await import('./extension-chrome.js');
+      return creerUneRoutine(compte, { cardId: cmd.cardId, frequence: cmd.frequence });
+    }
 
     case 'cleApi.lister':
       return { cles: listerClesApi() };
@@ -4196,27 +4814,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'memoire.importer':
       return { rapports: importerLesLots({ portee: cmd.portee, force: true }) };
 
-    /* -------- Notes -------- */
-
-    case 'notes.lister': {
-      const notes = listerNotes();
-      return { notes, pieces: piecesDesNotes(notes) };
-    }
-
-    case 'notes.enregistrer': {
-      const resultat = enregistrerNote(cmd.note);
-      if (!resultat.ok) throw new Error(resultat.raison);
-      const notes = listerNotes();
-      return { note: resultat.note, notes, pieces: piecesDesNotes(notes) };
-    }
-
-    case 'notes.supprimer': {
-      const resultat = supprimerNote(String(cmd.id ?? ''));
-      if (!resultat.ok) throw new Error('note introuvable');
-      const notes = listerNotes();
-      return { ok: true, notes, pieces: piecesDesNotes(notes) };
-    }
-
     /* -------- Backups des sites en production -------- */
 
     case 'backups.etat':
@@ -4320,8 +4917,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'production.lire': {
-      const { etatDeProductionDeLaCarte } = await import('./realisation.js');
-      return etatDeProductionDeLaCarte(cmd.cardId);
+      const { etatDeProductionAvecLeFilm } = await import('./realisation.js');
+      return etatDeProductionAvecLeFilm(cmd.cardId);
     }
 
     case 'production.revenir': {
@@ -4375,6 +4972,17 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const r = await passerALEtape(cmd.cardId, cmd.geste);
       if (!r.ok) throw new Error(r.raison);
       return { deja: r.deja };
+    }
+
+    case 'realisation.lot.modeles': {
+      const { modelesDuLot } = await import('./realisation.js');
+      return modelesDuLot(cmd.lotId);
+    }
+
+    case 'realisation.lot.modele': {
+      /* Ne lance rien : le clic « Générer » reste la seule porte. Un prix qui a monté est refusé, avec le prix à jour. */
+      const { changerLeModeleDuLot } = await import('./realisation.js');
+      return changerLeModeleDuLot({ messageId: cmd.messageId, questionId: cmd.questionId, service: cmd.service, modele: cmd.modele, prixVu: cmd.prixVu });
     }
 
     case 'realisation.panneau.chiffrer': {
@@ -4508,8 +5116,154 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     /* -------- Atelier marketing -------- */
 
+    /* -------- L'espace Communication (`server/src/communication.ts`) -------- */
+
+    case 'communication.marques': {
+      const { listerLesMarques } = await import('./communication.js');
+      return listerLesMarques(compte);
+    }
+    case 'communication.vue': {
+      const { lireVueGlobale } = await import('./communication.js');
+      return lireVueGlobale(compte, estPeriodeAudience(cmd.periode) ? cmd.periode : 30);
+    }
+    case 'communication.accueil': {
+      const { lireAccueil } = await import('./communication.js');
+      return lireAccueil(cmd.marqueId, compte, estPeriodeAudience(cmd.periode) ? cmd.periode : 30);
+    }
+    case 'communication.publications': {
+      const { lirePublications } = await import('./communication.js');
+      return lirePublications(cmd.marqueId, compte, estPeriodeAudience(cmd.periode) ? cmd.periode : 30);
+    }
+    case 'communication.reserve': {
+      const { lireReserve } = await import('./communication.js');
+      return lireReserve(cmd.marqueId, compte);
+    }
+    case 'communication.messages': {
+      const { lireMessages } = await import('./communication.js');
+      return lireMessages(cmd.marqueId, compte);
+    }
+    case 'communication.fil': {
+      const { lireFilDeMessage } = await import('./communication.js');
+      return lireFilDeMessage(cmd.marqueId, cmd.messageId, compte);
+    }
+    case 'communication.medias': {
+      const { lireMedias } = await import('./communication.js');
+      return lireMedias(cmd.marqueId, compte);
+    }
+    case 'communication.connexion': {
+      const { lireConnexion } = await import('./communication.js');
+      return lireConnexion(cmd.marqueId, compte);
+    }
+    case 'communication.canaux': {
+      const { lireCanaux } = await import('./communication.js');
+      return lireCanaux(cmd.marqueId, compte);
+    }
+    case 'communication.strategie': {
+      const { lireStrategie } = await import('./communication.js');
+      return lireStrategie(cmd.marqueId, compte);
+    }
+    case 'communication.rapport': {
+      const { rapportEnFichier } = await import('./communication.js');
+      const pdf = await rapportEnFichier(cmd.marqueId, compte, cmd.documentId);
+      if (!pdf) throw new Error('Cette marque n’a pas encore de rapport.');
+      return { token: mintDownload(pdf.chemin, pdf.nom, 3_600_000), nom: pdf.nom };
+    }
+    case 'communication.campagnes': {
+      const { lireCampagnes } = await import('./communication.js');
+      return lireCampagnes(cmd.marqueId, compte);
+    }
+    case 'communication.campagne': {
+      const { lireCampagne } = await import('./communication.js');
+      return lireCampagne(cmd.marqueId, cmd.id, compte);
+    }
+    case 'communication.directeur': {
+      const { directeurDuCompte } = await import('./directeur-marketing.js');
+      return { agent: await directeurDuCompte(compte) };
+    }
+    case 'communication.directeur.etat': {
+      const { lireReglages, nonLusDuCompte } = await import('./directeur-marketing.js');
+      return { nonLus: nonLusDuCompte(compte.id), reglages: lireReglages(compte.id) };
+    }
+    case 'communication.directeur.contexte': {
+      const { compteDuDirecteur, directeurDuCompte, poserLeContexte } = await import('./directeur-marketing.js');
+      /* Le contexte d'un chef de marque ou de projet ne se pose que sur un chef de CE compte. */
+      const cible = cmd.agentId && compteDuDirecteur(cmd.agentId) === compte.id ? cmd.agentId : (await directeurDuCompte(compte)).id;
+      poserLeContexte(cible, cmd.contexte);
+      return { ok: true };
+    }
+    case 'communication.chef': {
+      const { chefDeMarque, chefDeProjet, noterLesProjetsDuChef } = await import('./directeur-marketing.js');
+      if (cmd.projetId) return { agent: await chefDeProjet(compte, cmd.marqueId, cmd.projetId) };
+      const agent = await chefDeMarque(compte, cmd.marqueId);
+      const { listerLesMarques } = await import('./communication.js');
+      noterLesProjetsDuChef(agent.id, listerLesMarques(compte).marques.find((m) => m.id === cmd.marqueId)?.projets.map((p) => p.id) ?? []);
+      return { agent };
+    }
+    case 'communication.chefs': {
+      const { equipeDesChefs, directeurDuCompte, noterLesProjetsDuChef } = await import('./directeur-marketing.js');
+      const equipe = await equipeDesChefs(compte, cmd.marqueId);
+      if (!cmd.marqueId) {
+        /* LE CHEF GÉNÉRAL LIT LA MÉMOIRE COMMUNICATION DE TOUS LES PROJETS DU COMPTE. */
+        const { listerLesMarques } = await import('./communication.js');
+        noterLesProjetsDuChef((await directeurDuCompte(compte)).id, listerLesMarques(compte).marques.flatMap((m) => m.projets.map((p) => p.id)));
+      }
+      return { chefs: equipe };
+    }
+    case 'communication.directeur.reglages': {
+      const { ecrireReglages } = await import('./directeur-marketing.js');
+      return { reglages: ecrireReglages(compte.id, cmd) };
+    }
+    case 'communication.directeur.lu': {
+      const { marquerLu } = await import('./directeur-marketing.js');
+      marquerLu(compte.id, Date.now(), cmd.agentId);
+      return { ok: true };
+    }
+    case 'communication.marque.creer': {
+      const { creerMarque } = await import('./communication.js');
+      return { marque: creerMarque(cmd, compte) };
+    }
+    case 'communication.marque.reunir': {
+      const { reunirLesProjets } = await import('./communication.js');
+      return { marque: reunirLesProjets(cmd, compte) };
+    }
+    case 'communication.marque.refuser': {
+      const { refuserRegroupement } = await import('./communication.js');
+      refuserRegroupement(cmd.nom);
+      return { ok: true };
+    }
+    case 'communication.marque.renommer': {
+      const { renommerMarque } = await import('./communication.js');
+      return { marque: renommerMarque(cmd.marqueId, cmd.nom, compte) };
+    }
+    case 'communication.marque.retirerProjet': {
+      const { retirerUnProjet } = await import('./communication.js');
+      return { marque: retirerUnProjet(cmd.marqueId, cmd.projectId, compte) };
+    }
+    case 'communication.campagne.ecrire': {
+      const { ecrireCampagne } = await import('./communication.js');
+      return { campagne: ecrireCampagne(cmd.campagne, compte) };
+    }
+    case 'communication.coulisses': {
+      const { demanderEnCoulisses } = await import('./communication-coulisses.js');
+      return demanderEnCoulisses(compte, { marqueId: cmd.marqueId, genre: cmd.genre, ...(cmd.texte ? { texte: cmd.texte } : {}), ...(cmd.campagneId ? { campagneId: cmd.campagneId } : {}), ...(cmd.contenuId ? { contenuId: cmd.contenuId } : {}), ...(cmd.messageId ? { messageId: cmd.messageId } : {}) });
+    }
+    case 'communication.coulisses.etat': {
+      const { etatDesCoulisses } = await import('./communication-coulisses.js');
+      return etatDesCoulisses(compte, cmd.marqueId);
+    }
+    case 'communication.geste': {
+      const { jouerUnGeste } = await import('./communication.js');
+      return jouerUnGeste({ ...(cmd.donnees ?? {}), geste: cmd.geste, id: cmd.id }, compte);
+    }
+
     case 'marketing.lister':
       return { projets: vueDEnsembleMarketing(), jours: joursDeTendanceMarketing() };
+
+    case 'marketing.vueDEnsemble': {
+      const { vueDAudienceDesProjets, vueDAudienceDuProjet } = await import('./publication-sociale.js');
+      const periode = estPeriodeAudience(cmd.periode) ? cmd.periode : 30;
+      return cmd.projectId ? vueDAudienceDuProjet(cmd.projectId, periode) : vueDAudienceDesProjets(vueDEnsembleMarketing(), periode);
+    }
 
     case 'marketing.espace':
       return espaceMarketingComplet(String(cmd.projectId ?? ''), typeof cmd.jours === 'number' ? cmd.jours : 30);
@@ -4615,7 +5369,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'marketing.application.ecrire': {
       const { ecrireApplication } = await import('./publication-sociale.js');
-      const r = ecrireApplication({ reseau: cmd.reseau, clientId: cmd.clientId, secret: cmd.secret, etat: cmd.etat, note: cmd.note });
+      const r = ecrireApplication({ reseau: cmd.reseau, clientId: cmd.clientId, secret: cmd.secret, etat: cmd.etat, note: cmd.note, configConnexion: cmd.configConnexion });
       if (!r.ok) throw new Error(r.raison);
       return { application: r.application };
     }
@@ -4663,11 +5417,74 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true };
     }
 
+    /* -------- Studio : visuels et vidéos animées (`server/src/studio-commandes.ts`) -------- */
 
-    /* « Créer le visuel » de l'atelier Marketing : la carte du directeur artistique liée au contenu (`server/src/visuels-marketing.ts`). */
-    case 'marketing.creerLeVisuel': {
-      const { creerLeVisuel } = await import('./visuels-marketing.js');
-      return await creerLeVisuel(cmd.contenuId);
+    case 'studio.lister':
+    case 'studio.espace.ecrire':
+    case 'studio.polices.ajouter':
+    case 'studio.polices.retirer':
+    case 'studio.creation.creer':
+    case 'studio.creation.ouvrir':
+    case 'studio.carte.montage':
+    case 'studio.creation.modifier':
+    case 'studio.creation.agent':
+    case 'studio.creation.supprimer':
+    case 'studio.creation.dupliquer':
+    case 'studio.modele.valider':
+    case 'studio.modele.lister':
+    case 'studio.modele.supprimer':
+    case 'studio.modele.copier':
+    case 'studio.operation':
+    case 'studio.annuler':
+    case 'studio.retablir':
+    case 'studio.restaurer':
+    case 'studio.historique':
+    case 'studio.selection':
+    case 'studio.media.importer':
+    case 'studio.media.modifier':
+    case 'studio.media.supprimer':
+    case 'studio.media.bande':
+    case 'studio.styles.lister':
+    case 'studio.styles.lire':
+    case 'studio.voix.essai':
+    case 'studio.voix.devis':
+    case 'studio.voix.valider':
+    case 'studio.voix.extraits':
+    case 'studio.exporter':
+    case 'studio.export.annuler':
+    case 'studio.exports.vider':
+    case 'studio.depense.valider':
+    case 'studio.depense.refuser':
+    case 'studio.credit':
+    case 'studio.assistant':
+    case 'studio.note.ajouter':
+    case 'studio.note.marquer':
+    case 'studio.note.supprimer':
+    case 'studio.jalon':
+    case 'studio.bibliotheque.lister':
+    case 'studio.bibliotheque.prendre':
+    case 'studio.poser':
+    case 'studio.fond.retirer':
+    case 'studio.fond.remettre':
+    case 'studio.mots':
+    case 'studio.couper':
+    case 'studio.rythme':
+    case 'studio.rythme.caler':
+    case 'studio.decliner.langue':
+    case 'studio.versReseaux':
+    case 'studio.modeles.lister':
+    case 'studio.modeles.choisir':
+    case 'studio.modes.lister':
+    case 'studio.mode.choisir':
+    case 'studio.style.joindre':
+    {
+      const { traiterCommandeStudio } = await import('./studio-commandes.js');
+      const issue = await traiterCommandeStudio(cmd);
+      /* Le directeur d'une création parle à celui qui écrit dans le Studio. */
+      if (cmd.type === 'studio.assistant' && issue && typeof (issue as { agentId?: unknown }).agentId === 'string') {
+        noterLInterlocuteur({ agentId: (issue as { agentId: string }).agentId }, compte);
+      }
+      return issue;
     }
 
     /* -------- Surveillance des sites -------- */
@@ -4756,6 +5573,78 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { sites: listerSites() };
     }
 
+    /* -------- Sécurité des projets (`server/src/service-securite.ts`) -------- */
+
+    /* -------- Liaison Beluga Pass (`server/src/belugapass.ts`) -------- */
+
+    case 'belugapass.etat': {
+      const { etatBelugaPass } = await import('./belugapass.js');
+      return { etat: etatBelugaPass() };
+    }
+
+    case 'belugapass.lier': {
+      const { relierEnUnClic } = await import('./belugapass.js');
+      return relierEnUnClic(cmd.endpoint, cmd.origine);
+    }
+
+    case 'belugapass.delier': {
+      const { delier } = await import('./belugapass.js');
+      return { etat: await delier() };
+    }
+
+    case 'belugapass.acces': {
+      const { reglerLAcces } = await import('./belugapass.js');
+      return { etat: await reglerLAcces(cmd.ouvrir === true) };
+    }
+
+    case 'securite.lister': {
+      const { listerProjetsSuivis } = await import('./service-securite.js');
+      return { projets: listerProjetsSuivis() };
+    }
+
+    case 'securite.ajouter': {
+      const { ajouterProjet } = await import('./service-securite.js');
+      return { projets: ajouterProjet(String(cmd.projectId ?? '')) };
+    }
+
+    case 'securite.retirer': {
+      const { retirerProjet } = await import('./service-securite.js');
+      return { projets: retirerProjet(String(cmd.projectId ?? '')) };
+    }
+
+    case 'securite.auditer': {
+      const { estSuivi, lancerAudit, listerProjetsSuivis } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      return { auditId: lancerAudit(projectId, 'manuel'), projets: listerProjetsSuivis() };
+    }
+
+    case 'securite.audits': {
+      const { estSuivi, listerAudits } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      return { audits: listerAudits(projectId) };
+    }
+
+    case 'securite.audit': {
+      const { estSuivi, lireVueDAudit } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      return { vue: lireVueDAudit(projectId, cmd.auditId ?? null) };
+    }
+
+    case 'securite.corriger': {
+      const { corrigerLaSelection, listerProjetsSuivis } = await import('./service-securite.js');
+      const resultat = await corrigerLaSelection(cmd.projets.map(String));
+      return { ...resultat, projets: listerProjetsSuivis() };
+    }
+
+    case 'securite.agent': {
+      const { assurerLAgent } = await import('./service-securite.js');
+      const agentId = await assurerLAgent(String(cmd.projectId ?? ''));
+      return { agentId, projectId: String(cmd.projectId) };
+    }
+
 
     case 'erreurs.liste':
       return {
@@ -4793,7 +5682,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'backup.list':
-      return { backups: listBackups() };
+      return { backups: listBackups().map(({ name, size, at }) => ({ name, size, at })) };
 
     /* -------- Export et import intégral des données -------- */
 
@@ -4829,17 +5718,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { bilan };
     }
 
-    case 'digest.speak':
-      return { text: digestText(cmd.projectId) };
-
-    case 'voice.list':
-      return { voices: listVoices() };
-
-    case 'voice.etat': {
-      const raison = raisonDeLaVoixMuette();
-      return { parle: !raison, raison };
-    }
-
     /*
      * UNE PHRASE DICTÉE, SANS DESTINATAIRE. L'assistant global la route vers le
      * chef d'orchestre du bon projet, ou pose la question quand il ne sait pas.
@@ -4847,6 +5725,64 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      */
     case 'voix.demande':
       return deposerDemandeDictee(cmd.texte);
+
+    /*
+     * LA CONVERSATION VOCALE EN DIRECT AVEC CODEX (`server/src/voix-directe.ts`) : l'offre WebRTC du module de
+     * voix part chez Codex, par l'abonnement ; l'assistant général répond, avec ses outils et les droits du compte
+     * qui parle. Une erreur remonte en clair, jamais un repli silencieux.
+     */
+    case 'voix.direct.demarrer': {
+      const { demarrerLeDirect } = await import('./voix-directe.js');
+      return demarrerLeDirect(cmd.sdp, cmd.voix, compte, cmd.client, cmd.agentId, cmd.appel === true);
+    }
+    /* LES GESTES DE JARVIS À L'ÉCRAN (`server/src/gestes-de-jarvis.ts`) : accusés du navigateur, arrêt par un geste
+       réel de l'utilisateur, et les deux boutons du fil. */
+    case 'jarvis.geste.fait': {
+      const { accuserUnGeste } = await import('./gestes-de-jarvis.js');
+      return accuserUnGeste(cmd);
+    }
+    case 'jarvis.action.arreter': {
+      const { arreterLAction } = await import('./gestes-de-jarvis.js');
+      return arreterLAction(cmd.id);
+    }
+    case 'jarvis.action.reprendre': {
+      const { reprendreLAction } = await import('./gestes-de-jarvis.js');
+      // La suite se joue en tâche de fond : le bouton répond tout de suite, le fil suit l'avancement.
+      void reprendreLAction(cmd.id).catch(() => undefined);
+      return { ok: true };
+    }
+    case 'jarvis.essai.jouer': {
+      const { DEMON_D_ESSAI } = await import('./config.js');
+      if (!DEMON_D_ESSAI) throw new Error('Réservé aux démons d’essai.');
+      const { jouerPourUnEssai } = await import('./gestes-de-jarvis.js');
+      void jouerPourUnEssai(cmd.client, cmd).catch(() => undefined);
+      return { ok: true };
+    }
+    case 'jarvis.action.annuler': {
+      const { annulerLAction } = await import('./gestes-de-jarvis.js');
+      return annulerLAction(cmd.id);
+    }
+    case 'voix.direct.arreter': {
+      const { arreterLeDirect } = await import('./voix-directe.js');
+      return arreterLeDirect(cmd.raison);
+    }
+    case 'voix.direct.saluer': {
+      const { saluerLeDirect } = await import('./voix-directe.js');
+      return saluerLeDirect();
+    }
+    /* JARVIS PRÊT À L'AVANCE : la réserve se monte en arrière-plan, la commande répond tout de suite. */
+    case 'voix.direct.preparer': {
+      const { preparerLeDirect } = await import('./voix-directe.js');
+      return preparerLeDirect();
+    }
+    case 'voix.direct.voix': {
+      const { voixDuDirect } = await import('./voix-directe.js');
+      return { voix: await voixDuDirect(), choisie: store.getSettings().voixCodexDirect };
+    }
+    case 'voix.direct.extrait': {
+      const { extraitDeVoix } = await import('./voix-directe.js');
+      return extraitDeVoix(cmd.sdp, cmd.voix);
+    }
 
     /*
      * LA MARCHE À SUIVRE D'UNE ÉTAPE DE MISE EN LIGNE, un tour à la fois :
@@ -4929,7 +5865,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'stats.resume':
-      return resumeDeRubrique(cmd.rubrique, { debut: cmd.debut, fin: cmd.fin });
+      return resumeDeRubrique(cmd.rubrique, { debut: cmd.debut, fin: cmd.fin, projectId: cmd.projectId });
 
     case 'memory.get': {
       const project = store.getProject(cmd.projectId);

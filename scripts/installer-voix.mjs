@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Installe les voix du point du jour.
+ * Installe les voix d'essai du Studio (Piper, sur ce serveur).
  *
  * Les fichiers de voix pèsent plusieurs dizaines de mégaoctets : ils vivent
  * dans `data/`, hors du dépôt. Sans ce script, une nouvelle installation

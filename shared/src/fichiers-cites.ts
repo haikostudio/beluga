@@ -46,6 +46,21 @@ export function cheminDeFichierCite(texte: string | null | undefined): string | 
   return chemin.replace(/^\.\//, '');
 }
 
+/**
+ * TOUS LES CHEMINS CITÉS PAR UN TEXTE : `code` en ligne et liens Markdown, passés
+ * par la même règle prudente que l'écran. Sans doublon et borné : une réponse
+ * immense ne déclenche pas des centaines de copies.
+ */
+export function cheminsCitesDansLeTexte(texte: string | null | undefined, plafond = 50): string[] {
+  const vus = new Set<string>();
+  for (const trouve of (texte ?? '').matchAll(/`([^`\n]+)`|\]\(([^)\s]+)\)/g)) {
+    const chemin = cheminDeFichierCite(trouve[1] ?? trouve[2]);
+    if (chemin) vus.add(chemin);
+    if (vus.size >= plafond) break;
+  }
+  return [...vus];
+}
+
 /** Le nom de la route en lecture seule qui sert un fichier cité. */
 export const ROUTE_FICHIER_CITE = '/api/fichier-cite';
 
@@ -85,6 +100,9 @@ export interface AppelDOutil {
   reussie?: boolean;
 }
 
+/** Pourquoi un fichier cité ne s'ouvre pas : l'écran dit la phrase qui correspond. */
+export type MotifDeFichierAbsent = 'pas-encore-cree' | 'expire' | 'hors-dossiers' | 'stockage-absent';
+
 /** Les fichiers qu'on vient LIRE : jamais du code, une image a déjà sa pastille. */
 const EXTENSIONS_DE_DOCUMENT = /\.(md|markdown|txt|csv|tsv|html?|pdf|docx?|xlsx?|pptx?|odt|ods|rtf)$/i;
 
@@ -100,12 +118,24 @@ function valeurDe(params: string, cle: string): string | undefined {
 }
 
 /**
+ * UN CHEMIN DANS LA COPIE DE TRAVAIL D'UNE CARTE, et ce qu'il devient une fois
+ * la copie refermée : son `relatif` dans le projet, plus le `depot` quand le
+ * chemin le dit (`<depot>/.worktrees/<copie>/…`). Les copies qui vivent dans
+ * `data/copies/<copie>/…` ne disent pas leur dépôt : la route le connaît.
+ */
+export function relatifDUneCopieDeCarte(chemin: string): { relatif: string; depot?: string } | null {
+  const historique = chemin.match(/^(.*)\/\.worktrees\/[^/]+\/(.+)$/);
+  if (historique) return { relatif: historique[2]!, depot: historique[1] || undefined };
+  const locale = chemin.match(/\/data\/copies\/[^/]+\/(.+)$/);
+  return locale ? { relatif: locale[1]! } : null;
+}
+
+/**
  * Un chemin dans la COPIE DE TRAVAIL d'une carte devient relatif au projet :
  * la copie est refermée après la fusion, le fichier vit alors dans le projet.
  */
 function cheminDuDocument(chemin: string): string {
-  const copie = chemin.match(/\/\.worktrees\/[^/]+\/(.+)$/);
-  const propre = copie ? copie[1] : chemin;
+  const propre = relatifDUneCopieDeCarte(chemin)?.relatif ?? chemin;
   // Un nom nu (« rapport.md ») reste un chemin : la règle de reconnaissance l'exige.
   return propre.includes('/') ? propre : `./${propre}`;
 }
@@ -145,4 +175,44 @@ export function documentsDuTour(appels: readonly AppelDOutil[]): string[] {
     documents.push(reconnu);
   }
   return documents;
+}
+
+/* ------------------------------------------------------------------ */
+/* Les copies gardées                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Décision de l'utilisateur : une copie gardée s'efface 3 mois après sa création. */
+export const CONSERVATION_DES_COPIES_MS = 90 * 24 * 3600_000;
+/** Au-delà, un fichier n'est ni copié ni repris de l'historique. */
+export const PLAFOND_D_UNE_COPIE = 20 * 1024 * 1024;
+
+const DOSSIERS_JAMAIS_COPIES = new Set(['.ssh', '.aws', '.gnupg', '.git', '.claude', '.codex', '.claude-accounts', 'node_modules']);
+const NOM_SENSIBLE =
+  /^(\.env(?!\.example$)(\..*)?|\.netrc|\.npmrc|\.pgpass|id_(rsa|ed25519|ecdsa|dsa)(\.pub)?|auth\.json|(credentials?|secrets?|identifiants?|passwords?|tokens?)([._-].*)?|.*\.(pem|key|p12|pfx|keystore|jks|kdbx|db|sqlite3?))$/i;
+
+/**
+ * UN FICHIER D'IDENTIFIANTS NE PART JAMAIS SUR LE STOCKAGE, même cité par erreur :
+ * le chemin vient du texte d'un agent. La règle lit le nom et les dossiers, et
+ * préfère écarter un document au nom ambigu que copier une clé.
+ */
+export function fichierSensible(chemin: string): boolean {
+  const morceaux = chemin.split(/[/\\]/).filter(Boolean);
+  const nom = morceaux[morceaux.length - 1] ?? '';
+  return morceaux.some((m) => DOSSIERS_JAMAIS_COPIES.has(m)) || NOM_SENSIBLE.test(nom);
+}
+
+/**
+ * Le fichier qu'une étape terminée a écrit, ou `null`. Mêmes outils que
+ * `documentsDuTour`, mais tout type de fichier : les images se rangent déjà en
+ * pièces jointes, et la copie les écarte elle-même.
+ */
+export function cheminEcritParUnOutil(outil: string, params: string): string | null {
+  const nom = outil.replace(/^mcp__[^_]+__/, '');
+  if (nom === 'write_document') {
+    if (/"action"\s*:\s*"supprimer"/.test(params)) return null;
+    return valeurDe(params, 'relativePath') ?? null;
+  }
+  if (nom === 'Write') return valeurDe(params, 'file_path') ?? null;
+  if (nom === 'attach_file' || nom === 'attach_screenshot') return valeurDe(params, 'path') ?? null;
+  return null;
 }

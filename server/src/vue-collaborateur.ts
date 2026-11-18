@@ -35,7 +35,7 @@ import {
 } from '@beluga/shared';
 import { compteParId } from './comptes.js';
 import { listerAcces, listerArchives } from './coffre-fort.js';
-import { getDb } from './db.js';
+import { getDb, getMeta } from './db.js';
 import * as store from './store.js';
 
 type Commande = ClientCommand & Record<string, unknown>;
@@ -55,6 +55,13 @@ function projetDuMessage(messageId: unknown): string | null {
   if (typeof messageId !== 'string') return null;
   const message = store.getMessage(messageId);
   return message ? projetDeLAgent(message.agentId) : null;
+}
+
+/** Le projet d'un contenu de l'atelier, ou `null` s'il n'existe pas. */
+function projetDuContenu(id: unknown): string | null {
+  if (typeof id !== 'string') return null;
+  const ligne = getDb().prepare('SELECT project_id FROM marketing_contenus WHERE id = ?').get(id) as { project_id: string } | undefined;
+  return ligne?.project_id ?? null;
 }
 
 /** Le projet d'un message en attente dans la file d'un agent, ou `null` s'il est déjà parti. */
@@ -93,11 +100,21 @@ export function projetsVisesParLaCommande(viseur: string, cmd: Record<string, un
             ? projetDuMessage(valeur)
             : genre === 'file'
               ? projetDeLaFile(valeur)
-              : null;
+              : genre === 'contenu'
+                ? projetDuContenu(valeur)
+                : null;
     if (!trouve) return null;
     projets.push(trouve);
   }
   return projets;
+}
+
+const COMMANDES_DE_SON_DIRECTEUR = new Set(['agent.prompt', 'agent.open', 'agent.stop', 'question.answer', 'agent.reglages']);
+
+function commandeSurSonDirecteur(cmd: Commande, compteId: string): boolean {
+  if (!COMMANDES_DE_SON_DIRECTEUR.has(cmd.type)) return false;
+  const agentId = typeof cmd.agentId === 'string' ? cmd.agentId : typeof cmd.id === 'string' ? cmd.id : typeof cmd.messageId === 'string' ? store.getMessage(cmd.messageId)?.agentId : null;
+  return !!agentId && getMeta(`communication.directeur.compte.${agentId}`) === compteId;
 }
 
 /**
@@ -110,6 +127,8 @@ export function refusDeLaCommande(compteDuCanal: CompteUtilisateur, commande: Cl
      ferme la porte tout de suite, sans attendre une reconnexion. */
   const compte = compteParId(compteDuCanal.id) ?? compteDuCanal;
   if (compte.role === 'admin') return null;
+  /* SON DIRECTEUR MARKETING EST À LUI, quel que soit le projet qui porte l'agent. */
+  if (commandeSurSonDirecteur(commande as Commande, compte.id)) return null;
   if (!commandeOuverteAuCompte(compte, commande.type)) return REFUS_HORS_PORTEE;
   // Mon compte n'a pas de descripteur : aucune de ses commandes ne nomme un autre compte.
   if (commande.type.startsWith('espace.moi')) return null;
@@ -197,6 +216,24 @@ export function reponsePourLeCollaborateur(compte: CompteUtilisateur, commande: 
       return { ...data, projects: liste.filter((projet) => peutVoirProjet(compte, (projet as { id: string }).id)) };
     }
   }
+  /* LES LISTES DE CARTES TOUS PROJETS CONFONDUS : la part du compte seulement. Le
+     curseur reste celui du démon : un paquet maigre n'empêche pas de lire la suite. */
+  if ((commande.type === 'cards.parDate' || commande.type === 'cards.tachesDeLaColonne') && data && typeof data === 'object') {
+    const reponse = data as { cards?: { projectId: string }[]; agents?: { projectId: string }[] };
+    return {
+      ...data,
+      cards: (reponse.cards ?? []).filter((carte) => peutVoirProjet(compte, carte.projectId)),
+      agents: (reponse.agents ?? []).filter((agent) => peutVoirProjet(compte, agent.projectId)),
+    };
+  }
+  if (commande.type === 'deploys.parDate' && data && typeof data === 'object') {
+    const reponse = data as { runs?: { projectId: string }[] };
+    return { ...data, runs: (reponse.runs ?? []).filter((run) => peutVoirProjet(compte, run.projectId)) };
+  }
+  if (commande.type === 'cards.rechercher' && data && typeof data === 'object') {
+    const reponse = data as { cartes?: { card: { projectId: string } }[] };
+    return { ...data, cartes: (reponse.cartes ?? []).filter(({ card }) => peutVoirProjet(compte, card.projectId)) };
+  }
   return data;
 }
 
@@ -256,6 +293,12 @@ function projetsDeLEvenement(event: ServerEvent): string[] | null | undefined {
  * L'ÉVÉNEMENT TEL QU'UN COLLABORATEUR LE REÇOIT, ou `null` s'il ne part pas.
  * Refus par défaut : un événement dont on ne sait pas dire le projet ne part pas.
  */
+function evenementDeSonDirecteur(event: ServerEvent, compteId: string): boolean {
+  const e = event as { type: string; agent?: { id?: string }; message?: { agentId?: string }; agentId?: string };
+  const agentId = e.type === 'agent.upsert' ? e.agent?.id : e.type === 'message.upsert' ? e.message?.agentId : e.type === 'agent.etat' ? e.agentId ?? e.agent?.id : undefined;
+  return !!agentId && getMeta(`communication.directeur.compte.${agentId}`) === compteId;
+}
+
 export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUtilisateur): ServerEvent | null {
   // Un service ouvert par la grille laisse passer SES événements globaux (réglages, quotas).
   if (evenementOuvertParUnService(compte, event.type)) return event;
@@ -265,6 +308,8 @@ export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUti
     case 'pong':
     case 'ack':
     case 'engines':
+    case 'communication.marques':
+    case 'communication.nonLus':
       return event;
     case 'ready': {
       const projets = event.projects.filter((projet) => peutVoirProjet(compte, projet.id));
@@ -296,6 +341,8 @@ export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUti
     case 'rendus':
       return { ...event, byProject: parProjet(compte, event.byProject) };
     default: {
+      /* CE QUE DIT SON DIRECTEUR ARRIVE À CE COMPTE, ET À LUI SEUL. */
+      if (evenementDeSonDirecteur(event, compte.id)) return event;
       const projets = projetsDeLEvenement(event);
       if (!projets || !projets.length) return null;
       // Une carte qui QUITTE un projet visible vers un projet caché : l'un des deux suffit à prévenir.

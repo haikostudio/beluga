@@ -161,6 +161,12 @@ export interface EtatDuTour {
    */
   attendUneReponse?: boolean;
   /**
+   * L'ÉTAPE DE PRÉPARATION où le tour se trouve, quand aucun moteur ne tourne
+   * encore (« copie de travail de la carte », « jeton GitHub »…). Le filet la
+   * NOMME : « bloquée avant le moteur » ne disait pas où chercher.
+   */
+  etapeDePreparation?: string;
+  /**
    * UNE REPRISE APRÈS PANNE PASSAGÈRE EST-ELLE EN ATTENTE ? Entre la panne du
    * fournisseur et le nouvel essai, le processus du moteur est mort pour une
    * raison connue, et le démon a déjà décidé de le relancer. Ce n'est pas un
@@ -215,9 +221,11 @@ export function tourBloque(etat: EtatDuTour): TourBloque | null {
   //    réponse) ne peuvent le voir. Sans ce plafond, un appel pendu dans la
   //    préparation gelait l'agent jusqu'au prochain redémarrage du serveur.
   if (etat.enPreparation && etat.partiDepuisMs > PLAFOND_PREPARATION_MS) {
+    const ou = etat.etapeDePreparation?.trim();
     return {
-      raison:
-        "La préparation de ce tour est restée bloquée avant même le lancement du moteur : il a été refermé pour libérer l'agent.",
+      raison: ou
+        ? `La préparation de ce tour est restée bloquée avant même le lancement du moteur, à l’étape « ${ou} » : il a été refermé pour libérer l'agent.`
+        : "La préparation de ce tour est restée bloquée avant même le lancement du moteur : il a été refermé pour libérer l'agent.",
     };
   }
 

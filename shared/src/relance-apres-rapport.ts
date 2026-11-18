@@ -304,3 +304,57 @@ export function messagesDepuisLaRelance<T extends { createdAt?: number }>(messag
   if (!depuis) return [...messages];
   return messages.filter((message) => message.createdAt === undefined || message.createdAt >= depuis);
 }
+
+/**
+ * UN MESSAGE ÉCRIT PENDANT LE TRAVAIL REPASSE PAR LA COMPRÉHENSION (06/11/2026, carte « Retouches de la charte
+ * graphique », capture #4318).
+ *
+ * Écrit pendant qu'un agent de TÂCHE travaille, un message attend dans sa file. Il partait chez lui dès la fin du
+ * tour : la carte restait en « Travail », et la nouvelle demande était exécutée sans cadrage — ni recherche dans la
+ * base de connaissances, ni compréhension à valider, ni lancement décidé par l'utilisateur. Désormais, quand le tour
+ * de tâche ABOUTIT (rapport rendu, aucune question ouverte), les messages HUMAINS de sa file en sortent : la carte se
+ * referme normalement (« À déployer »), puis chacun part à l'agent de CADRAGE, comme un message écrit sous le
+ * rapport (`rouvrirLeCadrage`) — Demande, Compréhension, et le travail ne repart que sur le clic de lancement.
+ *
+ * Restent dans la file, pour l'agent de tâche : une demande INTERNE (silencieuse, poursuite, reprise après
+ * épuisement), une demande dont la bulle est déjà écrite chez lui (`messageId`, retombée faute de quota), et toute
+ * la file dès qu'une demande est ouverte en modification — on ne déplace pas un texte qu'on est en train d'écrire.
+ * Un tour tombé, arrêté, coupé ou suspendu sur une question garde sa file : le travail n'est pas fini.
+ */
+export interface DemandeEnFile {
+  id: string;
+  silencieuse?: boolean;
+  poursuite?: boolean;
+  repriseDe?: string;
+  messageId?: string;
+  enEditionDepuis?: number;
+}
+
+export function demandesARemettreAuCadrage<D extends DemandeEnFile>(
+  file: readonly D[],
+  tour: { roleDeLAgent: string; porteUneCarte: boolean; agentAttitre: boolean; abouti: boolean; questionOuverte: boolean },
+): D[] {
+  if (tour.roleDeLAgent !== 'task' || !tour.porteUneCarte || tour.agentAttitre) return [];
+  if (!tour.abouti || tour.questionOuverte) return [];
+  if (file.some((d) => !!d.enEditionDepuis)) return [];
+  return file.filter((d) => !d.silencieuse && !d.poursuite && !d.repriseDe && !d.messageId);
+}
+
+/**
+ * …ET CELUI ÉCRIT PENDANT LE RANGEMENT AUSSI (08/11/2026, carte « Fil du téléphone : espaces et numéros »).
+ *
+ * La file n'était relevée qu'UNE fois, au début du rangement de fin de tour. Or ce rangement dure — contrôle de la
+ * charte et de ses captures, fermeture du dossier, fusion — et un message écrit pendant ce temps (une minute après
+ * le rapport, ce jour-là) entrait dans la file APRÈS le relevé : il retenait la carte en « En cours » et partait à
+ * l'agent de tâche, sans compréhension. La file se relève donc de nouveau à chaque étape du rangement, avec cette
+ * règle-ci : la même que `demandesARemettreAuCadrage`, SAUF qu'une demande interne déjà en file (le renvoi de la
+ * porte de la charte, une poursuite, une reprise, une bulle déjà écrite) garde TOUTE la file chez l'agent — les
+ * messages humains attendent alors derrière elle, comme avant.
+ */
+export function demandesArriveesPendantLeRangement<D extends DemandeEnFile>(
+  file: readonly D[],
+  tour: { roleDeLAgent: string; porteUneCarte: boolean; agentAttitre: boolean; abouti: boolean; questionOuverte: boolean },
+): D[] {
+  if (file.some((d) => d.silencieuse || d.poursuite || d.repriseDe || d.messageId)) return [];
+  return demandesARemettreAuCadrage(file, tour);
+}

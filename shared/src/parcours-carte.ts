@@ -34,6 +34,7 @@
 
 import { BOUTON_LANCER_LA_TACHE, FORME_DE_LA_COMPREHENSION, RAISONS_DU_BOUTON_LANCER } from './cadrage.js';
 import { COLONNES_AVANT_LE_TRAVAIL, type ColumnKey } from './columns.js';
+import { MARQUE_ECART_OUVRE, sansMarquesDEcart } from './ecarts-de-comprehension.js';
 import type { ParcoursDeCarte, PlanDeCarte, QuestionEnAttenteDeCarte } from './models.js';
 import { QUESTIONS_DE_CARTE_MAX, RAISON_QUESTIONS_DE_CARTE, questionsSansReponse } from './questions-de-carte.js';
 import {
@@ -48,6 +49,7 @@ import {
 import { blocDesDecisionsOuvertPar, blocDesTachesOuvertPar, blocEnClairOuvertPar, partieOuvertePar } from './plan-gabarit.js';
 import { carteRangee } from './question-en-texte.js';
 import { REGLE_DES_PISTES } from './pistes-de-question.js';
+import { REGLE_DU_NOMBRE_DE_QUESTIONS } from './posture-de-conseiller.js';
 import { lireLesRubriques, type RubriqueDuCahier } from './cahier-vivant.js';
 import { travailDeLaCarteDejaLance } from './plan-conversation.js';
 import {
@@ -1494,10 +1496,17 @@ export function ligneDIllustration(i: IllustrationDuPlan): string {
   return `![${libelle}](piece:${i.piece})`;
 }
 
-/** Une ligne d'illustration du texte d'un plan : son image et son libellé, sinon `null`. */
-export function lireLigneDIllustration(ligne: string): { piece: string; libelle: string } | null {
-  const m = /^!\[([^\]]*)\]\(piece:([A-Za-z0-9-]+)\)$/.exec(ligne.trim());
-  return m ? { piece: m[2]!, libelle: m[1]! } : null;
+/**
+ * Une ligne d'illustration du texte d'un plan : son image et son libellé, sinon `null`.
+ * Elle TOLÈRE les marques d'écart de la compréhension (`marquerLesEcarts`) : une image NEUVE arrive entourée de
+ * ces deux caractères invisibles, et l'écran l'affichait en « ! » suivi d'un lien (capture #fbac0, 14/11/2026).
+ * `neuf` dit alors qu'elle fait partie de ce qui a changé.
+ */
+export function lireLigneDIllustration(ligne: string): { piece: string; libelle: string; neuf: boolean } | null {
+  const brute = ligne.trim();
+  const neuf = brute.includes(MARQUE_ECART_OUVRE);
+  const m = /^!\[([^\]]*)\]\(piece:([A-Za-z0-9-]+)\)$/.exec(sansMarquesDEcart(brute).trim());
+  return m ? { piece: m[2]!, libelle: m[1]!, neuf } : null;
 }
 
 /**
@@ -1804,7 +1813,7 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
     `1. LES QUESTIONS D'ABORD. Avant de rendre quoi que ce soit, relève ce qui change réellement le résultat et que ni la demande, ni le projet, ni la mémoire ne tranchent : public visé, parcours, règles de gestion, contenus, cas limites, ce qui est hors périmètre. ` +
     `Pose ces questions avec « ask_user », UNE À LA FOIS, chacune précise et utile, avec dans « description » ce que tu as constaté et ce que change chaque réponse, et des choix concrets dont un marqué « (recommandé) ». ` +
     REGLE_DES_PISTES + ' ' +
-    `Ni question de forme, ni question dont la réponse se lit dans le projet : tranche ce qui est évident et dis-le dans le plan. Arrête-toi quand le cahier est sans trou — en général trois à huit questions${numero > 1 ? ", moins pour une nouvelle version : seulement ce que les derniers échanges laissent ouvert" : ''}. ` +
+    `Ni question de forme : tranche ce qui est évident et dis-le dans le plan. ${REGLE_DU_NOMBRE_DE_QUESTIONS} Arrête-toi quand le cahier est sans trou${numero > 1 ? " — pour une nouvelle version, seulement ce que les derniers échanges laissent ouvert" : ''}. ` +
     `2. PUIS, dans le même tour, « rendre_comprehension », part technique comprise, avec dans « cahierDesCharges » les rubriques que tes questions ont remplies. ` +
     `3. ENFIN, sans attendre un autre message, le PLAN version ${numero} par l'outil « rendre_plan ». ` +
     (numero > 1

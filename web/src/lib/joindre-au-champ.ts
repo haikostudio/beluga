@@ -15,6 +15,16 @@ export interface DetailJoindreAuChamp {
   piece?: Attachment;
   /** Ou un texte (l'étiquette « [pièce: …] » du suivi), posé au curseur. */
   texte?: string;
+  /**
+   * Ou une PHRASE DE DÉPART (« Faire des modifications » de Communication) : elle s'ajoute À LA SUITE du brouillon,
+   * sur une nouvelle ligne s'il n'est pas vide, curseur en fin pour que la personne complète. Avec `piece`, la pièce
+   * rejoint la liste sans second tag : la phrase porte déjà le sien (`ancre(designationDePiece(piece))`).
+   */
+  ajout?: string;
+  /** Avec `ajout`, ce qui le sépare d'un brouillon non vide (une ligne par défaut ; la synthèse de la voix : une ligne vide). */
+  separation?: string;
+  /** Avec `ajout`, PLUSIEURS pièces d'un coup (« Toutes les versions » d'un post décliné) : chacune rejoint la liste. */
+  pieces?: Attachment[];
   /** Mis à vrai par le champ qui l'a reçu : sans champ monté, l'appelant prend le relais. */
   recu?: boolean;
 }

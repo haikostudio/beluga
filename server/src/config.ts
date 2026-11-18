@@ -246,6 +246,12 @@ export const PATHS = {
    * seule. Voir `shared/src/bridage-cadrage.ts`.
    */
   cadrageScratch: path.join(CONFIG.dataDir, 'cadrage-scratch'),
+  /**
+   * L'ARBORESCENCE RANGÉE DES FICHIERS (`server/src/fichiers-ranges.ts`) : `<Projet>/<Service>/…`. Chaque entrée y est
+   * un lien vers l'endroit où le service l'a écrite, sauf les fichiers DÉPOSÉS depuis la fenêtre « Fichiers », qui y
+   * vivent pour de vrai. Se reconstruit depuis le registre (table `fichiers`) : effaçable sans perte.
+   */
+  fichiers: env('BELUGA_FICHIERS', path.join(CONFIG.dataDir, 'fichiers')),
 };
 
 export function ensureDirs(): void {

@@ -26,7 +26,7 @@
  */
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { HardDriveDownload, KeyRound, LogOut, Menu, UserRound, UsersRound, X } from 'lucide-react';
+import { HardDriveDownload, KeyRound, LogOut, Menu, UserRound, UsersRound, X } from '@/components/ui/icones';
 import { ActionTiroir, Button, DialogTitle, Drawer, GroupeTiroir, MenuActions, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 

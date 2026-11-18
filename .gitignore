@@ -22,3 +22,4 @@ __pycache__/
 # REA (analyse des produits à cloner) : ~230 Mo de modules et le JAR JADX,
 # posés sur la machine, jamais versionnés. Installation : scripts/installer-rea.mjs
 /outils/rea/
+*.tsbuildinfo

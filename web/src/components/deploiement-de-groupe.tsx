@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Loader2, MessageCircleQuestion, Rocket, Sparkles } from 'lucide-react';
+import { Check, Loader2, MessageCircleQuestion, Rocket, Sparkles } from '@/components/ui/icones';
 import {
   type Project,
   agentDeConfiguration,
@@ -241,7 +241,8 @@ export function DeploiementDeGroupe({
           <Button
             variant="default"
             size="pied"
-            className="w-full gap-1.5"
+            /* EN ROUTE, le bouton garde son fond plein : il montre le travail (rouet), il ne pâlit pas. */
+            className={cn('w-full gap-1.5', envoi.size > 0 && 'disabled:opacity-100')}
             disabled={!selection.length || envoi.size > 0}
             onClick={() => void lancer()}
             data-bouton-deployer-selection={selection.length}

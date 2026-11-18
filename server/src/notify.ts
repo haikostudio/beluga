@@ -39,8 +39,6 @@ interface Pending {
   libelles: string[];
   title: string;
   body: string;
-  /** La phrase déjà rédigée à dire à voix haute (résumé de la réponse), s'il y en a une. */
-  voix?: string;
   cardId?: string;
   projectId?: string;
   /** L'agent où répondre quand l'événement ne tient à aucune carte (question
@@ -106,13 +104,6 @@ export function notify(input: {
   reference?: string;
   /** Ce qui nomme l'élément dans un groupe. À défaut, le titre de la carte. */
   element?: string;
-  /**
-   * Une phrase déjà rédigée à dire à voix haute (résumé du vrai contenu de la
-   * réponse), quand l'appelant a pu la tirer. La voix la préfère au repli par
-   * titre. Perdue si l'événement se fond dans un groupe (le résumé ne vaut que
-   * pour UNE tâche).
-   */
-  voix?: string;
   cardId?: string;
   projectId?: string;
   /** L'agent où la décision se prend, quand elle ne tient à aucune carte. */
@@ -149,19 +140,6 @@ export function notify(input: {
   if (evenementDejaVu(vus, cleEvenement(input.motif, reference), Date.now())) return;
 
   /*
-   * L'AVANCE : quand une phrase parlée est déjà décidée (fin de tâche,
-   * publication terminée ou en échec), on prépare son son AUSSITÔT — avant même
-   * que le navigateur ne le demande. Le fichier gardé sera alors déjà là, et
-   * l'annonce démarrera sans délai. Fabrication en arrière-plan, jamais
-   * bloquante ; un échec est sans conséquence (repli sur la voix du navigateur).
-   */
-  if (input.voix) {
-    void import('./voice.js')
-      .then((v) => v.precharger(input.voix!))
-      .catch(() => undefined);
-  }
-
-  /*
    * Le nom du projet et la description de la carte sont ajoutés ICI, une fois
    * pour toutes : les endroits qui appellent `notify` n'ont pas à y penser, et
    * l'alerte dit toujours de quoi elle parle.
@@ -188,7 +166,6 @@ export function notify(input: {
     if (existing.projet && existing.projet !== projet) existing.projet = undefined;
     existing.cardId = undefined; // un groupe ne pointe plus vers une carte précise
     existing.agentId = undefined; // ni vers une conversation précise
-    existing.voix = undefined; // un résumé ne vaut que pour UNE tâche, pas pour un lot
     if (existing.url !== input.url) existing.url = undefined; // deux fiches : l'appui ouvre l'espace
     existing.timer = setTimeout(() => flush(cle), GROUP_WINDOW_MS);
     return;
@@ -201,7 +178,6 @@ export function notify(input: {
     libelles: [libelle],
     title: titreNotification(action, projet, emoji),
     body: corpsNotification(input.body, carte, action),
-    voix: input.voix,
     cardId: input.cardId,
     projectId: input.projectId,
     agentId: input.agentId,
@@ -239,7 +215,6 @@ function flush(cle: string): Promise<void> {
     title: groupe?.titre ?? entry.title,
     body: groupe?.corps ?? entry.body,
     // Le résumé parlé ne suit que l'événement SEUL : un groupe l'a déjà effacé.
-    voix: groupe ? undefined : entry.voix,
     tag: famille,
     // Le MOTIF voyage jusqu'au bout : c'est lui qui choisit l'image affichée,
     // côté onglet ouvert comme côté service worker. Un groupe garde le motif du

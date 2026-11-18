@@ -28,7 +28,7 @@
  * Claude Code : `node scripts/verif-relance-du-rapport.mjs`.
  */
 
-import { FORME_D_UN_MESSAGE } from './message-court.js';
+import { FORME_D_UN_MESSAGE, FORME_DU_COMPTE_RENDU } from './message-court.js';
 
 /** Une étape d'outil, telle que le démon la garde pendant le tour. */
 export interface EtapeDOutil {
@@ -174,6 +174,7 @@ export function consigneDeRelanceDuRapport(input: { taches: readonly TacheDeFond
   lignes.push(
     '',
     `Rends MAINTENANT ton message final, en ${FORME_D_UN_MESSAGE}.`,
+    `${FORME_DU_COMPTE_RENDU}.`,
     'Ne refais pas le travail, ne pose pas de question : ce texte ferme la carte.',
   );
   return lignes.join('\n').trim();

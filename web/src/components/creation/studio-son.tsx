@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Download, Loader2, Pause, Play, Plus, Redo2, Trash2, Undo2, Volume2, VolumeX } from 'lucide-react';
+import { Check, Download, Loader2, Pause, Play, Plus, Redo2, Trash2, Undo2, Volume2, VolumeX } from '@/components/ui/icones';
 import {
   ExtraitSonore,
   LIBELLES_PISTES_DU_STUDIO_SON,

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, Loader2, Search, X } from 'lucide-react';
+import { BookOpen, Loader2, Search, X } from '@/components/ui/icones';
 import { Button, DialogTitle, Drawer, Input, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { Markdown } from '@/lib/markdown';

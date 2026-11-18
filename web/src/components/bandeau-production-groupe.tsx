@@ -9,7 +9,7 @@ import {
   Rocket,
   Settings2,
   Sparkles,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   type ColumnKey,
   type DeployRun,
@@ -306,7 +306,8 @@ export function BandeauProductionGroupe({
       <Button
         variant={pied ? 'default' : 'outline'}
         size="pied"
-        className="shrink-0 gap-1.5"
+        /* PARTI, le bouton garde son fond : il montre le travail (rouet), il ne pâlit pas. */
+        className={cn('shrink-0 gap-1.5', parti && 'disabled:opacity-100')}
         disabled={!ligne.pret || parti}
         title={ligne.raison ? t(ligne.raison) : undefined}
         onClick={() => setConfirmation({ ids: [id], tous: false })}
@@ -407,7 +408,7 @@ export function BandeauProductionGroupe({
                       disabled={!ligne.pret}
                       onCheckedChange={() => basculer(id)}
                       className="mr-1 mt-[3px]"
-                      aria-label={t('Inclure ce projet')}
+                      aria-label="Inclure ce projet"
                       data-case-production-membre={id}
                     />
                     <button

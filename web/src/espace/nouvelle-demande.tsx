@@ -18,7 +18,7 @@
  * dépôt.
  */
 import * as React from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from '@/components/ui/icones';
 import { Button, DialogFooter, DialogTitle, Drawer, Input, Textarea, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 import {

@@ -1,4 +1,4 @@
-import { WifiLow } from 'lucide-react';
+import { WifiLow } from '@/components/ui/icones';
 import { useConnexionLente } from '@/lib/attente-silhouettes';
 import { t } from '@/lib/langue';
 

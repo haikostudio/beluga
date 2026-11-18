@@ -90,6 +90,23 @@ export function texteDeReponseALaQuestion(reponse: string, fichiers: string[] = 
   );
 }
 
+/**
+ * LA RÉPONSE ARRIVE APRÈS LA FERMETURE DU TOUR (31/10/2026, capture #2df40).
+ * La question a expiré, le tour s'est refermé avec ses lignes « non faites » ;
+ * la réponse relance un NOUVEAU tour. Sans rappel, le moteur faisait tout le
+ * travail sans réannoncer de liste : l'écran gardait l'ancienne, à 0/6. La
+ * consigne voyage dans la DEMANDE du tour, jamais dans la consigne système (qui
+ * ne change pas en cours de session) : réannoncer ce qui reste, cocher, rendre.
+ */
+export function texteDeReponseTardive(question: string, reponse: string): string {
+  const rappel = question.length > 80 ? `${question.slice(0, 80)}…` : question;
+  return (
+    `Réponse à ta question « ${rappel} » : ${reponse}\n` +
+    'Ton tour précédent s’est refermé sans cette réponse. Avant de reprendre, réannonce ta liste de tâches ' +
+    'avec ce qui reste à faire, coche-la au fil de l’eau, puis rends ton compte rendu.'
+  );
+}
+
 /** La question a été annulée : rien n'a été tranché, l'agent ne doit rien deviner. */
 export function texteDAnnulation(): string {
   return (

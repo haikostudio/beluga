@@ -424,3 +424,7 @@ export function choisirLeCompteDuTerminal(
       : 'aucun compte Claude actif : le terminal garde le coffre du serveur',
   };
 }
+
+/** Ce que le terminal dit sur un serveur loué (offre hébergée), où il est fermé. */
+export const TERMINAL_FERME_SUR_UN_SERVEUR_LOUE =
+  'Le terminal du serveur est fermé sur l’offre hébergée : vos agents font ce travail pour vous, depuis vos cartes.';

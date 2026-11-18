@@ -13,7 +13,7 @@ import {
   Server,
   SquareTerminal,
   UploadCloud,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   LIBELLE_REPERE_D_AVANCEMENT,
   adresseVisee,
@@ -251,7 +251,6 @@ export function OuJEnSuis({
   const derniere = state.deploys[projet.id];
   const reussites = useReussitesDePublication(projet.id, `${derniere?.id ?? ''}:${derniere?.state ?? ''}:${state.connected}`);
   const essaiReussi = essaiReussiConnu(derniere, cible, processus?.ecritLe, reussites?.[cible]);
-  const reperes = reperesDAvancement({ ...situation, processus: !!processus, essaiReussi });
   const aRevoir = !eteinte && etat === 'a-reverifier';
 
   return (
@@ -276,7 +275,7 @@ export function OuJEnSuis({
           </span>
         </p>
       </div>
-      {eteinte ? null : <ReperesDAvancement reperes={reperes} attend={etat === 'question'} />}
+      {/* PLUS DE FRISE « Étude / Processus / Essai » (13/11/2026) : une phrase d'état, un seul bouton. */}
       {/* LE BOUTON DE L'AGENT, EN DESSOUS ET SUR TOUTE LA LARGEUR, dans la couleur
           du travail de l'agent (demande du 19/10/2026 : il ne se perd plus en
           haut à droite, à côté de la phrase d'état). */}

@@ -34,7 +34,7 @@
 
 import { corpsEnDirect } from './catalogue-en-direct.js';
 import { MODELE_TTS_GEMINI } from './voix-gemini.js';
-import { MODELES_KIE, lireCommandeKie, lireSuiviKie, modeleKie, requeteDeCommandeKie } from './kie.js';
+import { MODELES_KIE, corpsDeCommandeKie, lireCommandeKie, lireSuiviKie, modeleKie, requeteDeCommandeKie } from './kie.js';
 import { DIRECTIONS_FIBO, DIRECTIONS_ICLIGHT, type AngleDeVue, type DirectionDeLumiere, type DirectionsDuModele } from './retouches-de-media.js';
 import {
   SERVICES_CREATION,
@@ -50,7 +50,12 @@ import {
  * passe par là depuis le 24/10/2026. « angles », « lumiere », « visage » : les retouches d'une image
  * (`shared/src/retouches-de-media.ts`).
  */
-export const CAPACITES_DE_GENERATION = ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'] as const;
+/**
+ * « visage-video » : le visage d'une photo posé sur la personne d'une VIDÉO (Wan 2.2 Animate Replace, kie.ai).
+ * « clonage-voix » : la voix d'un enregistrement fourni, apprise sur le moment, dit un texte (Fish Audio par OpenRouter).
+ * Les deux depuis le 31/10/2026 (carte « Studio : conversation et options alignées »).
+ */
+export const CAPACITES_DE_GENERATION = ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche', 'visage-video', 'clonage-voix'] as const;
 export type CapaciteDeGeneration = (typeof CAPACITES_DE_GENERATION)[number];
 
 /** Les services EN PLUS de ceux du Studio : ils n'apparaissent jamais dans le Studio. */
@@ -157,6 +162,8 @@ export const MODELE_IMAGE_OPENROUTER_PAR_DEFAUT = 'google/gemini-nano-banana-2.1
 
 /** Le modèle d'OpenRouter des retouches décrites en mots (lumière, visage) : celui des images, qui lit les images jointes. */
 export const MODELE_IMAGE_OPENROUTER_DE_RETOUCHE = MODELE_IMAGE_OPENROUTER_PAR_DEFAUT;
+/** Le modèle du CLONAGE DE VOIX par OpenRouter : il reçoit l'enregistrement de référence (`input_references`). */
+export const MODELE_CLONAGE_OPENROUTER = 'fish-audio/s2.1-pro';
 
 /** Les modèles d'image, de son et d'avatar AJOUTÉS (ceux de la vidéo viennent du Studio). */
 const MODELES_EN_PLUS: readonly ModeleDeGeneration[] = [
@@ -219,6 +226,9 @@ const MODELES_EN_PLUS: readonly ModeleDeGeneration[] = [
   /* LA VOIX FINALE DU DIRECTEUR (sortie du Studio le 26/10/2026, MEM-4350) : vingt voix Gemini par OpenRouter, avec la clé
      branchée par l'utilisateur ou, à défaut, celle du relais de Beluga Build. Prix estimé au devis, coût réel relevé après. */
   { service: 'openrouter', id: `google/${MODELE_TTS_GEMINI}`, nom: 'Voix Gemini (par OpenRouter)', capacite: 'voix', qualite: 4, usage: 'voix off française, vingt voix (« voix » = Kore, Aoede, Puck, Charon…) ; coût réel relevé après', prix: 'cout-reel-openrouter' },
+  /* LE CLONAGE DE VOIX (31/10/2026) : OpenRouter ne route une référence audio (`input_references`) que vers les
+     fournisseurs qui clonent — Fish Audio S2.1 Pro, essayé en français ce jour-là (Voxtral, annoncé, n'y clone plus). */
+  { service: 'openrouter', id: MODELE_CLONAGE_OPENROUTER, nom: 'Voix clonée — Fish Audio S2.1 Pro (par OpenRouter)', capacite: 'clonage-voix', qualite: 4, usage: 'la voix d’un enregistrement de 10 à 30 s (« audio » = la pièce jointe, avec l’accord de la personne) dit le texte ; coût réel relevé après', prix: 'cout-reel-openrouter' },
   { service: 'replicate', id: 'black-forest-labs/flux-1.1-pro', nom: 'FLUX 1.1 Pro', capacite: 'image', qualite: 4, usage: 'photo réaliste', prix: 'non-publie' },
   { service: 'heygen', id: 'avatar_iv', nom: 'Présentateur HeyGen (Avatar IV)', capacite: 'avatar', qualite: 5, usage: 'un présentateur humain réaliste dit votre texte, dans la langue voulue', prix: 'non-publie' },
   { service: 'heygen', id: 'heygen-video-1', nom: 'HeyGen Video', capacite: 'video', qualite: 4, usage: 'plans de 5 à 15 s avec leur son', prix: 'non-publie', durees: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], ratios: ['16:9', '9:16', '1:1'], son: true },
@@ -246,13 +256,15 @@ const MODELES_EN_PLUS: readonly ModeleDeGeneration[] = [
 ];
 
 /**
- * LES SERVICES CACHÉS (décision de l'utilisateur du 25/10/2026) : Higgsfield et
- * fal.ai cèdent la place à kie.ai. Ils disparaissent des réglages, des listes
- * de l'agent, des conseils de branchement et du choix automatique ; leur code
- * d'appel, leur catalogue et leurs tests restent EN PLACE — les rallumer,
- * c'est les retirer d'ici. Une clé déjà rangée au coffre n'est pas touchée.
+ * LES SERVICES CACHÉS. Higgsfield et fal.ai l'avaient été le 25/10/2026, au
+ * passage à kie.ai ; l'utilisateur les a RALLUMÉS le 11/11/2026, à côté de
+ * kie.ai (qui reste en tête) : ils reviennent dans les réglages, les listes de
+ * l'agent, le catalogue et le devis, et l'agent DEMANDE toujours à
+ * l'utilisateur quel service employer avant de fabriquer. La liste reste
+ * l'interrupteur : y remettre un identifiant le recache, sans toucher à son code
+ * ni à sa clé du coffre.
  */
-export const SERVICES_CACHES: readonly IdServiceGeneration[] = ['higgsfield', 'fal'];
+export const SERVICES_CACHES: readonly IdServiceGeneration[] = [];
 
 let cachesEnVigueur: readonly IdServiceGeneration[] = SERVICES_CACHES;
 
@@ -450,7 +462,8 @@ export function requeteDeGeneration(
       const k = modeleKie(modele.id, modele.capacite);
       if (!k) return null;
       const c = corpsEnDirect(k.entrees, d, k.defauts);
-      return c.ok ? { requete: requeteDeCommandeKie(k.id, cle, c.corps), forme: 'travail' } : null;
+      if (!c.ok) return null;
+      return { requete: requeteDeCommandeKie(k.id, cle, corpsDeCommandeKie(k.id, c.corps)), forme: 'travail' };
     }
     case 'fal': {
       const enFile = (corps: Record<string, unknown>) => ({
@@ -808,7 +821,7 @@ export function extensionDuMedia(capacite: CapaciteDeGeneration, typeMime = ''):
   if (t.includes('wav')) return 'wav';
   if (t.includes('mp4')) return 'mp4';
   if (capacite === 'image' || estUneRetoucheDImage(capacite)) return 'png';
-  if (capacite === 'video' || capacite === 'avatar' || capacite === 'synchro' || capacite === 'animation' || capacite === 'mouvement') return 'mp4';
+  if (capacite === 'video' || capacite === 'avatar' || capacite === 'synchro' || capacite === 'animation' || capacite === 'mouvement' || capacite === 'visage-video') return 'mp4';
   return 'mp3';
 }
 
@@ -822,6 +835,6 @@ export type GenreDeMedia = 'image' | 'video' | 'son';
 
 export function genreDuMedia(capacite: CapaciteDeGeneration): GenreDeMedia {
   if (capacite === 'image' || estUneRetoucheDImage(capacite)) return 'image';
-  if (capacite === 'video' || capacite === 'avatar' || capacite === 'synchro' || capacite === 'animation' || capacite === 'mouvement') return 'video';
+  if (capacite === 'video' || capacite === 'avatar' || capacite === 'synchro' || capacite === 'animation' || capacite === 'mouvement' || capacite === 'visage-video') return 'video';
   return 'son';
 }

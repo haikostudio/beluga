@@ -91,7 +91,6 @@ export const USAGES_JUGE = [
   'comprehension-carte',
   'tri-propositions',
   'urgence-demande',
-  'evaluation-creation',
   'genre-carte-auto',
   'famille-erreur',
   'niveau-carte',
@@ -152,13 +151,6 @@ export const FICHES_DES_USAGES: readonly FicheDUsage[] = [
     explication:
       'Note l’urgence d’une demande arrivée sans passer par vous (panne détectée, demande extérieure), pour ordonner ce qui est traité en premier.',
     parDefaut: false,
-  },
-  {
-    cle: 'evaluation-creation',
-    titre: 'Évaluation du mode Création',
-    explication:
-      'Départage les propositions rendues par les différents modèles quand le mode Création est allumé sur une carte. Son choix reste un conseil : l’agent garde le dernier mot.',
-    parDefaut: true,
   },
   {
     cle: 'genre-carte-auto',
@@ -1208,7 +1200,6 @@ export interface ReglageDUsage {
 
 export const REGLAGES_DES_USAGES: Partial<Record<UsageDuJuge, ReglageDUsage>> = {
   'comprehension-carte': { seuil: SEUILS.confianceDeLaComprehension },
-  'evaluation-creation': { seuil: SEUILS.confianceDeLaComprehension },
   'tri-propositions': { seuil: SEUILS.confianceDeLaComprehension },
   'urgence-demande': { seuil: 0.5 },
   'genre-carte-auto': { seuil: SEUIL_CONFIANCE_TRI },

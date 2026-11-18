@@ -19,6 +19,8 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  ANCIENNE_RACINE_DU_MIROIR,
+  RACINE_DU_MIROIR,
   argumentsDuMiroir,
   doitPasserLaNuit,
   estSystemeDeFichiersDistant,
@@ -27,6 +29,7 @@ import {
   typeDuSystemeDeFichiers,
   sansRegroupements,
 } from '@beluga/shared';
+import { ROOT } from './config.js';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import { listProjects } from './store.js';
@@ -44,8 +47,37 @@ function destination(): { hote: string; port: string; cle: string; racine: strin
     hote: process.env.BELUGA_MIROIR_HOTE?.trim() || 'u000000@u000000.your-storagebox.de',
     port: process.env.BELUGA_MIROIR_PORT?.trim() || '23',
     cle: process.env.BELUGA_MIROIR_CLE?.trim() || '/home/utilisateur/.ssh/id_ed25519_sauvegarde',
-    racine: process.env.BELUGA_MIROIR_RACINE?.trim() || 'Beluga',
+    racine: process.env.BELUGA_MIROIR_RACINE?.trim() || RACINE_DU_MIROIR,
   };
+}
+
+/** Le stockage distant, vu par son montage local (le même espace que l'hôte rsync). */
+const MONTAGE_DU_STOCKAGE = '/mnt/sauvegardes';
+
+/**
+ * L'ANCIEN NOM PASSE AU NOUVEAU, UNE SEULE FOIS : « Beluga » devient
+ * « miroir-des-projets » par un simple renommage sur le stockage (instantané).
+ * Sans lui, le premier passage sous le nouveau nom recopierait tout de zéro
+ * (17 Go) et laisserait l'ancien à côté. Rien n'est tenté si le nouveau nom est
+ * déjà pris, si le stockage n'est pas monté, ou si une racine est imposée.
+ */
+export function passerLeMiroirAuNouveauNom(montage = MONTAGE_DU_STOCKAGE, racine = destination().racine): string | null {
+  if (racine !== RACINE_DU_MIROIR) return null;
+  try {
+    if (montage === MONTAGE_DU_STOCKAGE) {
+      const montages = fs.readFileSync('/proc/mounts', 'utf8');
+      if (!montages.split('\n').some((l) => l.split(' ')[1] === montage)) return null;
+    }
+    const ancien = path.join(montage, ANCIENNE_RACINE_DU_MIROIR);
+    const neuf = path.join(montage, RACINE_DU_MIROIR);
+    if (!fs.existsSync(ancien) || fs.existsSync(neuf)) return null;
+    fs.renameSync(ancien, neuf);
+    log.info(`miroir des projets : « ${ancien} » renommé « ${neuf} »`);
+    return neuf;
+  } catch (err) {
+    log.warn(`miroir des projets : renommage de l'ancien dossier impossible — ${(err as Error).message}`);
+    return null;
+  }
 }
 
 /** Ce dossier est-il posé sur le disque de la machine (et non sur un montage réseau) ? */
@@ -72,7 +104,8 @@ export async function passageDuMiroir(): Promise<{ copies: number; echecs: strin
     log.warn(`miroir des projets : la clé « ${cible.cle} » est introuvable — aucune copie ce soir`);
     return { copies: 0, echecs: ['clé introuvable'] };
   }
-  const projets = projetsAMirrorer(sansRegroupements(listProjects()), estLocal, cible.racine);
+  passerLeMiroirAuNouveauNom();
+  const projets = projetsAMirrorer(sansRegroupements(listProjects()), estLocal, cible.racine, ROOT);
   const echecs: string[] = [];
   let copies = 0;
   for (const projet of projets) {
@@ -104,6 +137,8 @@ export async function passageDeNuitDuMiroir(maintenant = new Date()): Promise<bo
 }
 
 export function planifierLeMiroirDesProjets(): NodeJS.Timeout {
+  // Au démarrage, aucune copie ne tourne encore : le nouveau nom se pose tout de suite.
+  passerLeMiroirAuNouveauNom();
   return setInterval(() => {
     passageDeNuitDuMiroir().catch((err) => log.warn(`miroir des projets : passage sauté — ${(err as Error).message}`));
   }, VEILLE_MS);

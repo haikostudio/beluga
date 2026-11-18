@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Loader2, Send } from 'lucide-react';
+import { Check, Loader2, Send } from '@/components/ui/icones';
 import {
   arrondi,
   decoupageDuMedia,

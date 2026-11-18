@@ -38,7 +38,7 @@ export type EffortAgent = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export function effortParDefaut(input: { role: AgentRole; motif?: MotifDAppel }): EffortAgent | undefined {
   if (input.motif === 'configuration-backup' || input.motif === 'configuration-surveillance') return 'low';
   // Rédiger pour vendre demande un peu de jugement : un cran au-dessus des assistants de configuration.
-  if (input.motif === 'configuration-marketing') return 'medium';
+  if (input.motif === 'configuration-marketing' || input.motif === 'directeur-marketing' || input.motif === 'chef-de-marque' || input.motif === 'chef-de-projet' || input.motif === 'chef-de-campagne') return 'medium';
   // « Résoudre le problème » cherche une cause INCONNUE : du jugement, pas un geste dicté.
   if (input.motif === 'depannage-manuel') return 'medium';
   // La réparation silencieuse d'une étape et le heurt de fusion réglé sur place : une panne

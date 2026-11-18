@@ -1,8 +1,11 @@
 import * as React from 'react';
-import { FolderTree, Loader2, Pencil, Plus, Settings2, Split, X } from 'lucide-react';
+import { FolderTree, Loader2, Pencil, Plus, Settings2, Split, X } from '@/components/ui/icones';
 import { estUnRegroupement, type Project } from '@beluga/shared';
+import { CLE_TRI_PAR_OUVERTURE } from '@beluga/shared';
+import { usePref } from '@/lib/prefs';
 import {
   BulleInfo,
+  Switch,
   Button,
   ConfirmDialog,
   DropdownMenu,
@@ -38,6 +41,8 @@ export function PageProjetsReunis() {
      l'espace de développement ne se réunit à rien. */
   const libres = actifs.filter((p) => !estUnRegroupement(p) && !p.isSelf && !p.regroupementId);
 
+  /* LE TRI DE LA COLONNE DE GAUCHE : ne touche à aucun rang ; allumé, le glisser-déposer est suspendu. */
+  const [triParOuverture, setTriParOuverture] = usePref<boolean>(CLE_TRI_PAR_OUVERTURE, false);
   const [coches, setCoches] = React.useState<Set<string>>(new Set());
   const [nom, setNom] = React.useState('');
   const [enCours, setEnCours] = React.useState<string | null>(null);
@@ -81,6 +86,14 @@ export function PageProjetsReunis() {
 
   return (
     <div data-page-projets-reunis className="space-y-5">
+      <label className="flex items-center gap-2 text-[14px] text-muted">
+        <Switch
+          checked={triParOuverture}
+          onCheckedChange={setTriParOuverture}
+          data-tri-par-ouverture={triParOuverture ? 'ouverture' : 'manuel'}
+        />
+        {t('Ranger la colonne de gauche par dernière ouverture')}
+      </label>
       <div>
         <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
           <FolderTree className="h-3.5 w-3.5 text-faint" />

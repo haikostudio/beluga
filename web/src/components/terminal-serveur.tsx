@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Copy, Loader2, Maximize2, Minimize2, Minus, TerminalSquare, TriangleAlert, X } from 'lucide-react';
+import { Check, ChevronDown, Copy, Loader2, Maximize2, Minimize2, Minus, TerminalSquare, TriangleAlert, X } from '@/components/ui/icones';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -547,7 +547,7 @@ export function TerminalServeur({
             : grand
               ? `calc(var(--hauteur-app, 100dvh) - ${MARGE_HAUTE_DU_VOLET}px)`
               : 'min(46dvh, calc(var(--hauteur-app, 100dvh) - 120px))',
-        paddingBottom: 'var(--zone-sure-bas, 0px)',
+        paddingBottom: 'var(--marge-bas-hors-clavier, 0px)',
       }}
       /* DERRIÈRE L'APPLICATION : sous sa couche (`z-0` contre la sienne), noir
          dans tous les thèmes (`terminal-noir` redonne les jetons de couleur). */

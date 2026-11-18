@@ -32,7 +32,7 @@ import {
   Terminal,
   Wrench,
   X,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   DeployRun,
   DeployStepKey,

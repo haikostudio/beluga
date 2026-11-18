@@ -28,11 +28,13 @@
  * son rang.
  */
 import * as React from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown } from '@/components/ui/icones';
 import { Button, SelecteurTiroir } from '@/components/ui';
 import { GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useTelephone } from '@/lib/telephone';
+import { useDeclarerLeProjetDuHaut, type EtageDuProjet } from '@/components/haut-du-telephone';
 
 export function EnteteEspace({
   avant,
@@ -68,21 +70,45 @@ export function EnteteEspace({
   /** Le burger et son tiroir, posés en dernier. */
   menu?: React.ReactNode;
 }) {
+  /*
+   * LE TÉLÉPHONE DANS UN PROJET DE LA MESSAGERIE (03/11/2026) : la flèche de retour remplace le menu ☰ (elle ramène
+   * à la vue d'ensemble), et le NOM du projet, centré en haut, ouvre la liste des projets — on reste dans la
+   * Messagerie.
+   */
+  const telephone = useTelephone();
+  const nomDuProjet = projets.find((p) => p.id === projectId)?.nom ?? null;
+  const etageDuHaut = React.useMemo<EtageDuProjet | null>(
+    () =>
+      telephone && onRacine && nomDuProjet
+        ? {
+            libelle: nomDuProjet,
+            valeur: projectId,
+            titre: t('Projets'),
+            genre: 'projets',
+            options: projets.map((p) => ({ valeur: p.id, libelle: p.nom })),
+            onChoisir: (id) => {
+              if (id !== projectId) onProjet(id);
+            },
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [telephone, !!onRacine, nomDuProjet, projectId, projets.map((p) => p.id).join(',')],
+  );
+  useDeclarerLeProjetDuHaut(etageDuHaut);
   if (onRacine) {
     return (
       <>
-        <SuiteDuFil onRacine={onRacine}>
+        <SuiteDuFil onRacine={onRacine} retour={{ action: onRacine, reperes: { 'data-messagerie-retour': '' } }}>
           <SeparateurDuFil />
           {/* TOUTE LA LARGEUR RESTANTE DU FIL : sans `flex-1`, ce cran se
               réduisait à son contenu et le nom du client, borné en pour cent
               de lui-même, s'écrasait jusqu'à une lettre sur téléphone. */}
-          <span className="flex min-w-0 flex-1 items-center gap-1.5" data-entete-espace="fil">
+          {/* LE CRAN DU CLIENT NE PREND PLUS TOUTE LA LARGEUR SUR ORDINATEUR (15/11/2026, capture #6d3f9) : le titre de
+              la demande ouverte suit juste après lui, au lieu d'être repoussé au bout de la barre. Le projet est dans
+              le cran du client, entre parenthèses — plus de mention grise à part. Sur téléphone, il garde la largeur
+              restante (sans elle, le nom s'écrasait jusqu'à une lettre). */}
+          <span className="flex min-w-0 items-center gap-1.5 max-sm:flex-1" data-entete-espace="fil">
             {avant}
-            {projets.length > 1 ? null : (
-              <span className="hidden min-w-0 truncate text-[12.5px] text-faint md:block" data-nom-projet>
-                {projets[0]?.nom ?? t('Mes demandes')}
-              </span>
-            )}
           </span>
         </SuiteDuFil>
         <GestesDePage>
@@ -99,7 +125,11 @@ export function EnteteEspace({
      * pose une limite sans découper l'écran. Il reste sur `--faint`, jamais
      * `--border`, effacé dans les onze palettes plates.
      */
-    <div className="flex min-w-0 items-center gap-1.5 px-3 py-2 sm:px-5" data-entete-espace>
+    /*
+     * UN FOND QUI SE DÉTACHE DU TABLEAU (demande du 08/11/2026, capture #d5ea) : la bande entière prend le gris des
+     * têtes du tableau (`--tableau-entete`), net en clair comme en sombre — sans trait ni bordure.
+     */
+    <div className="flex min-w-0 shrink-0 items-center gap-1.5 bg-tableau-entete px-3 py-2 sm:px-5" data-entete-espace>
       {avant}
       {/*
        * LE NOM DU PROJET, EN SECOND PLAN DERRIÈRE CE QUI PRÉCÈDE. Quand le

@@ -105,6 +105,8 @@ else
   # le premier démarrage, et appartenir au compte du service.
   install -d -o "$COMPTE" -g "$GROUPE" "$DEPOT/data" "$DEPOT/data/logs"
 fi
+dire "beluga.service.d/memoire.conf (un enfant tué par manque de mémoire n'arrête plus le service)"
+faire "install -D -m 644 '$DEPOT/scripts/beluga.service.d/memoire.conf' '$UNITES/beluga.service.d/memoire.conf'"
 dire "beluga-watchdog.service et beluga-watchdog.timer"
 faire "install -m 644 '$DEPOT/scripts/beluga-watchdog.service' '$UNITES/beluga-watchdog.service'"
 faire "install -m 644 '$DEPOT/scripts/beluga-watchdog.timer' '$UNITES/beluga-watchdog.timer'"

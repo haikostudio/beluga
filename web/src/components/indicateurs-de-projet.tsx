@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import { activiteDeProjet, type IconeDAttention } from '@beluga/shared';
 import { RepereAttention } from '@/components/repere-attention';
 import { Tooltip } from '@/components/ui';

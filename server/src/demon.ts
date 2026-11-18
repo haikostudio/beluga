@@ -206,6 +206,10 @@ async function sauverPuisToutArreter(): Promise<void> {
     }
   }
 
+  /* Les demandes humaines dont le tour se préparait encore : relevées AVANT
+     l'arrêt (qui les efface), remises en file APRÈS (l'arrêt ne vide pas la
+     file d'un agent coupé en force, il la laisse au démarrage suivant). */
+  const enPreparation = runtime.demandesEnPreparation();
   const arretes = runtime.stopAllAgents();
   /*
    * Puis on repasse derrière SANS RIEN DEMANDER. Le geste ordinaire envoie un
@@ -215,6 +219,7 @@ async function sauverPuisToutArreter(): Promise<void> {
    * machine. Chaque moteur encore inscrit est donc achevé par son NUMÉRO EXACT.
    */
   const acheves = runtime.acheverTousLesMoteurs();
+  runtime.remettreEnFileLesDemandes(enPreparation);
   log.warn(
     `redémarrage forcé : ${arretes.length} agent(s) coupé(s) — ${arretes.map((a) => a.geste).join(', ') || 'aucun'} ; ${acheves} processus achevé(s)`,
   );

@@ -38,12 +38,17 @@ import {
   Message,
   RAISON_SUSPENDU_EN_PAUSE,
   carteEnPause,
+  carteEnLignePourLaVeille,
+  lireMomentDeVeille,
+  noteDeControlePasse,
   choixDEcheance,
   colonneDeFinDUnAgentAttitre,
   echeanceDeVeille,
   issueDuVerdict,
   jugerVeille,
   messageDeBlocageLeve,
+  messageDeReparation,
+  veilleAReparer,
   messageDeRelanceApresEcheance,
   prochainControleDeVeille,
   questionDEcheance,
@@ -86,6 +91,7 @@ interface LigneVeille {
   dernier_controle: string | null;
   question_message_id: string | null;
   termine_a?: number | null;
+  moment?: string | null;
 }
 
 function depuisLigne(l: LigneVeille): VeilleDeCarte {
@@ -109,6 +115,7 @@ function depuisLigne(l: LigneVeille): VeilleDeCarte {
     ...(dernier ? { dernierControle: dernier } : {}),
     ...(l.question_message_id ? { questionMessageId: l.question_message_id } : {}),
     ...(l.termine_a ? { termineA: l.termine_a } : {}),
+    ...(l.moment === 'apres-deploiement' ? { moment: 'apres-deploiement' as const } : {}),
   };
 }
 
@@ -116,14 +123,14 @@ function ecrire(v: VeilleDeCarte): void {
   getDb()
     .prepare(
       `INSERT INTO veilles_de_carte (id, card_id, agent_id, raison, recette, intervalle_ms, echeance, etat, cree_a,
-                                     prochain_controle_a, dernier_controle, question_message_id, termine_a)
+                                     prochain_controle_a, dernier_controle, question_message_id, termine_a, moment)
        VALUES (@id, @card_id, @agent_id, @raison, @recette, @intervalle_ms, @echeance, @etat, @cree_a,
-               @prochain_controle_a, @dernier_controle, @question_message_id, @termine_a)
+               @prochain_controle_a, @dernier_controle, @question_message_id, @termine_a, @moment)
        ON CONFLICT(id) DO UPDATE SET raison = excluded.raison, recette = excluded.recette,
          intervalle_ms = excluded.intervalle_ms, echeance = excluded.echeance, etat = excluded.etat,
          prochain_controle_a = excluded.prochain_controle_a, dernier_controle = excluded.dernier_controle,
-         question_message_id = excluded.question_message_id,
-         termine_a = CASE WHEN excluded.etat = 'en_cours' THEN NULL
+         question_message_id = excluded.question_message_id, cree_a = excluded.cree_a,
+         termine_a = CASE WHEN excluded.etat IN ('en_cours', 'attend_deploiement') THEN NULL
                           ELSE COALESCE(veilles_de_carte.termine_a, excluded.termine_a) END`,
     )
     .run({
@@ -139,7 +146,8 @@ function ecrire(v: VeilleDeCarte): void {
       prochain_controle_a: v.prochainControleA,
       dernier_controle: v.dernierControle ? JSON.stringify(v.dernierControle) : null,
       question_message_id: v.questionMessageId ?? null,
-      termine_a: v.etat === 'en_cours' ? null : v.termineA ?? Date.now(),
+      termine_a: v.etat === 'en_cours' || v.etat === 'attend_deploiement' ? null : v.termineA ?? Date.now(),
+      moment: v.moment === 'apres-deploiement' ? 'apres-deploiement' : null,
     });
   annoncerLesVeilles();
 }
@@ -171,7 +179,7 @@ export function listerLesVeilles(): VeilleListee[] {
   const lignes = getDb()
     .prepare(
       `SELECT * FROM veilles_de_carte
-        ORDER BY CASE WHEN etat = 'en_cours' THEN 0 ELSE 1 END, COALESCE(termine_a, cree_a) DESC
+        ORDER BY CASE WHEN etat IN ('en_cours', 'attend_deploiement') THEN 0 ELSE 1 END, COALESCE(termine_a, cree_a) DESC
         LIMIT ?`,
     )
     .all(VEILLES_LISTEES_MAX) as LigneVeille[];
@@ -200,7 +208,7 @@ export function lireVeille(id: string): VeilleDeCarte | null {
 export function veilleDeLaCarte(cardId: string): VeilleDeCarte | null {
   const l = getDb()
     .prepare(
-      `SELECT * FROM veilles_de_carte WHERE card_id = ? AND etat IN ('en_cours', 'expiree') ORDER BY cree_a DESC LIMIT 1`,
+      `SELECT * FROM veilles_de_carte WHERE card_id = ? AND etat IN ('en_cours', 'expiree', 'attend_deploiement') ORDER BY cree_a DESC LIMIT 1`,
     )
     .get(cardId) as LigneVeille | undefined;
   return l ? depuisLigne(l) : null;
@@ -390,6 +398,36 @@ export async function poserVeille(entree: { agentId: string; cardId?: string; ar
 
   const intervalleMs = bornerIntervalleDeVeille(args.intervalleMinutes);
   const echeance = echeanceDeVeille(maintenant, args.dureeHeures);
+  const moment = lireMomentDeVeille(args.moment);
+  if (moment === 'apres-deploiement') {
+    /* LE TRAVAIL EST FINI : aucune pause. La carte se range à la fin du tour (« À déployer »), et la veille attend
+       qu'elle soit en ligne pour courir — ses 48 h partent de là (`armerLesVeillesEnLigne`). */
+    const enAttente: VeilleDeCarte = {
+      id,
+      cardId: card.id,
+      agentId,
+      raison: avis.raison,
+      recette: avis.recette,
+      intervalleMs,
+      echeance,
+      etat: 'attend_deploiement',
+      creeA: maintenant,
+      prochainControleA: echeance,
+      dernierControle: { a: essai.a, issue: essai.issue, ...(essai.detail ? { detail: essai.detail } : {}) },
+      moment,
+    };
+    ecrire(enAttente);
+    porterSurLaCarte(card.id, enAttente);
+    log.info(`veille posée sur la carte ${card.id} pour après le déploiement : « ${enAttente.raison} »`);
+    return {
+      ok: true,
+      veille: enAttente,
+      texte:
+        `${phraseEssai}\nVEILLE POSÉE POUR APRÈS LE DÉPLOIEMENT : « ${enAttente.raison} ». La carte n'est PAS en pause : elle part « À déployer » ` +
+        `à la fin de ton tour, et le contrôle démarrera une fois la carte en ligne (toutes les ${Math.round(intervalleMs / 60_000)} min, ` +
+        `48 h au plus). Tu ne seras pas relancé : son passage sera noté sur la carte. TERMINE TON TOUR MAINTENANT par ton compte rendu.`,
+    };
+  }
   const veille: VeilleDeCarte = {
     id,
     cardId: card.id,
@@ -438,6 +476,9 @@ function terminerSansBruit(veille: VeilleDeCarte, etat: EtatVeille, phrase?: str
  */
 function encoreValable(veille: VeilleDeCarte): boolean {
   const card = store.getCard(veille.cardId);
+  /* APRÈS DÉPLOIEMENT : valable tant que la carte est en ligne (ou rangée sans déploiement). Revenue « À déployer »
+     (sa date de mise en ligne retirée) ou supprimée, la veille s'efface. */
+  if (veille.moment === 'apres-deploiement') return carteEnLignePourLaVeille(card);
   if (!card || card.column !== 'running' || !carteEnPause(card.scheduling)) return false;
   if (card.agentId && card.agentId !== veille.agentId) return false;
   return !!store.getAgent(veille.agentId);
@@ -484,6 +525,12 @@ export async function passerLaVeille(id: string, maintenant = Date.now()): Promi
       const levee: VeilleDeCarte = { ...relue, etat: 'levee', dernierControle };
       ecrire(levee);
       porterSurLaCarte(relue.cardId, null);
+      if (relue.moment === 'apres-deploiement') {
+        /* UN CONSTAT, PAS UNE RELANCE : la note dans le fil de l'agent, la carte ne bouge pas. */
+        noterDansLeFil(relue.agentId, noteDeControlePasse(relue.raison), maintenant);
+        log.info(`veille ${id} levée après déploiement : « ${relue.raison} » — noté, sans relance`);
+        return lireVeille(id);
+      }
       log.info(`veille ${id} levée : « ${relue.raison} » — l’agent ${relue.agentId} est relancé`);
       await relancerLAgent(relue.agentId, messageDeBlocageLeve(relue.raison)).catch((err) =>
         log.error(`veille ${id} : relance de l’agent impossible`, err),
@@ -514,6 +561,45 @@ export async function passerLaVeille(id: string, maintenant = Date.now()): Promi
  * l'agent. C'est cette écriture que la cloche voit — son calcul est mémorisé
  * sur l'empreinte de la base et ne lit jamais l'heure.
  */
+/** Une note de l'assistant dans le fil d'un agent, sans tour de moteur. */
+function noterDansLeFil(agentId: string, texte: string, maintenant: number): void {
+  if (!store.getAgent(agentId)) return;
+  const message = store.saveMessage(Message.parse({ id: store.newId(), agentId, role: 'assistant', content: texte, createdAt: maintenant }));
+  bus.emit({ type: 'message.upsert', message });
+}
+
+/**
+ * L'ARMEMENT DES VEILLES D'APRÈS DÉPLOIEMENT : une veille `attend_deploiement` dont la carte est en ligne (ou rangée
+ * sans déploiement) se met à courir, ses 48 h comptées de maintenant ; dont la carte a disparu, s'abandonne. Appelé par
+ * la tournée, et tout de suite par le déploiement (`deploy.ts`) pour ne pas attendre la minute suivante.
+ */
+export function armerLesVeillesEnLigne(maintenant = Date.now(), cardId?: string): number {
+  const lignes = (
+    cardId
+      ? getDb().prepare(`SELECT * FROM veilles_de_carte WHERE etat = 'attend_deploiement' AND card_id = ?`).all(cardId)
+      : getDb().prepare(`SELECT * FROM veilles_de_carte WHERE etat = 'attend_deploiement'`).all()
+  ) as LigneVeille[];
+  let armees = 0;
+  for (const veille of lignes.map(depuisLigne)) {
+    const card = store.getCard(veille.cardId);
+    if (!card) {
+      ecrire({ ...veille, etat: 'abandonnee' });
+      continue;
+    }
+    if (!carteEnLignePourLaVeille(card)) continue;
+    const deja = (getDb().prepare(`SELECT * FROM veilles_de_carte WHERE etat = 'en_cours' AND card_id = ?`).all(card.id) as LigneVeille[]).map(depuisLigne);
+    for (const autre of deja) ecrire({ ...autre, etat: 'abandonnee' });
+    const duree = Math.max(veille.echeance - veille.creeA, veille.intervalleMs);
+    const echeance = maintenant + duree;
+    const armee: VeilleDeCarte = { ...veille, etat: 'en_cours', creeA: maintenant, echeance, prochainControleA: prochainControleDeVeille(maintenant, veille.intervalleMs, echeance) };
+    ecrire(armee);
+    porterSurLaCarte(card.id, armee);
+    log.info(`veille ${veille.id} armée : la carte ${card.id} est en ligne`);
+    armees++;
+  }
+  return armees;
+}
+
 function poserLaQuestionDEcheance(veille: VeilleDeCarte, maintenant: number): VeilleDeCarte {
   const heures = Math.max(1, Math.round((veille.echeance - veille.creeA) / 3_600_000));
   const question = AgentQuestion.parse({
@@ -521,7 +607,8 @@ function poserLaQuestionDEcheance(veille: VeilleDeCarte, maintenant: number): Ve
     question: questionDEcheance(veille.raison, heures),
     description: veille.dernierControle?.detail ? `Dernier contrôle : ${veille.dernierControle.detail}` : undefined,
     kind: 'single',
-    options: CHOIX_D_ECHEANCE.map((c, i) => ({ id: `o${i}`, label: c.label, description: c.description })),
+    /* APRÈS DÉPLOIEMENT, PAS DE « RELANCER » : la carte est rangée, et relancer l'agent la ramènerait sans geste. */
+    options: CHOIX_D_ECHEANCE.filter((c) => veille.moment !== 'apres-deploiement' || c.id !== 'relancer').map((c, i) => ({ id: `o${i}`, label: c.label, description: c.description })),
     allowFreeText: false,
     veille: veille.id,
   });
@@ -571,6 +658,7 @@ function refermerLesEcheancesSansObjet(): void {
 
 /** La tournée : chaque veille due, une fois. Rend le nombre de passages lancés. */
 export async function tourneeDesVeilles(maintenant = Date.now()): Promise<number> {
+  armerLesVeillesEnLigne(maintenant);
   refermerLesEcheancesSansObjet();
   const dues = veillesEnCours().filter((v) => veilleDue(v, maintenant) || veilleEchue(v, maintenant) || !encoreValable(v));
   await Promise.all(
@@ -601,7 +689,7 @@ export function demarrerLesVeilles(): NodeJS.Timeout {
 export function arreterLaVeille(cardId: string): { ok: boolean; raison?: string } {
   const veille = veilleDeLaCarte(cardId);
   if (!veille) return { ok: false, raison: 'Aucune veille ne court sur cette carte.' };
-  terminerSansBruit(veille, 'abandonnee', RAISON_SUSPENDU_EN_PAUSE);
+  terminerSansBruit(veille, 'abandonnee', veille.moment === 'apres-deploiement' ? undefined : RAISON_SUSPENDU_EN_PAUSE);
   return { ok: true };
 }
 
@@ -610,6 +698,22 @@ export async function verifierLaVeilleMaintenant(cardId: string): Promise<{ ok: 
   const veille = veilleDeLaCarte(cardId);
   if (!veille || veille.etat !== 'en_cours') return { ok: false, raison: 'Aucune veille ne court sur cette carte.' };
   return { ok: true, veille: await passerLaVeille(veille.id) };
+}
+
+/**
+ * « DEMANDER À L'AGENT DE RÉPARER » (décision du 11/11/2026) : une veille dont
+ * le dernier contrôle est en panne relance son agent avec le détail de la panne.
+ * Seul ce clic fait travailler l'agent : une panne ne relance jamais seule.
+ */
+export async function reparerLaVeille(cardId: string, maintenant = Date.now()): Promise<{ ok: boolean; raison?: string }> {
+  const veille = veilleDeLaCarte(cardId);
+  if (!veille || veille.etat !== 'en_cours') return { ok: false, raison: 'Aucune veille ne court sur cette carte.' };
+  if (!veilleAReparer(veille)) return { ok: false, raison: 'Le dernier contrôle de cette veille n’est pas en panne.' };
+  if (!store.getAgent(veille.agentId)) return { ok: false, raison: 'L’agent de cette veille n’existe plus.' };
+  const heure = new Date(veille.dernierControle?.a ?? maintenant).toLocaleString('fr-FR', { timeZone: 'Europe/Paris', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  await relancerLAgent(veille.agentId, messageDeReparation(veille, heure));
+  log.info(`veille ${veille.id} : réparation demandée à l’agent ${veille.agentId}`);
+  return { ok: true };
 }
 
 /**
@@ -638,6 +742,13 @@ export async function trancherLEcheance(veilleId: string, reponse: string, maint
     return { ok: true };
   }
 
+  if (veille.moment === 'apres-deploiement') {
+    /* La carte est déjà rangée : abandonner n'efface que la veille, jamais ne déplace la carte. */
+    if (choix === 'relancer') return { ok: false, raison: 'Après le déploiement, la veille se prolonge ou s’abandonne.' };
+    ecrire({ ...veille, etat: 'abandonnee' });
+    porterSurLaCarte(veille.cardId, null);
+    return { ok: true };
+  }
   ecrire({ ...veille, etat: 'abandonnee' });
   if (choix === 'relancer') {
     porterSurLaCarte(veille.cardId, null);

@@ -1,4 +1,4 @@
-import { Check } from 'lucide-react';
+import { Check } from '@/components/ui/icones';
 import { themeDeLAmbiance, themeParId, type ClarteTheme, type ReglageApparence } from '@beluga/shared';
 import { BulleInfo, Switch } from '@/components/ui';
 import { cn } from '@/lib/utils';

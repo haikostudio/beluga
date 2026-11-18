@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Clapperboard, Image as ImageIcon, Music, TriangleAlert } from 'lucide-react';
+import { Clapperboard, Image as ImageIcon, Music, TriangleAlert } from '@/components/ui/icones';
 import {
   mediasDeLaConversation,
   piecesMontreesParLesBlocs,

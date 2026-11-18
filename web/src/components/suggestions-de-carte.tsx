@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { ChevronDown, LayoutGrid, X } from 'lucide-react';
-import type { GroupeDeSuggestions, Message } from '@beluga/shared';
+import { ChevronDown, LayoutGrid, X } from '@/components/ui/icones';
+import { finDuTourDuMessage, type GroupeDeSuggestions, type Message } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { BarreDeFusion, BoutonFusionner, VignetteProposition, useFusionDePropositions } from '@/components/propositions';
@@ -12,7 +12,6 @@ import {
   propositionsEnAttenteDuFil,
   useNouvelleSuggestion,
   useSuggestionsDeCarte,
-  voirLesSuggestions,
 } from '@/lib/suggestions-de-carte';
 import { cn } from '@/lib/utils';
 
@@ -45,30 +44,20 @@ export function suggestionsDeLaCarte(messages: Message[]): Suggestion[] {
 
 /**
  * LES SUGGESTIONS GROUPÉES PAR MESSAGE, pour le repère « N cartes suggérées
- * ici » du fil (`rangerLesSuggestions`, `shared`).
+ * ici » du fil (`rangerLesSuggestions`, `shared`). Le groupe est daté à la FIN
+ * du tour qui le porte (`finDuTourDuMessage`) : la compréhension ou le compte
+ * rendu qui annonce « la carte proposée plus bas » la précède toujours.
  */
 export function groupesDeSuggestions(messages: Message[]): GroupeDeSuggestions[] {
   const groupes = new Map<string, GroupeDeSuggestions>();
   for (const { message, proposal } of suggestionsDeLaCarte(messages)) {
-    const groupe = groupes.get(message.id) ?? { messageId: message.id, at: message.createdAt, ids: [] };
+    const groupe = groupes.get(message.id) ?? { messageId: message.id, at: finDuTourDuMessage(message), ids: [] };
     groupe.ids.push(proposal.id);
     groupes.set(message.id, groupe);
   }
   return [...groupes.values()];
 }
 
-/**
- * LE BLOC EST-IL FERMÉ PAR SA CROIX ? Lu par la page de la carte pour le
- * retirer du pied. Une proposition NOUVELLE le rouvre : rien de ce qui attend
- * une décision ne reste caché.
- */
-export function useSuggestionsFermees(cardId: string | undefined, messages: Message[]): boolean {
-  const { fermee } = useSuggestionsDeCarte(cardId);
-  useNouvelleSuggestion(propositionsEnAttenteDuFil(messages), () => {
-    if (cardId) voirLesSuggestions(cardId);
-  });
-  return fermee;
-}
 
 /** La largeur d'une carte de la rangée : fixe, pour que la rangée défile au lieu de se plier en lignes. */
 const LARGEUR_D_UNE_CARTE = 'w-[min(320px,80vw)]';
@@ -178,7 +167,7 @@ export function SuggestionsDeCarte({
             type="button"
             onClick={() => fermerLesSuggestions(cardId)}
             title={t('Fermer les suggestions')}
-            aria-label={t('Fermer les suggestions')}
+            aria-label="Fermer les suggestions"
             className="flex h-6 sm:h-5 w-6 sm:w-5 shrink-0 items-center justify-center rounded text-muted hover:text-text"
             data-suggestions-fermer=""
           >
@@ -220,6 +209,38 @@ export function SuggestionsDeCarte({
         </ZoneDefilement>
         <BarreDeFusion fusion={fusion} className="mt-1" />
       </Panneau>
+    </div>
+  );
+}
+
+/**
+ * LES CARTES PROPOSÉES, DANS LE FIL (décision de l'utilisateur, 14/11/2026) : le bloc « Suggestion de carte » du pied
+ * a disparu — il cachait le champ d'écriture. Chaque carte se lit comme un message, à l'endroit où l'agent l'a
+ * proposée : en attente, sa vignette et « Créer la carte » ; acceptée, son bouton suit l'étape RÉELLE de la carte
+ * (« Lancer », « Au travail », « Terminée »…), tenue à jour par `ProposalChip`.
+ */
+export function SuggestionsDansLeFil({ messages, groupe }: { messages: Message[]; groupe: GroupeDeSuggestions }) {
+  const suggestions = suggestionsDeLaCarte(messages).filter(({ proposal }) => groupe.ids.includes(proposal.id));
+  if (!suggestions.length) return null;
+  return (
+    <div className="flex max-w-[var(--largeur-de-l-agent,95%)] flex-col gap-2 sm:max-w-[min(var(--largeur-de-l-agent,95%),460px)]" data-suggestions-du-fil={groupe.messageId}>
+      {suggestions.map(({ message, proposal }) => (
+        <div key={proposal.id} data-suggestion-id={proposal.id} data-carte-nee-du-fil={proposal.decision === 'pending' ? undefined : ''}>
+          {proposal.decision === 'pending' ? (
+            <VignetteProposition
+              messageId={message.id}
+              agentId={message.agentId}
+              proposal={proposal}
+              selectionActive={false}
+              selectionnee={false}
+              onSelection={() => {}}
+              integrable
+            />
+          ) : (
+            <ProposalChip proposal={proposal} agentId={message.agentId} />
+          )}
+        </div>
+      ))}
     </div>
   );
 }

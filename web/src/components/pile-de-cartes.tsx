@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Layers } from 'lucide-react';
+import { Layers } from '@/components/ui/icones';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 

@@ -74,6 +74,16 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   telechargement: 'Téléchargement',
 };
 
+/**
+ * LE NOM D'UNE ÉTAPE TEL QU'IL S'ÉCRIT POUR CETTE CARTE (décision du 13/11/2026, capture #b6079) :
+ * « À déployer » devient « Déployé » une fois la carte en ligne (`deployeeA`). Seule l'étape de la
+ * carte change de nom — ni la section « À déployer » de Publier ni la colonne du tableau.
+ */
+export function libelleDeLEtapeDeSuivi(etape: EtapeDeSuivi, carte?: { deployeeA?: number }): string {
+  if (etape === 'a_deployer' && carte?.deployeeA) return 'Déployé';
+  return LIBELLE_ETAPE_DE_SUIVI[etape];
+}
+
 /** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */
 export function etapesDeSuivi(carte: Pick<CarteDeSuivi, 'rendezVousDeNuit'>): readonly EtapeDeSuivi[] {
   return carte.rendezVousDeNuit ? ETAPES_DE_SUIVI_DE_LA_NUIT : ETAPES_DE_SUIVI;

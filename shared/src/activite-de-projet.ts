@@ -37,6 +37,28 @@ export interface DecisionPourActivite {
   geste?: GesteAttendu;
 }
 
+/**
+ * LE DOSSIER DÉPLIÉ NE REDIT PAS SES LIGNES (demande du 31/10/2026, captures #6eb6 et #5cd0) : la bulle et le signe
+ * de travail résument un dossier, et ses tâches sont juste dessous. Ce résumé ne s'efface donc que s'il ne perd
+ * RIEN : ce qui attend sans ligne (une conversation sans carte, une carte rangée) garde son signal. Un compte
+ * d'attention sans décision connue (`attention`) le garde aussi : on ne cache pas ce qu'on ne sait pas situer.
+ */
+export function signauxSansLigne(
+  projectId: string,
+  agents: readonly (AgentPourActivite & { cardId?: string })[],
+  decisions: readonly (DecisionPourActivite & { cardId?: string })[],
+  cartesListees: ReadonlySet<string>,
+  attention = 0,
+): { attente: boolean; travail: boolean } {
+  const ouvertes = decisions.filter((d) => d.projectId === projectId && !d.reglee);
+  return {
+    attente: (attention > 0 && !ouvertes.length) || ouvertes.some((d) => !d.cardId || !cartesListees.has(d.cardId)),
+    travail: agents.some(
+      (a) => a.projectId === projectId && !a.service && agentAuTravailALEcran(a) && (!a.cardId || !cartesListees.has(a.cardId)),
+    ),
+  };
+}
+
 export interface ActiviteDeProjet {
   /** Les agents qui travaillent à l'écran sur ce projet. */
   enCours: number;

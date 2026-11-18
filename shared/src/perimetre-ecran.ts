@@ -51,9 +51,25 @@ export interface LieuDEvenement {
   cardId?: string | null;
 }
 
+/**
+ * UN MESSAGE QUI ATTEND QUELQU'UN PART PARTOUT (13/11/2026, capture #7b1a : la carte en jaune, « L'agent attend
+ * votre réponse », et aucune question à l'écran avant un rechargement). L'état « attend une réponse » voyage sur
+ * l'agent, événement léger qui part toujours ; la question, elle, voyageait sur le message — un DÉTAIL, retenu par
+ * l'écran qui affichait un autre projet ou avait plus de douze cartes ouvertes. Un message qui porte une question
+ * sans réponse ou une proposition en attente n'est donc jamais trié : il est rare, léger, et c'est lui qu'on attend.
+ */
+export function detailToujoursEnvoye(event: { type: string } & Record<string, any>): boolean {
+  if (event.type !== 'message.upsert') return false;
+  const message = event.message ?? {};
+  const questionOuverte = (message.questions ?? []).some((q: { answer?: unknown }) => q && (q.answer === undefined || q.answer === null || q.answer === ''));
+  const propositionOuverte = (message.proposals ?? []).some((p: { decision?: string }) => p && p.decision === 'pending');
+  return questionOuverte || propositionOuverte;
+}
+
 /** Ce que l'événement dit de lui-même, avant toute lecture de base. */
 export function reperesDeLEvenement(event: { type: string } & Record<string, any>): LieuDEvenement | null {
   if (!EVENEMENTS_DE_DETAIL.has(event.type)) return null;
+  if (detailToujoursEnvoye(event)) return null;
   switch (event.type) {
     case 'message.upsert':
       return { agentId: event.message?.agentId };

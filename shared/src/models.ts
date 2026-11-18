@@ -2,11 +2,10 @@ import { z } from 'zod';
 import { ColumnKey } from './columns.js';
 import { AgentContextUsage } from './contexte-agent.js';
 import { MetriquesSessionLlm } from './metriques-session.js';
-import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
 import { CompetenceProposee } from './proposition-competence.js';
 import { CahierDesCharges } from './cahier-des-charges.js';
 import { EtatDeRealisation } from './mode-realisation.js';
-import { BranchementDeLaQuestion, DevisDeLaQuestion } from './production.js';
+import { BranchementDeLaQuestion, DepenseDuFil, DevisDeLaQuestion } from './production.js';
 import { AccordDEtape, FormulaireDeQuestions } from './responsable-creatif.js';
 import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
 import { EtatDeLAssistant, IdentiteDInstallation } from './installation.js';
@@ -225,6 +224,21 @@ export const Project = z.object({
   id: z.string(),
   name: z.string(),
   path: z.string(),
+  /**
+   * LE SUPPORT D'UNE MARQUE SANS DÉPÔT (une entreprise donnée par son adresse, une simple idée :
+   * `server/src/communication.ts`). Il reste « mis de côté » : il ne paraît dans aucune liste de
+   * projets, ne fait naître aucune carte de code, et ne sert qu'à ranger fiche, contenus et médias
+   * dans les mêmes tables que les autres, sans une seconde clé partout.
+   */
+  marqueSansDepot: z.boolean().optional(),
+  /**
+   * UN PROJET LÉGER (décision de l'utilisateur, 14/11/2026) : une entreprise extérieure choisie depuis « Nouvel
+   * agent › … › Une autre entreprise… ». Il paraît dans la colonne comme les autres et range ses études, campagnes
+   * et chartes, mais il n'a ni GitHub, ni adresse publique, ni publication : un dépôt git LOCAL vide (les cartes ont
+   * besoin d'une branche). « Publier » et le déploiement automatique l'ignorent. Il se complète plus tard par les
+   * écrans de projet ordinaires.
+   */
+  leger: z.boolean().optional(),
   gitRemote: z.string().optional(),
   gitBranch: z.string().optional(),
   defaultEngine: EngineId.default('claude'),
@@ -474,8 +488,10 @@ export const Estimate = z.object({
   analysisMeasurement: AnalysisMeasurement.optional(),
   confidence: z.enum(['low', 'medium', 'high']).optional(),
   summary: z.string().optional(),
-  /** Heures qu'un développeur senior facturerait à la main. Sert à la facture. */
+  /** Heures qu'un développeur senior facturerait à la main. Sert au prix d'une agence, donné au client en comparaison. */
   seniorHours: z.number().optional(),
+  /** Vrai quand ces heures ont été estimées APRÈS coup, d'après ce que la tâche a livré. */
+  seniorHoursAuto: z.boolean().optional(),
   billingTitle: z.string().optional(),
   billingDescription: z.string().optional(),
   /** Texte simple et ludique pour le CLIENT, sans jargon ni nom de fichier. Voyage jusqu'au devis/facture. */
@@ -528,6 +544,12 @@ export const Attachment = z.object({
    */
   deLAgent: z.boolean().optional(),
   /**
+   * LES CHEMINS OÙ L'AGENT A REGARDÉ CETTE IMAGE (17/11/2026) : une capture prise par l'agent est rangée en pièce
+   * jointe la première fois qu'elle s'affiche, pour recevoir sa référence ; son chemin d'origine est gardé ici pour
+   * que la vignette du fil la retrouve (`pieceDuChemin`). Une même image vue à deux endroits n'est rangée qu'une fois.
+   */
+  chemins: z.array(z.string()).optional(),
+  /**
    * L'INSTANT DE LA VIDÉO QUI LUI SERT D'APERÇU, en secondes. Pas une image
    * fabriquée et rangée à part : un instant — aucun outil de découpe vidéo n'est
    * installé sur la machine (`shared/src/apercu-video.ts`).
@@ -543,6 +565,22 @@ export const Attachment = z.object({
    * apparaître le bouton « revenir à l'aperçu automatique ».
    */
   apercuManuel: z.boolean().optional(),
+  /**
+   * CE PDF EST CELUI D'UNE PLAQUETTE CLIENT (carte « Refonte de l'espace Plaquettes », 05/11/2026) : le fil le montre
+   * en carte d'aperçu (vignette de couverture, titre, format) qui ouvre le PDF et mène à la plaquette. Posé par
+   * `fabriquerLePdf` ; absent sur toute autre pièce, qui garde sa pastille.
+   */
+  plaquette: z
+    .object({
+      id: z.string(),
+      projectId: z.string(),
+      titre: z.string(),
+      format: z.string(),
+      version: z.number(),
+      /** La vignette de la couverture (une pièce jointe image), si elle a pu être photographiée. */
+      vignette: z.string().optional(),
+    })
+    .optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
 
@@ -1016,18 +1054,12 @@ export const ParcoursDeCarte = z.object({
    */
   lancementAutomatique: z.boolean().optional(),
   /**
-   * L'INTERRUPTEUR « CRÉATION » DE LA BARRE D'ÉCRITURE, voisin de « Plan » et
-   * rangé de la même façon : sur la carte, éteint à la naissance. Allumé,
-   * chaque demande du tour emporte la consigne du chef d'orchestre et l'agent
-   * reçoit les outils de délégation (`shared/src/mode-creation.ts`).
+   * MODE AUTO (`mode-auto.ts`) : les relances déjà faites d'un travail rendu inachevé (deux au plus), remises à zéro
+   * par un message humain ou au rallumage d'Auto ; et le dernier bilan déclaré par l'agent de tâche
+   * (`bilan_du_travail`).
    */
-  creationSouhaitee: z.boolean().optional(),
-  /**
-   * LES SUGGESTIONS DE MODÈLE POSÉES PAR L'AGENT, avec la question qui les
-   * porte. Seules celles dont la réponse est « Accepter » font foi, et pour
-   * cette carte seulement (`surchargesAcceptees`).
-   */
-  creationSuggestions: z.array(SuggestionCreation).optional(),
+  relancesAuto: z.number().int().nonnegative().optional(),
+  bilanAuto: z.object({ abouti: z.boolean(), restes: z.array(z.string()).default([]), at: z.number() }).optional(),
   /**
    * L'INTERRUPTEUR « RÉALISATION » (caméra) DE LA BARRE D'ÉCRITURE, voisin de
    * « Création » et rangé de la même façon : sur la carte, éteint à la
@@ -1235,10 +1267,12 @@ export const Card = z.object({
   veille: z
     .object({
       id: z.string(),
-      etat: z.enum(['en_cours', 'levee', 'expiree', 'abandonnee']),
+      etat: z.enum(['en_cours', 'levee', 'expiree', 'abandonnee', 'attend_deploiement']),
       raison: z.string(),
       echeance: z.number(),
       prochainControleA: z.number().optional(),
+      /** « apres-deploiement » : la veille d'un travail fini, armée au déploiement (`shared/src/veille-de-carte.ts`). */
+      moment: z.enum(['pour-continuer', 'apres-deploiement']).optional(),
       dernierControle: z
         .object({ a: z.number(), issue: z.enum(['levee', 'pas-encore', 'panne']), detail: z.string().optional() })
         .optional(),
@@ -1338,6 +1372,12 @@ export const Card = z.object({
   etapeFinieAt: z.number().optional(),
   /** Le moment où la suite a lancé cette étape : on ne la relance jamais deux fois. */
   departDeLaSuiteAt: z.number().optional(),
+  /**
+   * LES GENRES SENSIBLES DÉJÀ PROPOSÉS AU CONTRÔLE DE SÉCURITÉ sur cette carte (connexion, paiement,
+   * commande collée…) : la suggestion « /securite » ne reparaît que pour un genre NOUVEAU
+   * (`shared/src/proposition-securite.ts`). Vraie colonne `securite_proposee`.
+   */
+  securiteProposee: z.array(z.string()).optional(),
   /**
    * LA DEMANDE CLIENT DONT CETTE CARTE EST NÉE, quand elle vient de la
    * messagerie (`espace.demande.enCarte`). Absent partout ailleurs.
@@ -1678,6 +1718,12 @@ export const RunStep = z.object({
   outil: z.string().optional(),
   /** Les paramètres de l'appel, en JSON, bornés comme ceux du journal. */
   entree: z.string().optional(),
+  /**
+   * LA PHRASE QUE L'AGENT A ÉCRITE JUSTE AVANT CETTE ACTION (13/11/2026). Une carte la garde dans son journal
+   * (`JALON_NOTE_DE_L_AGENT`) ; un agent SANS carte n'en a pas : l'étape la porte, et son fil la relit à sa place
+   * (`entreesDuTourSansCarte`), comme le panneau de l'extension Chrome.
+   */
+  noteAvant: z.string().optional(),
 });
 export type RunStep = z.infer<typeof RunStep>;
 
@@ -1781,6 +1827,13 @@ export const TaskProposal = z.object({
   cardId: z.string().optional(),
   decidedAt: z.number().optional(),
   /**
+   * RETIRÉE PARCE QUE LE TRAVAIL A ÉTÉ RENDU DANS SA CARTE (`propositions-orphelines.ts`, 15/11/2026) : refusée par le
+   * démon, pas par un clic — le fil le dit.
+   */
+  retireeAuRendu: z.boolean().optional(),
+  /** ACCEPTÉE PAR LE MODE AUTO (carte d'un autre projet née d'une carte en Auto, `mode-auto.ts`) : personne n'a cliqué. */
+  parAuto: z.boolean().optional(),
+  /**
    * LE PROJET OÙ NAÎTRA LA CARTE, quand ce n'est pas celui de la conversation :
    * la proposition de l'agent d'un site surveillé naît dans le projet du site
    * (`shared/src/projet-de-proposition-de-site.ts`). Absent : le projet de
@@ -1824,6 +1877,10 @@ export const AgentQuestion = z.object({
    * `couleurs` : une à quatre teintes « #rrggbb » qu'un choix de couleurs
    * montre en petits points devant son libellé (29/10/2026,
    * `shared/src/couleurs-d-option.ts`).
+   * `lettre` : la lettre de piste de l'exemple montré (« C »), écrite par le
+   * démon d'après le dernier lot d'« exemple_de_choix » (04/11/2026) — elle
+   * prime sur celle que porte le nom de la pièce, qu'une image de secours du
+   * service externe n'a pas (`lettresDesOptions`).
    */
   options: z
     .array(
@@ -1834,6 +1891,7 @@ export const AgentQuestion = z.object({
         image: z.string().optional(),
         media: z.string().optional(),
         couleurs: z.array(z.string()).optional(),
+        lettre: z.string().optional(),
       }),
     )
     .default([]),
@@ -1843,6 +1901,10 @@ export const AgentQuestion = z.object({
   /** Les images jointes à la réponse, affichées à côté d'elle une fois donnée. */
   answerAttachments: z.array(z.string()).default([]),
   answeredAt: z.number().optional(),
+  /** La réponse a été donnée par le mode Auto de la carte (la réponse conseillée), pas par un clic : « Choisi par Auto ». */
+  parAuto: z.boolean().optional(),
+  /** L'heure où la question a été posée (absente des questions anciennes) : elle la place dans le fil du tour. */
+  poseeLe: z.number().optional(),
   /** Fermée sans réponse (bouton « Annuler ») : n'attend plus, ne relance pas l'agent. */
   cancelled: z.boolean().default(false),
   /**
@@ -1898,6 +1960,36 @@ export const AgentQuestion = z.object({
       directions: z.union([z.literal('libre'), z.array(z.object({ azimut: z.number(), elevation: z.number(), libelle: z.string() }))]),
       image: z.string().optional(),
       modele: z.string(),
+    })
+    .optional(),
+  /** « Quelle version gardez-vous ? » (outil « realiser », « choisir ») : la réponse valide la version côté démon, qui la pose sur sa piste. */
+  choixDeVersion: z
+    .object({ cardId: z.string(), lotId: z.string().optional(), plan: z.string(), versions: z.array(z.object({ optionId: z.string(), mediaId: z.string(), geste: z.literal('utiliser').optional() })) })
+    .optional(),
+  /** La place d'un média validé est prise : « Remplacer » ou « Ajouter », tranché au clic par le démon, sans réveiller l'agent. */
+  placeDuMedia: z.object({ cardId: z.string(), mediaId: z.string() }).optional(),
+  /** La voix finale ou le personnage 3D proposés dans le fil : « Générer · prix » lance, côté démon, sans réveiller l'agent. */
+  depenseDuFil: DepenseDuFil.optional(),
+  /**
+   * LE MIROIR D'UN BOUTON À PRIX DU STUDIO dans la conversation de l'agent qui
+   * a demandé la vidéo (02/11/2026) : le clic part vers la question d'origine,
+   * une seule décision quel que soit le fil (`server/src/suivi-studio.ts`).
+   */
+  relaiDe: z.object({ messageId: z.string(), questionId: z.string() }).optional(),
+  /**
+   * UN GESTE PRÉPARÉ PAR L'AGENT, QUE SEUL LE CLIC FAIT PARTIR (02/11/2026) :
+   * programmer une publication, envoyer une réponse au client. Tranché côté
+   * démon avec les droits de celui qui clique, sans réveiller l'agent
+   * (`server/src/services-des-agents.ts`).
+   */
+  gesteAValider: z
+    .object({
+      genre: z.enum(['programmer', 'repondre_demande', 'envoyer_fil']),
+      projectId: z.string(),
+      contenuId: z.string().optional(),
+      demandeId: z.string().optional(),
+      filId: z.string().optional(),
+      texte: z.string().optional(),
     })
     .optional(),
 });
@@ -1981,6 +2073,12 @@ export const ErreurDeTour = z.object({
   /** Posé une fois, il ferme la décision pour de bon. */
   choix: z.enum(['relancer', 'ignorer', 'arreter']).optional(),
   choisiA: z.number().optional(),
+  /**
+   * LA DÉCISION FERMÉE PAR UN REDÉMARRAGE DU SERVEUR, pas par un clic : la
+   * carte repartait d'elle-même, et le redémarrage tenait lieu de « Relancer »
+   * (`decisionsCaduquesAuRedemarrage`, shared/src/carte-interrompue.ts).
+   */
+  fermeeParRedemarrage: z.boolean().optional(),
   /**
    * LA DEMANDE QUE CE TOUR N'A JAMAIS PORTÉE. Un tour tombé APRÈS le moteur a
    * un travail commencé : « Relancer » lui dit de continuer où il s'était
@@ -2171,6 +2269,40 @@ export const SentContextEtat = z.object({
 });
 export type SentContextEtat = z.infer<typeof SentContextEtat>;
 
+/**
+ * LE BLOC DE SUIVI D'UNE CRÉATION DU STUDIO, LU PAR L'ÉCRAN (carte « Campagne,
+ * studio et mode du champ », 11/11/2026). Le démon le réécrit à chaque étape
+ * (`server/src/suivi-studio.ts`) ; l'écran en fait un LECTEUR dans le fil
+ * (aperçu en direct, puis vidéo finie), avec ses lignes et « Ouvrir dans le
+ * Studio » seul sur sa ligne. Le texte du message reste lisible en repli.
+ */
+export const SuiviStudioDuMessage = z.object({
+  creationId: z.string(),
+  genre: z.enum(['video', 'image']).default('video'),
+  titre: z.string().default(''),
+  /** L'étape (brief, esquisses, montage, telechargement) et sa phrase. */
+  etape: z.string().default('brief'),
+  phrase: z.string().default(''),
+  /** La version de la composition : l'aperçu en direct se relit quand elle change. */
+  version: z.number().default(0),
+  formats: z.array(z.string()).default([]),
+  exportEnCours: z.boolean().default(false),
+  echec: z.string().optional(),
+  /** La dernière image livrée (création d'image), tant que l'export n'est pas prêt. */
+  apercu: z.string().optional(),
+  /** Les exports prêts du genre demandé, le plus récent en tête. */
+  exports: z.array(z.object({ exportId: z.string(), attachmentId: z.string(), format: z.string() })).default([]),
+  /**
+   * CE QUE FAIT LE DIRECTEUR DU STUDIO, EN DIRECT (12/11/2026) : sa liste de tâches relayée dans le fil du demandeur,
+   * sans réveiller ce dernier à chaque ligne cochée ; `directeurAuTravail` tant que son tour tourne, puis son compte
+   * rendu (court) une fois le tour fini.
+   */
+  taches: z.array(z.object({ label: z.string(), state: z.enum(['todo', 'running', 'done', 'unfinished']) })).default([]),
+  directeurAuTravail: z.boolean().default(false),
+  compteRendu: z.string().optional(),
+});
+export type SuiviStudioDuMessage = z.infer<typeof SuiviStudioDuMessage>;
+
 export const Message = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -2208,6 +2340,8 @@ export const Message = z.object({
    */
   suites: z.array(z.object({ titre: z.string(), description: z.string().default('') })).optional(),
   attachments: z.array(z.string()).default([]),
+  /** Le bloc de suivi d'une création du Studio (`SuiviStudioDuMessage`) : l'écran en fait un lecteur. */
+  suiviStudio: SuiviStudioDuMessage.optional(),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),
   /**
@@ -2289,13 +2423,20 @@ export const QueuedPrompt = z.object({
   repriseDe: z.string().optional(),
   /**
    * UNE DEMANDE QU'ON MODIFIE NE PART PAS (demande du 12/10/2026). L'écran pose
-   * ce repère (l'heure, rafraîchie toutes les deux minutes) tant que la demande
-   * est ouverte dans la barre d'écriture ; la file s'arrête devant elle, et
-   * repart quand la modification est enregistrée ou annulée. Au-delà de
-   * `EDITION_EN_FILE_PERIMEE_MS` sans nouvelle, le repère ne vaut plus : un
-   * écran fermé en pleine modification ne bloque pas la file pour toujours.
+   * ce repère (l'heure d'ouverture) tant que la demande est ouverte dans la
+   * barre d'écriture ; la file s'arrête devant elle, et repart quand la
+   * modification est enregistrée ou annulée — JAMAIS autrement (04/11/2026 :
+   * aucune péremption, `shared/src/file-en-edition.ts`).
    */
   enEditionDepuis: z.number().optional(),
+  /**
+   * LE TEXTE EN COURS DE MODIFICATION, gardé par le serveur au fil de la frappe
+   * (temporisé). Une modification rouverte ailleurs — autre appareil, onglet
+   * rechargé, retour sur l'agent — reprend ce texte, pas l'ancien. Il n'est
+   * JAMAIS envoyé au moteur : seul `text` part, une fois la modification
+   * enregistrée (`updateQueued` l'efface).
+   */
+  brouillonEdition: z.object({ text: z.string(), attachments: z.array(z.string()).optional() }).optional(),
   createdAt: z.number(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPrompt>;
@@ -2527,8 +2668,12 @@ export const CapacityEtat = z.object({
   startableNow: z.number().optional(),
   paused: z.boolean().default(false),
   pauseReason: z.string().optional(),
-  /** La charge processeur ralentit les départs : la cause, écrite en clair. */
+  /** La charge processeur — ou l'étalement des départs — ralentit les départs : la cause, écrite en clair. */
   loadHoldReason: z.string().optional(),
+  /** La part du temps où la machine attend sa mémoire (`/proc/pressure/memory`, `some avg10`, en %). */
+  memPressionPsi: z.number().optional(),
+  /** La mémoire gardée pour les agents partis depuis moins de cinq minutes, en Mo (`reserveDesDepartsRecents`). */
+  reserveDepartsMb: z.number().optional(),
   avgAgentMemMb: z.number().optional(),
   /**
    * LA TABLE DES PROCESSUS : fils d'exécution en cours, et le plafond du noyau.
@@ -2842,13 +2987,21 @@ export const DeployRun = z.object({
       relanceDemandee: z.number().optional(),
       /** Vrai quand le démon l'a ouvert seul, à la chute de la publication (sans clic). */
       automatique: z.boolean().optional(),
+      /** Le dépanneur automatique n'a pas pu partir (aucun compte disponible) : la ligne le dit, le clic le lance. */
+      refusAuto: z.object({ at: z.number(), raison: z.string() }).optional(),
+      /** Deux dépannages automatiques ont déjà échoué : plus rien ne repart seul, la ligne attend le clic. */
+      enAttenteDeVous: z.boolean().optional(),
     })
     .optional(),
   /**
-   * Combien de dépanneurs AUTOMATIQUES ont déjà travaillé sur les publications
-   * précédentes de cette même chaîne de relances. Une relance crée une NOUVELLE
-   * publication : le plafond ne peut pas se compter sur une seule. Une réussite
-   * ou une relance à la main repart de 0 (`MAX_DEPANNAGES_AUTOMATIQUES`).
+   * LA REPRISE APRÈS DÉPANNAGE (17/11/2026) : l'instant où cette MÊME publication est repartie, à la fin du tour de
+   * son dépanneur. Une version « en cours » plus récente que sa fin connue rallume la même ligne (`misesEnLigneApres`).
+   */
+  reprisA: z.number().optional(),
+  /**
+   * Combien de cycles « dépanneur automatique → reprise » cette publication a déjà faits (17/11/2026). Au-delà de
+   * `MAX_DEPANNAGES_AUTOMATIQUES` (deux), une nouvelle chute n'ouvre plus de dépanneur seul : la ligne attend le clic,
+   * qui remet le compte à zéro.
    */
   depannagesAuto: z.number().default(0),
   error: z.string().optional(),
@@ -2859,6 +3012,13 @@ export const DeployRun = z.object({
    * dit, au lieu de la faire passer en rouge ou de disparaître.
    */
   avertissement: z.string().optional(),
+  /**
+   * UNE PUBLICATION RANGÉE À LA MAIN (13/11/2026) : un échec qui ne dit plus rien d'utile — son lot a été rangé —
+   * quitte le flux sans que la ligne soit supprimée (`sansEchecsRemplaces`). L'historique la garde.
+   */
+  masquee: z.boolean().optional(),
+  /** LA CARTE DE RÉPARATION créée quand une étape a résisté à ses trois réparations : le menu Publier l'ouvre. */
+  carteDeReparation: z.string().optional(),
   queued: z.boolean().default(false),
   startedAt: z.number(),
   endedAt: z.number().optional(),
@@ -2877,7 +3037,19 @@ export type DeployRun = z.infer<typeof DeployRun>;
 /* ------------------------------------------------------------------ */
 
 export const Settings = z.object({
-  maxAgents: z.number().default(15),
+  /**
+   * SIX AGENTS EN MÊME TEMPS AU PLUS SUR CE SERVEUR (décision de l'utilisateur, 15/11/2026, après trois décrochages
+   * du serveur par mémoire saturée). L'ancien défaut 15 enregistré est ramené à 6 par la migration 176 ; un autre
+   * chiffre choisi dans Réglages > Agents est gardé tel quel.
+   */
+  maxAgents: z.number().default(6),
+  /**
+   * LE PROJET QUI DONNE SA MARQUE AUX PLAQUETTES CLIENT quand l'utilisateur n'en nomme aucun (carte « Refonte de
+   * l'espace Plaquettes », 05/11/2026 : « le branding d'un projet particulier qui est défini, en l'occurrence
+   * Haiko »). Vide : le projet qui porte le nom de l'entreprise de l'installation (`nomCourt`, `nomDeLEntreprise`).
+   * Rien de Haiko n'est écrit dans le code.
+   */
+  marqueDesPlaquettes: z.string().default(''),
   quietHoursStart: z.number().optional(),
   quietHoursEnd: z.number().optional(),
   offPeakStart: z.number().default(22),
@@ -2900,31 +3072,34 @@ export const Settings = z.object({
   backupDossier: z.string().default(''),
   backupHeure: z.number().default(4),
   backupAuto: z.boolean().default(true),
-  ttsVoice: z.string().default('fr_FR-siwis-medium'),
   /**
-   * Le PRÉNOM auquel la voix de l'assistant s'adresse (mémoire n°141). « Chris »
-   * par défaut ; réglable pour nommer un autre utilisateur. Voir
-   * `shared/src/voix-annonce.ts`.
+   * LE NOM DE L'ASSISTANT (`shared/src/nom-de-l-assistant.ts`, 17/11/2026) : il donne la phrase d'appel (« Dis
+   * <nom> »), le titre « Assistant <nom> » et la façon dont le direct se présente. Vide : repris de l'ancien mot de
+   * réveil (`voixReveil`), sinon « Jarvis » — lire par `nomDeLAssistant(settings)`, jamais ce champ seul. Un nom que
+   * le micro ne saurait pas entendre est refusé par le démon.
+   */
+  assistantNom: z.string().default(''),
+  /**
+   * ANCIEN MOT DE RÉVEIL saisi à part (« Dis Jarvis »). Plus saisi depuis le 17/11/2026 : il ne sert qu'à reprendre
+   * le nom d'une installation d'avant (`nomTireDuReveil`).
+   */
+  voixReveil: z.string().default('Dis Jarvis'),
+  /**
+   * ANCIEN PRÉNOM de l'utilisateur, commun à toute l'installation (« Chris »). Le prénom vit désormais PAR COMPTE
+   * (colonne `prenom` de `users`) ; celui-ci n'est relu qu'une fois, pour le donner au compte administrateur.
    */
   voixNom: z.string().default('Chris'),
   /**
-   * Le MOT DE RÉVEIL de l'écoute permanente (« Dis Haiko » par défaut). Réglable
-   * pour parler à l'assistant autrement ; un champ vide revient au mot par
-   * défaut plutôt que de couper le réveil. Voir `shared/src/reveil-vocal.ts`.
-   */
-  voixReveil: z.string().default('Dis Haiko'),
-  /**
-   * La VITESSE de la voix de l'assistant, par crans clairs (`voix-vitesse.ts`).
-   * « normale » = le débit d'origine ; s'applique à toutes les paroles, auto
-   * comme réécoutes manuelles.
-   */
-  voixVitesse: z.enum(['lente', 'normale', 'rapide']).default('normale'),
-  /**
-   * Le RACCOURCI CLAVIER qui allume et éteint l'écoute permanente, sous sa forme
-   * canonique (« Alt+KeyE », « Ctrl+Shift+KeyL »). Vide par défaut : aucun
-   * raccourci tant qu'on n'en règle pas un. Voir `shared/src/raccourci-clavier.ts`.
+   * Le RACCOURCI CLAVIER qui ouvre Jarvis (bulle vocale + conversation), sous une des trois formes de
+   * `shared/src/raccourci-clavier.ts` (« Alt+KeyE », « Mods:Ctrl+Shift », « Double:Shift »). VIDE = jamais réglé →
+   * Maj Maj (`raccourciEffectif`) ; « Aucun » = retiré exprès.
    */
   voixRaccourci: z.string().default(''),
+  /**
+   * LA VOIX DE CODEX EN DIRECT (`shared/src/voix-directe.ts`) : une voix OpenAI du protocole V3, choisie dans
+   * Réglages › Voix. Distincte de la voix du point du jour (Piper, Kokoro).
+   */
+  voixCodexDirect: z.string().default('cove'),
   /**
    * Amorcer la fenêtre de cinq heures des comptes Claude dès qu'elle repart à
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
@@ -2937,6 +3112,19 @@ export const Settings = z.object({
    * comptent jamais (`ordreDeMoteursComplet`).
    */
   ordreDesMoteurs: z.array(z.string()).default([]),
+  /**
+   * LES GROUPES DU PANNEAU DES QUOTAS, REPLIÉS OU DÉPLIÉS À LA MAIN (moteur → replié). Un réglage général, donc
+   * partagé entre tous les appareils de l'utilisateur ; un moteur absent suit `groupeQuotaReplie` (replié d'office
+   * quand aucun de ses comptes ne sert).
+   */
+  groupesQuotaReplies: z.record(z.string(), z.boolean()).default({}),
+  /**
+   * LE SEUIL D'ALERTE DE CHAQUE SERVICE D'IA DU VOLET DES QUOTAS (id du service → dollars). Sous ce seuil, le
+   * bloc du service passe en orange et un point paraît au pied de la colonne ; un service absent suit
+   * `SEUIL_PAR_DEFAUT_USD` (2 $). En dollars même pour kie.ai, converti en crédits par `niveauDuSolde`.
+   * Partagé entre tous les appareils, réglé depuis le menu à trois points du bloc.
+   */
+  seuilsServicesIa: z.record(z.string(), z.number().nonnegative()).default({}),
   /**
    * Le dernier réglage choisi pour un chef d'orchestre : les chefs d'orchestre
    * créés ensuite le reprennent, au lieu de retomber sur le modèle épinglé.
@@ -2953,12 +3141,8 @@ export const Settings = z.object({
   jugeEteints: z.array(z.string()).default([]),
   /** Le pendant : les usages éteints par défaut, rallumés à la main. */
   jugeAllumes: z.array(z.string()).default([]),
-  /**
-   * LA RÉPARTITION DU MODE « CRÉATION » : quel moteur écrit le texte, lequel
-   * programme, lesquels donnent un avis, et combien d'avis par tour. Un réglage
-   * GLOBAL ; l'agent peut suggérer autre chose, pour une carte seulement.
-   */
-  creation: ReglageCreation.default({}),
+  /* LE MODE « CRÉATION » EST RETIRÉ, réglage compris : un ancien champ
+     `creation` encore en base est simplement ignoré à la lecture. */
   /**
    * L'IDENTITÉ DE CETTE INSTALLATION : son adresse, son nom de domaine, son
    * espace client, ses courriels. Vide sur une installation neuve, et chaque

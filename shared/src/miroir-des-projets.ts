@@ -33,6 +33,38 @@ export const EXCLUS_DU_MIROIR = [
   '.worktrees/',
 ];
 
+/**
+ * LE NOM DU MIROIR SUR LE STOCKAGE (08/11/2026, carte « Sauvegardes, fichiers
+ * générés et ancien nom ») : « miroir-des-projets ». L'ancien nom, « Beluga »,
+ * se lisait comme une sauvegarde de plus à côté des trois autres, et passait
+ * pour un reste à supprimer. Le dossier est renommé une seule fois, au premier
+ * passage du miroir qui le trouve sous son ancien nom (`server/src/miroir-des-projets.ts`).
+ */
+export const RACINE_DU_MIROIR = 'miroir-des-projets';
+export const ANCIENNE_RACINE_DU_MIROIR = 'Beluga';
+
+/**
+ * CE QUI NE PART PAS DANS LE MIROIR DU DOSSIER DE BELUGA LUI-MÊME : ce que
+ * l'ancien système de sauvegarde garde déjà deux fois par jour (la base, les
+ * pièces jointes, les compétences — fiche `beluga.conf`), et ce qui se
+ * reconstruit (environnements Python, modèles, journaux, essais de cadrage,
+ * version servie). Mesuré le 08/11/2026 : 6,3 Go du miroir de Beluga étaient
+ * ce double. Ancrés à la racine du projet (« / » en tête) : un autre projet qui
+ * a son propre `data/` n'est jamais concerné.
+ */
+export const EXCLUS_DU_MIROIR_DE_BELUGA = [
+  '/data/beluga.db*',
+  '/data/attachments/',
+  '/data/competences/',
+  '/data/venv/',
+  '/data/deps/',
+  '/data/models/',
+  '/data/vectoriseur/',
+  '/data/logs/',
+  '/data/cadrage-scratch/',
+  '/data/live/',
+];
+
 /** Un projet à mettre en miroir : son dossier local et sa place sur le stockage. */
 export interface ProjetAMirrorer {
   nom: string;
@@ -40,6 +72,8 @@ export interface ProjetAMirrorer {
   local: string;
   /** Le chemin, relatif au stockage distant, où il est recopié. */
   distant: string;
+  /** Exclusions propres à ce projet, ancrées à sa racine. */
+  exclus?: string[];
 }
 
 function propre(chemin: string): string {
@@ -56,8 +90,11 @@ function propre(chemin: string): string {
 export function projetsAMirrorer(
   projets: readonly { name: string; path?: string | null; archived?: boolean | number }[],
   estLocal: (chemin: string) => boolean,
-  racineDistante = 'Beluga',
+  racineDistante = RACINE_DU_MIROIR,
+  /** Le dossier de Beluga lui-même : ses données déjà sauvegardées ailleurs ne repartent pas. */
+  dossierDeBeluga?: string,
 ): ProjetAMirrorer[] {
+  const beluga = dossierDeBeluga ? propre(dossierDeBeluga) : '';
   const vus = new Set<string>();
   const retenus: ProjetAMirrorer[] = [];
   for (const projet of projets ?? []) {
@@ -67,7 +104,12 @@ export function projetsAMirrorer(
     if (!estLocal(local)) continue;
     vus.add(local);
     const nom = local.split('/').filter(Boolean).pop()!;
-    retenus.push({ nom: projet.name, local, distant: `${propre(racineDistante)}/${nom}` });
+    retenus.push({
+      nom: projet.name,
+      local,
+      distant: `${propre(racineDistante)}/${nom}`,
+      ...(beluga && local === beluga ? { exclus: [...EXCLUS_DU_MIROIR_DE_BELUGA] } : {}),
+    });
   }
   return retenus;
 }
@@ -84,7 +126,9 @@ export function argumentsDuMiroir(projet: ProjetAMirrorer, prefixeDeDestination:
     '-a',
     '--numeric-ids',
     '--delete',
-    ...EXCLUS_DU_MIROIR.flatMap((motif) => ['--exclude', motif]),
+    // Ce qui est exclu disparaît aussi de la copie distante : un double déjà parti ne reste pas.
+    '--delete-excluded',
+    ...[...EXCLUS_DU_MIROIR, ...(projet.exclus ?? [])].flatMap((motif) => ['--exclude', motif]),
     `${propre(projet.local)}/`,
     `${prefixe}${separateur}${projet.distant}/`,
   ];

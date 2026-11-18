@@ -63,3 +63,18 @@ export function deplacerUnCran(ids: readonly string[], id: string, sens: -1 | 1)
   [suite[index], suite[cible]] = [suite[cible], suite[index]];
   return suite;
 }
+
+/**
+ * UN GROUPE DU PANNEAU DES QUOTAS EST-IL REPLIÉ ? (carte « Médias : aperçu en modale, fiche en tiroir », 05/11/2026,
+ * capture #8527 : « Google, MiMo, j'aimerais les fermer parce qu'ils ne sont pas actifs »). Le choix de l'utilisateur
+ * (`Settings.groupesQuotaReplies`, partagé entre ses appareils) l'emporte toujours ; un groupe qu'il n'a jamais touché
+ * est replié d'office quand AUCUN de ses comptes ne sert — tous coupés, ou simples lignes de suivi (Gemini).
+ */
+export function groupeQuotaReplie(
+  groupe: { engine: string; comptes: readonly { disabled?: boolean; suivi?: boolean }[] },
+  choix?: Readonly<Record<string, boolean>> | null,
+): boolean {
+  const voulu = choix?.[groupe.engine];
+  if (typeof voulu === 'boolean') return voulu;
+  return groupe.comptes.length > 0 && groupe.comptes.every((compte) => compte.disabled === true || compte.suivi === true);
+}

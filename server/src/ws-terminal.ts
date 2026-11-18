@@ -9,6 +9,7 @@ import {
   tailleDeTerminal,
   type CompteAffiche,
   type MessageDuTerminal,
+  TERMINAL_FERME_SUR_UN_SERVEUR_LOUE,
 } from '@beluga/shared';
 import {
   attacherUnClient,
@@ -19,6 +20,7 @@ import {
   tuerLaSession,
 } from './terminal.js';
 import { log } from './logger.js';
+import { machineHebergee } from './offre-hebergee.js';
 
 /**
  * LA VOIE DU TERMINAL, À PART DE CELLE DE L'APPLICATION.
@@ -42,6 +44,18 @@ export function attacherLaVoieDuTerminal(): WebSocketServer {
     const envoyer = (message: MessageDuTerminal) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
     };
+
+    /*
+     * LE TERMINAL EST FERMÉ SUR UN SERVEUR LOUÉ (décision de l'utilisateur) : un
+     * shell y ouvrirait les compétences protégées du lot fourni et la machine
+     * entière. Aucune session n'est créée ; la machine de l'auteur et les
+     * installations faites par leur propriétaire gardent le leur.
+     */
+    if (machineHebergee()) {
+      envoyer({ type: 'panne', message: TERMINAL_FERME_SUR_UN_SERVEUR_LOUE });
+      ws.close(4403, 'terminal fermé sur un serveur loué');
+      return;
+    }
 
     /*
      * LA TAILLE EST CONNUE AVANT L'ATTACHE. Le navigateur la met dans l'adresse

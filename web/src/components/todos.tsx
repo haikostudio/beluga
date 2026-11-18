@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Check, CircleDot, Loader2, X } from 'lucide-react';
-import { TodoItem, mentionTachesNonFaites } from '@beluga/shared';
+import { Check, CircleDot, Loader2, X } from '@/components/ui/icones';
+import { TodoItem, mentionTachesNonFaites, repliApresObservation, type EtatDuRepliDeFinDeTour } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { CLASSE_TRAIT_DE_BRANCHE } from '@/components/pastille-projet';
 import { cn, duration } from '@/lib/utils';
@@ -43,6 +43,28 @@ export function usePliDesTaches(): [boolean, () => void] {
     [],
   );
   return [open, basculer];
+}
+
+/**
+ * LE REPLI DE FIN DE TOUR (décision du 06/11/2026) : à la fin d'un travail, la
+ * liste des tâches et « Ce que l'agent a vu » se replient ; ils se rouvrent au
+ * démarrage du travail suivant. Repli DE SESSION, jamais écrit dans le pli
+ * retenu (`usePliDesTaches`) ni dans les préférences : la règle vit dans
+ * `repliApresObservation` (`shared/src/repli-de-fin-de-tour.ts`). Un autre agent
+ * repart de zéro — son premier état n'est comparé à rien.
+ */
+export function useRepliDeFinDeTour(busy: boolean, agentId: string | undefined, questionEnAttente: boolean): boolean {
+  const [etat, setEtat] = React.useState<EtatDuRepliDeFinDeTour>({ occupeAvant: undefined, replie: false });
+  const agentVu = React.useRef(agentId);
+  React.useEffect(() => {
+    const autreAgent = agentVu.current !== agentId;
+    agentVu.current = agentId;
+    setEtat((e) => {
+      const suivant = repliApresObservation(autreAgent ? { occupeAvant: undefined, replie: false } : e, busy, { questionEnAttente });
+      return suivant.occupeAvant === e.occupeAvant && suivant.replie === e.replie ? e : suivant;
+    });
+  }, [busy, agentId, questionEnAttente]);
+  return etat.replie;
 }
 
 /**
@@ -146,10 +168,13 @@ export function CorpsListeTaches({
   streaming,
   maintenant,
   enBranches = false,
+  enAttente = false,
 }: {
   todos: TodoItem[];
   streaming: boolean;
   maintenant: number;
+  /** Une question de l'agent reste ouverte : ses lignes laissées attendent la réponse. */
+  enAttente?: boolean;
   /**
    * RANGÉE SOUS UNE ÉTAPE DU TOURNAGE (mode Réalisation) : chaque ligne est
    * reliée à la case de l'étape par une branche pointillée, comme les membres
@@ -199,8 +224,8 @@ export function CorpsListeTaches({
                 que le tour tourne vraiment (`streaming`). Une ligne que le
                 tour a laissée en plan le DIT, à la place de son temps. */}
             {todo.state === 'unfinished' ? (
-              <span data-tache="non-faite" className="mt-[1px] shrink-0 text-[12px] text-faint">
-                {t('non faite')}
+              <span data-tache={enAttente ? 'en-attente' : 'non-faite'} className="mt-[1px] shrink-0 text-[12px] text-faint">
+                {enAttente ? t('en attente') : t('non faite')}
               </span>
             ) : todo.state === 'running' ? (
               <span className="mt-[1px] flex shrink-0 items-center gap-1.5">
@@ -237,9 +262,20 @@ export function CorpsListeTaches({
  * tâches faites, et ce que le tour a laissé en plan — mais servi désormais au
  * repère compact posé au-dessus de la barre d'écriture.
  */
-export function resumeDesTaches(todos: readonly TodoItem[], options: { examen?: boolean } = {}): string {
+export function resumeDesTaches(
+  todos: readonly TodoItem[],
+  options: { examen?: boolean; enAttenteDeReponse?: boolean } = {},
+): string {
   const faites = todos.filter((t) => t.state === 'done').length;
-  const nonFaites = mentionTachesNonFaites(todos);
+  const brut = mentionTachesNonFaites(todos, { enAttenteDeReponse: options.enAttenteDeReponse });
+  const reste = todos.filter((t) => t.state === 'unfinished').length;
+  const nonFaites = !brut
+    ? null
+    : options.enAttenteDeReponse
+      ? t('{n} en attente de votre réponse', { n: reste })
+      : reste > 1
+        ? t('{n} non faites', { n: reste })
+        : t('{n} non faite', { n: reste });
   /* LA CARTE DE NUIT N'A PAS DE TÂCHES À FAIRE : sa liste est celle des points
      que l'agent a examinés. « 3/3 faites » se lisait comme trois choses à faire. */
   const compte = options.examen

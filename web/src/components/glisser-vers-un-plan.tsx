@@ -10,6 +10,7 @@ import { t } from '@/lib/langue';
 import { placerDansUnPlan } from '@/components/menu-du-media';
 import { ImageDePiece } from '@/components/pastille-de-fichier';
 import { VignetteVideo } from '@/components/lecteur-video';
+import { useSourceVersUnePiste } from '@/components/pose-sur-piste';
 
 /**
  * GLISSER UNE IMAGE VERS UN PLAN, À LA SOURIS (28/10/2026 : « sur ordi, on doit
@@ -191,8 +192,9 @@ export function useEtatDeLaCase(cle: string, genre: 'image' | 'video'): 'accepte
  */
 export function GlissableVersUnPlan({ attachmentId, genre, nom, children }: { attachmentId: string | null | undefined; genre: string | null | undefined; nom: string; children: React.ReactNode }) {
   const source = useSourceDuGlisser(attachmentId && (genre === 'image' || genre === 'video') ? { attachmentId, genre, nom } : null);
+  const versUnePiste = useSourceVersUnePiste(attachmentId && (genre === 'image' || genre === 'video') ? { attachmentId, genre, nom } : null);
   return (
-    <div className="contents" {...source}>
+    <div className="contents" {...source} {...versUnePiste}>
       {children}
     </div>
   );

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Eye, ListChecks, Loader2, RefreshCw, X } from 'lucide-react';
-import { construireFragment, type Card, type ResumeDeVeille } from '@beluga/shared';
+import { Eye, ListChecks, Loader2, RefreshCw, Wrench, X } from '@/components/ui/icones';
+import { construireFragment, resultatDeVerification, veilleAReparer, type Card, type IssueDeControle, type ResultatDeVerification, type ResumeDeVeille } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { CLASSES_BOUTON_DU_FIL } from '@/components/parcours-carte';
 import { cn } from '@/lib/utils';
@@ -38,6 +38,7 @@ export function issueLisible(issue: NonNullable<ResumeDeVeille['dernierControle'
  * le prochain contrôle. C'est la seconde ligne du bandeau.
  */
 export function horairesDeLaVeille(veille: ResumeDeVeille): string {
+  if (veille.etat === 'attend_deploiement') return t('Démarrera après le déploiement de la carte');
   const morceaux = [
     veille.etat === 'expiree'
       ? t('échue le {date}', { date: quandLisible(veille.echeance) })
@@ -51,6 +52,7 @@ export function horairesDeLaVeille(veille: ResumeDeVeille): string {
 
 /** La phrase de la veille, en une ligne : ce qu'on attend, l'échéance, les deux contrôles. */
 export function phraseDeLaVeille(veille: ResumeDeVeille): string {
+  if (veille.etat === 'attend_deploiement') return t('Veille après le déploiement : {raison}', { raison: veille.raison });
   const morceaux = [
     veille.etat === 'expiree'
       ? t('Veille échue : {raison}', { raison: veille.raison })
@@ -68,14 +70,34 @@ export function ouvrirLaVeilleDansLeService(projectId: string, veilleId: string)
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-/** Les deux gestes d'une veille, partagés par le bandeau et le tiroir du service. */
+/**
+ * LES GESTES D'UNE VEILLE, partagés par le bandeau et le tiroir du service.
+ *
+ * « Vérifier maintenant » LIT la réponse et la DIT (décision du 11/11/2026 :
+ * les deux boutons grisaient puis revenaient sans rien montrer, et l'on croyait
+ * le bouton cassé) : rien de nouveau, c'est arrivé, ou contrôle en panne avec
+ * son détail. « Réparer » relance l'agent d'une veille en panne — seul ce clic
+ * le fait travailler.
+ */
 export function useGestesDeVeille(cardId: string) {
-  const [occupe, setOccupe] = React.useState<'verifier' | 'arreter' | null>(null);
+  const [occupe, setOccupe] = React.useState<'verifier' | 'arreter' | 'reparer' | null>(null);
+  const [resultat, setResultat] = React.useState<ResultatDeVerification | null>(null);
   const agir = React.useCallback(
-    async (geste: 'verifier' | 'arreter') => {
+    async (geste: 'verifier' | 'arreter' | 'reparer') => {
       setOccupe(geste);
+      setResultat(null);
       try {
-        await client.call({ type: geste === 'verifier' ? 'card.veille.verifier' : 'card.veille.arreter', cardId });
+        if (geste === 'verifier') {
+          const r = (await client.call({ type: 'card.veille.verifier', cardId })) as { issue?: IssueDeControle; detail?: string } | undefined;
+          const lu = resultatDeVerification(r?.issue, r?.detail);
+          /* Le résultat s'écrit SOUS la phrase de la veille (`ResultatDeVeille`), sans notification qui le redirait. */
+          setResultat(lu);
+        } else if (geste === 'reparer') {
+          await client.call({ type: 'card.veille.reparer', cardId });
+          client.pushToast('success', t('Demande envoyée : l’agent répare sa veille.'));
+        } else {
+          await client.call({ type: 'card.veille.arreter', cardId });
+        }
       } catch (err) {
         client.pushToast('error', String((err as Error)?.message ?? err));
       } finally {
@@ -84,7 +106,39 @@ export function useGestesDeVeille(cardId: string) {
     },
     [cardId],
   );
-  return { occupe, agir };
+  return { occupe, agir, resultat };
+}
+
+/** Le résultat du dernier « Vérifier maintenant », sous la phrase de la veille. */
+export function ResultatDeVeille({ resultat }: { resultat: ResultatDeVerification | null }) {
+  if (!resultat) return null;
+  return (
+    <p className={cn('mt-1 break-words leading-snug', resultat.genre === 'error' ? 'text-danger' : 'text-text')} data-veille-resultat={resultat.genre} role="status">
+      {t(resultat.texte)}
+      {resultat.detail ? ` ${t('Détail : {detail}', { detail: resultat.detail })}` : null}
+    </p>
+  );
+}
+
+/** « Demander à l'agent de réparer » : seulement quand le DERNIER contrôle est en panne. */
+export function BoutonDeReparation({
+  veille,
+  occupe,
+  agir,
+  className,
+}: {
+  veille: Pick<ResumeDeVeille, 'etat' | 'dernierControle'>;
+  occupe: string | null;
+  agir: (geste: 'reparer') => void;
+  className?: string;
+}) {
+  if (!veilleAReparer(veille)) return null;
+  return (
+    <Button variant="ghost" size="sm" className={className} disabled={occupe !== null} onClick={() => agir('reparer')} data-veille-reparer>
+      {occupe === 'reparer' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
+      <span className="min-w-0 truncate">{t('Demander à l’agent de réparer')}</span>
+    </Button>
+  );
 }
 
 /**
@@ -102,8 +156,8 @@ export function useGestesDeVeille(cardId: string) {
  */
 export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee?: boolean }) {
   const veille = carte.veille;
-  const { occupe, agir } = useGestesDeVeille(carte.id);
-  if (!veille || (veille.etat !== 'en_cours' && veille.etat !== 'expiree')) return null;
+  const { occupe, agir, resultat } = useGestesDeVeille(carte.id);
+  if (!veille || (veille.etat !== 'en_cours' && veille.etat !== 'expiree' && veille.etat !== 'attend_deploiement')) return null;
   const texte = (
     <div className="flex min-w-0 grow basis-64 items-start gap-2" data-bandeau-veille-texte>
       <Eye className="mt-[3px] h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -111,7 +165,10 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
         <p className="break-words text-[13px] leading-snug text-text">
           {veille.etat === 'expiree' ? t('Veille échue : {raison}', { raison: veille.raison }) : veille.raison}
         </p>
-        <p className="mt-0.5 break-words leading-snug text-faint">{horairesDeLaVeille(veille)}</p>
+        <p className={cn('mt-0.5 break-words leading-snug', veilleAReparer(veille) ? 'text-danger' : 'text-faint')} data-veille-horaires>
+          {horairesDeLaVeille(veille)}
+        </p>
+        <ResultatDeVeille resultat={resultat} />
       </div>
     </div>
   );
@@ -122,6 +179,11 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
         <div className="mb-2 rounded-lg bg-raised px-3 py-2 text-xs text-muted" data-veille={veille.etat} data-bandeau-veille>
           {texte}
         </div>
+        {veilleAReparer(veille) ? (
+          <div className="mb-1.5 flex">
+            <BoutonDeReparation veille={veille} occupe={occupe} agir={(g) => void agir(g)} className={classeBouton} />
+          </div>
+        ) : null}
         <div className="flex items-stretch gap-1.5" data-rangee-veille data-bandeau-veille-gestes>
           {veille.etat === 'en_cours' ? (
             <Button variant="ghost" size="sm" className={classeBouton} disabled={occupe !== null} onClick={() => void agir('verifier')} data-veille-verifier>
@@ -157,6 +219,7 @@ export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee
     >
       {texte}
       <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1" data-bandeau-veille-gestes>
+        <BoutonDeReparation veille={veille} occupe={occupe} agir={(g) => void agir(g)} />
         {veille.etat === 'en_cours' ? (
           <Button variant="ghost" size="sm" disabled={occupe !== null} onClick={() => void agir('verifier')} data-veille-verifier>
             {occupe === 'verifier' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}

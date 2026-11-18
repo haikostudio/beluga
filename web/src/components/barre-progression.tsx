@@ -19,7 +19,9 @@ import { cn } from '@/lib/utils';
  * (les cartes), l'orangé « en cours » ou le bleu de réussite pour le bandeau de
  * production, qui reprend ainsi la couleur du chiffre de son déroulé.
  */
-const REMPLISSAGE = { accent: 'bg-accent', 'en-cours': 'bg-en-cours', success: 'bg-success' } as const;
+/* `sur-accent` : la barre posée SUR un aplat d'accent (le bouton « Déployer » pendant une mise en ligne) prend l'encre
+   du bouton — sur le noir, une barre noire ne se verrait pas. */
+const REMPLISSAGE = { accent: 'bg-accent', 'en-cours': 'bg-en-cours', success: 'bg-success', 'sur-accent': 'bg-accent-fg', violet: 'bg-teinte-plein', 'sur-violet': 'bg-sur-couleur' } as const;
 
 export function BarreProgression({
   pourcent,

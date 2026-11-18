@@ -3,7 +3,7 @@
  *
  * La colonne de gauche est une liste PLATE de destinations : le tableau de
  * bord, le coffre-fort, l'espace client, les backups, la surveillance, le
- * marketing, les notes, puis les projets. Cliquer l'une d'elles REMPLACE ce qu'il y a au centre — il n'y a
+ * marketing, puis les projets. Cliquer l'une d'elles REMPLACE ce qu'il y a au centre — il n'y a
  * plus de panneau posé par-dessus, donc plus de croix à trouver pour revenir.
  *
  * Ce fichier ne dit que la règle : quelles destinations existent, et laquelle
@@ -18,15 +18,20 @@ export const VUES_CENTRALES = [
      centre quand aucun projet n'est ouvert. */
   'en-route',
   'tableau-de-bord',
-  'notes',
   'coffre',
   'memoire',
   'espace-client',
   'backups',
   'surveillance',
+  /* COMMUNICATION : l'espace en quatre étapes guidées (`shared/src/communication-v2.ts`) ; l'ancien (vue
+     « communication ») est retiré le 11/11/2026, son adresse y mène. */
+  'communication2',
   /* L'atelier marketing : un espace de commercialisation par projet
      (`shared/src/marketing.ts`). */
   'marketing',
+  /* Le Studio : visuels et vidéos animées de chaque projet, montés sur une ligne
+     de temps et modifiables pièce par pièce (`shared/src/studio.ts`). */
+  'studio',
   /* Le service Statistiques : le suivi des visites de chaque projet mesuré
      et des sites autonomes (`shared/src/statistiques.ts`). */
   'statistiques',
@@ -36,42 +41,18 @@ export const VUES_CENTRALES = [
   /* Les TÂCHES RÉCURRENTES : les veilles posées par les agents, projet par
      projet, actives puis historique (`shared/src/veille-de-carte.ts`). */
   'taches-recurrentes',
+  /* Les PLAQUETTES CLIENT : rédigées par l'agent, retouchées ici, lues par le client sur un lien privé
+     (`server/src/plaquettes.ts`). */
+  'plaquettes',
+  /* La SÉCURITÉ : les projets suivis, leur audit de chaque semaine et l'agent qui en tire la carte de correction
+     (`shared/src/service-securite.ts`). */
+  'securite',
 ] as const;
 
 export type VueCentrale = (typeof VUES_CENTRALES)[number];
 
-/**
- * LE BAS DE L'ÉCRAN DU TÉLÉPHONE, SELON L'ÉCRAN AFFICHÉ (demande du 26/09/2026 :
- * « visible uniquement à l'intérieur d'un projet, là où il y a le tableau »).
- *
- * UN SEUL BOUTON, JAMAIS UNE BARRE (demande du 11/10/2026 : « je ne veux plus
- * la barre avec tableau, agent et fichiers, je veux juste un bouton nouvelle
- * tâche »). Rien d'autre ne s'empile en bas de l'écran : les fichiers et les
- * deux gestes de publication sont dans le menu à trois points du haut.
- *
- *  - `nouvelle-tache` : dans un projet ouvert, le bouton « Nouvelle tâche », qui
- *    fait naître une carte de ce projet ;
- *  - `nouvel-agent` : le bouton « Nouvel agent », sur les deux tableaux de bord
- *    généraux (« en-route », « tableau-de-bord ») et quand aucun projet n'est
- *    ouvert — il fait d'abord choisir le projet ;
- *  - `geste-de-page` : sur un SERVICE (marketing, statistiques, coffre,
- *    notes, mémoire, espace client, sauvegardes, surveillance), le bas de
- *    l'écran appartient à la page affichée, qui y pose SON geste principal —
- *    « Nouveau site », « Nouvel accès », « Nouvelle note »… (demande du
- *    11/10/2026 : « les boutons principaux doivent être en bas, centre,
- *    fullwidth »). Une page qui n'en a pas, ou qui a ouvert un enfant, ne pose
- *    rien : la bande ne prend alors aucune place, et l'écran reprend la sienne.
- *
- * Il n'y a donc plus de vue SANS règle : cette fonction dit toujours à qui est
- * le bas de l'écran, et il n'y a jamais deux boutons.
- */
-export type MenuBasTelephone = 'nouvelle-tache' | 'nouvel-agent' | 'geste-de-page';
-
-export function menuBasTelephone(vue: VueCentrale, projetActif: boolean): MenuBasTelephone {
-  if (vue === 'projet') return projetActif ? 'nouvelle-tache' : 'nouvel-agent';
-  if (vue === 'en-route' || vue === 'tableau-de-bord') return 'nouvel-agent';
-  return 'geste-de-page';
-}
+/* LE BAS DE L'ÉCRAN DU TÉLÉPHONE a sa règle à lui : `menu-du-bas.ts` (menu classé par importance, 03/11/2026),
+   qui remplace l'ancien `menuBasTelephone` (un seul bouton pleine largeur). */
 
 /**
  * LE VOLET D'UNE CARTE NE S'AFFICHE QUE LÀ OÙ IL A SA PLACE (demande du
@@ -119,4 +100,18 @@ export function carteARefermerSurChoixDeVue(choix: {
   if (choix.vueDemandee !== choix.vueActuelle) return false;
   if (choix.vueDemandee !== 'en-route' && choix.vueDemandee !== 'tableau-de-bord') return false;
   return carteVisibleSurLaVue(choix.vueActuelle, choix.vueDeLaCarte);
+}
+
+/**
+ * L'ÉCRAN D'ARRIVÉE À FROID (décision de l'utilisateur, 02/11/2026 : « elle doit
+ * tomber par défaut sur le tableau de bord et non pas le projet Beluga »).
+ *
+ * Un démarrage SANS adresse précise arrive sur « Tableaux de bord » (`en-route`),
+ * toujours et sans délai, y compris quand le téléphone a coupé l'application.
+ * Une adresse précise (donc aussi un rechargement, qui la garde) n'est pas
+ * concernée : elle commande son écran. `en-route` étant réservé aux admins, un
+ * accès tiers revient à `projet` dès que son rôle est connu (`app.tsx`).
+ */
+export function vueDeDemarrage(ecran: { vue: string }): VueCentrale | null {
+  return ecran.vue === 'accueil' ? 'en-route' : null;
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy, Loader2, LogIn, RefreshCw, Settings, Terminal } from 'lucide-react';
+import { Check, Copy, Loader2, LogIn, RefreshCw, Settings, Terminal } from '@/components/ui/icones';
 import {
   ConnexionCompte,
   EngineId,
@@ -12,6 +12,7 @@ import { BulleInfo, Badge, Button, ZoneDefilement } from '@/components/ui';
 import { AjouterCle, BlocConnexion } from '@/components/connexion-compte';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { BoutonInstaller, useTravailDuGenre } from '@/components/installation/travail';
+import { useVoileAffiche } from '@/lib/barre-de-l-heure';
 import { client } from '@/lib/client';
 import { installationEnDirect } from '@/lib/travail-installation';
 import { useApp } from '@/lib/use-app';
@@ -91,6 +92,7 @@ export function BoutonRelireLesMoteurs() {
 }
 
 export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () => void }) {
+  useVoileAffiche();
   // Un travail d'installation lancé avant l'ouverture de cet écran (ou depuis
   // un autre appareil) se retrouve ici, sortie comprise.
   React.useEffect(() => {

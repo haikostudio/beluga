@@ -2,27 +2,44 @@
 <html lang="fr" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- interactive-widget : le clavier réduit la page au lieu de la faire glisser. -->
+    <!-- interactive-widget : le clavier réduit la page au lieu de la faire glisser.
+         Aucun zoom (MEM-7550, toute application mobile) : maximum-scale=1 (qui ferme
+         aussi le zoom au champ touché) et user-scalable=no ; le double toucher est fermé
+         par `touch-action: manipulation` (styles.css). -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#212121" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <!-- « black-translucent » (19/10/2026, choix de l'utilisateur, recette de
-         ProjetE d207da4) : la page passe SOUS l'heure, fonds et volets montent
-         jusqu'en haut de l'écran d'une seule teinte. iOS 26/27 y pose un flou
-         (« scroll edge effect ») qu'aucune CSS n'éteint : le contenu démarre
-         15 px sous l'encart (`--marge-flou-ios`, web/src/styles.css) pour rester
-         hors de ce flou. « default » est ABANDONNÉ : bande grise opaque ou flou
-         une image sur vingt sur iOS 27. iOS ne relit ce réglage qu'à l'ajout de
-         l'icône : supprimer puis réinstaller l'application pour le voir. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- LA VOIE D'APPLE (30/10/2026, décision de l'utilisateur) : la barre d'état a
+         une VRAIE couleur de fond — `theme-color`, celle du fond de l'application,
+         en sombre comme en clair — et l'application commence DESSOUS. Plus de
+         `viewport-fit=cover` : rien ne peut défiler sous l'heure, donc plus de
+         flou « scroll edge effect » d'iOS 26/27. Il vaut pour tout le pourtour :
+         une bande du fond de page reste aussi sous la barre de geste. Cette balise
+         viewport se relit à chaque ouverture ; « default » n'est lu, lui, qu'à
+         l'ajout de l'icône. Une icône d'avant le 30/10/2026 garde
+         « black-translucent » tant qu'elle n'est pas réinstallée. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Beluga" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Beluga Build</title>
+    <script>
+      /*
+       * L'APPLICATION IPHONE SE RECONNAÎT AVANT LE PREMIER AFFICHAGE (16/11/2026) : le pont natif pose
+       * `window.__belugaNatif` avant tout script (natif/Commun/Pont.swift, atDocumentStart). Le marqueur
+       * `html[data-natif=ios]` porte les marges propres à l'application (bas 16 px, côtés 12 px, styles.css) ;
+       * l'application installée depuis Safari et le navigateur ne l'ont jamais.
+       */
+      try {
+        if (window.__belugaNatif && window.__belugaNatif.plateforme === 'ios') {
+          document.documentElement.setAttribute('data-natif', 'ios');
+        }
+      } catch (e) {}
+    </script>
     <script>
       /*
        * LE THÈME SE DÉCIDE AVANT LE PREMIER AFFICHAGE, depuis un REPÈRE LOCAL —
@@ -84,8 +101,8 @@
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = sombre ? 'dark' : 'light';
         /* LE BANDEAU EN HEXADÉCIMAL (comme `couleurDeBandeau`) et `color-scheme`
-           AUSSI EN BALISE : en barre « black-translucent », c'est lui qui donne
-           à l'heure sa couleur (sombre sur fond clair, claire sur fond sombre). */
+           AUSSI EN BALISE : le premier peint la bande de l'heure, le second règle la
+           couleur de l'heure (sombre sur fond clair, claire sur fond sombre). */
         var enHex = function (couleur) {
           var m = /^hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/i.exec(couleur);
           if (!m) return couleur;
@@ -100,6 +117,9 @@
         };
         var bandeau = document.querySelector('meta[name="theme-color"]');
         if (bandeau) bandeau.setAttribute('content', enHex(PALETTES[theme][1]));
+        /* LE REPÈRE DE L'HEURE (posé en tête de `body`) prend cette couleur dès la
+           toute première lecture de l'iPhone. */
+        document.documentElement.style.setProperty('--couleur-du-repere-de-l-heure', enHex(PALETTES[theme][1]));
         var schema = document.querySelector('meta[name="color-scheme"]');
         if (!schema) {
           schema = document.createElement('meta');
@@ -111,6 +131,14 @@
     </script>
   </head>
   <body>
+    <!-- LE REPÈRE DE L'HEURE : ce que l'iPhone lit pour teinter la barre de l'heure.
+         Sa géométrie et sa raison d'être : `web/src/lib/barre-de-l-heure.ts`, qui le
+         reprend ensuite sans en créer un second. Sans effet ni présence sur ordinateur. -->
+    <style>
+      #repere-de-l-heure { display: none; position: fixed; top: -7.5px; left: 0; right: 0; height: 12px; opacity: 0.12; pointer-events: none; z-index: 2147483000; background-color: var(--couleur-du-repere-de-l-heure, #212121); }
+      @media (pointer: coarse) { #repere-de-l-heure { display: block; } }
+    </style>
+    <div id="repere-de-l-heure" aria-hidden="true"></div>
     <!-- CE QU'ON VOIT AVANT QUE LE PREMIER CODE ARRIVE : une pause qui tourne, dans
          les couleurs de la page. Sans elle, un téléphone restait sur une page
          vide pendant tout le téléchargement. React la remplace au premier rendu

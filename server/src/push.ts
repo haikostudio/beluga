@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import webpush from 'web-push';
-import { APPAREIL_INCONNU, construireFragment, identiteDInstallation, nomDAppareil } from '@beluga/shared';
+import { APPAREIL_INCONNU, abonnementApnsDe, construireFragment, endpointApns, identiteDInstallation, nomDAppareil } from '@beluga/shared';
 import type { AppareilNotifie } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
+import { envoyerParApns } from './apns.js';
 
 /**
  * Notifications poussées (PLAN §20) : une application installée doit prévenir
@@ -57,7 +58,16 @@ export function publicKey(): string | null {
  * ailleurs : sinon n'importe qui s'abonnerait au nom d'un autre.
  */
 export function subscribe(subscription: unknown, userId?: string, userAgent?: string): boolean {
-  const record = subscription as { endpoint?: string };
+  const record = subscription as { endpoint?: string; apns?: { jeton?: unknown; environnement?: unknown } };
+  /* L'APPLICATION IPHONE s'inscrit avec son jeton APNs (`shared/src/notifications-iphone.ts`) : un abonnement comme
+     un autre, au nom du même compte, servi par les mêmes envois. Un jeton mal formé est refusé. */
+  if (record?.apns) {
+    const endpoint = endpointApns(record.apns.jeton, record.apns.environnement);
+    if (!endpoint) return false;
+    record.endpoint = endpoint;
+  } else if (typeof record?.endpoint === 'string' && record.endpoint.startsWith('apns:')) {
+    return false;
+  }
   if (!record?.endpoint) return false;
   const appareil = userAgent ? nomDAppareil(userAgent) : null;
   getDb()
@@ -192,6 +202,13 @@ export async function sendPush(payload: PushPayload, pour?: string): Promise<voi
   const body = JSON.stringify(url ? { ...payload, url } : payload);
   await Promise.all(
     rows.map(async (row) => {
+      // L'iPhone de l'application : le même contenu, par APNs.
+      const apns = abonnementApnsDe(row.endpoint);
+      if (apns) {
+        const issue = await envoyerParApns(apns, payload, url).catch(() => 'refusee' as const);
+        if (issue === 'jeton-mort') unsubscribe(row.endpoint);
+        return;
+      }
       try {
         await webpush.sendNotification(JSON.parse(row.data), body, { TTL: 3600 });
       } catch (err: any) {

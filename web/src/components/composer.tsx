@@ -1,13 +1,10 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { EVENEMENT_JOINDRE_AU_CHAMP, type DetailJoindreAuChamp } from '@/lib/joindre-au-champ';
-import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, ClipboardList, FileText, Image as ImageIcon, Loader2, MessageSquareText, Music, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, FileText, Loader2, MessageSquareText, Paperclip, Pause, Pencil, Trash2, X } from '@/components/ui/icones';
 import {
   Agent,
-  COLONNES_AVANT_LE_TRAVAIL,
-  CHOIX_DE_DEPART,
-  DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION,
-  LIBELLES_TYPES_DE_MEDIA_DE_REALISATION,
+  etiquetteDuMode,
   Attachment,
   EngineInfo,
   QueuedPrompt,
@@ -27,8 +24,12 @@ import {
   etiquetteDePiece,
   relireJointes,
   boutonsBarreEcriture,
-  commandeDuMessage,
   commandesDuMoteur,
+  commandesReconnues,
+  effacementDeCommande,
+  insereCommandeEnTete,
+  refusDeCommande,
+  type CommandeSlash,
   deplacerAncre,
   deplacerDansLaListe,
   filtrerCommandes,
@@ -62,7 +63,7 @@ import {
   estAgentDeVolet,
   tailleLisible,
   DELAI_AVANT_MESSAGE_DU_CANAL,
-  EDITION_EN_FILE_RAFRAICHIE_MS,
+  BROUILLON_EDITION_TEMPORISE_MS,
   nettoyerTexteColle,
   texteColleADesDebris,
 } from '@beluga/shared';
@@ -71,32 +72,23 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { EtiquetteDeVignette } from '@/components/pastille-de-fichier';
 import {
   Button,
-  type ButtonProps,
   CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
   CLASSE_RANGEE_DE_BOUTONS,
-  Dialog,
-  DialogContent,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Drawer,
   EnteteDeFeuille,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Textarea,
   Tooltip,
   ZoneDefilement,
-  ouvertureAuClic,
 } from '@/components/ui';
 import { type DragItem, type DropTarget, usePointerDrag } from '@/lib/dnd';
 import { IndicateurComprehension } from '@/components/indicateur-comprehension';
+import { BoutonVoixDuChamp } from '@/components/voix-du-champ';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
-import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
+import { useDicteeInstallee, useVoixDisponible } from '@/lib/voix-disponible';
+import { MenuSlash } from '@/components/menu-slash';
+import { BoutonOrdinateur, commandesDesOrdinateurs, useOrdinateurs } from '@/components/bouton-ordinateur';
 import { AnneauContexte } from '@/components/anneau-contexte';
 import { BarreProgression } from '@/components/barre-progression';
 import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
@@ -181,6 +173,12 @@ export interface ComposerProps {
    */
   reglages?: React.ReactNode;
   /**
+   * DANS LE STUDIO, NI « CRÉATION » NI « RÉALISATION » (demande du 01/11/2026,
+   * capture #95c32) : on y réalise déjà, et l'étoile n'y sert à rien. Le type
+   * se dit à l'agent, dans la discussion.
+   */
+  sansInterrupteursDuMode?: boolean;
+  /**
    * L'ARRÊT VIT DÉJÀ DANS LA BARRE D'ACTION de la carte quand c'est le geste du
    * chapitre : le carré d'arrêt du champ le redirait juste en dessous.
    */
@@ -206,6 +204,14 @@ export interface ComposerProps {
    * texte : l'écran la corrige (`chat.tsx`) en reconnaissant l'ancien texte.
    */
   onEnvoiModifie?: (avant: string, apres: string) => void;
+  /**
+   * L'ENVOI AVANT LA NAISSANCE DE L'AGENT (le directeur artistique du Studio, 31/10/2026) : sans `agent`, le champ
+   * d'écriture standard sert quand même, et ce rappel reçoit le texte et les pièces jointes — c'est lui qui fait
+   * naître l'agent (`studio.assistant`). Un refus rend le texte au champ, comme un envoi ordinaire.
+   */
+  envoyerSansAgent?: (texte: string, pieces: string[]) => Promise<void>;
+  /** La clé du brouillon et des pièces jointes sans agent (`draft.<cle>`) : chaque création garde le sien. */
+  cleSansAgent?: string;
 }
 
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
@@ -215,313 +221,31 @@ const MARGE_DOIGT = 24;
 const PREFIXE_COPIE_BROUILLON = 'beluga.brouillon.';
 
 /**
- * L'ALLURE COMMUNE DES INTERRUPTEURS DE LA BARRE (« Plan », « Création ») :
- * l'icône et le libellé, rien d'autre — plus de mini-rail à rond. Ce sont eux
- * qui disent l'état : allumés, ils prennent le BLEU « terminé » (`--termine`,
- * déclaré par chaque palette) — jamais `--accent`, qui vaut blanc ou noir
- * selon l'ambiance et rendait l'état illisible. Éteints, ils sont gris.
- *
- * UN SEUL élément cliquable : pas de `Switch` Radix imbriqué dans un bouton.
- * Pendant l'aller-retour au serveur, l'icône pulse (un bouton qui part en
- * requête le dit dès le clic) et le bouton est bloqué. Un calque invisible
- * porte la cible au doigt à 36 px de haut sans grandir la barre.
+ * L'ÉTIQUETTE DU MODE, À CÔTÉ DU TROMBONE (décisions de l'utilisateur du 11 et du 12/11/2026). L'agent de cadrage
+ * CHOISIT le mode lui-même (`shared/src/mode-de-la-carte.ts`) ; le mode « Création » est retiré. Il ne reste qu'UN
+ * MOT sur un fond propre au mode — gris pour Plan, violet plein pour Studio — et son info-bulle qui le détaille. NON
+ * CLIQUABLE : aucun menu, aucune croix ; le mode se change en le disant à l'agent.
  */
-const BoutonInterrupteur = React.forwardRef<
-  HTMLButtonElement,
-  {
-    actif: boolean;
-    enVol: boolean;
-    icone: React.ReactNode;
-    libelle: string;
-    onClick: () => void;
-  } & Omit<ButtonProps, 'onClick'>
->(function BoutonInterrupteur({ actif, enVol, icone, libelle, onClick, className, ...reste }, ref) {
-  /*
-   * LA RÉFÉRENCE DOIT ARRIVER JUSQU'AU BOUTON. L'infobulle d'enveloppe
-   * (`Tooltip`, déclencheur Radix en `asChild`) s'accroche à l'élément par elle :
-   * sans `forwardRef`, React la jetait, la bulle s'ouvrait sans ancre et restait
-   * dessinée hors de l'écran — les trois interrupteurs n'avaient « aucune bulle ».
-   * Les gestionnaires posés par le déclencheur (survol, focus, aria) passent par
-   * `reste`.
-   */
+const FOND_DU_MODE: Record<'plan' | 'studio', string> = {
+  plan: 'bg-raised text-text',
+  studio: 'bg-teinte-plein text-sur-couleur',
+};
+
+function EtiquetteDuMode({ cardId }: { cardId?: string }) {
+  const state = useApp();
+  const carte = cardId ? state.cards[cardId] : undefined;
+  const etiquette = carte ? etiquetteDuMode(carte) : null;
+  if (!etiquette) return null;
   return (
-    <Button
-      ref={ref}
-      variant="ghost"
-      size="sm"
-      sansAttente
-      disabled={enVol}
-      aria-pressed={actif}
-      aria-busy={enVol || undefined}
-      aria-label={libelle}
-      {...reste}
-      className={cn(
-        // Même case que les boutons-icônes de la rangée (28 px de côté, marge
-        // de 7 px autour du glyphe) : le vide jusqu'au voisin est le même.
-        // ICÔNE SEULE (demande du 14/10/2026) : le nom se lit au survol, dans
-        // l'infobulle — deux glyphes bien distincts suffisent à les séparer.
-        'relative h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 touch-manipulation px-0 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
-        CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
-        // Le survol GARDE la couleur de l'état : le `hover:text-text` du bouton
-        // fantôme le blanchissait, et au doigt le survol reste collé après le
-        // toucher — « Création » allumée paraissait blanche. Allumé, il est
-        // VIOLET (demande du 12/10/2026) : l'élément choisi, `aria-pressed`.
-        actif ? 'text-teinte hover:text-teinte' : 'text-faint hover:text-muted',
-        enVol && 'cursor-wait disabled:opacity-70',
-        className,
-      )}
-      onClick={onClick}
-    >
-      <span aria-hidden className={cn('inline-flex shrink-0', enVol && 'animate-pulse')}>
-        {icone}
+    <Tooltip label={t(etiquette.detail, etiquette.media ? { media: t(etiquette.media) } : undefined)}>
+      <span
+        tabIndex={0}
+        data-etiquette-du-mode={etiquette.mode}
+        className={cn('inline-flex h-6 shrink-0 cursor-default select-none items-center self-center rounded-md px-2 text-[12.5px] font-medium leading-none', FOND_DU_MODE[etiquette.mode])}
+      >
+        {t(etiquette.mot)}
       </span>
-    </Button>
-  );
-});
-
-/**
- * L'INTERRUPTEUR « PLAN », COLLÉ AU CHAMP D'ÉCRITURE.
- *
- * Le plan n'est plus un passage obligé : il est devenu une OPTION, éteinte à
- * la naissance de chaque carte. Allumé, chaque tour de cadrage rend aussi un
- * plan complet à la fin de son tour, affiché sous la compréhension du même
- * tour — sans second clic ni seconde attente.
- *
- * Son état vit SUR LA CARTE (`parcours.planSouhaite`) : il survit donc à la
- * fermeture du tiroir, au rechargement et au changement d'appareil. Il ne
- * paraît que sur une carte encore en cadrage — ailleurs, il ne veut rien dire.
- */
-function InterrupteurDePlan({ cardId, agent }: { cardId?: string; agent?: Agent | null }) {
-  const state = useApp();
-  const carte = cardId ? state.cards[cardId] : undefined;
-  const [enVol, setEnVol] = React.useState(false);
-  if (!carte || agent?.role !== 'cadrage') return null;
-  if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
-  /* Une création de média n'a ni cahier ni plan : le suivi à droite les tient. */
-  if (carte.parcours?.realisationSouhaitee) return null;
-  const actif = !!carte.parcours?.planSouhaite;
-  const automatique = actif && !!carte.parcours?.planAutomatique;
-  return (
-    <Tooltip
-      label={`${t('Cahier des charges')} — ${
-        automatique
-          ? t('Allumé tout seul : la demande est complexe. Le cadrage pose plus de questions puis rend un plan à sa taille.')
-          : actif
-            ? t('Le cadrage rendra aussi un plan complet à la fin de son tour.')
-            : t('Demander en plus un plan complet, rendu sous la compréhension.')
-      }`}
-    >
-      <BoutonInterrupteur
-        actif={actif}
-        enVol={enVol}
-        data-interrupteur-plan={actif ? 'allume' : 'eteint'}
-        data-plan-automatique={automatique ? 'oui' : 'non'}
-        icone={<ClipboardList className="h-4 w-4" />}
-        libelle={t('Cahier des charges')}
-        onClick={() => {
-          setEnVol(true);
-          void client
-            .call({ type: 'card.plan.souhaite', cardId: carte.id, actif: !actif })
-            .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
-            .finally(() => setEnVol(false));
-        }}
-      />
     </Tooltip>
-  );
-}
-
-/**
- * L'INTERRUPTEUR « CRÉATION », VOISIN DE « PLAN » ET RANGÉ DE LA MÊME FAÇON.
- *
- * Allumé, l'agent de la carte devient chef d'orchestre : il confie le texte, le
- * code et des avis à d'autres moteurs du serveur, et fait départager les
- * propositions par le juge rapide (`shared/src/mode-creation.ts`). Seule la
- * BASCULE vit ici — la répartition se règle dans les réglages, jamais dans la
- * barre d'écriture (DEC-090).
- *
- * Son état vit SUR LA CARTE (`parcours.creationSouhaitee`), éteint à la
- * naissance. Il se CHOISIT avant le travail, comme le plan : l'interrupteur ne
- * paraît donc que pour l'agent de cadrage d'une carte encore en « Planifié »
- * (ou au cadrage rouvert). Le choix fait reste VALABLE à l'exécution — le
- * serveur sert les outils du mode à l'agent de tâche d'après la carte
- * (`toolsFor(role, { creation })`) : seul le bouton disparaît, pas l'effet.
- */
-function InterrupteurDeCreation({ cardId, agent }: { cardId?: string; agent?: Agent | null }) {
-  const state = useApp();
-  const carte = cardId ? state.cards[cardId] : undefined;
-  const [enVol, setEnVol] = React.useState(false);
-  const [explication, setExplication] = React.useState(false);
-  const [dejaExplique, setDejaExplique] = usePref<boolean>('creation.expliquee', false);
-  if (!carte || agent?.role !== 'cadrage') return null;
-  if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
-  const actif = !!carte.parcours?.creationSouhaitee;
-  const basculer = (valeur: boolean) => {
-    setEnVol(true);
-    void client
-      .call({ type: 'card.creation.souhaitee', cardId: carte.id, actif: valeur })
-      .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
-      .finally(() => setEnVol(false));
-  };
-  return (
-    <>
-      <Tooltip
-        label={`${t('Création')} — ${
-          actif
-            ? t('Mode Création : l’agent fait travailler plusieurs modèles et assemble le meilleur rendu.')
-            : t('Faire travailler plusieurs modèles ensemble : texte, code, avis et évaluation.')
-        }`}
-      >
-        <BoutonInterrupteur
-          actif={actif}
-          enVol={enVol}
-          data-interrupteur-creation={actif ? 'allume' : 'eteint'}
-          icone={<Sparkles className="h-4 w-4" />}
-          libelle={t('Création')}
-          onClick={() => {
-            // LA PREMIÈRE FOIS, ON EXPLIQUE AVANT D'ALLUMER : le mode coûte
-            // plusieurs moteurs, il ne s'allume pas sur un clic d'essai.
-            if (!actif && !dejaExplique) setExplication(true);
-            else basculer(!actif);
-          }}
-        />
-      </Tooltip>
-      <FenetreDuModeCreation
-        ouverte={explication}
-        onAnnuler={() => setExplication(false)}
-        onActiver={() => {
-          setExplication(false);
-          setDejaExplique(true);
-          basculer(true);
-        }}
-      />
-    </>
-  );
-}
-
-/**
- * LE MENU « RÉALISATION » (caméra), TROISIÈME DE LA RANGÉE.
- *
- * Le type de média se choisit ICI, AVANT l'envoi (décision de l'utilisateur
- * du 25/10/2026) : jamais dans la discussion, où la demande est déjà partie et
- * le choix devient ambigu. Le bouton ouvre un menu ancré à lui (MEM-4716) :
- * Vidéo, Image, Son, puis « Désactiver » quand le mode est allumé. Choisir un
- * type allume le mode et l'écrit sur la carte ; le bouton allumé passe en
- * violet (l'élément choisi) et prend le glyphe du type, sans libellé. Rien ne s'ouvre à droite tant que le
- * type n'est pas choisi (`estVoletDeRealisation`, `shared/src/mode-realisation.ts`).
- */
-function InterrupteurDeRealisation({ cardId, agent }: { cardId?: string; agent?: Agent | null }) {
-  const state = useApp();
-  const carte = cardId ? state.cards[cardId] : undefined;
-  const [enVol, setEnVol] = React.useState(false);
-  const [ouvert, setOuvert] = React.useState(false);
-  if (!carte || agent?.role !== 'cadrage') return null;
-  if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
-  const actif = !!carte.parcours?.realisationSouhaitee;
-  const choisi = actif ? CHOIX_DE_DEPART.find((m) => carte.realisation?.medias?.includes(m)) : undefined;
-  const choisir = (media: (typeof CHOIX_DE_DEPART)[number] | null) => {
-    setEnVol(true);
-    void client
-      .call({ type: 'card.realisation.souhaitee', cardId: carte.id, media })
-      .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
-      .finally(() => setEnVol(false));
-  };
-  return (
-    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
-      <Tooltip
-        label={`${t('Réalisation')} — ${
-          choisi
-            ? `${t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[choisi])}. ${t('Changer de type ou désactiver la réalisation.')}`
-            : t('Faire réaliser une vidéo, une image ou un son : choisissez le type avant d’envoyer votre demande.')
-        }`}
-      >
-        <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
-          <BoutonInterrupteur
-            actif={!!choisi}
-            enVol={enVol}
-            data-interrupteur-realisation={choisi ? 'allume' : 'eteint'}
-            data-type-de-realisation={choisi ?? ''}
-            /* ICÔNE SEULE, ALLUMÉ COMME ÉTEINT (demande du 25/10/2026, capture
-               #c92f) : le mot « Vidéo » posé à côté élargissait la rangée. Le
-               type choisi se lit à son GLYPHE — caméra, image ou note —, puis
-               en toutes lettres dans l'infobulle et le menu. */
-            icone={choisi === 'image' ? <ImageIcon className="h-4 w-4" /> : choisi === 'son' ? <Music className="h-4 w-4" /> : <Video className="h-4 w-4" />}
-            libelle={choisi ? `${t('Réalisation')} — ${t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[choisi])}` : t('Réalisation')}
-          />
-        </DropdownMenuTrigger>
-      </Tooltip>
-      <DropdownMenuContent align="start" side="top" collisionPadding={8} className="w-[min(320px,calc(100vw-16px))]" data-menu-realisation="">
-        <DropdownMenuLabel>{t('Que voulez-vous obtenir ?')}</DropdownMenuLabel>
-        {CHOIX_DE_DEPART.map((media) => (
-          <DropdownMenuItem
-            key={media}
-            data-choix-realisation={media}
-            data-actif={media === choisi ? '' : undefined}
-            aria-current={media === choisi ? 'true' : undefined}
-            onSelect={() => media !== choisi && choisir(media)}
-            className={cn('items-start gap-2 rounded-md px-2 py-1.5', media === choisi ? 'text-teinte' : 'text-muted data-[highlighted]:text-text')}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px]">{t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[media])}</span>
-              <span className="block text-[12px] leading-snug text-faint">{t(DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION[media])}</span>
-            </span>
-            <Check className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 text-teinte', media !== choisi && 'invisible')} aria-hidden />
-          </DropdownMenuItem>
-        ))}
-        {actif ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem data-choix-realisation="desactiver" onSelect={() => choisir(null)} className="rounded-md px-2 py-1.5 text-[13px] text-muted data-[highlighted]:text-text">
-              {t('Désactiver la réalisation')}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/**
- * LA FENÊTRE DU PREMIER ALLUMAGE DE « CRÉATION ». Elle ne paraît qu'une fois
- * par utilisateur (préférence partagée entre appareils, `creation.expliquee`) :
- * ce que fait le mode, ce qu'il coûte, et comment l'éteindre.
- */
-function FenetreDuModeCreation({
-  ouverte,
-  onAnnuler,
-  onActiver,
-}: {
-  ouverte: boolean;
-  onAnnuler: () => void;
-  onActiver: () => void;
-}) {
-  return (
-    <Dialog open={ouverte} onOpenChange={(next) => !next && onAnnuler()}>
-      <DialogContent className="sm:w-[min(520px,100%)]" data-fenetre-mode-creation="">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-teinte" />
-            {t('Le mode Création')}
-          </DialogTitle>
-          <DialogDescription>
-            {t('L’agent de la carte devient chef d’orchestre : au lieu de tout faire seul, il fait travailler plusieurs modèles ensemble.')}
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[14px] text-muted">
-          <li>{t('Il confie le texte, le code et les avis à d’autres moteurs du serveur.')}</li>
-          <li>{t('Leurs propositions sont départagées par un juge, puis il assemble le meilleur rendu.')}</li>
-          <li>{t('Utile pour un travail créatif ou délicat ; plus lent et plus coûteux qu’un agent seul.')}</li>
-          <li>{t('Le choix vaut pour cette carte seulement, et un nouveau clic l’éteint.')}</li>
-        </ul>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onAnnuler}>
-            {t('Annuler')}
-          </Button>
-          <Button onClick={onActiver} data-activer-mode-creation="">
-            {t('Activer le mode Création')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -571,10 +295,13 @@ export function Composer({
   boutonPrincipal,
   libelleDuChamp,
   reglages,
+  sansInterrupteursDuMode,
   sansArret,
   onEnvoiCommence,
   onEnvoiEchoue,
   onEnvoiModifie,
+  envoyerSansAgent,
+  cleSansAgent,
 }: ComposerProps) {
   const state = useApp();
   /* L'état du lien, lu à UN seul endroit (`useCanal`) : ce qui éteint le bouton
@@ -662,7 +389,7 @@ export function Composer({
   const texteDuChamp = React.useMemo(() => tagsMasques(text, attachments), [text, attachments]);
   /** La pièce jointe regardée en grand, avant même l'envoi du message. */
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
-  const envois = useEnvois(agent?.id ?? 'aucun');
+  const envois = useEnvois(agent?.id ?? cleSansAgent ?? 'aucun');
   const agentIdCourant = React.useRef(agent?.id);
   agentIdCourant.current = agent?.id;
   const attachmentsCourantes = React.useRef(attachments);
@@ -854,8 +581,35 @@ export function Composer({
   React.useEffect(() => {
     const joindre = (event: Event) => {
       const detail = (event as CustomEvent<DetailJoindreAuChamp>).detail;
-      if (!detail || detail.agentId !== agentIdCourant.current || editionCourante.current) return;
+      /* Sans agent (l'accueil du Studio), le champ se désigne par sa clé (`cleSansAgent`). */
+      if (!detail || detail.agentId !== (agentIdCourant.current ?? cleSansAgent) || editionCourante.current) return;
       detail.recu = true;
+      /* « FAIRE DES MODIFICATIONS », depuis une page de Communication (carte du 04/11/2026) : la phrase de départ
+         s'ajoute à la suite du brouillon — jamais à sa place —, rien n'est envoyé, le curseur attend en fin. */
+      if (detail.ajout) {
+        const ajout = detail.ajout;
+        /* Une ou plusieurs pièces (« Toutes les versions »), chacune une fois. */
+        const jointes = [...(detail.piece ? [detail.piece] : []), ...(detail.pieces ?? [])].filter((a, i, l) => l.findIndex((b) => b.id === a.id) === i);
+        const neuves = jointes.filter((a) => !attachmentsCourantes.current.some((x) => x.id === a.id));
+        if (neuves.length) {
+          attachmentsCourantes.current = [...attachmentsCourantes.current, ...neuves];
+          setAttachments((liste) => [...liste, ...neuves.filter((a) => !liste.some((x) => x.id === a.id))]);
+        }
+        setText((avant) => {
+          const suite = avant.trim() ? `${avant.replace(/\s+$/, '')}${detail.separation ?? '\n'}${ajout}` : ajout;
+          curseur.current = suite.length;
+          curseurAPoser.current = suite.length;
+          return suite;
+        });
+        requestAnimationFrame(() => {
+          const zone = textareaRef.current;
+          if (!zone) return;
+          zone.focus();
+          zone.setSelectionRange(zone.value.length, zone.value.length);
+          zone.scrollTop = zone.scrollHeight;
+        });
+        return;
+      }
       /* « CORRIGER AVEC L'AGENT », depuis une pièce du suivi : son étiquette se pose au curseur. */
       if (detail.texte) {
         const etiquette = detail.texte;
@@ -882,7 +636,7 @@ export function Composer({
     };
     window.addEventListener(EVENEMENT_JOINDRE_AU_CHAMP, joindre);
     return () => window.removeEventListener(EVENEMENT_JOINDRE_AU_CHAMP, joindre);
-  }, [setAttachments]);
+  }, [setAttachments, cleSansAgent]);
 
   /**
    * Survoler une vignette montre le passage auquel le fichier se rapporte :
@@ -1014,14 +768,53 @@ export function Composer({
   gestesDrapeau.current = { poserDrapeau, suivreDrapeau, lacherDrapeau, annulerDrapeau, retirerDrapeau };
 
   /*
+   * Le menu s'ouvre sur ce que la personne TAPE : il faut donc suivre la place
+   * du curseur en état, pas seulement en référence — une référence ne fait
+   * rien réafficher. `null` = pas de curseur simple (sélection, champ quitté),
+   * et le menu reste alors fermé.
+   */
+  const [pointeur, setPointeur] = React.useState<number | null>(null);
+  const [slashVise, setSlashVise] = React.useState(0);
+  /* Échappement : le menu se ferme pour CE mot-là, et rouvre au suivant. */
+  const [slashFerme, setSlashFerme] = React.useState<string | null>(null);
+
+  const moteurChoisi = resoudreRun(engines, agent?.run).engine;
+  const zoneSlash = pointeur === null ? null : slashEnCours(text, pointeur);
+  const relevees = moteurChoisi ? state.slash[projectId]?.[moteurChoisi.id] : undefined;
+  /* LES ORDINATEURS DE LA PERSONNE (carte « Choisir l'ordinateur visé depuis le téléphone ») : le bouton « Ordinateur »
+     de la rangée du bas, et le second niveau de « /ordinateur: » dans le menu — une entrée par ordinateur. */
+  const [ordinateurs, relireOrdinateurs] = useOrdinateurs(agent?.id, cardId);
+  const commandesDuChamp = React.useMemo(
+    () => [...commandesDuMoteur(moteurChoisi?.id, relevees), ...commandesDesOrdinateurs(ordinateurs)],
+    [moteurChoisi?.id, relevees, ordinateurs],
+  );
+  const slashFermeIci = !!zoneSlash && slashFerme === zoneSlash.mot;
+  /*
+   * LES COMMANDES « / » RECONNUES SE LISENT EN PASTILLES, DANS LE CHAMP. Celles
+   * de Beluga partout, celle du moteur en tête seulement (`commandesReconnues`).
+   * Le texte reste « /nom » : seul le calque les habille. Le « /mot » en train
+   * d'être tapé, menu ouvert, n'en est pas encore une.
+   */
+  const commandesEcrites = React.useMemo(() => commandesReconnues(text, commandesDuChamp), [text, commandesDuChamp]);
+  const pastillesDeCommande = React.useMemo(
+    () =>
+      commandesEcrites.filter(
+        (c) => !zoneSlash || slashFermeIci || c.fin <= zoneSlash.debut || c.debut >= zoneSlash.fin,
+      ),
+    [commandesEcrites, zoneSlash?.debut, zoneSlash?.fin, slashFermeIci],
+  );
+
+  /*
    * L'overlay (drapeaux fichier) ne se pose QUE s'il y a vraiment un tag :
    * sinon il se posait sur tout texte non vide, rendant le vrai champ
    * transparent et sa sélection à la souris invisible — noyée sous le calque.
    */
-  const aDesDrapeaux = React.useMemo(() => {
+  const aDesTagsFichier = React.useMemo(() => {
     MARQUE_FICHIER.lastIndex = 0;
     return MARQUE_FICHIER.test(text);
   }, [text]);
+  /* Le calque se pose aussi pour une pastille de commande — et pour elle seule. */
+  const aDesDrapeaux = aDesTagsFichier || pastillesDeCommande.length > 0;
 
   /*
    * LE CALQUE SE CALE SUR LE CHAMP, IL NE LE DEVINE PAS. Ses styles sont
@@ -1062,7 +855,36 @@ export function Composer({
     const morceaux: React.ReactNode[] = [];
     const vus: Record<string, number> = {};
     let fin = 0;
-    for (const tag of masquesDuTexte(texteDuChamp, attachments)) {
+    const tagsFichier = aDesTagsFichier ? masquesDuTexte(texteDuChamp, attachments) : [];
+    type Morceau = { genre: 'fichier'; debut: number; fin: number; tag: (typeof tagsFichier)[number] } | { genre: 'commande'; debut: number; fin: number; nom: string; origine: string };
+    const morceauxDuTexte: Morceau[] = [
+      ...tagsFichier.map((tag) => ({ genre: 'fichier' as const, debut: tag.debut, fin: tag.fin, tag })),
+      // Un « /nom » écrit DANS un tag fichier reste du nom de fichier.
+      ...pastillesDeCommande
+        .filter((c) => !tagsFichier.some((tag) => c.debut < tag.fin && c.fin > tag.debut))
+        .map((c) => ({ genre: 'commande' as const, debut: c.debut, fin: c.fin, nom: c.nom, origine: c.origine })),
+    ].sort((a, b) => a.debut - b.debut);
+    for (const morceau of morceauxDuTexte) {
+      if (morceau.genre === 'commande') {
+        if (morceau.debut > fin)
+          morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin, morceau.debut)}</React.Fragment>);
+        /* LA PASTILLE D'UNE COMMANDE NE CHANGE PAS UN PIXEL DE MISE EN PAGE : mêmes caractères, même graisse que le
+           champ — seuls un fond violet et une ombre pleine qui déborde sans prendre de place (`box-shadow`, jamais de
+           marge intérieure) l'habillent. Le curseur tombe donc toujours là où il paraît. */
+        morceaux.push(
+          <span
+            key={`commande-${morceau.debut}`}
+            data-commande-pastille={morceau.nom}
+            data-commande-origine={morceau.origine}
+            className="rounded-[0.3em] bg-teinte-fond text-teinte shadow-[0_0_0_0.14em_hsl(var(--teinte-fond))] [box-decoration-break:clone] [-webkit-box-decoration-break:clone]"
+          >
+            {texteDuChamp.slice(morceau.debut, morceau.fin)}
+          </span>,
+        );
+        fin = morceau.fin;
+        continue;
+      }
+      const tag = morceau.tag;
       if (tag.debut > fin)
         morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin, tag.debut)}</React.Fragment>);
       const nom = tag.nom;
@@ -1169,7 +991,7 @@ export function Composer({
     if (fin < texteDuChamp.length)
       morceaux.push(<React.Fragment key={`texte-${fin}`}>{texteDuChamp.slice(fin)}</React.Fragment>);
     return morceaux;
-  }, [texteDuChamp, attachments]);
+  }, [texteDuChamp, attachments, aDesTagsFichier, pastillesDeCommande]);
 
   /*
    * UN TAG COUPÉ EN FIN DE LIGNE REVIENT AU TEXTE BRUT. La pastille est
@@ -1198,8 +1020,13 @@ export function Composer({
     return () => observateur.disconnect();
   }, [aDesDrapeaux, texteAvecDrapeaux, calage]);
 
-  // La dictée dépose son texte à la suite de ce qui est déjà écrit.
+  /* LE MICRO REVIENT QUAND LA VOIX N'EST PAS ACTIVE (décision de l'utilisateur, 17/11/2026) : sans compte ChatGPT, ou
+     l'assistant vocal éteint, le bouton voix cède sa place exacte au micro de DICTÉE, qui transcrit sur ce serveur et
+     dépose le texte à la suite de ce qui est écrit — rien ne part tout seul. Sans dictée installée, il reste grisé. */
+  const { disponible: voixDisponible } = useVoixDisponible();
+  const dicteeInstallee = useDicteeInstallee(!voixDisponible);
   const recorder = useRecorder((dicte) => setText((current) => (current ? `${current} ${dicte}` : dicte)));
+
 
   /*
    * UN TEXTE DÉPOSÉ DEPUIS LE FIL (refus d'un plan, suggestion d'optimisation)
@@ -1240,7 +1067,7 @@ export function Composer({
    * ni une reconnexion, ni un changement d'onglet n'y touchent.
    */
   const agentId = agent?.id;
-  const cleBrouillon = agentId ? `draft.${agentId}` : 'draft.aucun';
+  const cleBrouillon = agentId ? `draft.${agentId}` : `draft.${cleSansAgent ?? 'aucun'}`;
 
   /*
    * LA FILE RENDUE PAR « SUSPENDRE » revient ICI, à la suite de ce qui est
@@ -1469,7 +1296,7 @@ export function Composer({
    * serveur, par conversation — pour qu'on les retrouve depuis n'importe
    * quel écran, et jamais depuis une autre.
    */
-  const cleJointes = agentId ? `draftAttachments.${agentId}` : 'draftAttachments.aucun';
+  const cleJointes = agentId ? `draftAttachments.${agentId}` : `draftAttachments.${cleSansAgent ?? 'aucun'}`;
   const [jointesEnregistrees, setJointesEnregistrees] = usePref<Attachment[]>(cleJointes, []);
   const jointesChargeesPour = React.useRef<string | undefined>(undefined);
   const jointesIgnorerProchaineSauvegarde = React.useRef(true);
@@ -1571,24 +1398,7 @@ export function Composer({
   /* LES COMMANDES « / » DU MOTEUR SÉLECTIONNÉ                            */
   /* ------------------------------------------------------------------ */
 
-  /*
-   * Le menu s'ouvre sur ce que la personne TAPE : il faut donc suivre la place
-   * du curseur en état, pas seulement en référence — une référence ne fait
-   * rien réafficher. `null` = pas de curseur simple (sélection, champ quitté),
-   * et le menu reste alors fermé.
-   */
-  const [pointeur, setPointeur] = React.useState<number | null>(null);
-  const [slashVise, setSlashVise] = React.useState(0);
-  /* Échappement : le menu se ferme pour CE mot-là, et rouvre au suivant. */
-  const [slashFerme, setSlashFerme] = React.useState<string | null>(null);
-
-  const moteurChoisi = resoudreRun(engines, agent?.run).engine;
-  const zoneSlash = pointeur === null ? null : slashEnCours(text, pointeur);
-  const relevees = moteurChoisi ? state.slash[projectId]?.[moteurChoisi.id] : undefined;
-  const commandesDuChamp = React.useMemo(
-    () => commandesDuMoteur(moteurChoisi?.id, relevees),
-    [moteurChoisi?.id, relevees],
-  );
+  /* Le curseur, le moteur et ses commandes sont posés plus haut, avec les pastilles du calque. */
   const commandesVisibles = React.useMemo(
     () => (zoneSlash ? filtrerCommandes(commandesDuChamp, zoneSlash.mot) : []),
     [commandesDuChamp, zoneSlash?.mot],
@@ -1606,19 +1416,35 @@ export function Composer({
   /* La ligne visée repart du haut dès que la liste change. */
   React.useEffect(() => setSlashVise(0), [zoneSlash?.mot, moteurChoisi?.id]);
 
-  /** Écrire la commande choisie à la place du « /mot » en train d'être tapé. */
-  const choisirCommande = (nom: string) => {
-    if (!zoneSlash) return;
-    const suite = insereCommande(text, zoneSlash, nom);
+  /** Pourquoi une commande du menu ne peut pas s'écrire ici (une commande du moteur part seule), ou `null`. */
+  const refusDuMenu = (commande: CommandeSlash) => refusDeCommande(text, zoneSlash, commande, commandesDuChamp);
+
+  /**
+   * Écrire la commande choisie à la place du « /mot » en train d'être tapé. Une commande du moteur se pose en TÊTE
+   * du message ; un choix refusé (`refusDeCommande`) n'écrit rien — le menu dit pourquoi.
+   */
+  const choisirCommande = (commande: CommandeSlash) => {
+    if (!zoneSlash || refusDuMenu(commande)) return;
+    const nom = commande.nom;
+    /* UNE COMMANDE À ARGUMENT (« /ordinateur ») s'écrit « /ordinateur: » et garde le menu ouvert : son second niveau
+       (un ordinateur par ligne) s'y montre aussitôt. */
+    if (commande.argument) {
+      const ecrit = `/${nom}:`;
+      const curseurApres = zoneSlash.debut + ecrit.length;
+      majTexte(`${text.slice(0, zoneSlash.debut)}${ecrit}${text.slice(zoneSlash.fin)}`);
+      curseur.current = curseurApres;
+      curseurAPoser.current = curseurApres;
+      setPointeur(curseurApres);
+      setSlashFerme(null);
+      return;
+    }
+    const suite = commande.origine === 'beluga' ? insereCommande(text, zoneSlash, nom) : insereCommandeEnTete(text, zoneSlash, nom);
     majTexte(suite.texte);
     curseur.current = suite.curseur;
     curseurAPoser.current = suite.curseur;
     setPointeur(suite.curseur);
     setSlashFerme(null);
   };
-
-  /** La commande que le message porte déjà, telle qu'elle partira au moteur. */
-  const commandeEcrite = commandeDuMessage(text);
 
   /**
    * Joindre des fichiers. Chaque nouveau fichier écrit son ancre dans le
@@ -1629,7 +1455,7 @@ export function Composer({
     // un collage n'enverrait rien de sûr, et le message de coupure le dit déjà.
     if (ecritureGeleeRef.current) return;
     if (aLaFin) curseur.current = null;
-    const cleAgent = agentId ?? 'aucun';
+    const cleAgent = agentId ?? cleSansAgent ?? 'aucun';
     const url = `/api/upload?project=${encodeURIComponent(projectId)}${agent ? `&agent=${agent.id}` : ''}${
       agent?.cardId ? `&card=${agent.cardId}` : ''
     }`;
@@ -1745,17 +1571,23 @@ export function Composer({
    * enregistrée ou annulée : on ne perd jamais un début de phrase.
    */
   const piecesDuProjet = state.attachments[projectId];
-  const ouvrirEnEdition = (item: QueuedPrompt) => {
-    const connues = jointesDuMessage(item.attachments, piecesDuProjet ?? []);
+  const ouvrirEnEdition = (item: QueuedPrompt, misDeCote?: string) => {
+    /* LA MODIFICATION REPREND OÙ ELLE EN ÉTAIT : le texte tapé pendant une
+       modification précédente (gardé par le serveur, `brouillonEdition`) passe
+       devant le texte enregistré du message. */
+    const texte = item.brouillonEdition?.text ?? item.text;
+    const pieces = item.brouillonEdition?.attachments ?? item.attachments;
+    const connues = jointesDuMessage(pieces, piecesDuProjet ?? []);
+    fermeesIci.current.delete(item.id);
     setEdition((courante) => ({
       id: item.id,
       texteAvant: item.text,
-      texteMisDeCote: courante?.texteMisDeCote ?? text,
+      texteMisDeCote: courante?.texteMisDeCote ?? misDeCote ?? text,
       jointes: connues,
       dOrigine: item.attachments,
-      inconnues: item.attachments.filter((id) => !connues.some((piece) => piece.id === id)),
+      inconnues: pieces.filter((id) => !connues.some((piece) => piece.id === id)),
     }));
-    setText(item.text);
+    setText(texte);
     // Le curseur retenu visait l'ancien texte : un fichier joint tout de suite irait à la fin.
     curseur.current = null;
     window.setTimeout(() => textareaRef.current?.focus(), 0);
@@ -1764,43 +1596,82 @@ export function Composer({
   /*
    * UNE DEMANDE QU'ON MODIFIE NE PART PAS (demande du 12/10/2026). Tant qu'elle
    * est ouverte ici, le serveur la retient en tête de file (et les suivantes
-   * derrière elle) ; le repère se redit toutes les deux minutes, et se lève dès
-   * que la modification se referme — enregistrée, annulée, ou la conversation
-   * quittée —, ce qui relance la file.
+   * derrière elle).
+   *
+   * ELLE NE SE REFERME QUE PAR « ENREGISTRER » OU « ANNULER » (04/11/2026, un
+   * long message perdu) : quitter la conversation, changer d'écran, fermer
+   * l'onglet ne lèvent plus le repère — le démontage n'envoie rien. Le repère
+   * est en base, sans délai : au retour sur l'agent (ou sur un autre appareil),
+   * la modification se rouvre d'elle-même, avec ce qui avait été tapé
+   * (`brouillonEdition`, gardé au fil de la frappe). Seul `terminerEdition`
+   * envoie `actif: false`.
    */
   const idEnEdition = edition?.id;
+  /** Les modifications refermées ICI, en attendant que l'écho du serveur lève leur repère. */
+  const fermeesIci = React.useRef(new Set<string>());
   React.useEffect(() => {
     if (!idEnEdition) return;
     /* Un échec ne se tait plus : le repère est redit dès que possible, et à chaque retour de l'onglet. */
     let relance: number | undefined;
-    const signaler = (actif: boolean): Promise<unknown> =>
-      client.call({ type: 'queue.edition', id: idEnEdition, actif }).catch(() => {
-        if (actif) {
-          window.clearTimeout(relance);
-          relance = window.setTimeout(() => void signaler(true), 5_000);
-        }
+    let arrete = false;
+    const signaler = (): Promise<unknown> =>
+      client.call({ type: 'queue.edition', id: idEnEdition, actif: true }).catch(() => {
+        if (arrete) return;
+        window.clearTimeout(relance);
+        relance = window.setTimeout(() => void signaler(), 5_000);
       });
-    void signaler(true);
-    const rafraichir = window.setInterval(() => void signaler(true), EDITION_EN_FILE_RAFRAICHIE_MS);
-    const auRetour = () => {
-      if (document.visibilityState === 'visible') void signaler(true);
-    };
-    document.addEventListener('visibilitychange', auRetour);
-    // Le canal revient après une coupure : le serveur l'a perdu de vue, on redit le repère.
+    void signaler();
+    // Le canal revient après une coupure : on redit le repère (sans effet s'il est déjà posé).
     let etaitConnecte = client.lireEtat().connected;
     const unsub = client.subscribe(() => {
       const connecte = client.lireEtat().connected;
-      if (connecte && !etaitConnecte) void signaler(true);
+      if (connecte && !etaitConnecte) void signaler();
       etaitConnecte = connecte;
     });
     return () => {
+      arrete = true;
       unsub();
-      document.removeEventListener('visibilitychange', auRetour);
       window.clearTimeout(relance);
-      window.clearInterval(rafraichir);
-      void signaler(false);
+      /* SURTOUT PAS `actif: false` ICI : se démonter n'est pas refermer. */
     };
   }, [idEnEdition]);
+
+  /* CE QUI EST TAPÉ PENDANT LA MODIFICATION EST GARDÉ PAR LE SERVEUR, une fois
+     la frappe reposée : jamais envoyé au moteur, repris à la réouverture. */
+  const jointesEnEdition = edition?.jointes;
+  const inconnuesEnEdition = edition?.inconnues;
+  React.useEffect(() => {
+    if (!idEnEdition) return;
+    const id = idEnEdition;
+    const minuterie = window.setTimeout(() => {
+      if (fermeesIci.current.has(id)) return;
+      const pieces = [...new Set([...(jointesEnEdition ?? []).map((piece) => piece.id), ...(inconnuesEnEdition ?? [])])];
+      void client
+        .call({ type: 'queue.edition', id, actif: true, brouillon: { text: tagsEnEspacesOrdinaires(text), attachments: pieces } })
+        .catch(() => undefined);
+    }, BROUILLON_EDITION_TEMPORISE_MS);
+    return () => window.clearTimeout(minuterie);
+  }, [idEnEdition, text, jointesEnEdition, inconnuesEnEdition]);
+
+  /*
+   * AU RETOUR SUR L'AGENT, LA MODIFICATION RESTÉE OUVERTE SE ROUVRE. Le champ
+   * a été démonté (autre conversation, autre écran, onglet rechargé) sans rien
+   * refermer : la demande porte toujours son repère. Ce qui avait été écrit en
+   * dehors de la modification (le brouillon de l'agent) est mis de côté, comme
+   * à une ouverture ordinaire.
+   */
+  React.useEffect(() => {
+    if (!agentId || edition || chargePour.current !== agentId) return;
+    const ouverte = queue.find((item) => item.enEditionDepuis && !fermeesIci.current.has(item.id));
+    if (!ouverte) return;
+    let copie = '';
+    try {
+      copie = window.localStorage.getItem(PREFIXE_COPIE_BROUILLON + cleBrouillon) ?? '';
+    } catch {
+      /* pas de copie locale */
+    }
+    ouvrirEnEdition(ouverte, copie || draft);
+  }, [agentId, queue, edition]);
 
   /*
    * UNE PIÈCE QUE LA PAGE NE SAVAIT PAS NOMMER (liste du projet pas encore
@@ -1874,6 +1745,10 @@ export function Composer({
         );
       }
     }
+    /* LA MODIFICATION SE REFERME ICI, ET NULLE PART AILLEURS : le repère tombe
+       (la file repart) et le texte gardé au fil de la frappe avec lui. */
+    fermeesIci.current.add(edition.id);
+    void client.call({ type: 'queue.edition', id: edition.id, actif: false }).catch(() => fermeesIci.current.delete(edition.id));
     // Une autre modification a pu s'ouvrir entre-temps : on ne referme que celle-ci.
     if (editionCourante.current?.id !== edition.id) return true;
     setText(edition.texteMisDeCote);
@@ -1923,7 +1798,7 @@ export function Composer({
        Rien n'est plus recollé au moment de l'envoi — sinon la même phrase
        partirait deux fois. */
     const body = tagsEnEspacesOrdinaires(text.trim());
-    if (!body || !agent) return;
+    if (!body || (!agent && !envoyerSansAgent)) return;
 
     /*
      * Un message parti est parti. On efface le brouillon TOUT DE SUITE, en
@@ -1968,6 +1843,10 @@ export function Composer({
     setJointesEnregistrees([]);
     curseur.current = null;
     try {
+      if (!agent) {
+        await envoyerSansAgent!(body, jointesEnvoyees.map((a) => a.id));
+        return;
+      }
       const reponse = await client.call<{ nouvelleCarteId?: string } | undefined>({
         type: 'agent.prompt',
         agentId: agent.id,
@@ -2036,6 +1915,8 @@ export function Composer({
     if (slashOuvert && !event.nativeEvent.isComposing) {
       if (event.key === 'Escape') {
         event.preventDefault();
+        // La page qui porte le champ ne se referme pas avec : `data-echap-retenu` (ui/index.tsx) la retient.
+        event.stopPropagation();
         setSlashFerme(zoneSlash!.mot);
         return;
       }
@@ -2048,7 +1929,7 @@ export function Composer({
         if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
           event.preventDefault();
           const vise = commandesVisibles[Math.min(slashVise, commandesVisibles.length - 1)];
-          if (vise) choisirCommande(vise.nom);
+          if (vise) choisirCommande(vise);
           return;
         }
       }
@@ -2118,11 +1999,23 @@ export function Composer({
       zone.selectionEnd,
       event.key === 'Backspace' ? 'arriere' : 'avant',
     );
-    if (!coupe) return;
+    /* UNE PASTILLE DE COMMANDE S'EFFACE D'UN BLOC, elle aussi (`effacementDeCommande`). */
+    const coupeCommande =
+      coupe ??
+      effacementDeCommande(
+        text,
+        zone.selectionStart,
+        zone.selectionEnd,
+        event.key === 'Backspace' ? 'arriere' : 'avant',
+        // Toutes, même celle que le menu rouvert cache : posé juste derrière « /plan », le retour arrière l'efface entière.
+        commandesEcrites,
+      );
+    if (!coupeCommande) return;
     event.preventDefault();
-    majTexte(coupe.texte);
-    curseur.current = coupe.curseur;
-    curseurAPoser.current = coupe.curseur;
+    majTexte(coupeCommande.texte);
+    curseur.current = coupeCommande.curseur;
+    curseurAPoser.current = coupeCommande.curseur;
+    setPointeur(coupeCommande.curseur);
   };
 
   return (
@@ -2133,7 +2026,7 @@ export function Composer({
       data-contexte-agent
       data-agent-contexte={agent?.id}
       className={cn(
-        'px-4 pt-2',
+        'px-[var(--marge-de-page,1rem)] pt-2',
         // `--fond-du-pied` : une zone qui porte son propre fond (la
         // conversation d'une page de service) le pose à `transparent`, sinon
         // le pied dessine une bande autour du champ.
@@ -2145,7 +2038,7 @@ export function Composer({
        * carte, des boutons de décision viennent en dessous et réservent déjà
        * cette place : la réserver deux fois creusait un vide sous le composeur.
        */
-      style={{ paddingBottom: dansTiroir ? '8px' : 'max(10px, env(safe-area-inset-bottom))' }}
+      style={{ paddingBottom: dansTiroir ? '8px' : `var(--pied-natif, calc(max(10px, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))` }}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
       }}
@@ -2249,24 +2142,7 @@ export function Composer({
         />
       ) : null}
 
-      {recorder.error ? (
-        <RecorderErrorBar message={recorder.error} onRetry={recorder.retry} onDiscard={recorder.discardError} />
-      ) : null}
-
-      {/* La commande reconnue en tête du message, dite avant l'envoi. Elle ne
-          transforme rien : le texte part tel quel, « /nom » compris. */}
-      {commandeEcrite && !slashOuvert ? (
-        <PastilleCommande
-          nom={commandeEcrite}
-          onRetirer={() => {
-            const suite = text.replace(/^\/[a-zA-Z0-9][a-zA-Z0-9:_-]*[ ]?/, '');
-            majTexte(suite);
-            curseur.current = 0;
-            curseurAPoser.current = 0;
-            setPointeur(0);
-          }}
-        />
-      ) : null}
+      {recorder.error ? <RecorderErrorBar message={recorder.error} onRetry={recorder.retry} onDiscard={recorder.discardError} /> : null}
 
       {auDessusDuTravail}
 
@@ -2299,7 +2175,8 @@ export function Composer({
           commandes={commandesVisibles}
           index={Math.min(slashVise, Math.max(0, commandesVisibles.length - 1))}
           nomDuMoteur={nomCourtMoteur(moteurChoisi)}
-          onChoisir={(commande) => choisirCommande(commande.nom)}
+          onChoisir={choisirCommande}
+          refus={refusDuMenu}
           onSurvol={setSlashVise}
         />
       ) : (
@@ -2309,7 +2186,7 @@ export function Composer({
         <ChampFocaliseSurTelephone.Provider value={telephone && champFocalise}>{barreTravail}</ChampFocaliseSurTelephone.Provider>
       )}
 
-      <div className={cn('flex items-end gap-1.5', recorder.recording && 'hidden')}>
+      <div className={'flex items-end gap-1.5'}>
         {/* LE CHAMP D'ÉCRITURE : une boîte sur un fond gris pâle, aux coins
             de l'échelle commune (`rounded-lg`, 12 px, comme les boutons et le
             bloc de configuration de l'agent) — le texte en haut, ses boutons
@@ -2541,10 +2418,15 @@ export function Composer({
                        l'annonce plus au travail (relance après rapport comprise). */
                     agent?.role === 'cadrage'
                     ? t('L\'agent réfléchit…')
-                    : t('L\'agent travaille — votre message attendra son tour…')
+                    : /* Écrit pendant le travail d'une carte, le message repasse par la compréhension à la fin du
+                         tour (`demandesARemettreAuCadrage`) : le champ le dit. */
+                      agent?.role === 'task' && agent.cardId
+                      ? t('L’agent travaille — votre message repassera par la compréhension à la fin…')
+                      : t('L\'agent travaille — votre message attendra son tour…')
                   : (libelleDuChamp ?? t('Écrivez votre demande…'))
           }
           rows={1}
+          data-echap-retenu={slashOuvert ? 'oui' : undefined}
           className={cn(
             /* LE DÉFILEMENT DU CHAMP NE SE TRANSMET JAMAIS À LA PAGE (#deca) :
                arrivé en haut de son texte, un geste vers le haut faisait glisser
@@ -2633,7 +2515,7 @@ export function Composer({
                   <button
                     type="button"
                     title={t('Retirer ce fichier')}
-                    aria-label={t('Retirer ce fichier')}
+                    aria-label="Retirer ce fichier"
                     onClick={() => retirerJointe(file)}
                     data-piece-retirer
                     /* UNE PETITE PASTILLE AU COIN (demande du 30/10/2026, capture
@@ -2662,8 +2544,8 @@ export function Composer({
         <div className={cn('relative z-30 min-w-0 px-2 pb-2', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-gauche">
           <Tooltip label={t('Joindre un fichier')}>
             <Button
-              variant="ghost"
-              size="icon"
+              variant="doux"
+              size="pastille-champ"
               data-composer-joindre
               className="shrink-0"
               disabled={ecritureGelee}
@@ -2673,16 +2555,14 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          {/* LES INTERRUPTEURS « PLAN », « CRÉATION » ET « RÉALISATION » : ils ne paraissent
-              que sur une carte en cadrage, avant le travail, où ils se
-              choisissent. */}
-          <InterrupteurDePlan cardId={cardId} agent={agent} />
-          <InterrupteurDeCreation cardId={cardId} agent={agent} />
-          <InterrupteurDeRealisation cardId={cardId} agent={agent} />
+          {/* L'ÉTIQUETTE DU MODE CONFIRMÉ (plan, création, studio) : un mot et son info-bulle, rien à cliquer. */}
+          <EtiquetteDuMode cardId={cardId} />
 
-          {/* LES RÉGLAGES DE L'AGENT, juste à leur droite — ou à droite du
-              trombone quand ni le plan ni la création ne sont proposés. */}
+          {/* LES RÉGLAGES DE L'AGENT, juste à droite. */}
           {reglages}
+
+          {/* L'ORDINATEUR VISÉ, après les réglages — seulement quand un ordinateur est relié. */}
+          <BoutonOrdinateur agentId={agent?.id} cardId={cardId} etat={ordinateurs} relire={relireOrdinateurs} desactive={ecritureGelee} />
 
           {onProposeTask && !edition && text.trim() ? (
             <Button variant="ghost" size="sm" className={cn('h-[34px] sm:h-7 min-w-0 shrink', CLASSE_MARGE_DU_LIBELLE_DU_CHAMP)} onClick={() => submit(true)}>
@@ -2701,7 +2581,7 @@ export function Composer({
             <IndicateurComprehension carte={cardId ? state.cards[cardId] : undefined} />
 
             {/* Puis le bouton « Suspendre », le CONTEXTE DU MODÈLE en anneau, le
-                micro, et l'envoi tout au bord. L'anneau ne montre rien tant que
+                bouton voix, et l'envoi tout au bord. L'anneau ne montre rien tant que
                 le moteur n'a rendu aucune mesure (voir anneau-contexte.tsx) : la
                 rangée ne bouge donc pas à son arrivée. */}
             {boutons.arret ? (
@@ -2721,23 +2601,34 @@ export function Composer({
 
             <AnneauContexte agent={agent ?? undefined} />
 
-            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent || ecritureGelee} />
+            {/* LE BOUTON VOIX (17/11/2026) : la conversation vocale avec l'agent de CE champ ; sa synthèse revient ici, à
+                la suite du brouillon (`voix-du-champ.tsx`). Sans voix active, le MICRO de dictée à sa place exacte. */}
+            {voixDisponible ? (
+              <BoutonVoixDuChamp agentId={agent?.id} disabled={ecritureGelee} />
+            ) : (
+              <MicButton
+                onStart={recorder.start}
+                working={recorder.working}
+                disabled={!agent || ecritureGelee}
+                indisponible={dicteeInstallee === false}
+              />
+            )}
 
             {boutons.envoi ? (
               <Button
                 variant="default"
-                size="icon"
+                size="pastille-champ"
                 data-composer-envoi
-                /* Un carré arrondi de la taille du micro (28 px, `rounded-md`),
-                   plein foncé : l'envoi reste le seul bouton marqué. */
-                className="shrink-0 rounded-md"
+                /* Un carré à coins doux de la taille du micro (`pastille-champ`), plein foncé : l'envoi reste le
+                   seul bouton marqué — son fond plein, jamais le gris doux (sans lui, éteint, il disparaissait). */
+                className="shrink-0"
                 title={
                   /* Le bouton éteint DIT pourquoi : un envoi refusé sans un mot
                      se lit comme une panne de l'application. */
                   canal.gele && !edition ? canal.raison : edition ? t('Enregistrer la modification') : t('Envoyer')
                 }
                 data-envoi-gele={canal.gele && !edition ? 'oui' : undefined}
-                disabled={edition ? !text.trim() : canal.gele || enPublication || !agent || !text.trim()}
+                disabled={edition ? !text.trim() : canal.gele || enPublication || (!agent && !envoyerSansAgent) || !text.trim()}
                 onClick={() => submit()}
               >
                 {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}

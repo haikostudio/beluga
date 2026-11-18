@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { LienInterne } from '@/components/ui/lien-interne';
+import { Loader2, Plus } from '@/components/ui/icones';
 import { CLASSE_BOUTON_DE_CREATION } from '@/components/ui';
 import { CLASSE_LIBELLE_EN_BANDE, CLASSE_LIGNE_DE_SERVICE, CLASSE_LIGNE_EN_BANDE } from '@/components/colonne-de-service';
 import { cn } from '@/lib/utils';
@@ -41,6 +42,7 @@ export const GesteDeCreationDeColonne = React.forwardRef<
       ref={ref}
       type="button"
       aria-busy={enCours || undefined}
+      data-geste-de-creation
       className={cn(CLASSE_GESTE_DE_CREATION_DE_COLONNE, className)}
       {...reste}
     >
@@ -65,22 +67,16 @@ export const RubriqueDeColonne = React.forwardRef<
     fin?: React.ReactNode;
     /** Une roue à la place de l'icône : le geste de la ligne tourne. */
     enCours?: boolean;
+    /**
+     * L'ADRESSE OÙ MÈNE LA LIGNE (sans « # ») : la ligne devient un VRAI LIEN (`LienInterne`, 03/11/2026) — clic droit
+     * « ouvrir dans un nouvel onglet », Ctrl/Cmd-clic, clic du milieu ; le clic simple garde son `onClick`.
+     */
+    adresse?: string;
   }
->(function RubriqueDeColonne({ icone, libelle, actif, compte, detail, fin, enCours, className, ...reste }, ref) {
-  return (
-    <button
-      ref={ref}
-      type="button"
-      aria-current={actif ? 'page' : undefined}
-      aria-busy={enCours || undefined}
-      className={cn(
-        CLASSE_LIGNE_DE_SERVICE,
-        actif ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
-        'disabled:opacity-50',
-        className,
-      )}
-      {...reste}
-    >
+>(function RubriqueDeColonne({ icone, libelle, actif, compte, detail, fin, enCours, adresse, className, ...reste }, ref) {
+  const classes = cn(CLASSE_LIGNE_DE_SERVICE, 'hover:bg-raised', actif && 'text-teinte', 'disabled:opacity-50', className);
+  const contenu = (
+    <>
       <span className="shrink-0 text-muted [&_svg]:h-4 [&_svg]:w-4">
         {enCours ? <Loader2 className="animate-spin" /> : icone}
       </span>
@@ -96,6 +92,36 @@ export const RubriqueDeColonne = React.forwardRef<
       )}
       {fin ? <span className="flex shrink-0 items-center gap-1">{fin}</span> : null}
       {!fin && compte ? <span className="shrink-0 text-[12.5px] tabular-nums text-faint">{compte}</span> : null}
+    </>
+  );
+  if (adresse) {
+    const { onClick, type: _type, disabled: _desactive, ...attributs } = reste;
+    void _type;
+    void _desactive;
+    return (
+      <LienInterne
+        adresse={adresse}
+        aria-current={actif ? 'page' : undefined}
+        aria-busy={enCours || undefined}
+        className={classes}
+        {...(attributs as React.AnchorHTMLAttributes<HTMLAnchorElement>)}
+        {...(onClick ? { onClick: onClick as unknown as React.MouseEventHandler<HTMLAnchorElement> } : {})}
+      >
+        {contenu}
+      </LienInterne>
+    );
+  }
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-current={actif ? 'page' : undefined}
+      aria-busy={enCours || undefined}
+      className={classes}
+      {...reste}
+    >
+      {contenu}
     </button>
   );
 });
+

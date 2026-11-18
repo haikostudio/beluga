@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2 } from '@/components/ui/icones';
 import { cn } from '@/lib/utils';
 import { lancerIntervalleVisible } from '@/lib/veille';
 
@@ -27,6 +27,7 @@ export function InfoTravail({
   temps,
   className,
   icone,
+  sansIcone = false,
   alterner = false,
   classeDuTexte,
   etiquette,
@@ -53,6 +54,8 @@ export function InfoTravail({
    * quelque chose), comme le faisait l'ancienne barre pleine largeur.
    */
   icone?: React.ReactNode;
+  /** Aucune icône devant le texte : la ligne porte déjà son propre signe de travail. */
+  sansIcone?: boolean;
   /*
    * Sur la carte du tableau, la pastille est trop étroite pour porter le
    * compte des étapes ET le chronomètre à la fois — contrairement à la barre
@@ -71,7 +74,7 @@ export function InfoTravail({
 
   return (
     <>
-      {icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin', classeDuTexte ?? 'text-en-cours', className)} />}
+      {sansIcone ? null : icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin', classeDuTexte ?? 'text-en-cours', className)} />}
       <span className={cn('min-w-0 flex-1 truncate text-[13px]', classeDuTexte ?? 'text-muted')}>{quoi}</span>
       {etiquette}
       {avancement || temps ? (

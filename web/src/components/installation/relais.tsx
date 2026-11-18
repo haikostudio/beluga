@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { CheckCircle2, Loader2, MessageSquare, RefreshCw, Send } from 'lucide-react';
+import { CheckCircle2, Loader2, MessageSquare, RefreshCw, Send } from '@/components/ui/icones';
 import type { TicketRendu } from '@beluga/shared';
 import { Button, Input, Textarea } from '@/components/ui';
 import { Champ } from '@/components/card-panel';

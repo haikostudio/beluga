@@ -38,11 +38,13 @@ export function lettreDeLExemple(nom: string | null | undefined): string | null 
 }
 
 /**
- * LES LETTRES DES OPTIONS À IMAGE d'une question : celle de la pièce quand elle
- * en porte une, sinon la première lettre encore libre, dans l'ordre des options.
+ * LES LETTRES DES OPTIONS À IMAGE d'une question : celle que le démon a écrite
+ * sur l'option (`lettre`, tirée du lot d'exemples), sinon celle de la pièce
+ * quand elle en porte une, sinon la première lettre encore libre, dans l'ordre
+ * des options.
  */
 export function lettresDesOptions(
-  options: readonly { id: string; image?: string | null }[],
+  options: readonly { id: string; image?: string | null; lettre?: string | null }[],
   pieceDe: (id: string) => { name?: string | null } | undefined,
 ): Map<string, string> {
   const lettres = new Map<string, string>();
@@ -50,7 +52,8 @@ export function lettresDesOptions(
   const sansLettre: string[] = [];
   for (const o of options) {
     if (!o.image) continue;
-    const lettre = lettreDeLExemple(pieceDe(o.image)?.name);
+    const ecrite = /^[A-Z]$/.test(String(o.lettre ?? '')) ? o.lettre! : null;
+    const lettre = ecrite ?? lettreDeLExemple(pieceDe(o.image)?.name);
     if (lettre && !prises.has(lettre)) {
       lettres.set(o.id, lettre);
       prises.add(lettre);

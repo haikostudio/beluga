@@ -26,6 +26,7 @@ import {
   typesDeMediaDeLaRealisation,
   type TypeDeMediaDeRealisation,
 } from '@beluga/shared';
+import { viderLaFileEnRendant } from './file-rendue.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -115,7 +116,7 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
   if (!typesDeMediaDeLaRealisation(lu.realisation).length) {
     return {
       ok: false,
-      text: 'Le type de média (vidéo, photo ou son) n’est pas choisi : demande-le d’abord avec « ask_user » (Vidéo, Photo, Son), puis écris la réponse avec « production » action « type » — le bouton caméra le fait aussi. N’écris rien avant.',
+      text: 'Le type de média (vidéo, photo ou son) n’est pas choisi : demande-le d’abord avec « ask_user » (Vidéo, Photo, Son), puis écris la réponse avec « production » action « type ». N’écris rien avant.',
     };
   }
   const document = typeof args.document === 'string' ? args.document : '';
@@ -202,8 +203,7 @@ export async function mettreLaRealisationEnPause(cardId: string): Promise<Card> 
   const agent = cadrageDeLaCarte(cardId);
   if (agent) {
     const { arreterLAgent, isRunning } = await moteur();
-    const vides = store.clearQueue(agent.id);
-    if (vides) bus.emit({ type: 'queue.etat', agentId: agent.id, queue: [] });
+    viderLaFileEnRendant(agent.id, 'La réalisation est en pause : votre message en attente revient dans le champ.');
     if (isRunning(agent.id) || agent.status === 'running') arreterLAgent(agent.id);
   }
   return pausee;

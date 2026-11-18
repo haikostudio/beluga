@@ -17,6 +17,8 @@ import {
   colonneEnFinDeTour,
   COLONNES_AVANT_LE_TRAVAIL,
   COLONNES_DE_CLOTURE,
+  COLONNE_D_UN_RENDU_SANS_CODE,
+  COLONNE_DE_FIN_DE_TOUR,
   colonneDeFinDUnAgentAttitre,
   COLUMN_LABELS,
   dateDeMiseEnLignePerimee,
@@ -40,6 +42,7 @@ import {
   type ColumnKey,
   type DecisionAttendue,
   type TraceDuTravail,
+  RAISON_FILE_EN_ATTENTE,
 } from '@beluga/shared';
 import { estAgentAttitre } from './agent-attitre.js';
 import { bus } from './bus.js';
@@ -181,6 +184,14 @@ export interface FinDeTour {
    * (`colonneDeFinDUnAgentAttitre`).
    */
   attitre?: boolean;
+  /**
+   * UN MESSAGE ATTEND ENCORE DERRIÈRE L'AGENT (ouvert en modification, ou pas
+   * encore dépilé). Le tour est fini, pas le travail : la carte ne se range
+   * pas — ni « À déployer », ni « Archivé » — et dit pourquoi
+   * (`RAISON_FILE_EN_ATTENTE`). Décision de l'utilisateur du 04/11/2026, après
+   * un message perdu sous une carte mise en ligne pendant sa modification.
+   */
+  fileEnAttente?: boolean;
 }
 
 /**
@@ -281,12 +292,40 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
    * (plan de la semaine, réorganisation) sont rangées à part, par
    * `rangerCarteDAgent`, après leur tour : elles ne passent pas par ici.
    */
+  /*
+   * LA FILE RETIENT LA CARTE. Elle allait se ranger, mais un message attend : la
+   * carte reste où elle est, sa marque de vol éteinte, avec la phrase qui le
+   * dit. Le balayage la laisse tranquille tant que la file n'est pas vide
+   * (`demandeEnFile`, `issueDeCarteOubliee`) ; vidée sans tour, il la range.
+   */
+  if (irait && fin.fileEnAttente) {
+    log.info(`carte ${card.id} retenue en « ${card.column} » : un message attend derrière l'agent ${fin.agentId}`);
+    return {
+      ...card,
+      scheduling: {
+        ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+        tourEnVolDepuis: undefined,
+        waitingReason: RAISON_FILE_EN_ATTENTE,
+      },
+      codeDejaEnregistre: dejaEnregistreApres(card, fin),
+    };
+  }
   const questionOuverte =
     irait && (store.questionOuverteSurLaCarte(card.id) || (!!fin.attitre && store.questionEnTexteSurLaCarte(card.id)));
 
-  const issue = leSien
+  const issueBrute = leSien
     ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin), questionOuverte)
     : CARTE_INCHANGEE;
+  /*
+   * UNE VEILLE « APRÈS DÉPLOIEMENT » NE S'ARME QU'À LA MISE EN LIGNE : une carte
+   * qui en porte une passe donc par « À déployer » même sans code, sinon sa
+   * veille attendrait pour toujours (`veille-de-carte.ts`). Sans phrase : celle
+   * du rendu sans code annoncerait une archive qui n'a pas lieu.
+   */
+  const issue =
+    issueBrute.colonne === COLONNE_D_UN_RENDU_SANS_CODE && card.veille?.etat === 'attend_deploiement'
+      ? { colonne: COLONNE_DE_FIN_DE_TOUR, raison: null }
+      : issueBrute;
 
   // Le moteur muet passe devant : ce n'est pas une issue du travail, c'est un
   // lancement manqué. La panne du fournisseur et le pont mort-né suivent la
@@ -393,7 +432,9 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
            * la carte attend un geste ») afficherait encore son horloge jaune au
            * pied d'une carte pourtant terminée.
            */
-          ...(cible && COLONNES_DE_CLOTURE.includes(cible) ? { suspendu: false, waitingReason: undefined } : {}),
+          ...(cible && (COLONNES_DE_CLOTURE.includes(cible) || cible === COLONNE_D_UN_RENDU_SANS_CODE)
+            ? { suspendu: false, waitingReason: undefined }
+            : {}),
         }
       : card.scheduling;
 
@@ -412,7 +453,9 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
       ? {
           column: rangement,
           position: store.nextPosition(card.projectId, rangement),
-          ...(COLONNES_DE_CLOTURE.includes(cible) ? { doneAt: Date.now() } : {}),
+          /* « Archivé » d'office (rendu sans code) est aussi une fin : la
+             carte porte sa date de fin comme celle qui va « À déployer ». */
+          ...(COLONNES_DE_CLOTURE.includes(cible) || rangement === 'archived' ? { doneAt: Date.now() } : {}),
           // Rien de publié sur la carte d'un agent attitré : aucune date de mise en ligne ne s'y garde.
           deployedAt: fin.attitre || dateDeMiseEnLignePerimee(card.column, rangement) ? undefined : card.deployedAt,
         }

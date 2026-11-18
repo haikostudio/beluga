@@ -1,3 +1,4 @@
+import { estTelephone } from '@/lib/telephone';
 import * as React from 'react';
 import { FeuilleDeValidationDeConfiguration } from '@/components/carte-de-configuration';
 import {
@@ -17,7 +18,7 @@ import {
   X,
   Zap,
   FastForward,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   Agent,
   BOUTON_DES_QUE_POSSIBLE,
@@ -74,6 +75,7 @@ import {
   horsDuLotDeDeploiement,
   type AgentQuestion,
   type GesteDuMedia,
+  typesDeMediaDeLaRealisation,
 } from '@beluga/shared';
 import { BulleInfo, Button, CLASSE_BLOC_DU_PIED, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement, ChoixDateEtHeure } from '@/components/ui';
 import { CarouselQuestions, EmplacementDeLaPagination } from '@/components/carousel-questions';
@@ -564,6 +566,10 @@ export function PanneauDeDecision({
                 return <RepriseDeCompteCard key={message.id} message={message} />;
               })}
             </ZoneDefilement>
+            {/* DE L'AIR ENTRE LA BARRE « RÉPONDRE / JOINDRE / ANNULER » ET LE CADRE JAUNE (capture #dfd3, 31/10/2026) :
+                la marge se pose HORS de la zone qui défile, sans quoi « Plus de choix » repasserait sous la barre
+                (capture #0f56). */}
+            {questions.length ? <div aria-hidden className="h-2.5 shrink-0" data-marge-du-panneau /> : null}
             </CadreDuPanneau.Provider>
           )}
         </div>
@@ -589,10 +595,12 @@ function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: str
   const rang = toutes.findIndex((q) => q.id === question.id) + 1;
   return (
     <div className={CLASSE_BLOC_DU_PIED} data-questions-de-carte={toutes.length} data-question-de-carte-rang={rang}>
+      {/* AUCUN FOND DERRIÈRE LES QUESTIONS (demande du 15/11/2026, capture #217c) : la bande grise
+          s'étalait sur toute la largeur du fil autour du cadre jaune. Seul le cadre de la question se
+          détache ; la zone prend le fond du fil, et son ombre de défilement aussi (fond par défaut). */}
       <ZoneDefilement
-        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-transparent bg-bloc-fil"
-        fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
-        className="overscroll-contain px-2.5 pb-2.5"
+        classeEnveloppe="max-h-[45vh] overflow-hidden"
+        className="overscroll-contain pb-2.5"
       >
         <p className="flex items-center gap-2 px-0.5 py-2 text-[13.5px] font-medium text-text">
           <MessageSquare className="h-4 w-4 shrink-0 text-warning" aria-hidden />
@@ -850,7 +858,15 @@ export function BarreDAction(props: {
    * répond (`RangeeDuMedia`).
    */
   accordEnAttente?: { messageId: string; question: AgentQuestion } | null;
+  /**
+   * LE SEUL BOUTON DU STUDIO (demande du 01/11/2026, capture #e4f3) : dans la
+   * conversation du Studio, plus aucune étape — « Passer au montage » cède la
+   * place à « Mettre en production », fourni par le Studio. Les cartes de média
+   * du TABLEAU gardent leur bouton d'étape (`RangeeDuMedia`).
+   */
+  actionDuStudio?: { noeud: React.ReactNode; allume: boolean } | null;
 }) {
+  if (props.actionDuStudio && carteDeMedia(props.carte)) return <RangeeDuStudio {...props} action={props.actionDuStudio} />;
   /* UNE CRÉATION DE MÉDIA A SON BOUTON À ELLE, DU PREMIER MESSAGE À LA FIN
      (décision du 25/10/2026) : il suit l'étape — « Valider l'idée », « Valider
      et lancer la fabrication · prix », « Suspendre », « Valider le film »,
@@ -878,6 +894,31 @@ export function BarreDAction(props: {
         modifiables={props.reglagesModifiables}
         colle={aLire ? 'neutre' : undefined}
       />
+    </div>
+  );
+}
+
+/** LA RANGÉE DU STUDIO : son bouton « Mettre en production », pleine largeur, ses réglages collés à droite. */
+function RangeeDuStudio({
+  action,
+  menuReglages,
+  reglagesModifiables,
+}: {
+  action: { noeud: React.ReactNode; allume: boolean };
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  reglagesModifiables?: boolean;
+}) {
+  return (
+    <div
+      data-barre-realisation
+      data-barre-action="mettre-en-production"
+      data-geste-possible={action.allume ? 'oui' : 'non'}
+      data-groupe-reglages={menuReglages ? '' : undefined}
+      className="flex min-w-[150px] flex-1 items-stretch"
+    >
+      <div className={cn('min-w-0 flex-1', menuReglages && '[&_button]:rounded-r-none')}>{action.noeud}</div>
+      {/* Allumé, les réglages prennent l'aplat violet du bouton (même teinte que le ton « arret »). */}
+      <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} colle={action.allume ? 'arret' : 'neutre'} />
     </div>
   );
 }
@@ -928,7 +969,8 @@ function RangeeDuMedia({
       .call({ type: 'realisation.passer', cardId: carte.id, geste })
       .then((r) => {
         /* LE STUDIO DU MÉDIA S'OUVRE AU PASSAGE AU MONTAGE, LA PAGE DES FICHIERS AU PASSAGE AU TÉLÉCHARGEMENT. */
-        if (geste === 'passer-montage') ouvrirLeDocument(studioDuMedia(carte));
+        /* Au montage d'une vidéo, le bouton « Monter au Studio » reste un geste à part : l'agent peut aussi écrire le film sur le serveur. */
+        if (geste === 'passer-montage' && !typesDeMediaDeLaRealisation(carte.realisation).includes('video')) ouvrirLeDocument(studioDuMedia(carte));
         if (geste === 'passer-telechargement') ouvrirLeDocument({ cardId: carte.id, genre: 'telechargement' });
         if (geste === 'revenir-esquisses') ouvrirLeDocument({ cardId: carte.id, genre: 'suivi', numero: 0 });
         return r;
@@ -1246,7 +1288,6 @@ function GestesDuChapitre({
             /* LE LANCEMENT GROUPÉ (« Auto » + horloge à sa droite) suit une
                seule règle (`lancementScinde`). */
             const scinde = index === 0 && lancementScinde(duChapitre) && !validerAvantDeLancer;
-            const avecAuto = geste.geste === 'valider-et-lancer' || annulerLeCadrage;
             const libelle = annulerLeCadrage
               ? t('Annuler')
               : geste.geste === 'valider-et-lancer'
@@ -1289,25 +1330,9 @@ function GestesDuChapitre({
             return scinde ? (
               <div key={geste.geste} className="flex min-w-[150px] flex-1 items-stretch gap-1.5" data-bouton-scinde={carte.id}>
                 {boutonEtReglages}
-                {/* « AUTO » ET L'HORLOGE FORMENT UN GROUPE, à droite du bouton
-                    principal : tous deux disent QUAND la carte part (seule, ou à
-                    l'heure choisie), le bouton principal dit QUE ça part. Le
-                    lancement automatique se règle PENDANT la réflexion, quand le
-                    bouton est éteint. L'horloge suit son bouton : quand le
-                    lancement est éteint, le dater n'a pas de sens non plus. */}
-                <div className="flex shrink-0 items-stretch">
-                  {avecAuto ? <InterrupteurLancementAutomatique carte={carte} /> : null}
-                  <SousBoutonProgrammation
-                    carte={carte}
-                    groupe={avecAuto}
-                    possible={annulerLeCadrage ? false : geste.possible}
-                    {...(annulerLeCadrage
-                      ? { raison: RAISONS_DU_GESTE.tourEnCours }
-                      : geste.raison
-                        ? { raison: geste.raison }
-                        : {})}
-                  />
-                </div>
+                {/* « AUTO » ET L'HORLOGE DE PROGRAMMATION SONT RETIRÉS (refonte du 13/11/2026, « on ne les utilise pas ») :
+                    seul le geste reste, avec ses réglages. Le départ programmé et le créneau conseillé vivent toujours
+                    côté serveur ; seul le bouton a quitté l'écran. */}
               </div>
             ) : (
               <React.Fragment key={geste.geste}>{boutonEtReglages}</React.Fragment>
@@ -1419,7 +1444,7 @@ function BoutonDeployerLeLot({
         onClick={() =>
           raison
             ? client.pushToast('warning', t(raison), carte.id)
-            : client.demanderDeploiement({ projectId, selection: true })
+            : client.demanderDeploiement({ projectId, selection: true, surPlace: !estTelephone() })
         }
         title={raison ? t(raison) : undefined}
         className={cn(
@@ -1507,330 +1532,4 @@ export async function validerEtLancer(carte: Card): Promise<unknown> {
     throw err;
   }
   return client.demanderLeLancement(carte.id);
-}
-
-/**
- * LA PHRASE QUE PARTAGENT « AUTO » ET L'HORLOGE : chacun garde sa bulle d'état
- * et la termine par elle, pour que le groupe se lise comme UN geste, sans bulle
- * englobante qui contredirait les bulles propres.
- */
-const phraseAutoEtHorloge = () => t('Auto et l’horloge servent tous deux à lancer la carte sans que vous soyez là.');
-
-/**
- * L'INTERRUPTEUR « LANCEMENT AUTOMATIQUE » (`shared/src/lancement-automatique.ts`).
- *
- * Sur la carte, éteint à la naissance. Allumé, le démon fait lui-même
- * « Valider et lancer » dès que la compréhension est prête — et plan rendu si
- * le cahier des charges est allumé. Violet quand il est allumé (l'élément
- * choisi) ; un refus du démon s'écrit en rouge, au journal de la carte.
- */
-function InterrupteurLancementAutomatique({ carte }: { carte: Card }) {
-  const [enVol, setEnVol] = React.useState(false);
-  const actif = !!carte.parcours?.lancementAutomatique;
-  return (
-    <Tooltip
-      label={`${
-        actif
-          ? t('Lancement automatique allumé : la tâche partira seule dès la compréhension prête.')
-          : t('Lancement automatique : lancer la tâche seule dès que la compréhension est prête.')
-      } ${phraseAutoEtHorloge()}`}
-    >
-      <button
-        type="button"
-        role="switch"
-        aria-checked={actif}
-        aria-label="Lancement automatique"
-        aria-busy={enVol || undefined}
-        disabled={enVol}
-        data-lancement-automatique={actif ? 'allume' : 'eteint'}
-        onClick={() => {
-          setEnVol(true);
-          void client
-            .call({ type: 'card.lancement.automatique', cardId: carte.id, actif: !actif })
-            .catch((err: any) => client.signalerRefus(err?.message ?? t('Geste refusé'), carte.id))
-            .finally(() => setEnVol(false));
-        }}
-        className={cn(
-          /* Première moitié du groupe « Auto » + horloge : le coin droit est
-             droit, l'horloge qui suit porte l'autre bout arrondi. */
-          'flex shrink-0 items-center justify-center gap-1.5 rounded-lg rounded-r-none px-2.5 py-2 text-[13px] font-medium',
-          actif ? 'bg-raised text-teinte' : 'bg-raised text-faint hover:text-muted',
-          enVol && 'cursor-wait',
-        )}
-      >
-        <FastForward className={cn('h-3.5 w-3.5', enVol && 'animate-pulse')} />
-        <span className="whitespace-nowrap">{t('Auto')}</span>
-      </button>
-    </Tooltip>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* La programmation du lancement                                        */
-/* ------------------------------------------------------------------ */
-
-/** L'heure seule, à deux chiffres : ce qui tient sur un sous-bouton. */
-function heureCourte(date: number): string {
-  const quand = new Date(date);
-  return `${String(quand.getHours()).padStart(2, '0')}:${String(quand.getMinutes()).padStart(2, '0')}`;
-}
-
-/** Une date en millisecondes → ce qu'attend un champ « datetime-local ». */
-function pourLeChamp(date: number): string {
-  const quand = new Date(date);
-  const deux = (n: number) => String(n).padStart(2, '0');
-  return `${quand.getFullYear()}-${deux(quand.getMonth() + 1)}-${deux(quand.getDate())}T${deux(quand.getHours())}:${deux(quand.getMinutes())}`;
-}
-
-/**
- * LE BOUTON D'HORLOGE, À DROITE DU BOUTON DE LANCEMENT.
- *
- * « Dès que possible » vivait à côté du lancement, en bouton séparé : deux
- * boutons dont la relation n'était pas évidente, et AUCUN chemin pour dire
- * « pars demain à 6 h » depuis que la commande de date avait disparu du
- * protocole. Le bouton principal part tout de suite ; l'horloge, en groupe avec
- * « Auto » (qui dit « pars seule »), ouvre le tiroir de programmation.
- *
- * Une carte déjà datée le DIT ici même : l'heure retenue est écrite sur le
- * sous-bouton, et l'infobulle donne la phrase entière.
- */
-export function SousBoutonProgrammation({
-  carte,
-  groupe = false,
-  possible = true,
-  raison,
-}: {
-  carte: Card;
-  /**
-   * L'HORLOGE SUIT « AUTO » dans un groupe de deux boutons : elle en est la
-   * seconde moitié (jour d'un pixel, coins arrondis à l'extrémité seulement).
-   * Seule, elle garde ses quatre coins.
-   */
-  groupe?: boolean;
-  /**
-   * LE GESTE PRINCIPAL EST-IL POSSIBLE ? L'horloge restait cliquable sous un
-   * « Lancer la tâche » éteint : on pouvait dater le départ d'une carte qui
-   * n'avait pas le droit de partir. Elle suit donc son bouton.
-   */
-  possible?: boolean;
-  /** POURQUOI il est éteint : un bouton éteint sans un mot se cherche. */
-  raison?: string;
-}) {
-  const [ouvert, setOuvert] = React.useState(false);
-  const date = carte.scheduling?.departPrevu;
-  const asap = carte.scheduling?.asap === true;
-  const programmee = typeof date === 'number' && date > 0;
-
-  return (
-    <>
-      <Tooltip
-        label={`${
-          !possible
-            ? raison
-              ? t(raison)
-              : t('Le lancement n’est pas possible : la programmation non plus.')
-            : programmee
-              ? t('Départ programmé {v0} — cliquez pour changer', { v0: momentDeDepart(date!, Date.now()) })
-              : asap
-                ? t('La carte partira d’elle-même dès qu’une place se libère — cliquez pour changer')
-                : t('Choisir la date et l’heure du lancement')
-        }${groupe ? ` ${phraseAutoEtHorloge()}` : ''}`}
-      >
-        <button
-          type="button"
-          data-programmer={carte.id}
-          data-programme={programmee ? 'oui' : asap ? 'asap' : 'non'}
-          data-programmer-etat={possible ? 'actif' : 'eteint'}
-          aria-expanded={ouvert}
-          aria-disabled={!possible}
-          aria-label="Programmer le lancement"
-          onClick={() => (possible ? setOuvert(true) : undefined)}
-          className={cn(
-            /* Les deux moitiés du groupe « Auto » + horloge se séparent d'un
-               JOUR d'un pixel (`ml-px`), plus d'un filet. Gris comme « Auto »,
-               violet (l'élément choisi) quand un départ est daté. */
-            'flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
-            groupe && 'ml-px rounded-l-none',
-            possible
-              ? cn('bg-raised', programmee || asap ? 'text-teinte' : 'text-muted hover:text-text')
-              : 'cursor-not-allowed bg-raised text-faint',
-          )}
-        >
-          <Clock className="h-3.5 w-3.5" />
-          {programmee ? <span className="whitespace-nowrap">{heureCourte(date!)}</span> : null}
-          {!programmee && asap ? <Zap className="h-3 w-3" /> : null}
-        </button>
-      </Tooltip>
-      {/* LE TIROIR NE S'OUVRE PAS NON PLUS : la garde ne tient pas au seul clic. */}
-      <TiroirDeProgrammation carte={carte} open={ouvert && possible} onClose={() => setOuvert(false)} />
-    </>
-  );
-}
-
-/**
- * DATER UN DÉPART, C'EST VALIDER. Le geste du cadrage est « Valider et
- * lancer » ; son sous-bouton d'horloge ouvre ce tiroir, où l'on choisit une
- * heure plutôt que « tout de suite ». La validation doit donc s'écrire là
- * aussi : sans elle, l'ordonnanceur partirait à l'heure dite sur une
- * compréhension que personne n'a acceptée.
- */
-async function validerSiBesoin(carte: Card): Promise<void> {
-  if (!carte.parcours?.comprehension?.texte?.trim()) return;
-  if (comprehensionValideePourLaVersionCourante(carte.parcours)) return;
-  await client.call({ type: 'card.comprehension.validate', cardId: carte.id });
-}
-
-/**
- * LE TIROIR DE PROGRAMMATION : trois façons de dater un lancement, et une
- * seule commande derrière elles (`card.schedule`). L'interrupteur « Dès que
- * possible » garde son ancien geste (`card.asap`) — il ne date rien, il met la
- * carte en file ; la date, elle, la retient jusqu'à l'heure dite.
- */
-function TiroirDeProgrammation({ carte, open, onClose }: { carte: Card; open: boolean; onClose: () => void }) {
-  const maintenant = Date.now();
-  const date = carte.scheduling?.departPrevu;
-  const asap = carte.scheduling?.asap === true;
-  const [saisie, setSaisie] = React.useState('');
-  const [enCours, setEnCours] = React.useState<'poser' | 'retirer' | null>(null);
-
-  /* Le champ repart de la date de la carte à chaque ouverture : on corrige une
-     heure existante, on ne la retape pas. */
-  React.useEffect(() => {
-    if (open) setSaisie(date ? pourLeChamp(date) : '');
-  }, [open, date]);
-
-  const creneau = carte.scheduling?.creneauConseille;
-  const conseillee = creneau ? momentDuCreneau(creneau, maintenant) : null;
-
-  const programmer = async (quand: number | undefined) => {
-    setEnCours(quand === undefined ? 'retirer' : 'poser');
-    try {
-      if (quand !== undefined) await validerSiBesoin(carte);
-      await client.call({ type: 'card.schedule', id: carte.id, date: quand });
-      onClose();
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id);
-    } finally {
-      setEnCours(null);
-    }
-  };
-
-  /* Les deux heures qu'on choisit neuf fois sur dix, sans rien saisir. */
-  const ceSoir = () => {
-    const quand = new Date(maintenant);
-    quand.setHours(20, 0, 0, 0);
-    return quand.getTime() <= maintenant ? quand.getTime() + 24 * 3600_000 : quand.getTime();
-  };
-  const demainMatin = () => {
-    const quand = new Date(maintenant);
-    quand.setDate(quand.getDate() + 1);
-    quand.setHours(9, 0, 0, 0);
-    return quand.getTime();
-  };
-
-  return (
-    <Drawer adresse="programmation" open={open} onClose={onClose} empile className="max-h-[80dvh]">
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Programmer le lancement')}</DialogTitle>
-      </header>
-
-      <ZoneDefilement fond="hsl(var(--surface))" className="space-y-3 px-3 pb-3" data-tiroir-programmation={carte.id}>
-        <p className="text-[13px] leading-relaxed text-muted" data-programmation-etat>
-          {date
-            ? t('Départ programmé {v0} — la carte part toute seule à l’heure dite.', {
-                v0: momentDeDepart(date, maintenant),
-              })
-            : t('Aucune heure retenue : la carte attend votre bouton.')}
-        </p>
-
-        {/* « DÈS QUE POSSIBLE » N'EST PLUS UN BOUTON À CÔTÉ DU LANCEMENT :
-            c'est un interrupteur, ici, avec ce qu'il fait écrit à côté. */}
-        <div className="flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="flex items-center gap-1 text-[13.5px] font-medium text-text">{t(BOUTON_DES_QUE_POSSIBLE)}<BulleInfo cote="start">{t('La carte part d’elle-même dès qu’une place se libère.')}</BulleInfo></p>
-          </div>
-          <Switch
-            checked={asap}
-            data-des-que-possible={carte.id}
-            onCheckedChange={(valeur) =>
-              void (async () => {
-                try {
-                  /* Mettre la carte en file, c'est accepter son plan : sans
-                     cette validation, l'ordonnanceur partirait sur un plan que
-                     personne n'a tranché. */
-                  if (valeur) await validerSiBesoin(carte);
-                  await client.call({ type: 'card.asap', id: carte.id, value: valeur });
-                } catch (err: any) {
-                  client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id);
-                }
-              })()
-            }
-          />
-        </div>
-
-        {/* LES RACCOURCIS D'ABORD, LA SAISIE ENSUITE : personne ne tape une
-            date quand « ce soir » suffit. Le créneau conseillé de la carte est
-            déjà calculé, sans le moindre appel de moteur. */}
-        <div className="flex flex-wrap gap-1.5">
-          <Button variant="outline" size="sm" data-raccourci-heure="ce-soir" onClick={() => void programmer(ceSoir())}>
-            {t('Ce soir')}
-          </Button>
-          <Button variant="outline" size="sm" data-raccourci-heure="demain" onClick={() => void programmer(demainMatin())}>
-            {t('Demain matin')}
-          </Button>
-          {conseillee ? (
-            <Button
-              variant="outline"
-              size="sm"
-              data-raccourci-heure="conseille"
-              title={phraseDuCreneau(creneau!, maintenant)}
-              onClick={() => void programmer(conseillee)}
-            >
-              <Calendar className="h-3 w-3" />
-              {t('Retenir cette heure')} ({momentDeDepart(conseillee, maintenant)})
-            </Button>
-          ) : null}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>{t('Date et heure du lancement')}</Label>
-          <ChoixDateEtHeure valeur={saisie} onChange={setSaisie} data-champ-heure="" />
-        </div>
-
-      </ZoneDefilement>
-
-      <DialogFooter className="px-3 pt-2">
-          {date ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              data-retirer-heure
-              disabled={enCours !== null}
-              onClick={() => void programmer(undefined)}
-              className="text-muted hover:text-danger"
-            >
-              {enCours === 'retirer' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              {t('Retirer la date')}
-            </Button>
-          ) : null}
-          <Button
-            variant="default"
-            size="sm"
-            data-enregistrer-heure
-            disabled={enCours !== null || !saisie}
-            onClick={() => {
-              const lue = lireDateDeDepart(saisie);
-              if (lue === null) {
-                client.pushToast('error', t('Date illisible'), carte.id);
-                return;
-              }
-              void programmer(lue);
-            }}
-          >
-            {enCours === 'poser' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
-            {t('Programmer')}
-          </Button>
-      </DialogFooter>
-    </Drawer>
-  );
 }

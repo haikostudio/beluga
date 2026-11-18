@@ -321,8 +321,25 @@ function tronquer(texte: string, max: number): string {
  */
 export const MODELE_VECTEURS = 'Xenova/multilingual-e5-small';
 export const DIMENSIONS_VECTEURS = 384;
-/** Le modèle quitte la mémoire vive après ce temps sans demande. */
-export const REPOS_DU_VECTORISEUR_MS = 10 * 60 * 1000;
+/**
+ * Le modèle quitte la mémoire vive après ce temps sans demande. 5 min depuis le 18/11/2026 (10 avant) : il garde
+ * ~500 Mo, et au calme du 18/11 il en avait 659 dans un fichier d'échange plein à 98 %. Mesuré le 18/11 hors du
+ * démon : un réveil coûte 1,4 à 2,8 s à la première recherche (puis 10 à 14 ms), sous les 6 s de délai des
+ * recherches de la mémoire.
+ */
+export const REPOS_DU_VECTORISEUR_MS = 5 * 60 * 1000;
+
+/**
+ * LE MODÈLE DE TRI, LOCAL : bge-reranker-v2-m3 (BAAI, Apache 2.0), en ONNX
+ * quantifié 8 bits (~570 Mo sur disque, ~1,1 Go en mémoire vive une fois
+ * chargé). Un « cross-encoder » : il lit la demande ET une fiche ensemble et rend
+ * une note de pertinence, là où les vecteurs comparent deux textes lus séparément.
+ * Il ne sert qu'à RECLASSER une présélection (`shared/src/tri-des-competences.ts`).
+ * Chargé dans le processus du vectoriseur à la PREMIÈRE demande de tri seulement.
+ * Choisi le 14/11/2026 (carte 71e1006a) : Qwen3-Reranker écarté (995 Mo au plus
+ * petit, causal, plus lent), mMiniLM trop mal calibré, Jina v2 non commercial.
+ */
+export const MODELE_DE_TRI = 'onnx-community/bge-reranker-v2-m3-ONNX';
 
 /** Le texte vectorisé d'une demande (e5 distingue la question du passage). */
 export function demandeAVectoriser(texte: string): string {

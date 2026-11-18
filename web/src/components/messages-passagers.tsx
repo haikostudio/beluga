@@ -20,7 +20,7 @@
  * recouvrirait, quel que soit l'ordre du JSX.
  */
 import * as React from 'react';
-import { AlertCircle, Check, Copy, Info, PlugZap, TriangleAlert, X } from 'lucide-react';
+import { AlertCircle, Check, Copy, Info, PlugZap, TriangleAlert, X } from '@/components/ui/icones';
 import { DUREE_MESSAGE_MS, heureEtDate, pileAvecMessage } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

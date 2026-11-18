@@ -37,7 +37,7 @@
  * comparer des pixels.
  */
 import * as React from 'react';
-import { Download, Expand, ImageDown, Loader2, Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Download, Expand, ImageDown, Loader2, Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from '@/components/ui/icones';
 import {
   BUDGET_DE_RECHERCHE_MS,
   HAUTEUR_SONDE,
@@ -549,6 +549,7 @@ export function VignetteVideo({
   seconde,
   className,
   onTrouve,
+  onDimensions,
 }: {
   id: string;
   nom?: string;
@@ -556,11 +557,14 @@ export function VignetteVideo({
   seconde?: number;
   className?: string;
   onTrouve?: (seconde: number) => void;
+  /** Ses dimensions connues, la vignette pose sa largeur en pixels (fond du cadre à sa taille, `cadre-de-media.tsx`). */
+  onDimensions?: (video: HTMLVideoElement) => void;
 }) {
   const video = React.useRef<HTMLVideoElement | null>(null);
   const instant = useApercuVideo({ id, video, secondeConnue: seconde, onTrouve });
   return (
     <video
+      onLoadedMetadata={onDimensions ? (event) => onDimensions(event.currentTarget) : undefined}
       ref={video}
       src={adresseDePiece(id)}
       className={className}

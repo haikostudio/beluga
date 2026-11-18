@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
-import { FileNode, mimeDuFichier } from '@beluga/shared';
+import { FileNode, mimeDuFichier, relatifDUneCopieDeCarte } from '@beluga/shared';
 import { PATHS } from './config.js';
 
 const IGNORED = new Set(['.git', 'node_modules', 'dist', '.next', '.nuxt', '.venv', 'venv', '__pycache__', '.cache']);
@@ -14,6 +14,22 @@ export function safeJoin(root: string, relative: string): string | null {
   const normalizedRoot = path.resolve(root);
   if (full !== normalizedRoot && !full.startsWith(normalizedRoot + path.sep)) return null;
   return full;
+}
+
+/**
+ * LE JUMEAU SUR LE DISQUE DE STOCKAGE (04/11/2026). Les fichiers lourds de
+ * `data/attachments` (pièces jointes, captures, planches posées là par un
+ * agent) sont DÉPLACÉS sur le disque de 1 To : un chemin ancien, cité dans un
+ * fil, vise encore le disque du serveur. Rend le même chemin relatif sous le
+ * disque de stockage, ou `null` si le chemin n'est pas sous `data/attachments`.
+ */
+export function jumeauSurLeStockage(full: string): string | null {
+  const stockage = PATHS.attachmentsStockage;
+  if (!stockage) return null;
+  const local = path.resolve(PATHS.attachments);
+  const resolu = path.resolve(full);
+  if (!resolu.startsWith(local + path.sep)) return null;
+  return path.join(path.resolve(stockage), path.relative(local, resolu));
 }
 
 /** Les images qu'un déroulé d'étapes sait montrer, avec leur type MIME. */
@@ -42,8 +58,11 @@ export function imageDEtape(chemin: string, racines: string[]): { file: string; 
     .map((racine) => path.resolve(racine))
     .some((racine) => full === racine || full.startsWith(racine + path.sep));
   if (!dedans) return null;
-  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return null;
-  return { file: full, mime };
+  if (fs.existsSync(full) && fs.statSync(full).isFile()) return { file: full, mime };
+  // Déplacée sur le disque de stockage : on la sert de là (un peu plus lent, jamais perdue).
+  const jumeau = jumeauSurLeStockage(full);
+  if (jumeau && fs.existsSync(jumeau) && fs.statSync(jumeau).isFile()) return { file: jumeau, mime };
+  return null;
 }
 
 /** Le chemin réel d'un dossier ou d'un fichier, ou `null` s'il n'existe pas. */
@@ -61,7 +80,8 @@ function reel(chemin: string): string | null {
  * Le chemin vient du texte d'un agent : il se vérifie comme une saisie. Un
  * chemin relatif se cherche dans chaque `base` (dossier de travail de l'agent,
  * puis dépôt du projet) sans pouvoir en sortir ; un chemin absolu est pris tel
- * quel. Dans les deux cas, le chemin RÉEL (liens symboliques résolus) doit
+ * quel, et s'il visait la copie d'une carte refermée, son relatif se cherche dans
+ * le dépôt que le chemin nomme puis dans les bases. Dans tous les cas, le chemin RÉEL (liens symboliques résolus) doit
  * tomber dans l'une des `racines` — un lien posé dans le projet vers
  * `/etc/passwd` ne fait rien sortir. Rend le fichier, son type et son poids, ou
  * `null`.
@@ -72,10 +92,19 @@ export function fichierCite(
   bases: Array<string | null | undefined>,
 ): { file: string; mime: string; taille: number } | null {
   if (!chemin || chemin.includes('\0')) return null;
-  const candidats = path.isAbsolute(chemin)
-    ? [path.resolve(chemin)]
-    : (bases.filter(Boolean) as string[]).map((base) => safeJoin(base, chemin)).filter((c): c is string => !!c);
-  const permises = [...new Set((racines.filter(Boolean) as string[]).map(reel).filter((r): r is string => !!r))];
+  const dansLesBases = (relatif: string, depots: Array<string | null | undefined>) =>
+    (depots.filter(Boolean) as string[]).map((base) => safeJoin(base, relatif)).filter((c): c is string => !!c);
+  let candidats: string[];
+  if (path.isAbsolute(chemin)) {
+    const copie = relatifDUneCopieDeCarte(path.resolve(chemin));
+    const jumeau = jumeauSurLeStockage(chemin);
+    candidats = [path.resolve(chemin), ...(jumeau ? [jumeau] : []), ...(copie ? dansLesBases(copie.relatif, [copie.depot, ...bases]) : [])];
+  } else {
+    candidats = dansLesBases(chemin, bases);
+  }
+  // Le disque de stockage est permis dès que `data/attachments` l'est : ses fichiers y ont été déplacés.
+  const avecStockage = racines.some((r) => r && path.resolve(r) === path.resolve(PATHS.attachments)) ? [...racines, PATHS.attachmentsStockage] : racines;
+  const permises = [...new Set((avecStockage.filter(Boolean) as string[]).map(reel).filter((r): r is string => !!r))];
   for (const candidat of candidats) {
     const vrai = reel(candidat);
     if (!vrai) continue;

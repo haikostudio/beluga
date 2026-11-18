@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { deposerUnFichier, fichierAServir } from './fichiers-ranges.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -61,8 +62,9 @@ import {
 import { demandeDUneePiece, filDUnePiece } from './espace-client.js';
 import { deposerArchive, examinerArchive } from './export-donnees.js';
 import { cheminDePieceJointe, dossierDEcriture, dossiersDeLecture } from './pieces-jointes.js';
-import { racinesDesCopiesDuProjet } from './copies-de-cartes.js';
-import { largeurDemandee, miniatureDe } from './miniatures.js';
+import { rangerUneCaptureDeLAgent } from './joindre-fichier.js';
+import { racinesDesImagesDEtape } from './copies-de-cartes.js';
+import { largeurDemandee, miniatureDe, vignetteSansOriginal } from './miniatures.js';
 import { recevoirAuFilDeLEau } from './envoi-piece-jointe.js';
 import { pipeline } from 'node:stream/promises';
 import * as store from './store.js';
@@ -79,7 +81,7 @@ import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
 import { noterLEcran, noterUneLatence, noterUnePanne } from './usage-installation.js';
-import { mimeDuFichier, scriptDeSuivi, validationNonBloquante } from '@beluga/shared';
+import { entetesDeSecurite, mimeDuFichier, requeteEnHttps, scriptDeSuivi, validationNonBloquante } from '@beluga/shared';
 import {
   FICHIERS_FICHE_OCTETS_MAX,
   PROJET_DU_COFFRE,
@@ -92,7 +94,6 @@ import {
   type LotDArchive,
 } from '@beluga/shared';
 import { proposerAuCadrage } from './proposition-competences.js';
-import { creationAllumeePourLAgent } from './mode-creation.js';
 import { realisationAllumeePourLAgent } from './realisation.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
 import { relayerCatalogueLlm, relayerDemandeLlm } from './relais-llm.js';
@@ -103,8 +104,9 @@ import {
   jugerLAppelSousListe,
   liveRun,
 } from './runtime.js';
-import { readFilePreview, imageDEtape, fichierCite, makeZip, safeJoin } from './files.js';
-import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
+import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
+import { resoudreFichierCite } from './fichiers-conserves.js';
+import { transcribe, digestText } from './voice.js';
 import { appareilsDuCompte, publicKey, retirerAppareilDuCompte, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
 import { attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
@@ -453,6 +455,12 @@ export function createHttpServer(): http.Server {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const route = url.pathname;
     retenirLesEncodages(req, res);
+    // LES ENTÊTES DE SÉCURITÉ, par défaut sur TOUTE réponse (`shared/src/entetes-de-securite.ts`) : une réponse qui
+    // pose le sien dans `writeHead` (plaquette client, page d'installation) le garde.
+    const chiffree = Boolean((req.socket as { encrypted?: boolean }).encrypted);
+    for (const [nom, valeur] of Object.entries(entetesDeSecurite(requeteEnHttps(req.headers['x-forwarded-proto'], chiffree)))) {
+      res.setHeader(nom, valeur);
+    }
 
     try {
       /* ---------------- Points publics ---------------- */
@@ -593,6 +601,23 @@ export function createHttpServer(): http.Server {
         res.writeHead(recu.ok ? 204 : recu.statut, entetes);
         return res.end();
       }
+      /*
+       * LA PLAQUETTE CLIENT, SUR SON LIEN PRIVÉ (`server/src/plaquettes.ts`). Publique par nature : le client l'ouvre
+       * sans compte. Le jeton ne mène qu'à SA plaquette et aux images qu'elle cite ; un lien coupé répond 410. Une
+       * session Beluga présente fait de la visite celle de l'auteur : elle ne se compte pas.
+       */
+      if (route.startsWith('/plaquette/')) {
+        const { servirLaPlaquette } = await import('./plaquettes.js');
+        const session = identiteDeLaRequete(req);
+        const servie = await servirLaPlaquette(req, res, route, {
+          auteur: !!session,
+          compte: session ? { id: session.id, nomAffiche: session.nomAffiche || session.identifiant, admin: session.role === 'admin' } : null,
+          ip: clientIp(req),
+          lireCorps: (max) => readBody(req, max),
+        });
+        if (servie) return;
+      }
+
       /*
        * LE RELAIS DES INSTALLATIONS (`server/src/relais-installations.ts`) : les
        * copies de Beluga Build s'y signalent et y déposent leurs tickets. Public
@@ -869,16 +894,38 @@ export function createHttpServer(): http.Server {
          * qui travaille vraiment, et un appel étranger est REFUSÉ, en clair,
          * avant d'écrire quoi que ce soit.
          */
+        /*
+         * …OU DE LA CONVERSATION VOCALE EN DIRECT de l'assistant (`server/src/voix-directe.ts`) : elle n'est pas un
+         * tour du démon, mais elle porte son propre identifiant de tour, reconnu tant que la session est ouverte.
+         */
+        const tourAnnonce = String(req.headers['x-beluga-tour'] ?? '') || undefined;
+        const { tourVocalDe, messageDeLaSessionVocale } = await import('./voix-directe.js');
+        const tourVocal = tourVocalDe(agentId, tourAnnonce);
         const recevable = appelDuPontRecevable({
-          tourAnnonce: String(req.headers['x-beluga-tour'] ?? '') || undefined,
-          tourEnCours: liveRun(agentId)?.tourId,
+          tourAnnonce,
+          tourEnCours: tourVocal && tourAnnonce === tourVocal ? tourVocal : liveRun(agentId)?.tourId,
         });
+        /*
+         * JARVIS A PARTOUT LES OUTILS DE L'ASSISTANT (17/11/2026) : un appel venu de la conversation vocale reçoit la
+         * boîte de l'assistant global (créer puis valider une carte, lire les projets, agir à l'écran), même quand la
+         * voix est branchée sur l'agent d'une carte.
+         */
+        const pourLaVoix = !!tourVocal && tourAnnonce === tourVocal;
+        const commeLAssistant = estAssistantGlobal(agent) || pourLaVoix;
+        // Le message vocal ne se crée qu'à la PREMIÈRE production de la voix (carte proposée, pièce jointe).
+        const messageVocal = () => (pourLaVoix ? messageDeLaSessionVocale(agentId, tourVocal) : undefined);
         if (!recevable.ok) {
           // Un envoi refusé « tour terminé » est un envoi ARRIVÉ TROP TARD : on
           // le dit, pour ne plus lire « plan jamais venu » là où il a été rejeté.
           const tardif = recevable.raison === TOUR_TERMINE ? ` — envoi arrivé après la fermeture du tour (route ${route})` : '';
           log.warn(`appel d'outil refusé (agent ${agentId})${tardif} : ${recevable.raison}`);
-          if (route === '/internal/call') return json(res, 200, { ok: false, text: recevable.raison });
+          if (route === '/internal/call') {
+            // UN REFUS PENDANT LA VOIX SE VOIT : une ligne d'activité en échec, et Jarvis le dit (consigne de la voix).
+            if (tourAnnonce?.startsWith('voix-')) {
+              bus.emit({ type: 'voix.direct.activite', id: `refus-${Date.now()}`, libelle: 'Mes outils m’ont été refusés', etat: 'echec' });
+            }
+            return json(res, 200, { ok: false, text: recevable.raison });
+          }
           return json(res, 409, { error: recevable.raison });
         }
 
@@ -893,9 +940,9 @@ export function createHttpServer(): http.Server {
         }
         if (route === '/internal/tools') {
           // L'ASSISTANT GLOBAL : les outils d'un agent ordinaire, plus les siens (`assistant-global.ts`).
-          const tools = estAssistantGlobal(agent)
-            ? outilsDeLAssistant(agentId, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) })
-            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) }).filter((tool) =>
+          const tools = commeLAssistant
+            ? outilsDeLAssistant(agentId, { realisation: realisationAllumeePourLAgent(agentId), voix: pourLaVoix })
+            : toolsFor(agent.role, { realisation: realisationAllumeePourLAgent(agentId) }).filter((tool) =>
                 outilServiA(tool.name, agentId),
               );
           pontAServiLesOutils(agentId, tools.length);
@@ -982,13 +1029,13 @@ export function createHttpServer(): http.Server {
         }
         if (route === '/internal/call') {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
-          const assistant = estAssistantGlobal(agent);
+          const assistant = commeLAssistant;
           const allowed = assistant
             ? outilServiALAssistant(String(body.name), agentId, {
-                creation: creationAllumeePourLAgent(agentId),
                 realisation: realisationAllumeePourLAgent(agentId),
+                voix: pourLaVoix,
               })
-            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) }).some(
+            : toolsFor(agent.role, { realisation: realisationAllumeePourLAgent(agentId) }).some(
                 (tool) => tool.name === body.name && outilServiA(tool.name, agentId),
               );
           if (!allowed) {
@@ -1024,6 +1071,7 @@ export function createHttpServer(): http.Server {
             // Les réglages visibles dans la barre d'écriture au moment du
             // clic : une carte proposée en hérite.
             run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
+            ...(pourLaVoix ? { voix: true } : {}),
           };
           /*
            * L'ASSISTANT GLOBAL N'A PLUS DE PORTE D'ACCORD (décision du
@@ -1032,13 +1080,19 @@ export function createHttpServer(): http.Server {
            * outils propres et ses gestes d'écran passent par
            * `executerPourLAssistant`.
            */
+          /* LES DROITS SUIVENT L'INTERLOCUTEUR : un accès tiers n'obtient rien, par l'agent, qu'il ne verrait pas à l'écran (`services-des-agents.ts`). */
+          const { refusParLesDroits } = await import('./services-des-agents.js');
           let result: Awaited<ReturnType<typeof callTool>>;
           if (assistant) {
             const prepare = preparerLAppel(String(body.name), body.args ?? {});
             if (!prepare.ok) return json(res, 200, { ok: false, text: prepare.text });
+            const refusDroits = await refusParLesDroits(contexteDeLAppel, String(body.name), prepare.args, prepare.projectId);
+            if (refusDroits) return json(res, 200, { ok: false, text: refusDroits });
             const executer = () => executerPourLAssistant(contexteDeLAppel, String(body.name), prepare.args, prepare.projectId);
             result = await executer();
           } else {
+            const refusDroits = await refusParLesDroits(contexteDeLAppel, String(body.name), body.args ?? {});
+            if (refusDroits) return json(res, 200, { ok: false, text: refusDroits });
             result = await callTool(contexteDeLAppel, body.name, body.args ?? {});
           }
           /*
@@ -1081,10 +1135,11 @@ export function createHttpServer(): http.Server {
              * l'attachement range la proposition dans sa table AVANT d'allumer
              * le signal d'attention du projet.
              */
-            attachToCurrentMessage(agentId, { proposal: result.proposal });
+            attachToCurrentMessage(agentId, { proposal: result.proposal }, messageVocal());
           }
-          if (result.download) attachToCurrentMessage(agentId, { download: result.download });
-          if (result.attachment) attachToCurrentMessage(agentId, { attachment: result.attachment.id });
+          // CE QUE JARVIS PRODUIT À LA VOIX (image, document, fichier) ENTRE DANS LE FIL, sous « Jarvis · conversation vocale ».
+          if (result.download) attachToCurrentMessage(agentId, { download: result.download }, messageVocal());
+          if (result.attachment) attachToCurrentMessage(agentId, { attachment: result.attachment.id }, messageVocal());
           /*
            * LE RÉSULTAT DE LA MÉMOIRE REJOINT SA BULLE, pas le déroulé
            * générique des commandes. Le nom du sujet seul était déjà visible,
@@ -1160,8 +1215,13 @@ export function createHttpServer(): http.Server {
              * écrans concluaient que l'agent travaillait encore, chronomètre
              * qui défile, devant la question qu'ils venaient d'afficher.
              */
-            poserLAttente(result.question.id, agentId);
+            poserLAttente(result.question.id, agentId, Date.now(), result.suite);
             attachToCurrentMessage(agentId, { question: result.question });
+            /* LE MODE AUTO DE LA CARTE RÉPOND AUSSITÔT, par le même chemin qu'un clic (`mode-auto.ts`). */
+            if (agent.cardId && store.getCard(agent.cardId)?.parcours?.lancementAutomatique) {
+              const questionId = result.question.id;
+              void import('./mode-auto.js').then(({ planifierLaReponseAuto }) => planifierLaReponseAuto(agentId, questionId));
+            }
             return json(res, 200, {
               ok: result.ok,
               text: result.text,
@@ -1208,6 +1268,165 @@ export function createHttpServer(): http.Server {
           return res.end(manifesteAuNomDuClient(fs.readFileSync(publicFile, 'utf8')));
         }
         if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;
+      }
+
+      /*
+       * LE CADRE D'APERÇU DU STUDIO A UNE ORIGINE OPAQUE (`sandbox` sans
+       * `allow-same-origin`) : il n'envoie pas le témoin de session. Ses trois
+       * sortes de fichiers passent donc AVANT le mur :
+       *  - GSAP et les polices embarquées, publics par nature (bibliothèque et
+       *    polices libres), avec l'entête CORS que réclament les polices ;
+       *  - les médias, par une adresse SIGNÉE de courte durée, limitée à une
+       *    création et à un média de son projet (`mediaDeLAdresseSignee`).
+       */
+      /*
+       * LA LIAISON D'UN CHROME (`server/src/extension-chrome.ts`) : AVANT le mur, puisque l'extension n'a pas de
+       * session. Le code à usage unique (émis AVEC session dans Réglages → Extension) est sa seule clé d'entrée,
+       * et les essais sont plafonnés par adresse.
+       */
+      if (route === '/api/extension-chrome/relier' && req.method === 'POST') {
+        const { relierUnChrome } = await import('./extension-chrome.js');
+        let demande: Record<string, unknown> = {};
+        try {
+          demande = JSON.parse((await readBody(req, 4096)).toString() || '{}');
+        } catch {
+          return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+        }
+        const r = relierUnChrome(demande, clientIp(req));
+        return json(res, r.ok ? 200 : 400, r);
+      }
+
+      /*
+       * LE RELAIS DU MAC (`server/src/relais-mac.ts`, 13/11/2026) : AVANT le mur, comme l'extension Chrome — le relais
+       * n'a pas de session. Le code à usage unique le relie ; ensuite chaque demande est signée par sa clé d'appareil.
+       */
+      if (route.startsWith('/api/relais-mac/')) {
+        const relaisMac = await import('./relais-mac.js');
+        if (route === '/api/relais-mac/relier' && req.method === 'POST') {
+          let demande: Record<string, unknown> = {};
+          try {
+            demande = JSON.parse((await readBody(req, 4096)).toString() || '{}');
+          } catch {
+            return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+          }
+          const r = relaisMac.relierUnMac(demande, clientIp(req));
+          return json(res, r.ok ? 200 : 400, r);
+        }
+        if (route === '/api/relais-mac/installer.sh' && req.method === 'GET') {
+          const script = relaisMac.installateurDuRelais(`${req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https'}://${req.headers.host ?? ''}`);
+          if (!script) return json(res, 404, { error: 'installateur introuvable' });
+          res.writeHead(200, { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' });
+          return res.end(script);
+        }
+        if (route === '/api/relais-mac/relais.js' && req.method === 'GET') {
+          const script = relaisMac.scriptDuRelais();
+          if (!script) return json(res, 404, { error: 'relais introuvable' });
+          res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+          return res.end(script);
+        }
+        const entete = (nom: string) => {
+          const v = req.headers[nom];
+          return Array.isArray(v) ? v[0] : (v ?? null);
+        };
+        const corps = req.method === 'POST' ? (await readBody(req, 12 * 1024 * 1024)).toString() : '';
+        const voie = relaisMac.verifierLeRelais({ id: entete('x-relais-id'), ts: entete('x-relais-ts'), sig: entete('x-relais-sig') }, corps);
+        if (!voie) return json(res, 401, { ok: false, raison: 'Relais non reconnu : reliez-le de nouveau depuis Réglages → Extension.' });
+        if (route === '/api/relais-mac/attendre' && req.method === 'GET') {
+          const q = new URL(req.url ?? '/', 'http://x').searchParams;
+          const commande = await relaisMac.attendreUnGeste(voie.appareilId, {
+            recopie: q.has('recopie') ? q.get('recopie') === '1' : undefined,
+            verrouille: q.has('verrouille') ? q.get('verrouille') === '1' : undefined,
+            /* Autorisations de macOS (« Beluga Relais ») : 1, 0, vide = inconnue ; absentes = relais d'avant. */
+            accessibilite: q.has('acces') ? (q.get('acces') === '1' ? true : q.get('acces') === '0' ? false : null) : undefined,
+            ecran: q.has('ecran') ? (q.get('ecran') === '1' ? true : q.get('ecran') === '0' ? false : null) : undefined,
+          });
+          return json(res, 200, commande ? { commande } : {});
+        }
+        if (route === '/api/relais-mac/reponse' && req.method === 'POST') {
+          let reponse: Record<string, unknown> = {};
+          try {
+            reponse = JSON.parse(corps || '{}');
+          } catch {
+            return json(res, 400, { ok: false });
+          }
+          return json(res, 200, { ok: relaisMac.recevoirLaReponse(voie.appareilId, reponse) });
+        }
+        return json(res, 404, { error: 'route du relais inconnue' });
+      }
+
+      /*
+       * LA LIAISON BELUGA PASS (`server/src/belugapass.ts`, 15/11/2026) : AVANT le mur, Beluga Pass n'a pas de
+       * session. Sa seule clé est la clé de liaison (Bearer, empreinte comparée à temps constant) ; le corps ne se lit
+       * qu'après elle, sous plafond ; une adresse qui se trompe trop souvent attend.
+       */
+      if (route.startsWith('/api/belugapass/')) {
+        const { traiterAppelEntrant } = await import('./belugapass.js');
+        const r = await traiterAppelEntrant({
+          methode: req.method ?? 'GET',
+          route,
+          autorisation: req.headers.authorization,
+          proto: req.headers['x-forwarded-proto'],
+          ip: clientIp(req),
+          lireLeCorps: (plafond) => readBody(req, plafond),
+        });
+        return json(res, r.status, r.corps);
+      }
+
+      if (route === '/studio/gsap.min.js' || /^\/studio\/polices\/[a-z0-9-]+\.woff2$/.test(route)) {
+        const { outilsDeRendu } = await import('./studio-rendu.js');
+        const outils = outilsDeRendu();
+        const fichier = route === '/studio/gsap.min.js' ? outils.gsap : path.join(outils.polices, path.basename(route));
+        if (!fichier || !fs.existsSync(fichier)) return json(res, 404, { error: 'fichier introuvable' });
+        res.writeHead(200, {
+          'content-type': route.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'font/woff2',
+          'cache-control': 'public, max-age=86400',
+          'access-control-allow-origin': '*',
+        });
+        return fs.createReadStream(fichier).pipe(res);
+      }
+      /* LES POLICES DU PROJET (la vraie police du produit) : nommées par leur empreinte, lues par le cadre d'aperçu. */
+      const policeDuProjet = /^\/studio\/polices-projet\/([a-f0-9]{16,64}\.(?:woff2|woff|ttf|otf))$/.exec(route);
+      if (policeDuProjet) {
+        const { fichierDePoliceDuProjet, typeMimeDePolice } = await import('./studio-polices.js');
+        const fichier = fichierDePoliceDuProjet(policeDuProjet[1]!);
+        if (!fichier) return json(res, 404, { error: 'police introuvable' });
+        res.writeHead(200, {
+          'content-type': typeMimeDePolice(fichier),
+          'cache-control': 'public, max-age=31536000, immutable',
+          'access-control-allow-origin': '*',
+        });
+        return fs.createReadStream(fichier).pipe(res);
+      }
+      const studioMedia = /^\/studio-media\/([\w-]+)\/([\w-]+)$/.exec(route);
+      if (studioMedia) {
+        const { mediaDeLAdresseSignee, fichierDuMedia } = await import('./studio.js');
+        const { PREFIXE_COPIE_ALPHA } = await import('@beluga/shared');
+        const media = mediaDeLAdresseSignee(studioMedia[1]!, studioMedia[2]!, Number(url.searchParams.get('e')), String(url.searchParams.get('s') ?? ''));
+        const fichier = media ? fichierDuMedia(media) : null;
+        if (!media || !fichier) return json(res, 404, { error: 'média introuvable' });
+        const taille = fs.statSync(fichier).size;
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': media.mime ?? 'application/octet-stream',
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, max-age=3600',
+          'x-content-type-options': 'nosniff',
+          /* LA COPIE D'APERÇU SE DESSINE DANS UN CANEVAS, DEPUIS UN CADRE SANS ORIGINE : sans cette autorisation, Safari
+             refuse d'en lire les images. L'adresse signée reste la seule clé, et aucune session ne part avec la demande. */
+          ...(media.categorie?.startsWith(PREFIXE_COPIE_ALPHA) ? { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'content-range, accept-ranges, content-length' } : {}),
+        };
+        const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+        if (plage.genre === 'impossible') {
+          res.writeHead(416, { 'content-range': `bytes */${taille}` });
+          return res.end();
+        }
+        if (plage.genre === 'partiel') {
+          res.writeHead(206, { ...entetes, 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(fichier, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+        }
+        res.writeHead(200, { ...entetes, 'content-length': taille });
+        if (req.method === 'HEAD') return res.end();
+        return pipeline(fs.createReadStream(fichier), res).catch(() => {});
       }
 
       /* ---------------- Mur d'accès ---------------- */
@@ -1295,7 +1514,6 @@ export function createHttpServer(): http.Server {
           nomAffiche: compte.nomAffiche,
           projets: compte.projets,
           version: CONFIG.version,
-          voice: compte.role === 'admin' ? voiceAvailable() : false,
           pushKey: publicKey(),
         });
       }
@@ -1450,6 +1668,70 @@ export function createHttpServer(): http.Server {
         return json(res, 200, { attachment });
       }
 
+      /*
+       * LE CONTENU D'UN FICHIER RANGÉ (fenêtre « Fichiers », `server/src/fichiers-ranges.ts`) : droits revérifiés ici
+       * (`fichierAServir` : projet de la portée, jamais journaux, sauvegardes ni mémoire pour un collaborateur), lecture
+       * partielle pour les vidéos. Une page HTML ou un SVG ne s'exécute JAMAIS dans l'application : texte brut, ou
+       * bac à sable.
+       */
+      if (route === '/api/fichiers/contenu') {
+        const trouve = fichierAServir(compte, url.searchParams.get('id') ?? '');
+        if (!trouve) return json(res, 404, { error: 'fichier introuvable' });
+        let taille: number;
+        try {
+          taille = fs.statSync(trouve.chemin).size;
+        } catch {
+          return json(res, 404, { error: 'fichier absent' });
+        }
+        const telecharger = !!url.searchParams.get('download');
+        const largeur = telecharger ? null : largeurDemandee(url.searchParams.get('w'));
+        if (largeur && !req.headers.range) {
+          const mini = await miniatureDe(trouve.chemin, trouve.mime, largeur);
+          if (mini) {
+            res.writeHead(200, { 'content-type': mini.mime, 'cache-control': 'private, max-age=86400', 'content-length': mini.taille });
+            if (req.method === 'HEAD') return res.end();
+            return pipeline(fs.createReadStream(mini.file), res).catch(() => {});
+          }
+          /* Une vignette de vidéo ratée ne télécharge jamais la vidéo entière. */
+          if (vignetteSansOriginal(trouve.mime)) return json(res, 404, { error: 'vignette indisponible' });
+        }
+        const actif = /html|svg|xml|javascript/.test(trouve.mime);
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': actif && !telecharger ? 'text/plain; charset=utf-8' : trouve.mime.startsWith('text/') && !trouve.mime.includes('charset') ? `${trouve.mime}; charset=utf-8` : trouve.mime,
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, max-age=600',
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': 'sandbox',
+          'content-disposition': telecharger ? `attachment; filename*=UTF-8''${encodeURIComponent(trouve.nom)}` : 'inline',
+        };
+        const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+        if (plage.genre === 'impossible') {
+          res.writeHead(416, { 'content-range': `bytes */${taille}` });
+          return res.end();
+        }
+        if (plage.genre === 'partiel') {
+          res.writeHead(206, { ...entetes, 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(trouve.chemin, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+        }
+        res.writeHead(200, { ...entetes, 'content-length': taille });
+        if (req.method === 'HEAD') return res.end();
+        return pipeline(fs.createReadStream(trouve.chemin), res).catch(() => {});
+      }
+
+      /* DÉPOSER UN FICHIER dans un dossier rangé : corps brut, `?dossier=<chemin rangé>&nom=<nom>`, 200 Mo au plus. */
+      if (route === '/api/fichiers/deposer' && req.method === 'POST') {
+        const dossier = url.searchParams.get('dossier') ?? '';
+        const nom = url.searchParams.get('nom') ?? '';
+        if (!nom.trim()) return json(res, 400, { error: 'nom manquant' });
+        try {
+          const contenu = await readBody(req, 200 * 1024 * 1024);
+          return json(res, 200, { fichier: deposerUnFichier(compte, dossier, nom, contenu) });
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message });
+        }
+      }
+
       if (route === '/api/attachment') {
         const id = url.searchParams.get('id') ?? '';
         const attachment = store.getAttachment(id);
@@ -1498,6 +1780,7 @@ export function createHttpServer(): http.Server {
             if (req.method === 'HEAD') return res.end();
             return pipeline(fs.createReadStream(mini.file), res).catch(() => {});
           }
+          if (vignetteSansOriginal(attachment.mime)) return json(res, 404, { error: 'vignette indisponible' });
         }
         /*
          * LECTURE PARTIELLE : le lecteur vidéo demande un morceau
@@ -1553,7 +1836,7 @@ export function createHttpServer(): http.Server {
             compte.role === 'admin'
               ? (projet: string, chemin: string) => {
                   const p = store.getProject(projet);
-                  return p ? (imageDEtape(chemin, [p.path, CONFIG.dataDir, os.tmpdir()])?.file ?? null) : null;
+                  return p ? (imageDEtape(chemin, racinesDesImagesDEtape(p.path))?.file ?? null) : null;
                 }
               : undefined,
           refus: REFUS_HORS_PORTEE,
@@ -1712,6 +1995,83 @@ export function createHttpServer(): http.Server {
         return pipeline(r.flux, res).catch(() => {});
       }
 
+      /* L'extrait d'une voix finale du Studio : fabriqué une fois (quota gratuit), gardé, puis servi. */
+      if (route === '/api/studio/extrait') {
+        const { fichierDExtrait } = await import('./studio-generation.js');
+        const r = await fichierDExtrait(String(url.searchParams.get('voix') ?? ''));
+        if (!r.ok) return json(res, 503, { error: r.raison });
+        res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'private, max-age=86400' });
+        return fs.createReadStream(r.fichier).pipe(res);
+      }
+
+      /*
+       * « TOUT TÉLÉCHARGER » : les fichiers PRÊTS de plusieurs exports d'une même création, en UNE archive.
+       * Écrite en flux et SANS compression (une vidéo ne se compresse pas, et le serveur est petit) : rien
+       * ne tient en mémoire. Un export pas prêt, ou d'une autre création, refuse toute l'archive.
+       */
+      if (route === '/api/studio/exports-groupes') {
+        const { archiveDesExports } = await import('./studio-archive.js');
+        const r = archiveDesExports((url.searchParams.get('ids') ?? '').split(',').filter(Boolean));
+        if (!r.ok) return json(res, r.statut, { error: r.raison });
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': 'application/zip',
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+        };
+        // Sans compression, le poids final est connu d'avance : le navigateur montre un vrai pourcentage.
+        const poids = await r.poids;
+        res.writeHead(200, poids > 0 ? { ...entetes, 'content-length': poids } : entetes);
+        if (req.method === 'HEAD') {
+          r.flux.destroy();
+          return res.end();
+        }
+        return pipeline(r.flux, res).catch(() => {});
+      }
+
+      /* LA PHOTO D'UN TYPE DE MÉDIA DU STUDIO (liste du début de la conversation, 31/10/2026) : fabriquée une fois par
+         Codex, versionnée dans `outils/modes-du-studio/<id>.webp`. Un identifiant hors de la liste n'ouvre rien. */
+      if (route === '/api/studio/mode-image') {
+        const { estModeDuStudio } = await import('@beluga/shared');
+        const id = String(url.searchParams.get('id') ?? '');
+        const chemin = estModeDuStudio(id) ? path.join(CONFIG.selfPath, 'outils', 'modes-du-studio', `${id}.webp`) : '';
+        if (!chemin || !fs.existsSync(chemin)) {
+          res.writeHead(404);
+          return res.end();
+        }
+        res.writeHead(200, { 'content-type': 'image/webp', 'cache-control': 'private, max-age=604800', 'x-content-type-options': 'nosniff' });
+        return fs.createReadStream(chemin).pipe(res);
+      }
+
+      /* LA VIGNETTE D'UN STYLE DU STUDIO (galerie « Styles ») : téléchargée une fois, gardée, servie d'ici. */
+      if (route === '/api/studio/style-vignette') {
+        const { vignetteDuStyle } = await import('./studio-styles.js');
+        const v = await vignetteDuStyle(String(url.searchParams.get('id') ?? ''), url.searchParams.get('anime') === '1');
+        const entetes = { 'content-type': v.type, 'cache-control': 'private, max-age=604800', 'x-content-type-options': 'nosniff' };
+        if (Buffer.isBuffer(v.corps)) {
+          res.writeHead(200, entetes);
+          return res.end(v.corps);
+        }
+        // Une vidéo se sert PAR PLAGES (206) : sans réponse aux requêtes Range, Safari ne la lit pas.
+        if (v.type.startsWith('video/')) {
+          const taille = fs.statSync(v.corps).size;
+          const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+          if (plage.genre === 'impossible') {
+            res.writeHead(416, { 'content-range': `bytes */${taille}` });
+            return res.end();
+          }
+          if (plage.genre === 'partiel') {
+            res.writeHead(206, { ...entetes, 'accept-ranges': 'bytes', 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+            if (req.method === 'HEAD') return res.end();
+            return pipeline(fs.createReadStream(v.corps, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+          }
+          res.writeHead(200, { ...entetes, 'accept-ranges': 'bytes', 'content-length': taille });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(v.corps), res).catch(() => {});
+        }
+        res.writeHead(200, entetes);
+        return fs.createReadStream(v.corps).pipe(res);
+      }
+
       if (route === '/api/favicon') {
         // L'icône d'un projet hors de sa portée ne sort pas pour un membre ou un lecteur.
         if (estCollaborateur(compte.role) && !peutVoirProjet(compte, url.searchParams.get('project') ?? '')) {
@@ -1739,6 +2099,25 @@ export function createHttpServer(): http.Server {
        * il n'est servi que s'il tombe dans l'une des racines de ce projet
        * (`imageDEtape`).
        */
+      /*
+       * UNE CAPTURE DE L'AGENT RANGÉE EN PIÈCE JOINTE, À LA DEMANDE DE L'ÉCRAN (17/11/2026) : la première fois que sa
+       * vignette s'affiche sans référence, l'écran demande son rangement et reçoit son « #alias »
+       * (`rangerUneCaptureDeLAgent`). Mêmes racines que la lecture d'une capture ; idempotent.
+       */
+      if (route === '/api/capture/ranger' && req.method === 'POST') {
+        const corps = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}');
+        const project = store.getProject(typeof corps.project === 'string' ? corps.project : '');
+        if (!project) return json(res, 404, { error: 'projet introuvable' });
+        const chemin = typeof corps.path === 'string' ? corps.path : '';
+        const trouve = imageDEtape(chemin, racinesDesImagesDEtape(project.path));
+        if (!trouve) return json(res, 404, { error: 'capture introuvable' });
+        /* Rattachée au PROJET seul : l'image compte déjà parmi les captures de sa conversation (bouton photo) ; une
+           pièce de conversation de plus la compterait deux fois dans « pas encore vues ». */
+        const piece = await rangerUneCaptureDeLAgent({ projectId: project.id, chemin, fichier: trouve.file });
+        if (!piece) return json(res, 422, { error: 'capture trop lourde pour être rangée' });
+        return json(res, 200, { id: piece.id, reference: piece.alias ? `#${piece.alias}` : null });
+      }
+
       if (route === '/api/capture') {
         const project = store.getProject(url.searchParams.get('project') ?? '');
         if (!project) return json(res, 404, { error: 'projet introuvable' });
@@ -1750,7 +2129,7 @@ export function createHttpServer(): http.Server {
          * projet. Sans elles, la vignette tombait en 404 et la bande « Ce que
          * l'agent a vu » la retirait : on croyait qu'il n'y avait rien.
          */
-        const racines = [project.path, CONFIG.dataDir, os.tmpdir(), ...dossiersDeLecture(), ...racinesDesCopiesDuProjet(project.path)];
+        const racines = racinesDesImagesDEtape(project.path);
         const trouve = imageDEtape(url.searchParams.get('path') ?? '', racines);
         if (!trouve) return json(res, 404, { error: 'capture introuvable' });
         res.writeHead(200, { 'content-type': trouve.mime, 'cache-control': 'private, max-age=3600' });
@@ -1761,23 +2140,26 @@ export function createHttpServer(): http.Server {
        * UN FICHIER CITÉ PAR L'AGENT, LU SUR PLACE (`shared/src/fichiers-cites.ts`).
        * Lecture seule, sans créer de pièce jointe : le clic sur un chemin du fil
        * ouvre la visionneuse sur ce fichier. Réservé à l'administrateur (aucune
-       * liste de routes des autres rôles ne la nomme). Les racines sont celles
-       * où l'agent écrit réellement : son dossier de travail, le projet et les
-       * copies de ses cartes, les données de Beluga Build et le disque des
-       * pièces jointes — le chemin RÉEL doit y tomber (`fichierCite`).
-       * `info=1` rend la fiche (type, poids) pour que l'écran choisisse son
-       * rendu, ou dise en clair pourquoi le fichier ne s'ouvre pas.
+       * liste de routes des autres rôles ne la nomme). Le fichier vivant d'abord,
+       * puis sa copie gardée, puis l'historique du dépôt
+       * (`resoudreFichierCite`) ; sinon un `motif` dit la vraie raison à l'écran.
+       * `info=1` rend la fiche (type, poids) pour que l'écran choisisse son rendu.
+       * Une copie garde pour `chemin` le chemin DEMANDÉ : l'adresse suivante se
+       * résout de la même façon.
        */
       if (route === ROUTE_FICHIER_CITE) {
         const project = store.getProject(url.searchParams.get('project') ?? '');
         if (!project) return json(res, 404, { error: 'projet introuvable' });
         const agent = store.getAgent(url.searchParams.get('agent') ?? '');
-        const workdir = agent && agent.projectId === project.id ? agent.workdir : undefined;
-        const racines = [workdir, project.path, CONFIG.dataDir, ...dossiersDeLecture(), ...racinesDesCopiesDuProjet(project.path)];
-        const trouve = fichierCite(url.searchParams.get('path') ?? '', racines, [workdir, project.path]);
-        if (!trouve) return json(res, 404, { error: 'fichier introuvable ou hors des dossiers du projet' });
+        const duProjet = agent && agent.projectId === project.id ? agent : undefined;
+        const demande = url.searchParams.get('path') ?? '';
+        const trouve = await resoudreFichierCite(
+          { projectId: project.id, projectPath: project.path, workdir: duProjet?.workdir, cardId: duProjet?.cardId, agentId: duProjet?.id },
+          demande,
+        );
+        if (!trouve.trouve) return json(res, 404, { error: 'fichier indisponible', motif: trouve.motif, date: trouve.date });
         if (url.searchParams.get('info')) {
-          return json(res, 200, { nom: path.basename(trouve.file), chemin: trouve.file, mime: trouve.mime, taille: trouve.taille });
+          return json(res, 200, { nom: trouve.nom, chemin: trouve.origine === 'vivant' ? trouve.file : demande, mime: trouve.mime, taille: trouve.taille });
         }
         const largeur = url.searchParams.get('download') ? null : largeurDemandee(url.searchParams.get('w'));
         if (largeur && !req.headers.range) {
@@ -1795,7 +2177,7 @@ export function createHttpServer(): http.Server {
           'cache-control': 'private, no-cache',
           'x-content-type-options': 'nosniff',
           'content-disposition': url.searchParams.get('download')
-            ? `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(trouve.file))}`
+            ? `attachment; filename*=UTF-8''${encodeURIComponent(trouve.nom)}`
             : 'inline',
           ...(servi.isole ? { 'content-security-policy': 'sandbox' } : {}),
         };
@@ -1881,11 +2263,49 @@ export function createHttpServer(): http.Server {
         res.writeHead(200, {
           'content-type': /html|svg|xml/.test(type) ? 'application/octet-stream' : type,
           'x-content-type-options': 'nosniff',
-          'content-disposition': `attachment; filename="${encodeURIComponent(entry.name)}"`,
+          /* « voir=1 » : un PDF s'ouvre dans l'onglet au lieu de se télécharger (le rapport de Marketing 2, « Ouvrir »). */
+          'content-disposition': url.searchParams.get('voir') === '1' && type === 'application/pdf' ? 'inline' : `attachment; filename="${encodeURIComponent(entry.name)}"`,
         });
         return fs.createReadStream(entry.path).pipe(res);
       }
 
+      /* L'EXTENSION SAFARI SIGNÉE (fabriquée sur GitHub, récupérée par `server/src/extension-safari.ts`). */
+      if (route === '/api/extension-safari.zip') {
+        const { paquetSafari } = await import('./extension-safari.js');
+        const paquet = paquetSafari();
+        if (!paquet) return json(res, 404, { error: 'L’extension Safari n’est pas encore fabriquée.' });
+        const taille = fs.statSync(paquet.chemin).size;
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-length': taille,
+          'content-disposition': 'attachment; filename="Beluga-Safari.zip"',
+          'cache-control': 'no-store',
+        });
+        return fs.createReadStream(paquet.chemin).pipe(res);
+      }
+
+      /* LE PAQUET DE L'EXTENSION CHROME, réglé pour cette installation (son adresse dans `config.json`). */
+      if (route === '/api/extension-chrome.zip') {
+        const { paquetDeLExtension } = await import('./extension-chrome.js');
+        const { adresseDeBeluga } = await import('./marketing.js');
+        const proto = String(req.headers['x-forwarded-proto'] ?? 'https').split(',')[0]!.trim();
+        const adresse = adresseDeBeluga() || `${proto}://${req.headers['x-forwarded-host'] ?? req.headers.host}`;
+        const zip = await paquetDeLExtension(adresse);
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-length': zip.length,
+          'content-disposition': 'attachment; filename="beluga-chrome.zip"',
+          'cache-control': 'no-store',
+        });
+        return res.end(zip);
+      }
+
+      /* LA DICTÉE EST-ELLE INSTALLÉE SUR CE SERVEUR ? (17/11/2026) Sans assistant vocal, le micro du champ la sert ; tant
+         qu'elle manque, il reste grisé et mène à son installation. */
+      if (route === '/api/dictee' && req.method === 'GET') {
+        const { voiceAvailable } = await import('./voice.js');
+        return json(res, 200, { disponible: voiceAvailable().transcribe });
+      }
       if (route === '/api/transcribe' && req.method === 'POST') {
         const audio = await readBody(req, 40 * 1024 * 1024);
         const ext = (String(req.headers['x-audio-ext'] ?? 'webm') || 'webm').replace(/[^a-z0-9]/gi, '');
@@ -1893,62 +2313,31 @@ export function createHttpServer(): http.Server {
         return json(res, result.ok ? 200 : 503, result);
       }
 
-      /**
-       * L'extrait d'une voix, pour l'écouter AVANT de la choisir. Le son passe
-       * par une adresse ordinaire : le lecteur du navigateur sait la jouer
-       * telle quelle, sans rien préparer.
+      /*
+       * LE MODÈLE DU MOT DE RÉVEIL, téléchargé par le navigateur à la première ouverture du micro du module de voix :
+       * c'est LUI qui reconnaît « Dis Jarvis » sur l'appareil, sans qu'aucun son n'en sorte. Nom versionné, cache long.
        */
-      if (route === '/api/voice-sample') {
-        const voix = url.searchParams.get('voice') ?? undefined;
-        // La vitesse d'essai est imposée ici pour l'ENTENDRE avant de la garder :
-        // sans elle, on retomberait sur la vitesse déjà enregistrée.
-        const vitesse = url.searchParams.get('vitesse') ?? undefined;
-        const result = await speak(EXTRAIT, voix, vitesse);
-        if (!result.ok || !result.file) return json(res, 503, { error: result.error });
-        const stat = fs.statSync(result.file);
+      if (route.startsWith('/api/modele-de-reveil/')) {
+        const { modeleDeReveil, VERSION_DU_MODELE_DE_REVEIL } = await import('./modele-de-reveil.js');
+        if (route !== `/api/modele-de-reveil/${VERSION_DU_MODELE_DE_REVEIL}.tar.gz`) return json(res, 404, { error: 'modèle inconnu' });
+        let chemin: string;
+        try {
+          chemin = await modeleDeReveil();
+        } catch (err) {
+          return json(res, 503, { error: `Le modèle du mot de réveil est indisponible : ${(err as Error).message}` });
+        }
         res.writeHead(200, {
-          'content-type': 'audio/wav',
-          'content-length': stat.size,
-          'cache-control': 'no-store',
+          'content-type': 'application/gzip',
+          'content-length': fs.statSync(chemin).size,
+          'cache-control': 'private, max-age=31536000, immutable',
         });
-        return fs.createReadStream(result.file).pipe(res);
-      }
-
-      /**
-       * Une phrase courte lue à voix haute, aux moments clés (fin de tâche,
-       * décision attendue). Le texte vient tout fait du navigateur ; on le
-       * borne pour qu'une annonce reste brève, puis on le confie à Piper —
-       * exactement comme l'extrait d'une voix, par une adresse audio ordinaire.
-       */
-      if (route === '/api/speak') {
-        const texte = normaliserTexteVoix(url.searchParams.get('text') ?? '');
-        if (!texte) return json(res, 400, { error: 'aucun texte à lire' });
-        const result = await speak(texte);
-        if (!result.ok || !result.file) return json(res, 503, { error: result.error });
-        const stat = fs.statSync(result.file);
-        res.writeHead(200, {
-          'content-type': 'audio/wav',
-          'content-length': stat.size,
-          'cache-control': 'no-store',
-        });
-        return fs.createReadStream(result.file).pipe(res);
+        return fs.createReadStream(chemin).pipe(res);
       }
 
       if (route === '/api/digest') {
         const projectId = url.searchParams.get('project') ?? undefined;
-        const text = digestText(projectId);
-        if (url.searchParams.get('audio')) {
-          const result = await speak(text);
-          if (!result.ok || !result.file) return json(res, 503, { error: result.error, text });
-          const stat = fs.statSync(result.file);
-          res.writeHead(200, {
-            'content-type': 'audio/wav',
-            'content-length': stat.size,
-            'cache-control': 'no-store',
-          });
-          return fs.createReadStream(result.file).pipe(res);
-        }
-        return json(res, 200, { text });
+        // Le point du jour se LIT : la version à voix haute a été retirée avec la voix du serveur (17/11/2026).
+        return json(res, 200, { text: digestText(projectId) });
       }
 
       /* ---------------- Interface web ---------------- */

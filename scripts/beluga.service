@@ -61,6 +61,15 @@ TasksMax=4096
 # redémarrent sans conséquence visible. La protection est écrite ICI, dans
 # l'unité elle-même, jamais dans un fichier d'appoint qu'on oublierait.
 OOMScoreAdjust=-500
+# UN ENFANT TUÉ PAR LE NOYAU N'ARRÊTE PLUS LE SERVICE. Par défaut
+# (`OOMPolicy=stop`), systemd arrête l'unité ENTIÈRE dès que le noyau y tue un
+# processus faute de mémoire : le 15/11/2026 à 22:19, un navigateur d'essai tué
+# a emporté Beluga avec lui. Désormais seul ce processus disparaît ; si c'est le
+# démon lui-même, `Restart=always` le relance. Le démon relève aussi la note de
+# ses enfants (moteurs 200, le reste 600) pour qu'ils partent avant lui, qui
+# garde -500 (`designerLesVictimesDeLaMemoire`). Une machine déjà installée
+# reçoit la même règle par `beluga.service.d/memoire.conf`, posé par le démon.
+OOMPolicy=continue
 StandardOutput=append:/root/beluga/data/logs/service.log
 StandardError=append:/root/beluga/data/logs/service.log
 

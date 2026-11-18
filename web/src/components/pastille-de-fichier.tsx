@@ -26,7 +26,7 @@
  * la pastille : un contrôle navigateur les lit sans rien savoir du rendu.
  */
 import * as React from 'react';
-import { Download, Eye, File as FileIcon, Film, ImageIcon } from 'lucide-react';
+import { Download, Eye, File as FileIcon, Film, ImageIcon } from '@/components/ui/icones';
 import { genreDuFichier, type GenrePiece } from '@beluga/shared';
 import { bytes, cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

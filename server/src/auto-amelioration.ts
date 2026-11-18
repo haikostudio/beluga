@@ -54,6 +54,7 @@ import { canStartAgent } from './capacity.js';
 import { noterUneProposition } from './jugement-rapide.js';
 import * as store from './store.js';
 import { unitesARelireCetteNuit } from './memoire-de-nuit.js';
+import { dernierMenage } from './menage-memoire.js';
 
 /**
  * LA RELECTURE DES UNITÉS DE LA JOURNÉE : les unités de la base de
@@ -64,8 +65,20 @@ import { unitesARelireCetteNuit } from './memoire-de-nuit.js';
  */
 function relectureDesFiches(projectId: string): string {
   const unites = unitesARelireCetteNuit().filter((u) => u.portee === projectId || u.portee === 'global');
-  if (!unites.length) return '';
+  /* LE MÉNAGE DE LA NUIT SE RACONTE LE MATIN : ses chiffres partent dans le
+     compte rendu de l'analyse, en mots courants (`server/src/menage-memoire.ts`). */
+  const menage = dernierMenage()
+    .filter((b) => b.portee === projectId || b.portee === 'global')
+    .map(
+      (b) =>
+        `${b.portee === 'global' ? 'Mémoire commune' : 'Mémoire du projet'} : ménage ${b.issue === 'garde' ? 'GARDÉ' : 'ANNULÉ (l’essai a baissé)'} — ${b.reclassees} règle(s) rarement utiles rangées plus bas, ${b.depreciees} doublon(s) retiré(s) ; essai de rappel ${Math.round(b.essai.avant.rappel * 100)} % → ${Math.round((b.essai.apres?.rappel ?? b.essai.avant.rappel) * 100)} % sur ${b.essai.cas} demandes types.`,
+    );
+  const texteMenage = menage.length
+    ? `\n\nMÉNAGE AUTOMATIQUE DE LA MÉMOIRE CETTE NUIT — recopie ces chiffres tels quels dans ton compte rendu, sans proposer de carte pour eux :\n${menage.join('\n')}`
+    : '';
+  if (!unites.length) return texteMenage;
   return (
+    texteMenage +
     '\n\nUNITÉS DE LA BASE DE CONNAISSANCES MODIFIÉES DEPUIS HIER — lis-les avec l’outil « memoire » (geste « lire », « id ») : ' +
     unites.map((u) => `${u.id} « ${u.titre} »${u.portee === 'global' ? ' (global)' : ''} par ${u.auteur || '—'}`).join(', ') +
     '. Si deux d’entre elles disent la même chose, ou si l’une contredit une plus ancienne, propose UNE carte de relecture qui les fusionne ou déprécie la fausse, sans perdre aucun fait.'

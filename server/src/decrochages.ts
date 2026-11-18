@@ -113,6 +113,51 @@ export function installerLeSurveillant(): void {
   });
 }
 
+/**
+ * L'ARRÊT D'UN ENFANT PAR LE NOYAU N'ARRÊTE PLUS LE SERVICE.
+ *
+ * Par défaut (`OOMPolicy=stop`), systemd arrête l'unité ENTIÈRE dès que le
+ * noyau y tue un processus faute de mémoire : le 15/11/2026 à 22:19, un
+ * navigateur d'essai tué a emporté Beluga. Le modèle d'unité porte désormais
+ * `OOMPolicy=continue`, mais l'unité posée sur une machine déjà installée ne
+ * se réécrit qu'à la main (`scripts/installer-services.sh`). Le démon pose donc
+ * au démarrage, comme il le fait pour le surveillant, un fichier d'appoint
+ * `beluga.service.d/memoire.conf` tiré du dépôt, puis recharge systemd — sans
+ * rien redémarrer. Le démon lui-même tué reste couvert par `Restart=always`.
+ */
+const APPOINT_MEMOIRE = '/etc/systemd/system/beluga.service.d/memoire.conf';
+
+export function installerLaPolitiqueMemoire(): void {
+  if (DEMON_D_ESSAI || process.env.NODE_ENV !== 'production' || process.platform !== 'linux') return;
+  let voulu: string;
+  try {
+    // Seul le démon qui EST le service `beluga.service` y touche.
+    if (!/\/beluga\.service\s*$/m.test(fs.readFileSync('/proc/self/cgroup', 'utf8'))) return;
+    if (!fs.existsSync('/etc/systemd/system/beluga.service')) return;
+    voulu = fs.readFileSync(path.join(ROOT, 'scripts', 'beluga.service.d', 'memoire.conf'), 'utf8');
+    if (fs.existsSync(APPOINT_MEMOIRE) && fs.readFileSync(APPOINT_MEMOIRE, 'utf8') === voulu) return;
+  } catch {
+    return;
+  }
+  const copie = path.join(PATHS.logs, '.beluga-memoire.conf');
+  try {
+    fs.writeFileSync(copie, voulu, { mode: 0o644 });
+  } catch {
+    return;
+  }
+  execFile('sudo', ['-n', 'install', '-D', '-m', '644', copie, APPOINT_MEMOIRE], { timeout: 15_000 }, (err) => {
+    fs.rmSync(copie, { force: true });
+    if (err) {
+      log.warn('politique mémoire du service : pose impossible', err.message);
+      return;
+    }
+    execFile('sudo', ['-n', 'systemctl', 'daemon-reload'], { timeout: 30_000 }, (erreur) => {
+      if (erreur) log.warn('politique mémoire du service : rechargement de systemd impossible', erreur.message);
+      else log.info('politique mémoire du service posée : un processus tué par manque de mémoire n’arrête plus le service');
+    });
+  });
+}
+
 function lireEtat(): EtatDeLEnquete {
   const brut = store.readPreference(PREFERENCE);
   return brut && typeof brut === 'object' ? (brut as EtatDeLEnquete) : {};
@@ -249,6 +294,7 @@ export function demarrerLaVeilleDesDecrochages(): NodeJS.Timeout | null {
   if (DEMON_D_ESSAI) return null;
   noterDansLeJournalDesDecrochages('demarrage', `pid ${process.pid}`);
   installerLeSurveillant();
+  installerLaPolitiqueMemoire();
   setTimeout(() => void examinerLesDecrochages(), 3 * 60_000).unref?.();
   const minuterie = setInterval(() => void examinerLesDecrochages(), 10 * 60_000);
   minuterie.unref?.();

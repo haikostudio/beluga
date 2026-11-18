@@ -9,6 +9,7 @@ import {
   convertirEnFiche,
   enIdentifiant,
   enTeteAvecCles,
+  CLE_RESUME_FR,
   enTeteDeCompetence,
   formatAConvertir,
   idDeBibliothequeValide,
@@ -19,6 +20,7 @@ import {
   sousDossierDeLAdresse,
   sousDossierValide,
   type BilanDImportDeBibliotheque,
+  sourceProtegee,
 } from '@beluga/shared';
 import {
   changerLEtat,
@@ -31,6 +33,7 @@ import {
   relierCompetencesAuxCoffres,
 } from './competences.js';
 import { synchroniserSansEchec } from './competences-memoire.js';
+import { resumerApresImport } from './resume-competences.js';
 import { log } from './logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -209,9 +212,13 @@ export async function importerUneBibliotheque(
   options: { racine?: string } = {},
 ): Promise<BilanDImportDeBibliotheque> {
   while (importEnCours) await importEnCours.catch(() => undefined);
-  importEnCours = importer(demande, options.racine ?? dossierDesCompetences());
+  const racine = options.racine ?? dossierDesCompetences();
+  importEnCours = importer(demande, racine);
   try {
-    return await importEnCours;
+    const bilan = await importEnCours;
+    // Les fiches nouvelles ou mises à jour reçoivent leur résumé en français, EN FOND (carte dd481232).
+    if (bilan.ok && racine === dossierDesCompetences()) resumerApresImport([...bilan.creees, ...bilan.misesAJour], racine);
+    return bilan;
   } finally {
     importEnCours = null;
   }
@@ -380,6 +387,7 @@ async function importer(demande: { source: string; sousDossier?: string; nom?: s
       const cible = path.join(racine, nom);
       const dejaLa = fs.lstatSync(cible, { throwIfNoEntry: false });
       const ancienne = dejaLa ? enTeteDeCompetence(safeLire(path.join(cible, FICHIER_COMPETENCE))) : null;
+      const source = enTeteDeCompetence(tete);
       const cles = {
         name: nom,
         // L'état posé ici (une fiche archivée à la main) survit à la mise à jour.
@@ -388,6 +396,15 @@ async function importer(demande: { source: string; sousDossier?: string; nom?: s
         'provenance-source': bilan.source,
         'provenance-commit': bilan.commit,
         'provenance-importee-le': ancienne?.provenance?.['importee-le'] ?? String(maintenant),
+        // Le CLASSEMENT posé ici (thèmes, symptômes) survit aussi, tant que la
+        // source n'en déclare pas : c'est lui qui range la fiche au sommaire et
+        // la fait ressortir de la mémoire. En dernier, là où un classement posé
+        // après coup les ajoute : une fiche seulement classée reste « inchangée ».
+        themes: source.themes?.trim() ? undefined : ancienne?.themes?.trim() || undefined,
+        symptomes: source.symptomes?.trim() ? undefined : ancienne?.symptomes?.trim() || undefined,
+        // Le RÉSUMÉ EN FRANÇAIS rédigé ici (`resume-fr`) survit de même : sans lui, la
+        // fiche retomberait sur sa description d'origine, souvent anglaise ou vague.
+        [CLE_RESUME_FR]: source.resumeFr?.trim() ? undefined : ancienne?.resumeFr?.trim() || undefined,
       };
       let texte = enTeteAvecCles(tete, cles);
       const inchangee = Boolean(dejaLa && !dejaLa.isSymbolicLink()) && empreinteDuPool(cible) === empreinte(texte, fichiers);
@@ -428,12 +445,14 @@ async function importer(demande: { source: string; sousDossier?: string; nom?: s
       importeeLe: maintenant,
       // Les fiches retirées restent inscrites : elles viennent toujours de là.
       competences: [...new Set([...posees, ...avant.filter((nom) => etatsAvant.has(nom))])],
+      // Une bibliothèque protégée le reste ; une source protégée l'est d'office.
+      ...(registre[id]?.protegee || sourceProtegee(bilan.source) ? { protegee: true } : {}),
     };
     ecrireLeRegistre(registre, racine);
 
     reecrireLesFichiersDEntree(racine);
     const combien = bilan.creees.length + bilan.misesAJour.length;
-    enregistrerLePool(
+    void enregistrerLePool(
       racine,
       `importe la bibliothèque ${id} (${posees.size} compétence(s) : ${bilan.creees.length} nouvelle(s), ${bilan.misesAJour.length} mise(s) à jour, ${bilan.retirees.length} retirée(s))`,
     );

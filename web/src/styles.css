@@ -68,10 +68,10 @@
    * Une classe oubliée ne peut donc pas ramener une couleur.
    */
   :root {
-    --bg: 0 0% 13%;
-    --surface: 0 0% 16.5%;
-    --raised: 0 0% 21%;
-    --border: 0 0% 18%;
+    --bg: 0 0% 7.5%;
+    --surface: 0 0% 10.5%;
+    --raised: 0 0% 13%;
+    --border: 0 0% 15%;
     --text: 0 0% 93%;
     --muted: 0 0% 70%;
     --faint: 0 0% 52%;
@@ -82,7 +82,7 @@
     /* APPELLE L'ŒIL — alerte, attente d'un geste : le texte fort. */
     --warning: 0 0% 93%;
     --nouveau: 0 0% 70%;
-    --a-surveiller: 0 0% 93%;
+    --a-surveiller: 214 100% 65%;
     /* LE SEUL ROUGE : l'erreur, et le geste qui détruit. */
     --danger: 0 72% 66%;
     --record: 0 0% 93%;
@@ -102,12 +102,12 @@
     --termine-fg: 0 0% 9%;
     --intensite-calme: var(--faint);
     --intensite-chargee: var(--text);
-    --fond-plan: 0 0% 17%;
+    --fond-plan: 0 0% 10.5%;
     /* LA ZONE DE CONVERSATION D'UNE PAGE DE SERVICE : un panneau PLUS
        SOMBRE que la page, pour que le champ d'écriture (`--raised`) s'y
        détache nettement (demande du 27/10/2026 : `--fond-plan`, 17 %, était
        trop proche du champ). */
-    --fond-conversation-service: 0 0% 10%;
+    --fond-conversation-service: 0 0% 5.5%;
     /* LE VOILE qui assombrit la page derrière une fenêtre. */
     --voile: 0 0% 0%;
     /* LE TEXTE POSÉ SUR UN APLAT D'ÉTAT (bouton, pastille) : l'aplat est clair
@@ -117,11 +117,27 @@
     --actif-fg: 0 0% 9%;
     /* LE FOND D'UN BOUTON « CONTOUR » AU REPOS : rien, son filet le dessine.
        L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
-    --controle: 0 0% 100% / 0.07;
+    --controle: 0 0% 100% / 0.055;
+    /* LE FOND DOUX D'UN CONTRÔLE (carte « Icônes, contrastes et artefacts », 15/11/2026) : le gris LÉGER des boutons
+       d'icône du haut et du champ d'écriture, du champ de recherche et du bouton « Nouvel artefact ». Un voile de
+       l'encre du texte, donc lisible sur N'IMPORTE QUEL fond porteur (page, feuille du bas, bloc) : 7 % en sombre,
+       4,5 % en clair — « pas bêtement plus foncé » (le premier essai à 8 % a été refusé, `--raised` disparaissait
+       sur la feuille). Le survol monte d'une marche. */
+    --controle-doux: 0 0% 100% / 0.07;
+    --controle-doux-survol: 0 0% 100% / 0.11;
     /* LA LIGNE OUVERTE, colonne de gauche. */
-    --ligne-active: 0 0% 19%;
-    --bandeau-etape: 0 0% 18%;
-    --bloc-etapes: 0 0% 17%;
+    --ligne-active: 0 0% 15%;
+    /* PALETTE FAÇON CLAUDE DESKTOP (13/11/2026, capture #ef2b) : la zone de travail est le fond le plus PROFOND
+       (7,5 %), la colonne de gauche un cran plus claire (`--fond-colonne`, 10,4 %), un trait fin entre les deux
+       (`--trait-de-colonne`). Les blocs posés gardent leurs deux marches au-dessus de la zone (11 %, 14,5 %). */
+    --fond-colonne: 0 0% 9.6%;
+    --trait-de-colonne: 0 0% 13%;
+    /* LE BANDEAU DU FIL D'ARIANE, sur ordinateur (01/11/2026, capture #e118) : un cran au-dessus de la page en
+       sombre, un cran en dessous en clair ; l'ombre qui le détache de la colonne de gauche. */
+    --fond-entete: 0 0% 7.5%;
+    --ombre-entete: 0 0% 0% / 0.45;
+    --bandeau-etape: 0 0% 12.5%;
+    --bloc-etapes: 0 0% 11%;
     /* LES DEUX DÉCROCHÉS empilés sur le champ d'écriture finissent leur
        dégradé (`.decroche-degrade`) dans ces gris, choisis pour TRANCHER sur
        la barre posée dessous (demande du 27/10/2026) :
@@ -130,12 +146,26 @@
        - `--decroche-attente`, le bas des messages en attente : le gris de
          la liste des tâches posée dessous, un tout petit peu plus FONCÉ
          (décision du 27/10/2026 : un gris clair de 25 % jurait). */
-    --decroche: 0 0% 15%;
-    --decroche-attente: 0 0% 12.5%;
+    --decroche: 0 0% 11%;
+    /* 15/11/2026 (capture #d210) : à 10 % la barre ne se distinguait ni de la page (7,5 %) ni de la liste des tâches
+       (11 %). Elle passe AU-DESSUS des deux, à 15,5 %, comme en clair elle passe sous elles. */
+    --decroche-attente: 0 0% 15.5%;
     /* LE SURVOL D'UN ÉLÉMENT POSÉ SUR `--raised` (une ligne dans un bloc en
        relief) : une marche franche AU-DESSUS du plus haut des trois fonds,
        pour qu'un survol ne retombe jamais sur la couleur de son support. */
-    --fond-survol: 0 0% 27%;
+    --fond-survol: 0 0% 15.5%;
+    /* LE FOND D'UN CHAMP (retours du 04/11/2026, deuxième passe : « les champs sont invisibles dans les tiroirs ») : une
+       marche à part, distincte des trois fonds (page, bloc, relief) ET du panneau qui le porte. */
+    --champ: 0 0% 13.5%;
+    /* LES ONGLETS À TROIS FONDS ET L'EN-TÊTE DES TABLEAUX (décision de l'utilisateur du 03/11/2026) : la
+       BARRE est le fond le plus profond, un onglet au repos un fond intermédiaire, l'onglet choisi le plus
+       clair (son texte en violet). L'en-tête d'un tableau tranche sur ses lignes. */
+    --onglets-barre: 0 0% 11%;
+    --onglets-repos: 0 0% 13%;
+    --onglets-actif: 0 0% 17%;
+    --tableau-entete: 0 0% 11%;
+    /* LE PAVÉ D'UN CHIFFRE-CLÉ (14/11/2026, « un bg contrasté mais léger ») : à peine relevé sur la page. */
+    --fond-chiffre: 0 0% 11.5%;
     /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
        (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
        qu'on a dans l'application, avec parcimonie mais intelligemment »). Il
@@ -147,24 +177,52 @@
        SECOND USAGE, demandé le même jour : l'élément CHOISI d'une liste de
        choix (liste déroulante, menu, onglets, menu d'une fenêtre) s'écrit en
        violet, « pour qu'on le distingue clairement ». */
-    --teinte: 262 85% 78%;
+    --teinte: 0 0% 93%;
+    /* LE BLEU DE L'IMPORTANT (14/11/2026, « je veux du monochrome noir anthracite / blanc gris, seules les choses
+       importantes doivent être en orange : liens, questions… » ; BLEU FRANC depuis le 15/11/2026, capture #ae883 : #4C9AFF en sombre, #1F6FEB en clair ; le cadre des questions seul repasse au JAUNE) : liens, ce qui attend
+       l'utilisateur, alertes, et le texte de l'élément actif de la colonne de gauche. Rien d'autre. */
+    --important: 214 100% 65%;
+    --important-fond: 214 100% 65% / 0.14;
+    --important-trait: 214 100% 65% / 0.5;
     /* LE BADGE DE STATUT D'UNE CARTE (demande du 18/10/2026) : JAUNE à la
        Compréhension (`--comprehension`), VIOLET au Travail (`--teinte`), chacun
        avec un léger fond et un trait de la même teinte. L'alpha vit DANS le
        jeton : on n'écrit jamais `bg-comprehension-fond/50`. Le jaune sert à
        ce badge (`badge-etape.tsx`) et au CADRE DE CHAQUE QUESTION
        (`.cadre-de-question`, demande du 25/10/2026) — à rien d'autre. */
-    --comprehension: 48 92% 62%;
-    --comprehension-fond: 48 92% 62% / 0.14;
-    --comprehension-trait: 48 92% 62% / 0.5;
+    --comprehension: 214 100% 65%;
+    --comprehension-fond: 214 100% 65% / 0.14;
+    --comprehension-trait: 214 100% 65% / 0.5;
     /* Le cadre d'une question (`.cadre-de-question`) : un jaune franc. */
     --cadre-question: 48 92% 62%;
-    --teinte-fond: 262 85% 78% / 0.14;
-    --teinte-trait: 262 85% 78% / 0.5;
+    /* LES ONDES DE JARVIS (16/11/2026, demande de l'utilisateur) : JAUNE quand vous parlez, BLEU quand Jarvis parle. Leur seul usage : la barre d'ondes du volet de l'assistant en mode voix. */
+    --voix-vous: 48 95% 58%;
+    --voix-jarvis: 212 100% 64%;
+    /* LES BULLES DE JARVIS (17/11/2026) : son bleu, assez profond pour un texte BLANC en sombre (contraste ≥ 4,5:1). */
+    --bulle-jarvis: 212 100% 42%;
+    --bulle-jarvis-texte: 0 0% 100%;
+    /* Le vert du rond « terminé » des icônes de projet (16/11/2026). */
+    --etat-termine: 142 60% 48%;
+    /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
+       seule teinte ajoutée depuis, réservée au badge d'état d'un agent
+       (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
+       (`liste-des-agents.tsx`) — à déployer, ou terminé pas encore ouvert. */
+    --pret: 0 0% 70%;
+    --pret-fond: 0 0% 100% / 0.07;
+    --pret-trait: 0 0% 100% / 0.2;
+    /* LES TÊTES DE COLONNES DE L'ESPACE CLIENT (demande du 08/11/2026, capture #12cb) : gris, bleu, vert, vert —
+       exception voulue à la charte monochrome, réservée à `colonne-demandes.tsx`. */
+    --colonne-bleu: 0 0% 93%;
+    --colonne-vert: 0 0% 70%;
+    --colonne-bleu-fond: 0 0% 100% / 0.09;
+    --colonne-vert-fond: 0 0% 100% / 0.06;
+    --colonne-gris-fond: 0 0% 60% / 0.12;
+    --teinte-fond: 0 0% 100% / 0.07;
+    --teinte-trait: 0 0% 100% / 0.22;
     /* LE VIOLET PLEIN, sous un texte BLANC : les boutons d'action de
        l'assistant de démarrage (demande du 18/10/2026), et le bouton
        « Annuler » / « Suspendre » d'un agent au travail (24/10/2026). */
-    --teinte-plein: 262 60% 56%;
+    --teinte-plein: 0 0% 24%;
     /* LE BLANC POSÉ SUR UN APLAT DE COULEUR (violet plein, rouge d'erreur) :
        un jeton, pour que l'écran n'écrive jamais `text-white` (28/10/2026). */
     --sur-couleur: 0 0% 100%;
@@ -213,26 +271,75 @@
     --zone-sure-haut-systeme: env(safe-area-inset-top, 0px);
     --zone-sure-haut: calc(var(--zone-sure-haut-systeme) + var(--marge-flou-ios));
     --zone-sure-bas: env(safe-area-inset-bottom, 0px);
+    /* CE QU'UNE PAGE RÉSERVE EN BAS : la barre de gestes, tant que le clavier ne
+       la couvre pas (capture #80d52). `--zone-sure-bas` elle-même ne change
+       jamais, la hauteur d'application la mesure. */
+    /* LA MARCHE DU BAS (31/10/2026 : « ajoute en bas partout une petite marge
+       de 10px de plus ») : 10 px sur téléphone, 0 sur ordinateur et clavier
+       ouvert. UNE seule variable : le conteneur qui touche le bord la compte
+       (une page, une feuille : `--marge-bas-hors-clavier` l'inclut) et la
+       remet à 0 pour son contenu, qui ne la recompte jamais (MEM-2659). */
+    --marche-du-bas: 0px;
+    --marge-bas-hors-clavier: calc(var(--zone-sure-bas) + var(--marche-du-bas));
+  }
+  @media (max-width: 639px) {
+    html {
+      --marche-du-bas: 10px;
+    }
+  }
+  html[data-clavier-ouvert] {
+    --marche-du-bas: 0px;
+    --marge-bas-hors-clavier: 0px;
+  }
+  /*
+   * L'APPLICATION IPHONE (`html[data-natif=ios]`, posé par web/index.html depuis `window.__belugaNatif`) — décision de
+   * l'utilisateur du 16/11/2026 : 16 px entre le bas du dernier contrôle et le BORD de l'écran, sur TOUS les écrans,
+   * hors clavier ; 12 px de marge sur les côtés. L'application installée depuis Safari, le navigateur et l'ordinateur
+   * ne changent PAS : aucune de ces règles ne vaut hors du marqueur.
+   *
+   * `--pied-natif` est le padding bas de TOUT ce qui touche le bord : chaque pied l'écrit
+   * `var(--pied-natif, <sa formule d'avant>)`, donc hors application la formule d'avant s'applique telle quelle. Un
+   * conteneur qui l'a déjà compté (feuille, page) le remet à `var(--pied-natif-dedans)` pour son contenu : 0 dans
+   * l'application, et une valeur INVALIDE ailleurs — donc la formule d'avant, là encore. Compté UNE fois (MEM-2659).
+   */
+  @media (max-width: 639px) {
+    html[data-natif='ios'] {
+      --pied-natif: 16px;
+      --pied-natif-dedans: 0px;
+      --marche-du-bas: 0px;
+      --marge-bas-hors-clavier: 16px;
+      --marge-de-page: 12px;
+    }
+  }
+  /* Clavier ouvert : rien ne change par rapport à avant (`initial` rend la formule d'avant à chaque pied). */
+  html[data-natif='ios'][data-clavier-ouvert] {
+    --pied-natif: initial;
+    --pied-natif-dedans: initial;
+    --marge-bas-hors-clavier: 0px;
+  }
+  /* AUCUN ZOOM SUR TÉLÉPHONE (MEM-7550) : le double toucher ne zoome plus (le défilement et la sélection de
+     texte restent). Le zoom au champ touché, lui, est fermé par `maximum-scale=1` (web/index.html) : forcer
+     les champs à 16 px aurait aussi RÉDUIT ceux qui sont écrits plus grand. */
+  html {
+    touch-action: manipulation;
   }
 
   /**
-   * MARGE SOUS LE FLOU D'iOS 26/27 : 0 PX (19/10/2026, carte 6e66a45c).
-   * Installée en `black-translucent` (`web/index.html`), l'application passe
-   * sous l'heure et iOS y pose un flou « scroll edge effect » d'environ
-   * 38-40 pt, que l'émulation Chrome ne montre pas. Il est désormais ÉTEINT
-   * par une bande FIXE et OPAQUE du fond de la zone, posée au bord du haut
-   * (`bande-sous-l-heure.tsx`) : WebKit échantillonne un élément fixe collé
-   * au bord et renonce alors au flou — c'est pourquoi la page Notifications,
-   * page fixe opaque, n'en avait jamais. Le contenu démarre donc juste sous
-   * l'heure (décision de l'utilisateur : « collé à la zone de l'heure »).
-   * La variable reste le SEUL réglage : si le flou revenait sur l'iPhone,
-   * remettre ici quelques pixels. La hauteur d'application lit
-   * `--zone-sure-haut-systeme`, sans la marge.
+   * MARGE SOUS LE FLOU D'iOS 26/27 : 0 PX. Depuis le 30/10/2026, l'application
+   * commence SOUS la barre d'état (`web/index.html` : plus de
+   * `viewport-fit=cover`) : tous les encarts valent 0 et `theme-color` peint la
+   * bande de l'heure. Ce flou d'environ 38-40 pt n'existe pas dans l'émulation
+   * Chrome : seul l'iPhone juge.
+   * La variable reste le SEUL réglage de repli, annoncé à l'utilisateur : si le
+   * flou persistait, poser ici environ 40 px (une bande vide au-dessus de la
+   * barre). La hauteur d'application lit `--zone-sure-haut-systeme`, sans la marge.
    *
    * Historique : 20 px (de743942) jugé sans effet ; 20 px puis 15 px
    * (19/10/2026) pour fuir le flou ; 40 px (7ecbe3b4) = bande vide, refusée ;
    * barre « default » (7e483cc5) = bande grise opaque ou flou intermittents
-   * sur iOS 27, abandonnée ; 0 px avec la bande fixe (19/10/2026).
+   * sur iOS 27 ; 0 px avec la bande fixe (19/10/2026), flou encore là (captures
+   * #e155, #7987) ; « default » avec `viewport-fit=cover` (30/10/2026), flou encore
+   * là (capture #5d25) ; « default » sans `cover` (30/10/2026).
    * Changer cette marge n'impose pas de réinstaller l'icône, changer le style
    * de barre oui. Limitée à iOS installé en portrait : rien ne bouge ailleurs.
    */
@@ -245,9 +352,11 @@
   }
 
   html:not(.dark) {
+    --fond-colonne: 0 0% 98.6%;
+    --trait-de-colonne: 0 0% 93.5%;
     --bg: 0 0% 100%;
-    --surface: 0 0% 97.3%;
-    --raised: 0 0% 95%;
+    --surface: 0 0% 98.2%;
+    --raised: 0 0% 96.6%;
     --border: 0 0% 94%;
     --text: 0 0% 5%;
     --muted: 0 0% 36%;
@@ -257,7 +366,7 @@
     --success: 0 0% 38%;
     --warning: 0 0% 5%;
     --nouveau: 0 0% 36%;
-    --a-surveiller: 0 0% 5%;
+    --a-surveiller: 215 84% 52%;
     --danger: 0 72% 46%;
     --record: 0 0% 5%;
     --record-fg: 0 0% 100%;
@@ -279,8 +388,12 @@
     --sur-etat: 0 0% 100%;
     --actif: 0 0% 5%;
     --actif-fg: 0 0% 100%;
-    --controle: 0 0% 0% / 0.05;
-    --ligne-active: 0 0% 93%;
+    --controle: 0 0% 0% / 0.035;
+    --controle-doux: 0 0% 0% / 0.045;
+    --controle-doux-survol: 0 0% 0% / 0.075;
+    --ligne-active: 0 0% 95.6%;
+    --fond-entete: 0 0% 96%;
+    --ombre-entete: 0 0% 0% / 0.1;
     --bandeau-etape: 0 0% 95.5%;
     --bloc-etapes: 0 0% 96.5%;
     /* En clair, la liste des tâches est plus légère (demande du 28/10/2026,
@@ -288,19 +401,49 @@
        Les messages en attente passent PLUS CLAIR encore (demande du
        30/10/2026, capture #e48ad : « trop grise ») : trois points au-dessus de
        la liste des tâches posée dessous, qu'ils dominent sans l'alourdir ;
-       seuls l'icône et le libellé portent le violet. */
-    --decroche: 0 0% 93%;
-    --decroche-attente: 0 0% 96%;
-    --fond-survol: 0 0% 90%;
-    --teinte: 262 68% 50%;
-    --comprehension: 40 95% 26%;
-    --comprehension-fond: 45 95% 48% / 0.16;
-    --comprehension-trait: 40 90% 36% / 0.55;
+       seuls l'icône et le libellé portent le violet.
+       LE 15/11/2026 (capture #d210 : « le contraste est merdique, on voit aucune diff ») : à 97,6 % la barre, la liste
+       des tâches (96,4 %) et le champ se confondaient. Elle passe à 93,5 % — entre le 91 % jugé trop lourd le 30/10 et
+       l'invisible —, trois points SOUS la liste des tâches et six et demi sous la page. */
+    --decroche: 0 0% 96.4%;
+    --decroche-attente: 0 0% 93.5%;
+    --fond-survol: 0 0% 94.4%;
+    /* Le fond d'un champ, en clair : plus sombre que la page, le bloc et le relief. */
+    --champ: 0 0% 96.4%;
+    --onglets-barre: 0 0% 96%;
+    --onglets-repos: 0 0% 98.3%;
+    --onglets-actif: 0 0% 100%;
+    --tableau-entete: 0 0% 97.8%;
+    --fond-chiffre: 0 0% 97.4%;
+    --teinte: 0 0% 5%;
+    --important: 215 84% 52%;
+    --important-fond: 215 84% 52% / 0.1;
+    --important-trait: 215 84% 52% / 0.45;
+    --comprehension: 215 84% 48%;
+    --comprehension-fond: 215 84% 52% / 0.1;
+    --comprehension-trait: 215 84% 52% / 0.45;
     /* En clair, le jaune du texte (26 %) tire au brun : le cadre garde un jaune vif. */
     --cadre-question: 45 95% 48%;
-    --teinte-fond: 262 68% 50% / 0.1;
-    --teinte-trait: 262 68% 50% / 0.5;
-    --teinte-plein: 262 68% 50%;
+    /* LES ONDES DE JARVIS (16/11/2026, demande de l'utilisateur) : JAUNE quand vous parlez, BLEU quand Jarvis parle. Leur seul usage : la barre d'ondes du volet de l'assistant en mode voix. */
+    --voix-vous: 45 95% 47%;
+    --voix-jarvis: 212 90% 52%;
+    /* En clair, le bleu des bulles de Jarvis s’éclaircit et porte un texte NOIR. */
+    --bulle-jarvis: 212 95% 80%;
+    --bulle-jarvis-texte: 0 0% 4%;
+    --etat-termine: 142 64% 36%;
+    --pret: 0 0% 36%;
+    --pret-fond: 0 0% 0% / 0.05;
+    --pret-trait: 0 0% 0% / 0.2;
+    /* LES TÊTES DE COLONNES DE L'ESPACE CLIENT (demande du 08/11/2026, capture #12cb) : gris, bleu, vert, vert —
+       exception voulue à la charte monochrome, réservée à `colonne-demandes.tsx`. */
+    --colonne-bleu: 0 0% 5%;
+    --colonne-vert: 0 0% 36%;
+    --colonne-bleu-fond: 0 0% 0% / 0.07;
+    --colonne-vert-fond: 0 0% 0% / 0.04;
+    --colonne-gris-fond: 0 0% 40% / 0.08;
+    --teinte-fond: 0 0% 0% / 0.05;
+    --teinte-trait: 0 0% 0% / 0.2;
+    --teinte-plein: 0 0% 14%;
     --sur-couleur: 0 0% 100%;
     --encre: 0 0% 5%;
     --encre-fg: 0 0% 100%;
@@ -336,9 +479,17 @@
    * blanche en clair. Un conteneur plus profond (tiroir, panneau du Studio)
    * repose la sienne et garde la main.
    */
+  /* LE FOND DU MENU PRINCIPAL, lu par toute feuille du bas du téléphone (`FOND_DE_FEUILLE`, ui/index.tsx) :
+     la même teinte que la colonne de gauche, dans les douze palettes. */
+  html:not(.dark) {
+    --fond-du-menu: 0 0% 98.6%;
+  }
+  html.dark {
+    --fond-du-menu: 0 0% 9.6%;
+  }
   html.dark [data-zone='gauche'],
   html[data-theme='sombre'] [data-zone='gauche'] {
-    --fond-zone: 0 0% 9.5%;
+    --fond-zone: var(--fond-colonne);
     --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
@@ -346,13 +497,13 @@
   html[data-theme='sombre'] [data-zone='centre'],
   html.dark [data-zone='droite'],
   html[data-theme='sombre'] [data-zone='droite'] {
-    --fond-zone: 0 0% 13%;
+    --fond-zone: 0 0% 7.5%;
     --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
 
   html:not(.dark) [data-zone='gauche'] {
-    --fond-zone: 0 0% 97.5%;
+    --fond-zone: var(--fond-colonne);
     --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
@@ -485,12 +636,27 @@
      (une carte entière faite bouton) garde sa taille. */
   @media (width < 640px) {
     button > svg {
-      scale: 1.2;
+      scale: 1.4;
+    }
+  }
+  /* LE 15/11/2026 (carte « Icônes, contrastes et artefacts ») : « agrandir toutes les icônes, sur mobile
+     particulièrement ; sur desktop un peu ». Téléphone : 1,4 (16 px → ~22 px) ; ordinateur : 1,1, sans déplacer la
+     mise en page (`scale` ne change pas la boîte). Les pastilles (`pastille`, `pastille-champ`) posent leur propre
+     taille et neutralisent ce grossissement. */
+  @media (width >= 640px) {
+    button > svg {
+      scale: 1.1;
     }
   }
 }
 
 @layer components {
+  /* UN CHAMP POSÉ DANS UNE FEUILLE DU BAS PREND LE GRIS DOUX (carte « Icônes, contrastes et artefacts », 15/11/2026,
+     captures #46de et #13aa) : `--champ` (96,4 % en clair) se confondait avec le fond de la feuille. Le voile de
+     `--controle-doux` se détache de tout fond porteur, dans les deux clartés. */
+  [data-feuille-du-bas] .bg-champ {
+    background-color: hsl(var(--controle-doux));
+  }
   /* LES COMMANDES DE L'ŒIL (`commandes-des-vues.tsx`) : une seule rangée, qui
      se réduit à l'œil + son nombre et à la double coche quand la PLACE qui lui
      reste — pas l'écran — est étroite. 24 rem couvre les libellés entiers de
@@ -560,6 +726,22 @@
     background-color: hsl(var(--teinte-plein));
     color: hsl(0 0% 100%);
   }
+  /* LE BOUTON GROUPÉ « TABLEAU DE BORD » + SERVICES, en tête de la colonne : violet
+     plein, écriture blanche, y compris au survol (demande du 30/10/2026). */
+  /* …et tout bouton qui LANCE une dépense dans le parcours Marketing (`BoutonDEtape` avec
+     `data-strategie-valider-depense`, demande du 03/11/2026 : « un bouton violet en bas »). Le bouton de tête
+     « Tableaux de bord » est devenu un vrai lien : la règle vise donc aussi `a`. */
+  html :is(button, a)[data-bouton-violet],
+  html :is(button, a)[data-bouton-violet]:hover {
+    background-color: hsl(var(--teinte-plein));
+    color: hsl(0 0% 100%);
+  }
+  html :is(button, a)[data-bouton-violet]:hover {
+    opacity: 0.9;
+  }
+  html button[data-bouton-violet]:disabled {
+    opacity: 0.45;
+  }
   .bulle-utilisateur .prose-hd li::before {
     color: hsl(var(--encre-fg) / 0.6);
   }
@@ -623,17 +805,11 @@
      Le dégradé tient sur `--hauteur-du-degrade`, la hauteur VISIBLE de
      l'entête (les 12 px de recouvrement et la liste dépliée restent sur le
      gris du bas). */
+  /* PLUS AUCUN DÉGRADÉ NI BORDURE (14/11/2026, « le seul dégradé qu'on doit avoir, c'est au niveau des shadows ») : un
+     aplat du gris du décroché, sans trait. La profondeur se lit par le seul écart de fond avec le champ posé dessous. */
   .decroche-degrade {
-    border: 1px solid transparent;
-    border-bottom-width: 0;
-    background:
-      linear-gradient(
-          to bottom,
-          color-mix(in srgb, var(--couleur-du-decroche) var(--part-de-couleur), var(--gris-du-decroche)),
-          var(--gris-du-decroche) var(--hauteur-du-degrade)
-        )
-        padding-box,
-      linear-gradient(to bottom, var(--couleur-du-decroche), transparent var(--hauteur-du-degrade)) border-box;
+    border: 0;
+    background: var(--gris-du-decroche);
   }
   /* LES MESSAGES EN ATTENTE EN VIOLET (demande du 27/10/2026, capture
      #312b : « le bleu devient du violet »). La couleur suit le jeton
@@ -662,10 +838,10 @@
      monte d'une marche, sans jamais repasser au violet. */
   @media (hover: hover) {
     .decroche-violet:hover {
-      --part-de-couleur: 36%;
+      background: color-mix(in srgb, hsl(var(--decroche-attente)) 94%, hsl(var(--text)));
     }
     html:not(.dark) .decroche-violet:hover {
-      background: color-mix(in srgb, hsl(var(--decroche-attente)) 95%, hsl(var(--text)));
+      background: color-mix(in srgb, hsl(var(--decroche-attente)) 97%, hsl(var(--text)));
     }
   }
   /* LA LISTE DES TÂCHES EN GRIS (demande du 27/10/2026, capture #40a9) :
@@ -773,8 +949,11 @@
   .prose-hd strong {
     @apply font-semibold text-text;
   }
+  /* LES LIENS EN ORANGE (14/11/2026) : l'une des rares choses importantes qui portent la couleur. */
   .prose-hd a {
-    @apply underline underline-offset-2 text-text;
+    @apply underline underline-offset-2;
+    color: hsl(var(--important));
+    text-decoration-color: hsl(var(--important-trait));
   }
   .prose-hd table {
     @apply my-3 w-full text-[13.5px];
@@ -784,6 +963,25 @@
   }
   .prose-hd td {
     @apply border-b border-border/60 py-1 text-muted align-top;
+  }
+  /* UN TABLEAU SE LIT SUR TÉLÉPHONE (capture de l'utilisateur du 03/11/2026 : une première colonne écrasée
+     lettre par lettre sur iPhone). Le texte du fil coupe les mots n'importe où (`word-break: break-word`) ;
+     dans une cellule, cela rend sa largeur minimale presque nulle, et le tableau se tasse au lieu de
+     défiler. Une cellule ne coupe donc qu'entre les mots, et garde une largeur lisible : le tableau devient
+     plus large que l'écran, et c'est son enveloppe (`[data-tableau-markdown]`) qui défile à l'horizontale. */
+  .prose-hd :is(th, td) {
+    overflow-wrap: normal;
+    word-break: normal;
+    min-width: 6.5rem;
+    max-width: 22rem;
+    padding-right: 0.75rem;
+  }
+  .prose-hd :is(th, td):last-child {
+    padding-right: 0;
+  }
+  .prose-hd [data-tableau-markdown] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   /* LA COMPRÉHENSION SE LIT D'UNE SEULE VOIX.
@@ -836,6 +1034,19 @@
   .comprehension-detachee *:not(svg):not(svg *) {
     color: hsl(var(--text)) !important;
   }
+  /* LE SOMMAIRE D'UNE COMPRÉHENSION EN POINTS garde son intitulé et ses numéros discrets : la règle ci-dessus
+     passerait tout en couleur de texte. */
+  .comprehension-detachee [data-intitule-du-sommaire],
+  .comprehension-detachee [data-sommaire-en-points] [data-ligne-du-sommaire] > span:first-child {
+    color: hsl(var(--faint)) !important;
+  }
+  /* CE QUI A CHANGÉ DEPUIS LA COMPRÉHENSION PRÉCÉDENTE, EN VIOLET (13/11/2026) : la seule teinte qui passe la règle
+     d'une couleur unique ci-dessus (`marquerLesEcarts`, shared ; rendu `data-ecart-de-comprehension`). */
+  .comprehension-unie [data-ecart-de-comprehension],
+  .comprehension-unie [data-ecart-de-comprehension] *:not(svg):not(svg *) {
+    /* EN ORANGE depuis le 14/11/2026 : le violet n'existe plus, et ce qui a changé est ce qu'il faut relire. */
+    color: hsl(var(--important)) !important;
+  }
   /* Les titres gardent leur gras et leur air, pas leur graduation : sans le
      trait ni la taille, c'est le saut de paragraphe qui les détache. */
   .comprehension-unie .prose-hd h2 {
@@ -871,6 +1082,77 @@
   }
   .texte-du-fil > :is(h1, h2, h3):first-child {
     @apply mt-0;
+  }
+
+  /* LE TEXTE D'UN VOLET EN LECTURE SEULE (plan d'une campagne, dossier marketing — 11/11/2026).
+     Même rendu que le chat (`Markdown enTexte` : gras, italique, listes, tableaux), à la taille
+     du volet : 13 px, des titres nus sans trait, des paragraphes serrés. Les paragraphes gardent
+     la couleur du texte (`--text`) : le volet se lit, il ne se survole pas. */
+  .texte-du-volet {
+    @apply text-[13px] leading-relaxed;
+  }
+  .texte-du-volet :is(h1, h2, h3, h4, h5, h6, p, li, blockquote, table, th, td) {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+  }
+  .texte-du-volet :is(p, li) {
+    @apply text-text;
+  }
+  /* Une rubrique reprise de la fiche (pas encore tranchée avec l'agent) se lit plus pâle. */
+  .texte-du-volet-pale :is(p, li) {
+    @apply text-muted;
+  }
+  .texte-du-volet p,
+  .texte-du-volet ul {
+    @apply mb-2;
+  }
+  .texte-du-volet ul {
+    @apply space-y-1;
+  }
+  .texte-du-volet table {
+    @apply my-2;
+  }
+  .texte-du-volet :is(h1, h2, h3) {
+    @apply mt-3 mb-1 border-t-0 pt-0 font-semibold tracking-normal text-text;
+  }
+  .texte-du-volet > :is(h1, h2, h3):first-child {
+    @apply mt-0;
+  }
+
+  /* LE TEXTE D'UNE BULLE DE JARVIS (17/11/2026 : « je vois pas la suite de tout ce que l'agent me dit ») : la
+     réponse ENTIÈRE, rendue comme le fil (`Markdown enTexte` : gras, listes, tableaux), à la taille d'une bulle
+     (13 px, interligne serré). Un tableau large défile dans la bulle (enveloppe `data-tableau-markdown`). */
+  .texte-de-bulle {
+    @apply text-[13px] leading-snug;
+  }
+  .texte-de-bulle :is(h1, h2, h3, h4, h5, h6, p, li, blockquote, table, th, td) {
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    color: inherit;
+  }
+  .texte-de-bulle :is(p, ul, ol, pre, [data-tableau-markdown]) {
+    @apply mb-1.5;
+  }
+  .texte-de-bulle > :last-child,
+  .texte-de-bulle > :last-child > :last-child {
+    @apply mb-0;
+  }
+  .texte-de-bulle ul {
+    @apply space-y-0.5;
+  }
+  .texte-de-bulle :is(h1, h2, h3) {
+    @apply mt-2 mb-1 border-t-0 pt-0 font-semibold tracking-normal;
+  }
+  .texte-de-bulle > :is(h1, h2, h3):first-child {
+    @apply mt-0;
+  }
+  .texte-de-bulle :is(th, td) {
+    @apply whitespace-nowrap px-2 py-1;
+  }
+  /* Sur le bleu des bulles de Jarvis, tout le texte suit la couleur de la bulle (liens, gras, code compris). */
+  .texte-de-bulle,
+  .texte-de-bulle :is(strong, em, a, code, span, div) {
+    color: inherit !important;
   }
 
   /* UN PLAN SE LIT COMME UNE RÉPONSE, À TITRES DISTINCTS (12/10/2026).
@@ -1215,10 +1497,28 @@ html[data-terminal-ouvert] body {
 [data-ecriture-au-clavier] > [data-pied-de-conversation] > [data-composer] [data-champ-d-ecriture] textarea {
   max-height: var(--hauteur-max-du-champ, 180px) !important;
 }
+/* LA ZONE D'ÉCRITURE D'UNE PAGE DE COMMUNICATION SE POSE SUR LE CLAVIER (carte du 04/11/2026, capture #e16d) : le
+   temps de la frappe, le menu du bas du téléphone s'efface — masqué, jamais démonté —, et la zone, dernier bloc de la
+   page, touche le clavier. */
+html[data-clavier-ouvert]:has([data-communication-zone-ecriture]:focus-within) nav[data-menu-bas] {
+  display: none !important;
+}
 /* Le clavier couvre la barre de gestes : sa marge du bas ne se réserve plus. */
 html[data-clavier-ouvert] [data-composer] {
   padding-bottom: 8px !important;
 }
+/* LE PIED D'AVANCE DE COMMUNICATION 2 (`PiedDAvance`) : un bouton éteint est GRIS FRANC, texte atténué — jamais un noir
+   délavé qu'on confond avec un bouton actif. Un bouton éteint qui montre un travail (`data-en-route`) garde son fond
+   plein. Décision de l'utilisateur, carte « Réponses mises en page et boutons contrastés ». */
+[data-v2-pied-d-avance] button:disabled:not([data-en-route]) {
+  opacity: 1;
+  background-color: hsl(var(--raised));
+  color: hsl(var(--faint));
+}
+[data-v2-pied-d-avance] button[data-en-route]:disabled {
+  opacity: 1;
+}
+
 /* LE TERMINAL EST NOIR DANS LES DOUZE PALETTES : ses jetons sont redonnés ici,
    pour son entête, ses boutons et son menu de comptes. */
 .terminal-noir {
@@ -1233,6 +1533,227 @@ html[data-clavier-ouvert] [data-composer] {
   --accent: 0 0% 96%;
   --accent-fg: 0 0% 9%;
   color-scheme: dark;
+}
+
+/* L'APERÇU D'UNE CHARTE EST FONCÉ DANS LES DOUZE PALETTES (décision de l'utilisateur, carte « Retouches de la charte
+   graphique ») : le volet sous l'en-tête — ligne des versions et des formats, miniatures, document, zoom, bulles de
+   commentaires — reprend la palette SOMBRE NEUTRE (copie du bloc `:root`), même quand l'interface autour est claire.
+   Les pages du document gardent leurs propres couleurs. La page du client pose la même classe (lecteur commun). */
+.apercu-sombre,
+[data-zone]:has([data-pleine-surface]) [data-bande-de-zone] {
+    --bg: 0 0% 13%;
+  --surface: 0 0% 16.5%;
+  --raised: 0 0% 21%;
+  --border: 0 0% 18%;
+  --text: 0 0% 93%;
+  --muted: 0 0% 70%;
+  --faint: 0 0% 52%;
+  --accent: 0 0% 96%;
+  --accent-fg: 0 0% 9%;
+  /* ACQUIS — terminé, réussi, en ligne, lu : un gris moyen. */
+  --success: 0 0% 68%;
+  /* APPELLE L'ŒIL — alerte, attente d'un geste : le texte fort. */
+  --warning: 0 0% 93%;
+  --nouveau: 0 0% 70%;
+  --a-surveiller: 214 100% 65%;
+  /* LE SEUL ROUGE : l'erreur, et le geste qui détruit. */
+  --danger: 0 72% 66%;
+  --record: 0 0% 93%;
+  --record-fg: 0 0% 9%;
+  --info: 0 0% 68%;
+  --publie: 0 0% 93%;
+  --competence: 0 0% 93%;
+  --competence-fg: 0 0% 9%;
+  /* L'AVANCEMENT, SANS COULEUR : en cours = fort, terminé = moyen. */
+  --en-cours: 0 0% 93%;
+  --termine: 0 0% 68%;
+  /* LES SÉRIES D'UN GRAPHIQUE : trois gris, du plus marqué au plus pâle. */
+  --serie-1: 0 0% 92%;
+  --serie-2: 0 0% 62%;
+  --serie-3: 0 0% 40%;
+  --travail: 0 0% 93%;
+  --termine-fg: 0 0% 9%;
+  --intensite-calme: var(--faint);
+  --intensite-chargee: var(--text);
+  --fond-plan: 0 0% 17%;
+  /* LA ZONE DE CONVERSATION D'UNE PAGE DE SERVICE : un panneau PLUS
+     SOMBRE que la page, pour que le champ d'écriture (`--raised`) s'y
+     détache nettement (demande du 27/10/2026 : `--fond-plan`, 17 %, était
+     trop proche du champ). */
+  --fond-conversation-service: 0 0% 10%;
+  /* LE VOILE qui assombrit la page derrière une fenêtre. */
+  --voile: 0 0% 0%;
+  /* LE TEXTE POSÉ SUR UN APLAT D'ÉTAT (bouton, pastille) : l'aplat est clair
+     en sombre, le texte y est donc foncé. */
+  --sur-etat: 0 0% 9%;
+  --actif: 0 0% 96%;
+  --actif-fg: 0 0% 9%;
+  /* LE FOND D'UN BOUTON « CONTOUR » AU REPOS : rien, son filet le dessine.
+     L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
+  --controle: 0 0% 100% / 0.07;
+  --controle-doux: 0 0% 100% / 0.08;
+  --controle-doux-survol: 0 0% 100% / 0.12;
+  /* LA LIGNE OUVERTE, colonne de gauche. */
+  --ligne-active: 0 0% 19%;
+  /* LE BANDEAU DU FIL D'ARIANE, sur ordinateur (01/11/2026, capture #e118) : un cran au-dessus de la page en
+     sombre, un cran en dessous en clair ; l'ombre qui le détache de la colonne de gauche. */
+  --fond-entete: 0 0% 15.5%;
+  --ombre-entete: 0 0% 0% / 0.45;
+  --bandeau-etape: 0 0% 18%;
+  --bloc-etapes: 0 0% 17%;
+  /* LES DEUX DÉCROCHÉS empilés sur le champ d'écriture finissent leur
+     dégradé (`.decroche-degrade`) dans ces gris, choisis pour TRANCHER sur
+     la barre posée dessous (demande du 27/10/2026) :
+     - `--decroche`, le bas de la liste des tâches, 6 points sous le champ
+       (`--raised`) — c'est aussi le fond de la liste dépliée ;
+     - `--decroche-attente`, le bas des messages en attente : le gris de
+       la liste des tâches posée dessous, un tout petit peu plus FONCÉ
+       (décision du 27/10/2026 : un gris clair de 25 % jurait). */
+  --decroche: 0 0% 15%;
+  --decroche-attente: 0 0% 19.5%;
+  /* LE SURVOL D'UN ÉLÉMENT POSÉ SUR `--raised` (une ligne dans un bloc en
+     relief) : une marche franche AU-DESSUS du plus haut des trois fonds,
+     pour qu'un survol ne retombe jamais sur la couleur de son support. */
+  --fond-survol: 0 0% 27%;
+  /* LE FOND D'UN CHAMP (retours du 04/11/2026, deuxième passe : « les champs sont invisibles dans les tiroirs ») : une
+     marche à part, distincte des trois fonds (page, bloc, relief) ET du panneau qui le porte. */
+  --champ: 0 0% 24.5%;
+  /* LES ONGLETS À TROIS FONDS ET L'EN-TÊTE DES TABLEAUX (décision de l'utilisateur du 03/11/2026) : la
+     BARRE est le fond le plus profond, un onglet au repos un fond intermédiaire, l'onglet choisi le plus
+     clair (son texte en violet). L'en-tête d'un tableau tranche sur ses lignes. */
+  --onglets-barre: 0 0% 10.5%;
+  --onglets-repos: 0 0% 18%;
+  --onglets-actif: 0 0% 28%;
+  --tableau-entete: 0 0% 23.5%;
+  /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
+     (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
+     qu'on a dans l'application, avec parcimonie mais intelligemment »). Il
+     dit ce que l'agent est EN TRAIN DE FAIRE : le texte du décroché, et
+     rien d'autre pour l'instant. Tout nouvel usage se décide, il ne se
+     répand pas. Le jeton s'appelle `--teinte` (classe `text-teinte`) et non
+     `--violet` : `violet` est un nom de palette de Tailwind, que le contrôle
+     des couleurs en dur refuse à juste titre.
+     SECOND USAGE, demandé le même jour : l'élément CHOISI d'une liste de
+     choix (liste déroulante, menu, onglets, menu d'une fenêtre) s'écrit en
+     violet, « pour qu'on le distingue clairement ». */
+  --teinte: 0 0% 93%;
+    /* LE BLEU DE L'IMPORTANT (14/11/2026, « je veux du monochrome noir anthracite / blanc gris, seules les choses
+       importantes doivent être en orange : liens, questions… » ; BLEU FRANC depuis le 15/11/2026, capture #ae883 : #4C9AFF en sombre, #1F6FEB en clair ; le cadre des questions seul repasse au JAUNE) : liens, ce qui attend
+       l'utilisateur, alertes, et le texte de l'élément actif de la colonne de gauche. Rien d'autre. */
+    --important: 214 100% 65%;
+    --important-fond: 214 100% 65% / 0.14;
+    --important-trait: 214 100% 65% / 0.5;
+  /* LE BADGE DE STATUT D'UNE CARTE (demande du 18/10/2026) : JAUNE à la
+     Compréhension (`--comprehension`), VIOLET au Travail (`--teinte`), chacun
+     avec un léger fond et un trait de la même teinte. L'alpha vit DANS le
+     jeton : on n'écrit jamais `bg-comprehension-fond/50`. Le jaune sert à
+     ce badge (`badge-etape.tsx`) et au CADRE DE CHAQUE QUESTION
+     (`.cadre-de-question`, demande du 25/10/2026) — à rien d'autre. */
+  --comprehension: 214 100% 65%;
+  --comprehension-fond: 214 100% 65% / 0.14;
+  --comprehension-trait: 214 100% 65% / 0.5;
+  /* Le cadre d'une question (`.cadre-de-question`) : un jaune franc. */
+  --cadre-question: 48 92% 62%;
+  /* LES ONDES DE JARVIS (16/11/2026, demande de l'utilisateur) : JAUNE quand vous parlez, BLEU quand Jarvis parle. Leur seul usage : la barre d'ondes du volet de l'assistant en mode voix. */
+  --voix-vous: 48 95% 58%;
+  --voix-jarvis: 212 100% 64%;
+  /* LES BULLES DE JARVIS (17/11/2026) : son bleu, assez profond pour un texte BLANC en sombre (contraste ≥ 4,5:1). */
+  --bulle-jarvis: 212 100% 42%;
+  --bulle-jarvis-texte: 0 0% 100%;
+  --etat-termine: 142 60% 48%;
+  /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
+     seule teinte ajoutée depuis, réservée au badge d'état d'un agent
+     (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
+     (`liste-des-agents.tsx`) — à déployer, ou terminé pas encore ouvert. */
+  --pret: 0 0% 70%;
+  --pret-fond: 0 0% 100% / 0.07;
+  --pret-trait: 0 0% 100% / 0.2;
+  /* LES TÊTES DE COLONNES DE L'ESPACE CLIENT (demande du 08/11/2026, capture #12cb) : gris, bleu, vert, vert —
+     exception voulue à la charte monochrome, réservée à `colonne-demandes.tsx`. */
+  --colonne-bleu: 0 0% 93%;
+  --colonne-vert: 0 0% 70%;
+  --colonne-bleu-fond: 0 0% 100% / 0.09;
+  --colonne-vert-fond: 0 0% 100% / 0.06;
+  --colonne-gris-fond: 0 0% 60% / 0.12;
+  --teinte-fond: 0 0% 100% / 0.07;
+  --teinte-trait: 0 0% 100% / 0.22;
+  /* LE VIOLET PLEIN, sous un texte BLANC : les boutons d'action de
+     l'assistant de démarrage (demande du 18/10/2026), et le bouton
+     « Annuler » / « Suspendre » d'un agent au travail (24/10/2026). */
+  --teinte-plein: 0 0% 24%;
+  /* LE BLANC POSÉ SUR UN APLAT DE COULEUR (violet plein, rouge d'erreur) :
+     un jeton, pour que l'écran n'écrive jamais `text-white` (28/10/2026). */
+  --sur-couleur: 0 0% 100%;
+  /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
+     bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre
+     c'est un GRIS soutenu, jamais le blanc de l'accent : une bulle ou une
+     barre blanche éblouissait au milieu d'un écran noir (demande du
+     11/10/2026). */
+  --encre: 0 0% 22%;
+  --encre-fg: 0 0% 93%;
+  /* LES TEINTES DU GRAPHE DE LA MÉMOIRE (décision du 2026-10-20) : une
+     exception VOULUE à « une seule couleur », limitée au graphe
+     (`memoire-graphe.tsx`). Six familles de catégories en teintes VIVES,
+     espacées sur le cercle des couleurs pour se distinguer d'un coup d'œil
+     (bleu, cyan, vert, ambre, rouge, rose), et un violet pour les
+     compétences. Vives à la demande de l'utilisateur (2026-10-20) : les
+     teintes douces d'origine se confondaient. */
+  --graphe-1: 212 92% 64%;
+  --graphe-2: 182 82% 48%;
+  --graphe-3: 135 68% 52%;
+  --graphe-4: 38 96% 56%;
+  --graphe-5: 4 88% 63%;
+  --graphe-6: 322 86% 66%;
+  --graphe-competence: 266 92% 74%;
+  color-scheme: dark;
+  --fond-zone: 0 0% 13%;
+  --fond-zone-defilement: hsl(var(--fond-zone));
+  color-scheme: dark;
+  background-color: hsl(var(--bg));
+  color: hsl(var(--text));
+}
+
+/* UNE CHARTE OUVERTE PREND TOUTE LA SURFACE (14/11/2026, capture #7e698 : « le container entier doit être noir, pas
+   juste le panel avec le composant ») : la page qui la porte lâche sa colonne centrée et ses marges, et la bande des
+   icônes du haut de la zone (commentaires, télécharger, lien) prend la même palette sombre. Repère : `data-pleine-surface`
+   sur le volet (plaquettes.tsx). La LISTE des documents, sans ce repère, garde sa colonne. */
+[data-ecran-plein]:has([data-pleine-surface]),
+[data-corps-de-la-page-de-service]:has([data-pleine-surface]),
+/* …ET UNE CHARTE AVEC SON AGENT (17/11/2026) : la conversation et le volet du document vont bord à bord, comme une
+   campagne ou un client du Marketing. */
+[data-ecran-plein]:has([data-charte-rangee]),
+[data-corps-de-la-page-de-service]:has([data-charte-rangee]) {
+  max-width: none;
+  margin-top: 0;
+  padding: 0;
+}
+/* …ET PLUS DE RANGÉE VIDE AU-DESSUS (15/11/2026, capture #bdba) : la bande du coin ne réserve plus sa hauteur, ses gestes
+   se posent sur la rangée du document, à droite de son état. */
+[data-zone]:has([data-pleine-surface]) .bande-de-zone {
+  min-height: 0;
+}
+
+/* LE PANNEAU D'UN SERVICE DÉFILE EN ENTIER (15/11/2026, `PageDeService`) : son contenu s'étend à sa hauteur. Une vue
+   qui a besoin de TOUTE la hauteur — une conversation (`data-fil="conversation"`), un atelier ou un dossier à deux
+   colonnes (`data-pleine-hauteur`), une charte ouverte (`data-pleine-surface`) — borne alors le contenu à la zone, comme
+   avant : ses propres zones défilent en dedans. */
+[data-contenu-de-la-page-de-service]:has([data-fil='conversation'], [data-pleine-hauteur], [data-pleine-surface], [data-plein-cadre]) {
+  height: 100%;
+}
+[data-contenu-de-la-page-de-service]:has([data-fil='conversation'], [data-pleine-hauteur], [data-pleine-surface], [data-plein-cadre])
+  > [data-corps-de-la-page-de-service] {
+  padding-bottom: 0;
+}
+
+/* UNE SOUS-PAGE « CONVERSATION + VOLET » PREND TOUT LE CADRE (15/11/2026, capture #66c6 : « volet complètement décalé,
+   une marge en haut, une marge à droite ») : comme une campagne de Communication ou le plan d'une carte, le volet se
+   colle sous la barre du fil et au bord droit, et la conversation se centre dans la place restante. La page le dit par
+   `data-plein-cadre` (page d'un projet de Sécurité sur ordinateur) : le corps lâche sa colonne centrée, sa marge haute
+   et ses marges de côté. Les listes des services, sans ce repère, gardent leur colonne. */
+[data-corps-de-la-page-de-service]:has([data-plein-cadre]) {
+  max-width: none;
+  margin-top: 0;
+  padding: 0;
 }
 
 /* LE BLOC D'UN MÉDIA EN FABRICATION (`medias-en-fabrication.tsx`) : une lumière
@@ -1257,6 +1778,30 @@ html[data-clavier-ouvert] [data-composer] {
   );
   animation: balayage-du-media 3.6s ease-in-out infinite;
 }
+/* LA BARRE D'UNE ÉTAPE QUI TRAVAILLE (`RangeeDEtapes`, parcours Marketing, 03/11/2026) : elle se remplit à la
+   progression réelle, et un reflet violet la parcourt de gauche à droite tant que la mission tourne. */
+.barre-qui-travaille {
+  position: relative;
+  overflow: hidden;
+}
+.barre-qui-travaille::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent 0%, hsl(var(--teinte) / 0.55) 50%, transparent 100%);
+  animation: balayage-de-la-barre 1.8s ease-in-out infinite;
+}
+@keyframes balayage-de-la-barre {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
 @keyframes balayage-du-media {
   0% {
     transform: translateY(-100%);
@@ -1266,9 +1811,30 @@ html[data-clavier-ouvert] [data-composer] {
   }
 }
 
+/* UNE IMAGE SERVIE PAR LE DÉMON RESPIRE TANT QU'ELLE CHARGE (04/11/2026) : pièces
+   jointes, captures et miniatures viennent du disque de stockage, un peu plus
+   lent. Le repère `data-image-chargee` est posé par `lib/images-qui-chargent.ts`
+   à l'arrivée (ou à l'échec) de l'image ; le fond disparaît alors sous elle. */
+img[src^="/api/"]:not([data-image-chargee]) {
+  background-color: hsl(var(--raised));
+  animation: image-qui-charge 1.4s ease-in-out infinite;
+}
+@keyframes image-qui-charge {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  img[src^="/api/"]:not([data-image-chargee]),
   .media-en-fabrication::after,
+  .barre-qui-travaille::after,
   .animate-secousse,
+  .animate-glisse-du-bord,
   .animate-pulse-soft,
   .animate-scintille,
   .animate-clignote,
@@ -1308,7 +1874,7 @@ html:not(.dark) .fond-de-colonne-tableau {
 }
 html.dark .fond-de-colonne-tableau,
 html[data-theme='sombre'] .fond-de-colonne-tableau {
-  --fond-zone: 0 0% 9%;
+  --fond-zone: 0 0% 5%;
   --fond-zone-defilement: hsl(var(--fond-zone));
   background-color: hsl(var(--fond-zone));
 }
@@ -1441,6 +2007,63 @@ html:not(.dark) .bloc-sous-cartes {
 .bloc-sous-cartes {
   background-image: linear-gradient(to top, var(--fond-bloc-sous-cartes) 90%, transparent);
 }
+/* UN GROUPE EN JEU DE CARTES (liste des agents) : le cadre de la mère, ses tranches
+   et ses filles prennent la marche mesurée du bloc, jamais `--raised`, qui ne fonce
+   pas en clair. Le survol d'une ligne monte d'une marche, sinon il ne se verrait pas. */
+html.dark .carte-du-paquet {
+  background-color: color-mix(in srgb, hsl(var(--raised)) 50%, hsl(var(--fond-zone)));
+  box-shadow: 0 3px 8px -3px rgb(0 0 0 / 0.45);
+}
+html:not(.dark) .carte-du-paquet {
+  background-color: color-mix(in srgb, hsl(var(--voile)) 4%, hsl(var(--fond-zone)));
+  box-shadow: 0 2px 6px -2px rgb(0 0 0 / 0.1);
+}
+/* SUR TÉLÉPHONE, UNE FEUILLE HAUTE MONTE COMME LE MENU PRINCIPAL (`HAUTEUR_DE_FEUILLE_HAUTE`). */
+@media (max-width: 639px) {
+  :root {
+    --plafond-de-feuille-haute: 100dvh;
+  }
+}
+/* CE QUI EST DESSOUS (les bords du paquet fermé, ses cartes sorties) est encore plus près du fond (31/10/2026, #edff). */
+/* LE BANDEAU DU FIL D'ARIANE A SON FOND, COLLÉ À LA COLONNE DE GAUCHE (demande du 01/11/2026, capture #e118) :
+   sur ordinateur, la barre d'en-tête de la zone centrale (page ou carte ouverte) porte `--fond-entete` d'un bord à
+   l'autre de la zone — donc dès le bord de la colonne — et une ombre intérieure à gauche qui l'en détache. En clair,
+   ce fond est légèrement plus foncé que la page. Une page ouverte par-dessus (`data-page-de-zone` : une carte, le
+   Studio…) commence elle aussi au bord de la colonne et suit la même règle. Au téléphone, rien ne change : la bande
+   sous l'heure garde le fond exact de la zone. */
+@media (min-width: 640px) {
+  /* DEPUIS LE 13/11/2026 (refonte façon Claude Desktop, DEC-467 remplacée) : la barre du haut n'a plus de fond à
+     elle — elle prend celui de la zone de travail — ni d'ombre ; seul un trait fin la sépare de la page. */
+  :is([data-zone='centre'], [data-page-de-zone]) header[data-entete-de-zone] {
+    background-color: hsl(var(--fond-zone, var(--bg)));
+    box-shadow: inset 0 -1px 0 hsl(var(--trait-de-colonne));
+  }
+  /* LE TRAIT FIN ENTRE LA COLONNE ET LA ZONE DE TRAVAIL. */
+  [data-zone='gauche'] {
+    box-shadow: inset -1px 0 0 hsl(var(--trait-de-colonne));
+  }
+}
+
+/* L'AGENT OUVERT DANS LA COLONNE DE GAUCHE (demande du 01/11/2026, capture #10c2) : un fond TRÈS léger, plus
+   discret que le survol (`--raised`), sous son projet comme dans « En cours ». Le texte en couleur de teinte et le
+   repère demi-rond restent ; le fond suit le texte de la palette, il n'ajoute aucune couleur. */
+.ligne-ouverte-de-colonne {
+  background-color: hsl(var(--text) / 0.07);
+}
+html:not(.dark) .ligne-ouverte-de-colonne {
+  background-color: hsl(var(--text) / 0.055);
+}
+
+html.dark .carte-du-paquet-dessous {
+  background-color: color-mix(in srgb, hsl(var(--raised)) 25%, hsl(var(--fond-zone)));
+}
+html:not(.dark) .carte-du-paquet-dessous {
+  background-color: color-mix(in srgb, hsl(var(--voile)) 2%, hsl(var(--fond-zone)));
+}
+.carte-du-paquet [data-agent-en-liste] > button:first-child:hover,
+.carte-du-paquet-dessous [data-agent-en-liste] > button:first-child:hover {
+  background-color: hsl(var(--fond-survol) / 0.5);
+}
 
 /* LE RELIEF DANS LES SIX PALETTES CLAIRES : UN VOILE QUI FONCE, JAMAIS UN
    BLANC QUI S'AJOUTE AU BLANC.
@@ -1529,57 +2152,6 @@ html.en-veille *::after {
   }
 }
 
-/*
- * LA JAUGE À DEUX POIGNÉES : deux curseurs natifs superposés sur la même
- * piste. Leur piste est transparente et ne capte rien ; seules les poignées
- * reçoivent le doigt, la souris et le clavier. Une poignée ronde, au fond de
- * la surface, sans bordure — l'ombre la détache (monochrome).
- */
-.jauge-double input[type='range'] {
-  position: absolute;
-  inset: 0 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  background: transparent;
-  pointer-events: none;
-  -webkit-appearance: none;
-  appearance: none;
-  touch-action: none;
-}
-.jauge-double input[type='range']::-webkit-slider-runnable-track {
-  background: transparent;
-  height: 100%;
-}
-.jauge-double input[type='range']::-moz-range-track {
-  background: transparent;
-}
-.jauge-double input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  pointer-events: auto;
-  width: 22px;
-  height: 22px;
-  margin-top: 3px;
-  border-radius: 9999px;
-  background: hsl(var(--surface));
-  box-shadow: 0 0 0 1px hsl(var(--faint) / 0.5), 0 2px 6px rgb(0 0 0 / 0.25);
-  cursor: grab;
-}
-.jauge-double input[type='range']::-moz-range-thumb {
-  pointer-events: auto;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 9999px;
-  background: hsl(var(--surface));
-  box-shadow: 0 0 0 1px hsl(var(--faint) / 0.5), 0 2px 6px rgb(0 0 0 / 0.25);
-  cursor: grab;
-}
-.jauge-double input[type='range']:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 2px hsl(var(--text) / 0.6), 0 2px 6px rgb(0 0 0 / 0.25);
-}
-
 /* LE CADRE D'UNE QUESTION (demande du 25/10/2026, capture #1640) : partout où
    une question attend une réponse — panneau « Une décision attend », fil,
    feuille du bas, question en texte, questions préparées de la carte —, une
@@ -1650,10 +2222,239 @@ html [class~='hover:bg-raised']:hover {
   animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
   animation-fill-mode: forwards;
 }
+/* LE MARTEAU QUI FRAPPE (un agent au travail) ET LE CRAYON QUI ÉCRIT (un cadrage en cours) — décision de
+   l'utilisateur du 16/11/2026, maquette #359e : ils remplacent l'anneau qui tournait. */
+@keyframes marteau-qui-frappe {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-28deg); }
+  45% { transform: rotate(8deg); }
+}
+.icone-marteau-frappe {
+  transform-origin: 80% 80%;
+  animation: marteau-qui-frappe 1.1s ease-in-out infinite;
+}
+@keyframes crayon-qui-ecrit {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(1.2px, -0.8px) rotate(-6deg); }
+  50% { transform: translate(-1px, 0.6px) rotate(4deg); }
+  75% { transform: translate(1px, 0.4px) rotate(-3deg); }
+}
+.icone-crayon-ecrit {
+  transform-origin: 20% 80%;
+  animation: crayon-qui-ecrit 0.9s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .icone-sablier,
   .icone-coche-dessinee path,
+  .icone-marteau-frappe,
+  .icone-crayon-ecrit,
   .confetti {
     animation: none;
+  }
+}
+
+/* DANS L'ESPACE COMMUNICATION, LE COIN BAS-DROIT EST CELUI DU CHAMP D'ÉCRITURE : aucun rond ne s'y pose par-dessus. */
+body:has([data-communication]) [data-rond-seul] {
+  display: none;
+}
+
+/* LE BOUTON GROUPÉ DE LA BARRE D'UNE PAGE (03/11/2026, modèle A) : le geste principal et le chevron de ses options
+   forment UNE pilule coupée en deux — mêmes fond et hauteur, un jour de 2 px, arrondie aux deux bouts seulement.
+   Le chevron prend le fond du geste principal (l'aplat d'encre d'un geste qui crée). Sans geste principal, le
+   chevron reste un bouton entier, du fond des segments. */
+[data-gestes-de-page="barre"]:has([data-options-de-page="chevron"]) [data-geste-principal="barre"] button {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+[data-gestes-de-page="barre"]:has([data-geste-principal="barre"]) [data-options-de-page="chevron"] {
+  margin-left: calc(2px - 0.25rem);
+}
+[data-gestes-de-page="barre"]:has([data-geste-principal="barre"]) [data-options-de-page="chevron"] button {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  background: hsl(var(--encre));
+  color: hsl(var(--encre-fg));
+}
+
+/* LE JOURNAL D'UN AGENT EN FONDU (`web/src/components/journal-de-l-agent.tsx`) : à chaque nouvelle phrase, la pile
+   monte d'une ligne. Rien ne bouge pour qui demande moins d'animations. */
+@keyframes journal-qui-monte {
+  from {
+    transform: translateY(1.35em);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+[data-journal-de-l-agent] [data-journal-pile] {
+  animation: journal-qui-monte 260ms ease-out;
+}
+[data-journal-de-l-agent] [data-journal-ligne] {
+  transition: opacity 260ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-journal-de-l-agent] [data-journal-pile] {
+    animation: none;
+  }
+  [data-journal-de-l-agent] [data-journal-ligne] {
+    transition: none;
+  }
+}
+
+/* LA COLONNE DE GAUCHE PLUS AÉRÉE, FAÇON CLAUDE DESKTOP (refonte du 13/11/2026) : un peu plus de marge sur les bords,
+   des lignes de tâche plus hautes, et de l'air avant chaque groupe de projets. Ordinateur seulement : sur téléphone,
+   la colonne vit dans sa feuille, avec ses propres mesures tactiles. */
+@media (min-width: 640px) {
+  [data-zone='gauche'] [data-panneau-projets='deplie'] {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  /* LA TÊTE S'ALIGNE SUR LE FIL D'ARIANE VOISIN (15/11/2026, capture #35e2 : « les boutons sont trop bas »). Sa
+     hauteur de 60 px reste (rien ne bouge en dessous), mais son contenu se centre sur celui de la barre du centre :
+     28 px sous le haut pour la barre ordinaire de 56 px, 26 px pour la barre à onglets d'un projet (52 px). Écart
+     mesuré ≤ 1 px par le contrôle de la carte « Icônes, contrastes et artefacts ». */
+  [data-zone='gauche'] [data-rangee-de-boutons][data-titre-projets='deplie'] {
+    height: 3.75rem;
+    padding-bottom: 4px;
+  }
+  body:has([data-zone='centre'] [data-barre-du-projet]) [data-zone='gauche'] [data-rangee-de-boutons][data-titre-projets='deplie'] {
+    padding-bottom: 8px;
+  }
+  [data-zone='gauche'] :is([data-agent-en-cours], [data-agent-en-liste]) {
+    min-height: 2.25rem;
+  }
+  [data-zone='gauche'] [data-tete-taches-en-cours] {
+    margin-top: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  [data-zone='gauche'] [data-projet-cible] {
+    height: 2.5rem;
+  }
+  [data-zone='gauche'] [data-groupe-projets] {
+    margin-top: 0.75rem;
+  }
+}
+
+/* LE MENU D'UN SERVICE EN RANGÉE SOUS LA BARRE (refonte du 13/11/2026) : la colonne de gauche ne cède plus sa place
+   à un service ; ce qu'il y posait (`ColonneDeService` — le geste qui crée, ses rubriques) se pose ici, en boutons
+   côte à côte, sans titres de section. La rangée défile de côté si elle est trop longue, et disparaît vide. */
+/* LA BANDE EN TÊTE DE LA ZONE (13/11/2026, `bande-de-zone.tsx`) : le seul coin des gestes et des options, plus
+   aucune liste. Rien au coin : elle ne prend aucune place. */
+.bande-de-zone {
+  min-height: 48px;
+}
+.bande-de-zone:not(:has([data-coin-de-zone] > :not(:empty))) {
+  display: none;
+}
+/* Le menu du service dans le menu de gauche d'une fenêtre : ses lignes telles quelles, sans ses GESTES, rangés au coin. */
+.liste-de-service [data-geste-de-zone] {
+  display: none !important;
+}
+
+/* LE COIN D'UNE FENÊTRE DE SERVICE (gestes + chevron des options) flotte en haut à droite : la page posée dans la
+   fenêtre lui laisse sa colonne, pour qu'il ne recouvre jamais le haut d'une liste (13/11/2026). */
+@media (min-width: 640px) {
+  [data-fenetre-de-service]:has([data-coin-de-fenetre] [data-options-de-zone]) [data-page-en-fenetre] {
+    padding-right: 3.75rem;
+  }
+}
+
+/* LES ICÔNES DE LUCIDE AU TRAIT FIN (bibliothèque d'icônes du 14/11/2026, `components/ui/icones.tsx`) : leur trait par
+   défaut (2) passe à 1,6, celui des icônes redessinées. Un trait choisi exprès par un écran (1,5, 3…) est gardé. */
+svg.lucide[stroke-width='2'] {
+  stroke-width: 1.6;
+}
+
+/* LES CHIFFRES-CLÉS SUR UN FOND LÉGER (14/11/2026, « les stats doivent avoir un bg contrasté mais léger ») : un pavé
+   arrondi à peine distinct de la page, bien séparé de ses voisins — le même pour la Messagerie, le Résumé, les
+   Statistiques et les modèles de page. */
+[data-chiffres-cles] {
+  column-gap: 12px;
+  row-gap: 12px;
+}
+:is([data-chiffre-cle], [data-tuile-resume], [data-chiffre], [data-marketing-indicateur]) {
+  background-color: hsl(var(--fond-chiffre));
+  border-radius: 14px;
+  padding: 16px 18px 15px;
+}
+
+/* LE TEXTE DU TÉLÉPHONE, DEUX CRANS PLUS GRAND (carte « Icônes, contrastes et artefacts », 15/11/2026, décision de
+   l'utilisateur sur planche réelle : « deux crans partout », pour une meilleure lecture dans toute l'application).
+   UNE SEULE RÈGLE, ICI, plutôt que 2 600 classes réécrites une à une : sous 640 px, chaque taille d'utilitaire
+   `text-[Npx]` est redéfinie — moins de 15 px : +2 ; de 15 à 18 px : +1 (le texte des réponses, déjà confortable,
+   ne gagne qu'un cran) ; au-delà (grands titres, chiffres) et sous 10 px (pastilles de compte) : inchangé.
+   Les variantes `sm:` ne sont pas touchées : l'ordinateur ne bouge pas. Hors couche, en fin de feuille, pour passer
+   APRÈS les utilitaires de même poids. Les tailles imposées en `!important` (fil, volet, compréhension, plan) sont
+   reprises plus bas avec le même poids. Contrôle : aucun débordement en largeur à 390 px (scrollWidth). */
+@media (width < 640px) {
+  .text-\[10px\] { font-size: 12px; }
+  .text-\[10\.5px\] { font-size: 12.5px; }
+  .text-\[11px\] { font-size: 13px; }
+  .text-\[11\.5px\] { font-size: 13.5px; }
+  .text-\[12px\] { font-size: 14px; }
+  .text-\[12\.5px\] { font-size: 14.5px; }
+  .text-\[13px\] { font-size: 15px; }
+  .text-\[13\.5px\] { font-size: 15.5px; }
+  .text-\[14px\] { font-size: 16px; }
+  .text-\[14\.5px\] { font-size: 16.5px; }
+  .text-\[15px\] { font-size: 16px; }
+  .text-\[15\.5px\] { font-size: 16.5px; }
+  .text-\[16px\] { font-size: 17px; }
+  .text-\[16\.5px\] { font-size: 17.5px; }
+  .text-\[17px\] { font-size: 18px; }
+  .text-\[18px\] { font-size: 19px; }
+  .text-xs { font-size: 0.875rem; }
+  .text-sm { font-size: 1rem; }
+  .text-base { font-size: 1.0625rem; }
+  .prose-hd { font-size: 16px; }
+  .comprehension-unie { font-size: 15.5px; }
+  .comprehension-unie *:not(svg):not(svg *) { font-size: 15.5px !important; }
+  .texte-du-fil { font-size: 15.5px; }
+  .texte-du-fil :is(h1, h2, h3, h4, h5, h6, p, li, blockquote, table, th, td) { font-size: 15.5px !important; }
+  .texte-du-volet { font-size: 15px; }
+  .texte-du-volet :is(h1, h2, h3, h4, h5, h6, p, li, blockquote, table, th, td) { font-size: 15px !important; }
+  .plan-en-texte { font-size: 15.5px; }
+  .plan-en-texte .prose-hd :is(p, li, td, th, blockquote) { font-size: 15.5px; }
+}
+
+/* LE VERT DES ÉTAPES RÉUSSIES DU MONTAGE D'UN PROJET (fenêtre « Projets du serveur », 15/11/2026) : la seule
+   exception au monochrome, voulue par l'utilisateur. Une teinte FIXE, la même dans les douze palettes — `--success`
+   y est gris —, posée ici plutôt qu'en classe littérale dans l'écran (`CLASSE_ROND_VERT`, `barre-etapes.tsx`). */
+.rond-vert-du-montage {
+  background-color: hsl(142 64% 36%);
+  color: hsl(0 0% 100%);
+}
+.trait-vert-du-montage {
+  background-color: hsl(142 64% 36% / 0.55);
+}
+
+/* LA TÊTE D'UNE PAGE RESTE EN HAUT ET SON TITRE RAPETISSE (17/11/2026, capture #def0f) — `data-tete-collante`, posée par
+   `PageDeService` et `PageAGrandTitre` (fenetre-de-service.tsx), réduite par `useTeteReduite` dès que la zone a défilé.
+   Fond = celui du conteneur (`--fond-zone-defilement`, jamais une couleur fixe), au-dessus des voiles (z-10). Réduite,
+   elle rend en marge basse (`--gain-de-tete`) la hauteur qu'elle perd : la liste ne bouge pas. Ordinateur seulement :
+   le téléphone garde la tête de sa feuille, déjà hors de la zone qui défile. */
+@media (min-width: 640px) {
+  [data-tete-collante] {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: var(--fond-zone-defilement, hsl(var(--bg)));
+    transition:
+      padding 180ms ease,
+      margin 180ms ease;
+  }
+  [data-tete-collante] [data-titre-collant] {
+    transition: font-size 180ms ease;
+  }
+  [data-tete-collante][data-tete-reduite] {
+    padding-top: 8px;
+    padding-bottom: 8px;
+    margin-bottom: var(--gain-de-tete, 0px);
+  }
+  [data-tete-collante][data-tete-reduite] [data-titre-collant] {
+    font-size: 20px;
+  }
+  [data-tete-collante][data-tete-reduite] [data-ombre-de-tete] {
+    opacity: 1;
   }
 }

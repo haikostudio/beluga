@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { RechercheDePage } from '@/components/ui/recherche-en-icone';
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -7,6 +8,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleDot,
   Compass,
@@ -32,7 +34,7 @@ import {
   X,
   XCircle,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   DEFINITION_COMPETENCES,
   DEFINITION_TYPE,
@@ -78,6 +80,8 @@ import { SilhouetteCoffre } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { ColonneDeService } from '@/components/colonne-de-service';
 import { PageDuGraphe, dateDeLElement, type CibleDeLaListe } from '@/components/memoire-graphe';
+import { useDeclarerLeProjetDuHaut, type EtageDuProjet } from '@/components/haut-du-telephone';
+import { useDeclarerLesGestesDuBas, type GestesDuBas } from '@/components/menu-du-bas';
 import { useTelephone } from '@/lib/telephone';
 import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
@@ -578,6 +582,53 @@ export function MemoireClasseurs({
     </div>
   );
 
+  /*
+   * LE TÉLÉPHONE, SUR LE GRAPHE (03/11/2026, maquette 2) : la recherche du graphe monte dans le haut de l'écran, sur
+   * toute la largeur (la page pose un emplacement à la place du nom, le graphe y écrit son champ) ; en bas, UN
+   * bouton pleine largeur « Vue d'ensemble », au logo, qui ouvre en feuille la liste des projets regardés.
+   */
+  const [cibleDeLaRecherche, setCibleDeLaRecherche] = React.useState<HTMLElement | null>(null);
+  const [projetsOuverts, setProjetsOuverts] = React.useState(false);
+  const etageDuHaut = React.useMemo<EtageDuProjet | null>(
+    () =>
+      telephone && vue === 'graphe'
+        ? { libelle: t('Mémoire'), valeur: '', options: [], onChoisir: () => undefined, titre: t('Mémoire'), contenu: <div ref={setCibleDeLaRecherche} className="flex min-w-0 flex-1" data-memoire-recherche-du-haut /> }
+        : null,
+    [telephone, vue],
+  );
+  useDeclarerLeProjetDuHaut(etageDuHaut);
+  const gestesDuBas = React.useMemo<GestesDuBas | null>(
+    () =>
+      telephone
+        ? {
+            'vue-d-ensemble': {
+              libelle: t('Vue d’ensemble'),
+              /* SANS LOGO (03/11/2026, #466a) : le bouton pleine largeur ne porte que son libellé. */
+              icone: null,
+              onClick: () => setProjetsOuverts(true),
+            },
+          }
+        : null,
+    [telephone],
+  );
+  useDeclarerLesGestesDuBas(gestesDuBas);
+  const feuilleDesProjets = telephone ? (
+    <Drawer feuille open={projetsOuverts} onClose={() => setProjetsOuverts(false)}>
+      <DialogTitle className="px-4 pb-2 text-[17px] font-semibold text-text">{t('Vue d’ensemble')}</DialogTitle>
+      {/* « VUE D'ENSEMBLE » FAIT CE QUE FAISAIT « LISTE » (03/11/2026) : la liste des projets ; en choisir un ouvre
+          ses classeurs. */}
+      <ZoneDefilement hauteur={16} className="px-3 pb-[var(--pied-natif,calc(12px+env(safe-area-inset-bottom)))]" data-memoire-feuille-des-projets>
+        {listeDesPortees(() => {
+          setProjetsOuverts(false);
+          setThemeOuvert(null);
+          setVise(null);
+          setVue('liste');
+          setPageTel('fiches');
+        })}
+      </ZoneDefilement>
+    </Drawer>
+  ) : null;
+
   const dansLaFiche = pageTel === 'fiche' && ouverte && ouverte !== CHANGELOG;
   /** Où mène la flèche de retour du téléphone : un cran au-dessus. */
   const cranAuDessus: string = vise ? (themeOuvert ? 'theme' : 'categorie') : themeOuvert && dansLaFiche ? 'categorie' : pageTel === 'fiche' ? 'fiches' : 'portees';
@@ -597,18 +648,16 @@ export function MemoireClasseurs({
             </CranDuFil>
           </SuiteDuFil>
         ) : null}
-        <GestesDePage>
-          {telephone ? (
-            <Button variant="ghost" size="icon" className="h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted" aria-label="Liste" title={t('Liste')} onClick={() => setVue('liste')} data-memoire-vers-liste>
-              <List className="h-4 w-4" />
-            </Button>
-          ) : (
+        {/* SUR TÉLÉPHONE, PLUS DE BOUTON « LISTE » (03/11/2026) : il faisait la même chose que « Vue d'ensemble »,
+            le bouton du bas. */}
+        {telephone ? null : (
+          <GestesDePage>
             <Button variant="ghost" size="sm" onClick={() => setVue('liste')} data-memoire-vers-liste>
               <List className="h-3.5 w-3.5" />
               {t('Liste')}
             </Button>
-          )}
-        </GestesDePage>
+          </GestesDePage>
+        )}
         {telephone ? null : (
           <ColonneDeService>
             <ZoneDefilement hauteur={16} className="pb-4 pt-1" data-memoire-zone="portees">
@@ -616,8 +665,9 @@ export function MemoireClasseurs({
             </ZoneDefilement>
           </ColonneDeService>
         )}
+        {feuilleDesProjets}
         <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-vue="graphe" data-memoire-disposition={telephone ? 'telephone' : 'ordinateur'}>
-          <PageDuGraphe focus={focus} onFocus={setFocus} telephone={telephone} onOuvrirDansLaListe={ouvrirDepuisLeGraphe} />
+          <PageDuGraphe focus={focus} onFocus={setFocus} telephone={telephone} onOuvrirDansLaListe={ouvrirDepuisLeGraphe} {...(telephone ? { cibleDeLaRecherche } : {})} />
         </div>
       </Drawer>
     );
@@ -629,6 +679,7 @@ export function MemoireClasseurs({
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
       <DialogTitle className="sr-only">{t('Mémoire')}</DialogTitle>
+      {feuilleDesProjets}
       {/* LE FIL D'ARIANE DIT LE CLASSEUR, LA CATÉGORIE, LE THÈME PUIS L'ÉLÉMENT —
           « Mémoire › Beluga › Décisions › Publication » ; chaque cran y ramène.
           SUR TÉLÉPHONE, LA PAGE N'A PLUS DE BARRE À ELLE (demande du 11/10/2026 :
@@ -663,6 +714,21 @@ export function MemoireClasseurs({
               setVise(null);
               setPageTel('fiches');
             }}
+            /* LES AUTRES CLASSEURS, sous le chevron du cran (14/11/2026). */
+            voisins={{
+              nom: nomDePortee,
+              valeur: porteeId,
+              titre: t('Classeurs'),
+              repere: 'memoire-portee',
+              options: portees.map((p) => ({ valeur: p.id, libelle: p.id === 'global' ? t('Global') : p.nom })),
+              onChoisir: (id) => {
+                setPorteeId(id);
+                setOuverte(null);
+                setThemeOuvert(null);
+                setVise(null);
+                setPageTel('fiches');
+              },
+            }}
             data-portee-du-fil=""
             {...(pageTel !== 'fiche' || !nomDuSujet ? { 'data-memoire-titre': '' } : {})}
           >
@@ -672,6 +738,15 @@ export function MemoireClasseurs({
             <CranDuFil
               dernier={!(dansLaFiche && (themeOuvert || vise))}
               onClick={dansLaFiche && (themeOuvert || vise) ? () => ouvrirFiche(ouverte!) : undefined}
+              /* LES AUTRES SUJETS DU CLASSEUR, sous le chevron du cran (14/11/2026). */
+              voisins={{
+                nom: nomDuSujet,
+                valeur: ouverte ?? '',
+                titre: t('Sujets'),
+                repere: 'memoire-sujet',
+                options: (etatCourant?.fiches ?? []).map((f) => ({ valeur: f.id, libelle: t(f.titre) })),
+                onChoisir: ouvrirFiche,
+              }}
               data-sujet-du-fil=""
               {...(!(dansLaFiche && (themeOuvert || vise)) ? { 'data-memoire-titre': '' } : {})}
             >
@@ -787,7 +862,7 @@ export function MemoireClasseurs({
            * résultats en prennent la place.
            */}
           <ColonneDeService
-            niveau={pageTel === 'portees' ? null : { titre: nomDePortee || '…', onRetour: () => setPageTel('portees') }}
+            niveau={pageTel === 'portees' ? null : { titre: nomDePortee || '…' }}
           >
             <div className="shrink-0 pb-2 pt-1" data-memoire-entete="ordinateur">
               {champDeRecherche}
@@ -1142,7 +1217,11 @@ function FicheOuverte({
             ))}
           </div>
         ) : null}
+        {/* SUR ORDINATEUR, LA LOUPE EN HAUT À DROITE de la page (carte « Refonte de l'espace Médias ») ; au téléphone, le
+            champ d'avant, sous la définition. */}
         {donnees.unites.length ? (
+          <RechercheDePage
+            telephone={
           <div className="relative mt-2 min-w-0 max-w-[520px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
@@ -1166,6 +1245,8 @@ function FicheOuverte({
               </button>
             ) : null}
           </div>
+            }
+          />
         ) : null}
         {cherche ? (
           <p className="px-0.5 text-[12.5px] text-faint" data-memoire-filtre-compte={trouvees.length}>
@@ -1401,7 +1482,9 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
   };
 
   return (
-    <article className="mx-auto flex w-full max-w-[780px] flex-col gap-4 pt-4 text-[14px]" data-memoire-unite={u.id} data-memoire-lecture={u.id} data-ouverte="oui">
+    /* LA FICHE PREND LA LARGEUR DE SA ZONE (14/11/2026, « adapte la largeur du contenu par rapport à son container ») :
+       plus de colonne étroite imposée. */
+    <article className="flex w-full min-w-0 flex-col gap-4 px-2 pt-4 text-[14px] sm:px-4" data-memoire-unite={u.id} data-memoire-lecture={u.id} data-ouverte="oui">
       <div className="flex flex-col gap-2">
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 truncate pt-1 text-[12.5px] text-faint">{chemin}</p>
@@ -1436,7 +1519,7 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
           </DropdownMenu>
         </div>
         {/* LE TITRE CLAIR D'ABORD (écrit pour la personne), son code entre parenthèses ; le titre des agents passe dans les détails techniques. */}
-        <h2 className="break-words text-[21px] font-semibold leading-snug text-text" data-memoire-titre-clair={u.titreHumain ? 'oui' : 'non'} data-memoire-deplier>
+        <h2 className="break-words text-[18px] font-semibold leading-snug text-text" data-memoire-titre-clair={u.titreHumain ? 'oui' : 'non'} data-memoire-deplier>
           {titreAffiche(u)} <span className="whitespace-nowrap font-mono text-[14px] font-normal text-faint">({u.id})</span>
         </h2>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-faint">
@@ -1455,13 +1538,14 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
       <div className="flex flex-col gap-3" data-memoire-unite-detail>
         {intro ? <Markdown content={intro.replace(/^### /gm, '#### ')} /> : null}
         {visibles.length ? (
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2" data-memoire-blocs>
-            {visibles.map((b) => {
-              const { Icone } = b.style;
-              return (
-                <section key={b.titre} className={cn('flex min-w-0 flex-col gap-1.5 rounded-xl px-4 py-3', b.style.fond, visibles.length % 2 === 1 && b === visibles.at(-1) && 'sm:col-span-2')} data-memoire-bloc={b.titre}>
+          <BlocsDeLaFiche
+            blocs={visibles.map((b) => ({
+              cle: b.titre,
+              libelle: b.style.libelle,
+              rendu: (
+                <section className={cn('flex h-full min-w-0 flex-col gap-1.5 rounded-xl px-4 py-3', b.style.fond)} data-memoire-bloc={b.titre}>
                   <span className={cn('flex items-center gap-1.5 text-[12.5px] font-semibold', b.style.icone)}>
-                    <Icone className="h-3.5 w-3.5 shrink-0" />
+                    <b.style.Icone className="h-3.5 w-3.5 shrink-0" />
                     {b.style.libelle}
                   </span>
                   {/* Le Markdown pose ses paragraphes en 14 px : dans un petit bloc, ils reprennent une taille de lecture. */}
@@ -1469,9 +1553,9 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
                     <Markdown content={b.texte.replace(/^### /gm, '#### ')} />
                   </div>
                 </section>
-              );
-            })}
-          </div>
+              ),
+            }))}
+          />
         ) : null}
         {u.raisonnement ? (
           <aside className="flex gap-2.5 rounded-xl bg-warning/10 px-4 py-3" data-memoire-pourquoi>
@@ -1853,5 +1937,100 @@ function EditeurDEntree({ entree: e, projectId, onFini }: { entree: EntreeDuChan
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * LES BLOCS D'UNE FICHE, À LA LARGEUR DE LEUR ZONE (14/11/2026, « adapte la largeur du contenu par rapport à son
+ * container, et si petit, passe en dessous avec un système de carrousel ») : côte à côte quand la zone le permet
+ * (880 px et plus), sinon UN bloc à la fois — onglets pour choisir, flèches, « n / N » et points de position. Au doigt,
+ * le glisser est le défilement natif aimanté de la rangée (aucun geste écrit à la main : le texte reste sélectionnable).
+ */
+const LARGEUR_DES_BLOCS_COTE_A_COTE = 880;
+function BlocsDeLaFiche({ blocs }: { blocs: { cle: string; libelle: string; rendu: React.ReactNode }[] }) {
+  const boite = React.useRef<HTMLDivElement | null>(null);
+  const rangee = React.useRef<HTMLDivElement | null>(null);
+  const [largeur, setLargeur] = React.useState<number | null>(null);
+  const [rang, setRang] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = boite.current;
+    if (!el) return;
+    const mesurer = () => setLargeur(el.clientWidth);
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(el);
+    return () => observateur.disconnect();
+  }, []);
+  const carrousel = blocs.length > 1 && largeur !== null && largeur < LARGEUR_DES_BLOCS_COTE_A_COTE;
+  const aller = (n: number) => {
+    const cible = Math.max(0, Math.min(blocs.length - 1, n));
+    setRang(cible);
+    const el = rangee.current;
+    if (el) el.scrollTo({ left: cible * el.clientWidth, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
+  return (
+    <div ref={boite} className="min-w-0" data-memoire-blocs data-memoire-blocs-forme={carrousel ? 'carrousel' : 'cote-a-cote'}>
+      {carrousel ? (
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-lg bg-onglets-barre p-0.5 [scrollbar-width:none]" role="tablist" data-memoire-carrousel-onglets>
+              {blocs.map((b, i) => (
+                <button
+                  key={b.cle}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === rang}
+                  onClick={() => aller(i)}
+                  className={cn(
+                    'h-8 shrink-0 truncate rounded-md px-3 text-[13px] transition-colors',
+                    i === rang ? 'bg-onglets-actif font-medium text-text shadow-sm' : 'text-muted hover:text-text',
+                  )}
+                >
+                  {b.libelle}
+                </button>
+              ))}
+            </div>
+            <span className="shrink-0 text-[12.5px] tabular-nums text-faint" data-memoire-carrousel-position>
+              {rang + 1} / {blocs.length}
+            </span>
+            <button type="button" onClick={() => aller(rang - 1)} disabled={rang === 0} aria-label="Bloc précédent" title={t('Précédent')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-controle text-muted transition-colors hover:text-text disabled:opacity-40" data-memoire-carrousel-precedent>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => aller(rang + 1)} disabled={rang === blocs.length - 1} aria-label="Bloc suivant" title={t('Suivant')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-controle text-muted transition-colors hover:text-text disabled:opacity-40" data-memoire-carrousel-suivant>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div
+            ref={rangee}
+            className="flex min-w-0 snap-x snap-mandatory items-start overflow-x-auto [scrollbar-width:none]"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+              if (n !== rang) setRang(n);
+            }}
+            data-memoire-carrousel
+          >
+            {blocs.map((b) => (
+              <div key={b.cle} className="w-full shrink-0 snap-start">
+                {b.rendu}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-center gap-1.5" aria-hidden data-memoire-carrousel-points>
+            {blocs.map((b, i) => (
+              <span key={b.cle} className={cn('h-1.5 rounded-full transition-all', i === rang ? 'w-4 bg-text' : 'w-1.5 bg-faint/50')} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className={cn('grid min-w-0 grid-cols-1 gap-5', blocs.length > 1 && 'grid-cols-[1fr_1.35fr]')}>
+          {blocs.map((b, i) => (
+            <div key={b.cle} className={cn('min-w-0', blocs.length % 2 === 1 && i === blocs.length - 1 && blocs.length > 1 && 'col-span-full')}>
+              {b.rendu}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

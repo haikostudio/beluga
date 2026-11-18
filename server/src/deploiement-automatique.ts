@@ -140,7 +140,8 @@ export async function passageDuDeploiementAutomatique(): Promise<void> {
     for (const project of store.listProjects()) {
       // L'interrupteur d'abord, et sans rien lire d'autre : un projet éteint ne
       // doit rien coûter au filet, qui repasse toutes les quinze secondes.
-      if (project.deploiementAutomatique !== true) continue;
+      /* Un projet léger (entreprise extérieure, 14/11/2026) n'a rien à mettre en ligne. */
+      if (project.deploiementAutomatique !== true || project.leger) continue;
 
       const decision = decisionDeDeploiementAutomatique(etatDuProjet(project), Date.now());
       if (!decision.partir) {

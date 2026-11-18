@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, CheckCheck } from '@/components/ui/icones';
 import { IconeDeNotification as IconeDeLigne, bordureDIcone } from './icone-notification';
 import {
   LigneNotification,
@@ -31,10 +31,69 @@ import { t } from '@/lib/langue';
  * Le repère `data-repere-questions` reste posé sur la PASTILLE, et seulement
  * quand quelque chose attend : la cloche, elle, ne disparaît plus jamais.
  */
-export function ClocheNotifications({ className }: { className?: string } = {}) {
-  const state = useApp();
+/** L'événement par lequel une entrée de menu (les trois points du téléphone) ouvre le tiroir de la cloche. */
+export const EVENEMENT_OUVRIR_NOTIFICATIONS = 'beluga:ouvrir-notifications';
+export const ouvrirLesNotifications = () => window.dispatchEvent(new Event(EVENEMENT_OUVRIR_NOTIFICATIONS));
+
+/**
+ * SUR TÉLÉPHONE, LA CLOCHE VIT DANS LES TROIS POINTS (décision de l'utilisateur, 03/11/2026) : `sansBouton` ne monte
+ * que son tiroir, ouvert par `ouvrirLesNotifications` ; le compte de ce qui attend se lit avec `useCompteDeLaCloche`
+ * et se pose en pastille sur les trois points. Sur ordinateur, rien ne change.
+ */
+export function ClocheNotifications({ className, sansBouton = false }: { className?: string; sansBouton?: boolean } = {}) {
   const [open, setOpen] = React.useState(false);
   useTiroirAdresse('notifications', open, setOpen);
+  const { lignes, aRegler, aLire, libelle } = useCompteDeLaCloche();
+  React.useEffect(() => {
+    if (!sansBouton) return;
+    const surDemande = () => {
+      setOpen(true);
+      client.marquerAnnoncesLues();
+    };
+    window.addEventListener(EVENEMENT_OUVRIR_NOTIFICATIONS, surDemande);
+    return () => window.removeEventListener(EVENEMENT_OUVRIR_NOTIFICATIONS, surDemande);
+  }, [sansBouton]);
+
+  const ouvrir = () => {
+    setOpen(true);
+    // Le tiroir ouvert, tout ce qui s'y lit est lu. Les demandes, elles, ne se
+    // lisent pas : elles se règlent, et gardent leur pastille jusque-là.
+    client.marquerAnnoncesLues();
+  };
+
+  if (sansBouton) return <TiroirNotifications open={open} onClose={() => setOpen(false)} lignes={lignes} aRegler={aRegler} />;
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted', className)}
+        aria-label={libelle}
+        title={libelle}
+        data-cloche-notifications
+        onClick={ouvrir}
+      >
+        <Bell className={cn('h-4 w-4', aRegler > 0 && 'text-text')} />
+        {/* CE QUI ATTEND UNE RÉPONSE EST ORANGE : la pastille commune, ton « répondre ». */}
+        {aRegler > 0 ? (
+          <Pastille nombre={aRegler} ton="repondre" position="coin" data-repere-questions="" />
+        ) : aLire > 0 ? (
+          <span
+            data-point-notifications
+            className={cn(CLASSE_POINT_DE_BOUTON, 'bg-info')}
+          />
+        ) : null}
+      </Button>
+
+      <TiroirNotifications open={open} onClose={() => setOpen(false)} lignes={lignes} aRegler={aRegler} />
+    </>
+  );
+}
+
+/** Ce que la cloche annonce : ses lignes, ce qui attend une décision, ce qui reste à lire, et son libellé. */
+export function useCompteDeLaCloche() {
+  const state = useApp();
 
   /*
    * LES PORTEURS QUE CE NAVIGATEUR CONNAÎT. Une annonce « une réponse est
@@ -94,39 +153,7 @@ export function ClocheNotifications({ className }: { className?: string } = {}) 
       ? t('{compte} notifications non lues', { compte: aLire })
       : t('Notifications');
 
-  const ouvrir = () => {
-    setOpen(true);
-    // Le tiroir ouvert, tout ce qui s'y lit est lu. Les demandes, elles, ne se
-    // lisent pas : elles se règlent, et gardent leur pastille jusque-là.
-    client.marquerAnnoncesLues();
-  };
-
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted', className)}
-        aria-label={libelle}
-        title={libelle}
-        data-cloche-notifications
-        onClick={ouvrir}
-      >
-        <Bell className={cn('h-4 w-4', aRegler > 0 && 'text-text')} />
-        {/* CE QUI ATTEND UNE RÉPONSE EST ORANGE : la pastille commune, ton « répondre ». */}
-        {aRegler > 0 ? (
-          <Pastille nombre={aRegler} ton="repondre" position="coin" data-repere-questions="" />
-        ) : aLire > 0 ? (
-          <span
-            data-point-notifications
-            className={cn(CLASSE_POINT_DE_BOUTON, 'bg-info')}
-          />
-        ) : null}
-      </Button>
-
-      <TiroirNotifications open={open} onClose={() => setOpen(false)} lignes={lignes} aRegler={aRegler} />
-    </>
-  );
+  return { lignes, aRegler, aLire, libelle };
 }
 
 /** La couleur du rond posé sur la ligne centrale, selon le genre de la ligne. */

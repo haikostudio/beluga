@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Cpu, ExternalLink, KeyRound, LogIn, Loader2, Plus, RotateCw, Sparkles, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, KeyRound, LogIn, Loader2, Plus, RotateCw, Sparkles, Trash2 } from '@/components/ui/icones';
 import {
   compatibiliteAgents,
   connexionTerminee,
@@ -12,7 +12,7 @@ import {
   type FicheMoteur,
   type MotifDeCompatibilite,
 } from '@beluga/shared';
-import { Badge, BulleInfo, Button, ChampMotDePasse, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { Badge, BulleInfo, Button, ChampMotDePasse, Drawer, EnteteDeFeuille, ZoneDefilement } from '@/components/ui';
 import { AjouterCle, BlocConnexion } from '@/components/connexion-compte';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { Chat } from '@/components/chat';
@@ -20,7 +20,6 @@ import { RepereAttention } from '@/components/repere-attention';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { estTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -66,6 +65,21 @@ export function AjouterUnMoteur() {
 }
 
 /**
+ * « AJOUTER UN LLM » EST UNE FEUILLE DU BAS POSÉE PAR-DESSUS LA FENÊTRE DES RÉGLAGES (demande du 03/11/2026, capture
+ * #a6b71). Avant, c'était une page de zone (rang 40) ouverte DERRIÈRE la fenêtre (rang 50) — on ne la voyait pas —,
+ * puis un bloc glissé dans la page des comptes. C'est désormais la feuille commune (`Drawer feuille`) : empilée (son
+ * voile et son ombre passent devant la fenêtre) et modale (la fenêtre dessous ne prend plus ses appuis pour des
+ * appuis « dehors », et la feuille défile). La refermer laisse les réglages ouverts dessous.
+ */
+function FeuilleDesReglages({ children, onClose, hauteurFixe = false }: { children: React.ReactNode; onClose: () => void; hauteurFixe?: boolean }) {
+  return (
+    <Drawer feuille empile modal open adresse="ajout-de-moteur" onClose={onClose} hauteurFixe={hauteurFixe}>
+      {children}
+    </Drawer>
+  );
+}
+
+/**
  * LA LISTE DES MOTEURS CONNUS. Un compte n'entre dans les réglages qu'une fois
  * la connexion réussie (MEM-2561) : une tentative ratée ne laisse pas de ligne
  * morte. La connexion en cours, puis son résultat, se lisent sous le moteur
@@ -83,15 +97,9 @@ function TiroirAjouterUnLLM({ onClose, onAutre }: { onClose: () => void; onAutre
   const nomDuMoteur = (engine: EngineId) => descriptionMoteur(engine)?.label ?? engine;
 
   return (
-    <Drawer adresse="ajout-de-moteur" open onClose={onClose} plein={estTelephone()}>
+    <FeuilleDesReglages onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-ajouter-un-llm>
-        <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
-          <Cpu className="h-3.5 w-3.5 shrink-0 text-muted" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Ajouter un LLM')}</DialogTitle>
-          <Button variant="ghost" size="icon" className="shrink-0 text-muted" onClick={onClose} aria-label="Fermer" title={t('Fermer')}>
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </header>
+        <EnteteDeFeuille titre={t('Ajouter un LLM')} />
         <ZoneDefilement className="min-h-0 flex-1 px-4 pb-4">
           <div className="space-y-1">
             {parPage.map((engine) => {
@@ -159,7 +167,7 @@ function TiroirAjouterUnLLM({ onClose, onAutre }: { onClose: () => void; onAutre
           </div>
         </ZoneDefilement>
       </div>
-    </Drawer>
+    </FeuilleDesReglages>
   );
 }
 
@@ -365,13 +373,17 @@ function TiroirAjoutDeMoteur({ onClose, onRetour }: { onClose: () => void; onRet
   const attente = agentId ? decisionsQuiAlertent(state.decisions).filter((d) => d.agentId === agentId).length : 0;
 
   return (
-    <Drawer adresse="connexion-moteur" open onClose={onClose} plein={estTelephone()} hauteurFixe>
+    <FeuilleDesReglages onClose={onClose} hauteurFixe>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-ajout-de-moteur={agentId ?? ''}>
-        <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
-          <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted" onClick={onRetour} aria-label="Retour" title={t('Retour à la liste')} data-retour-liste-llm>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Ajouter un autre LLM')}</DialogTitle>
+        <EnteteDeFeuille
+          titre={t('Ajouter un autre LLM')}
+          gauche={
+            <Button variant="ghost" size="icon-barre" className="shrink-0 text-muted" onClick={onRetour} aria-label="Retour" title={t('Retour à la liste')} data-retour-liste-llm>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          }
+          droite={
+            <>
           <RepereAttention compte={attente} />
           {agent?.cardId ? (
             <Button
@@ -385,14 +397,12 @@ function TiroirAjoutDeMoteur({ onClose, onRetour }: { onClose: () => void; onRet
               {t('Carte')}
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" disabled={chargement || !agent} onClick={() => ouvrir(true)} data-autre-moteur>
-            <RotateCw className="h-3 w-3" />
-            {t('Autre moteur')}
+          <Button variant="ghost" size="icon-barre" disabled={chargement || !agent} onClick={() => ouvrir(true)} aria-label="Autre moteur" title={t('Autre moteur')} data-autre-moteur>
+            <RotateCw className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="shrink-0 text-muted" onClick={onClose} aria-label="Fermer" title={t('Fermer')}>
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </header>
+            </>
+          }
+        />
         {erreur ? (
           <div className="flex flex-col items-start gap-2 px-4 py-3">
             <p className="text-[13px] leading-snug text-danger">{erreur}</p>
@@ -413,6 +423,6 @@ function TiroirAjoutDeMoteur({ onClose, onRetour }: { onClose: () => void; onRet
           </div>
         )}
       </div>
-    </Drawer>
+    </FeuilleDesReglages>
   );
 }

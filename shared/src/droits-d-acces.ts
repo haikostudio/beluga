@@ -166,6 +166,8 @@ export const COMMANDES_DEPLOIEMENT: Readonly<Record<string, string>> = {
   'deploy.historique': 'projet:projectId',
   'deploy.etatProduction': 'projet:projectId',
   'deploy.reussites': 'projet:projectId',
+  'deploy.aProduire': 'projet:projectId',
+  'deploy.verifierProduction': 'projet:projectId',
 };
 
 /**
@@ -183,7 +185,7 @@ export const COMMANDES_DES_SERVICES: Readonly<Record<ServiceOuvrable, { voir: re
     modifier: ['settings.update'],
   },
   moteurs: {
-    voir: ['engines.list', 'quota.history', 'account.connections', 'moteurs.ajoutes'],
+    voir: ['engines.list', 'quota.history', 'servicesIa.releve', 'account.connections', 'moteurs.ajoutes'],
     modifier: [
       'quota.refresh',
       'account.connect',
@@ -222,5 +224,5 @@ export function niveauDeServiceSuffit(niveau: NiveauService, requis: 'voir' | 'm
 export const EVENEMENTS_DES_SERVICES: Readonly<Record<ServiceOuvrable, readonly string[]>> = {
   coffre: [],
   reglages: ['settings'],
-  moteurs: ['quotas', 'moteurs.ajoutes'],
+  moteurs: ['quotas', 'moteurs.ajoutes', 'servicesIa'],
 };

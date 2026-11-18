@@ -12,7 +12,7 @@
 export interface GroupeDeSuggestions {
   /** Le message qui porte les propositions. */
   messageId: string;
-  /** L'instant du message. */
+  /** La fin du tour qui porte le message (`finDuTourDuMessage`). */
   at: number;
   /** Les propositions ni refusées ni réunies, dans l'ordre. */
   ids: string[];
@@ -34,4 +34,19 @@ export function rangerLesSuggestions<G extends { at: number }>(
     rangees.set(cible, liste);
   }
   return rangees;
+}
+
+
+/**
+ * LA FIN DU TOUR D'UN MESSAGE QUI PORTE DES PROPOSITIONS (15/11/2026).
+ *
+ * Le message d'un tour est daté de son DÉBUT : un groupe rangé à cette date
+ * tombait sous le passage « Demande », au-dessus de la question et de la
+ * compréhension qui annonçaient pourtant la carte « plus bas » — l'utilisateur
+ * ne la voyait jamais. Le groupe se range donc à la FIN du tour : début plus
+ * durée pour un tour fini, l'infini (le dernier passage) tant qu'il s'écrit.
+ */
+export function finDuTourDuMessage(message: { createdAt: number; durationMs?: number; streaming?: boolean }): number {
+  if (message.streaming) return Number.POSITIVE_INFINITY;
+  return message.createdAt + Math.max(0, message.durationMs ?? 0);
 }

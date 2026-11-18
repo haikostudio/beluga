@@ -12,11 +12,27 @@ import {
   ficheEnService,
   ficheServieAuProjet,
   COMPETENCES_MINIMUM_POUR_FILTRER,
+  COMPETENCES_PROCHES_DU_BRIEFING,
+  BIBLIOTHEQUES_AU_CHOIX_DE_L_AGENT,
+  GENRE_SOURCE_COMPETENCE,
+  PORTEE_DES_COMPETENCES,
+  PORTEE_GLOBALE,
+  nomDeCompetenceDeLUnite,
+  quandSenServir,
+  PRESELECTION_DU_TRI,
+  demandePourLeTri,
+  ordreDesCompetencesProches,
+  reordonnerParLeTri,
+  texteDeFichePourLeTri,
+  titreLisibleDeCompetence,
   type InstructionsDuProjet,
   type NiveauDAccueil,
 } from '@beluga/shared';
 import { dossierDesCompetences, listerCompetences } from './competences.js';
 import { garderLesPertinents } from './jugement-rapide.js';
+import { chercherUnitesMelees, proximitesParLeSens, unitesDeLaSource } from './connaissances.js';
+import { log } from './logger.js';
+import { noterParLeTri } from './vectoriseur.js';
 
 /**
  * LE BRIEFING D'UN AGENT ET L'HISTORIQUE DES LIVRAISONS.
@@ -176,7 +192,7 @@ export async function competencesPertinentes(
     const gardees = await garderLesPertinents(
       travail,
       servies,
-      { cle: (f) => f.nom, texte: (f) => `${f.nom} : ${f.description}` },
+      { cle: (f) => f.nom, texte: (f) => `${f.nom} : ${quandSenServir(f)}` },
       { usage: 'pertinence-competences', ...ctx },
     );
     /* Rien d'écarté = pas d'avis utile : le classement par les mots décide. */
@@ -185,6 +201,104 @@ export async function competencesPertinentes(
     return undefined;
   }
 }
+
+/**
+ * Le calcul des fiches proches ne retarde jamais le premier tour d'une carte plus que cela (recherche + tri, à 1 s
+ * près). 5 s avant le tri (carte dd481232) ; 8 s depuis (carte 71e1006a) : le tri de 24 fiches prend 2 à 4 s, et
+ * jusqu'à 7 s sur un serveur chargé — quelques secondes au départ d'un agent qui travaille des minutes.
+ */
+const DELAI_DES_COMPETENCES_PROCHES_MS = 8_000;
+
+/**
+ * LES FICHES LES PLUS PROCHES DU TRAVAIL D'UNE CARTE, PAR LE SENS (carte dd481232).
+ *
+ * Toutes les fiches en service servies à CE projet — maison ET bibliothèques —
+ * sont classées par fusion de deux rangs : la proximité BRUTE par le sens
+ * (`proximitesParLeSens`, sans la pondération P2/P3 qui enterrait les fiches
+ * importées) et la recherche MÊLÉE (mots + sens), qui rattrape les noms exacts
+ * (« Stripe », « Capacitor »). Rend les `COMPETENCES_PROCHES_DU_BRIEFING`
+ * premières, ou `undefined` sans mesure par le sens (vectoriseur absent ou trop
+ * lent, pool trop petit) : le briefing retombe alors sur la liste par thème.
+ * Les bibliothèques laissées au jugement de l'agent (pstack) n'y entrent pas :
+ * leur consigne propre les annonce (DEC-497).
+ */
+export async function competencesProchesDuTravail(
+  travail: string,
+  ctx: { projet?: string; projectId?: string; ecartees?: ReadonlySet<string> },
+): Promise<string[] | undefined> {
+  const texte = travail.trim().slice(0, 1500);
+  if (!texte) return undefined;
+  let minuterie: NodeJS.Timeout | undefined;
+  const debut = Date.now();
+  try {
+    const calcul = (async () => {
+      const servies = new Map(
+        listerCompetences()
+          .filter(
+            (f) =>
+              ficheEnService(f.etat) &&
+              !ctx.ecartees?.has(f.nom) &&
+              !(f.bibliotheque && BIBLIOTHEQUES_AU_CHOIX_DE_L_AGENT.includes(f.bibliotheque)) &&
+              (ctx.projet === undefined || ficheServieAuProjet(f, ctx.projet)),
+          )
+          .map((f) => [f.nom, f]),
+      );
+      if (servies.size < COMPETENCES_MINIMUM_POUR_FILTRER) return undefined;
+      const visee = { portees: [PORTEE_GLOBALE], types: ['operation' as const] };
+      const [proximites, melees] = await Promise.all([
+        proximitesParLeSens(texte, visee, DELAI_DES_COMPETENCES_PROCHES_MS),
+        chercherUnitesMelees(texte, { projectId: ctx.projectId, ...visee, limite: 60 }).catch(() => []),
+      ]);
+      if (!proximites.size) return undefined;
+      const parSens: { nom: string; p: number }[] = [];
+      const vues = new Set<string>();
+      for (const unite of unitesDeLaSource(PORTEE_DES_COMPETENCES, GENRE_SOURCE_COMPETENCE)) {
+        const nom = nomDeCompetenceDeLUnite(unite);
+        const p = proximites.get(unite.id);
+        if (!nom || p === undefined || !servies.has(nom) || vues.has(nom)) continue;
+        vues.add(nom);
+        parSens.push({ nom, p });
+      }
+      if (!parSens.length) return undefined;
+      parSens.sort((a, b) => b.p - a.p);
+      const rangMele = new Map<string, number>();
+      for (const { unite } of melees) {
+        const nom = nomDeCompetenceDeLUnite(unite);
+        if (nom && servies.has(nom) && !rangMele.has(nom)) rangMele.set(nom, rangMele.size);
+      }
+      const preselection = ordreDesCompetencesProches(
+        parSens.map((x, i) => ({ nom: x.nom, rangSens: i, rangMele: rangMele.get(x.nom) })),
+      ).slice(0, Math.max(COMPETENCES_PROCHES_DU_BRIEFING * 2, PRESELECTION_DU_TRI));
+      /* LE TRI EN DEUX TEMPS (carte 71e1006a) : le modèle qui lit reclasse la présélection, dans le temps qui
+         reste. Sans note (absent, lent, en panne), l'ordre de la fusion reste. */
+      const aTrier = preselection.slice(0, PRESELECTION_DU_TRI);
+      const notes = await noterParLeTri(
+        demandePourLeTri(texte),
+        aTrier.map((nom) => {
+          const fiche = servies.get(nom)!;
+          return texteDeFichePourLeTri({ titre: titreLisibleDeCompetence(nom), quandSenServir: quandSenServir(fiche), themes: fiche.themes });
+        }),
+        DELAI_DES_COMPETENCES_PROCHES_MS + 500 - (Date.now() - debut),
+      );
+      return reordonnerParLeTri(preselection, notes).slice(0, COMPETENCES_PROCHES_DU_BRIEFING * 2);
+    })();
+    return await Promise.race([
+      calcul,
+      new Promise<undefined>((resolve) => {
+        minuterie = setTimeout(() => resolve(undefined), DELAI_DES_COMPETENCES_PROCHES_MS + 1_000);
+        minuterie.unref?.();
+      }),
+    ]);
+  } catch (err) {
+    log.warn(`compétences proches du travail : liste par thème gardée (${(err as Error).message})`);
+    return undefined;
+  } finally {
+    if (minuterie) clearTimeout(minuterie);
+  }
+}
+
+/** La fusion des rangs vit dans `shared/src/tri-des-competences.ts` (la présélection du tri) ; gardée ici pour les appelants. */
+export { ordreDesCompetencesProches };
 
 /**
  * Le briefing compact injecté au lancement de chaque agent : il sait déjà où
@@ -226,6 +340,11 @@ export function briefingSepare(
    * tout y passe par kie.ai (26/10/2026).
    */
   competencesEcartees?: ReadonlySet<string>,
+  /**
+   * LES FICHES LES PLUS PROCHES DU TRAVAIL, PAR LE SENS (`competencesProchesDuTravail`).
+   * Données, elles remplacent la liste par thème dans le briefing d'une carte.
+   */
+  competencesProches?: readonly string[],
 ): BriefingSepare {
   const emporte = partsDAccueil(niveau);
   const dossier = dossierDeTravail?.trim() || projectPath;
@@ -264,6 +383,7 @@ export function briefingSepare(
         travail,
         competencesPertinentes,
         projectName,
+        competencesProches,
       )
     : '';
   if (competences) socle.push(competences);

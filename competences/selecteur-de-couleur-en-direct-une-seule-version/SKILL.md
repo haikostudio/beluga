@@ -27,7 +27,7 @@ Le sélecteur natif de Chrome et Safari ne fait pas perdre le focus au champ pen
 
 ## Vérification
 
-Dans un vrai navigateur : poser la valeur par le setter natif (`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v)`) puis `dispatchEvent(new Event('input', { bubbles: true }))` SEUL → l'aperçu montre la couleur et rien n'est enregistré ; puis `dispatchEvent(new Event('change', { bubbles: true }))` → une seule opération enregistrée. Appliqué dans Beluga Build (contrôle `scripts/verif-studio.mjs`, section 19, carte 5beceac4, 06/10/2026).
+Dans un vrai navigateur : poser la valeur par le setter natif (`Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v)`) puis `dispatchEvent(new Event('input', { bubbles: true }))` SEUL → l'aperçu montre la couleur et rien n'est enregistré ; puis `dispatchEvent(new Event('change', { bubbles: true }))` → une seule opération enregistrée. Appliqué dans Beluga Build (carte 5beceac4, 06/10/2026) ; le script de cette mesure a été retiré depuis (26/10/2026) : la réécrire pour l'écran visé.
 
 ## Pièges
 

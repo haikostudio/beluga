@@ -9,16 +9,17 @@ import {
   Library,
   ListChecks,
   Megaphone,
-  NotebookPen,
   UsersRound,
   type LucideIcon,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import { bornesDeLaPeriode, bornesDeLEchelle, rubriqueDuResume, type RubriqueDuResume } from '@beluga/shared';
-import { ZoneDefilement, ListeDeroulante } from '@/components/ui';
+import { ZoneDefilement, ListeDeroulante, TELEPHONE_ENTRE_SECTIONS } from '@/components/ui';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
+import { useProjetDuService } from '@/components/projet-du-service';
 import { SilhouetteRubrique } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
-import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
+import { CLASSE_COLONNE_DE_SERVICE, HorsDeLaRangeeDeLaPage, PageAGrandTitre } from '@/components/fenetre-de-service';
+import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { usePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
@@ -54,12 +55,12 @@ const COMPOSANTS: Record<RubriqueDuResume, React.LazyExoticComponent<Rubrique>> 
   taches: React.lazy(() => chargerActivite().then((m) => ({ default: m.RubriqueTaches }))),
   memoire: React.lazy(() => chargerMemoire().then((m) => ({ default: m.RubriqueMemoire }))),
   surveillance: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueSurveillance }))),
+  studio: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueStudio }))),
   coffre: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueCoffre }))),
   backups: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueBackups }))),
   statistiques: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueStatistiques }))),
   messagerie: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueMessagerie }))),
   marketing: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueMarketing }))),
-  notes: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueNotes }))),
 };
 
 /** Les rubriques, dans l'ordre de la colonne : l'activité des agents, puis les services. */
@@ -97,6 +98,9 @@ function rubriques(studioOuvert: boolean): { groupe: string; entrees: { cle: Rub
           libelle: t('Surveillance'),
           aide: t('Les contrôles des sites surveillés, leurs pannes et leur temps de réponse.'),
         },
+        ...(studioOuvert
+          ? [{ cle: 'studio' as const, Icone: Clapperboard, libelle: t('Studio'), aide: t("Les visuels et vidéos créés, leurs exports et ce qu'ils ont coûté.") }]
+          : []),
         {
           cle: 'coffre',
           Icone: Key,
@@ -112,52 +116,108 @@ function rubriques(studioOuvert: boolean): { groupe: string; entrees: { cle: Rub
         },
         { cle: 'messagerie', Icone: UsersRound, libelle: t('Messagerie'), aide: t('Les demandes des clients et les messages échangés.') },
         { cle: 'marketing', Icone: Megaphone, libelle: t('Réseaux sociaux'), aide: t('Les contenus préparés, les actions menées et les ventes relevées.') },
-        { cle: 'notes', Icone: NotebookPen, libelle: t('Notes'), aide: t('Les notes créées et modifiées.') },
       ],
     },
   ];
 }
 
-export function Dashboard() {
+/**
+ * `avant` / `apres` : ce que l'accueil d'un projet pose dans la MÊME page qui défile (14/11/2026) — le tableau de ses
+ * tâches au-dessus des chiffres, la facturation dessous.
+ */
+export function Dashboard({ avant, apres, titre }: { avant?: React.ReactNode; apres?: React.ReactNode; titre?: string } = {}) {
   const [rubriqueGardee, setRubrique] = usePref<string>('resume.rubrique', 'ensemble');
   const rubriqueDemandee = rubriqueDuResume(rubriqueGardee);
   const telephone = useTelephone();
+  const dansLaColonne = useColonneDeService();
   const [periode, setPeriode] = React.useState<{ echelle: number | null; debut: number; fin: number }>(() => {
     const { debut, fin } = bornesDeLEchelle(30, Date.now());
     return { echelle: 30, debut, fin };
   });
   /* Une rubrique Studio gardée en préférence retombe sur la première quand le Studio n'est pas ouvert à ce compte. */
-  const groupes = rubriques(useApp().studioOuvert);
+  /* DANS UN PROJET, la vue d'ensemble seule : ses chiffres sont ceux de ce projet (13/11/2026). */
+  const projet = useProjetDuService();
+  const groupes = projet
+    ? rubriques(false).slice(0, 1).map((g) => ({ ...g, entrees: g.entrees.filter((e) => e.cle === 'ensemble') }))
+    : rubriques(useApp().studioOuvert);
   const toutes = groupes.flatMap((g) => g.entrees);
   const ouverte = toutes.find((r) => r.cle === rubriqueDemandee) ?? toutes[0]!;
   const rubrique = ouverte.cle;
   const Composant = COMPOSANTS[rubrique];
+  /*
+   * L'ACCUEIL D'UN PROJET PORTE LE GRAND TITRE DES PAGES DE SERVICE (décision du 16/11/2026, capture #8891) : le nom du
+   * projet à 30 px, et sur la même ligne à droite la recherche et le filtre de ses tâches puis la période — plus rien au
+   * coin de la zone. Ordinateur seulement : le téléphone garde la période dans ses trois points.
+   */
+  const grandTitre = !!titre && !telephone;
+
+  const periodeDansLaBarre = (
+    <GestesDePage className="px-3">
+      <div data-periode-resume={`${periode.debut}-${periode.fin}`}>
+        <SelecteurPeriode
+          /* Dans la barre d'en-tête du téléphone : un seul bouton. */
+          compact={telephone}
+          echelles={[7, 30, 90]}
+          echelle={periode.echelle}
+          debut={periode.debut}
+          fin={periode.fin}
+          onEchelle={(jours) => {
+            const { debut, fin } = bornesDeLEchelle(jours, Date.now());
+            setPeriode({ echelle: jours, debut, fin });
+          }}
+          onLibre={(d, f) => {
+            const { debut, fin } = bornesDeLaPeriode(d, f, Date.now());
+            setPeriode({ echelle: null, debut, fin });
+          }}
+        />
+      </div>
+    </GestesDePage>
+  );
+
+  /* LE CONTENU DE LA PAGE, le même avec ou sans grand titre. */
+  const chiffres = (
+    <>
+      <React.Suspense fallback={<SilhouetteRubrique />}>
+        <Composant key={rubrique} debut={periode.debut} fin={periode.fin} />
+      </React.Suspense>
+      {apres}
+    </>
+  );
+  const contenu = (
+    <div className={cn('space-y-6', TELEPHONE_ENTRE_SECTIONS)}>
+      {avant}
+      {/* SANS MENU À PART (téléphone, et la zone centrale depuis le 13/11/2026), la rubrique se choisit dans
+          une liste déroulante en tête de la page. Dans un projet, il n'y a qu'une rubrique. */}
+      <div className={projet || dansLaColonne ? 'hidden' : 'block sm:max-w-[320px]'}>
+        <ListeDeroulante
+          titre={t('Rubrique')}
+          valeur={rubrique}
+          onChoisir={setRubrique}
+          className="h-10 bg-surface text-[14px]"
+          data-rubrique-choix=""
+          options={groupes.flatMap((groupe) => groupe.entrees.map(({ cle, libelle }) => ({ valeur: cle, libelle, groupe: groupe.groupe })))}
+        />
+      </div>
+
+      <div>
+        <h2 className="text-[18px] font-semibold tracking-tight text-text">{ouverte.libelle}</h2>
+        <p className="mt-1.5 text-[14.5px] text-muted">
+          {projet && rubrique === 'ensemble' ? t('Le temps de travail des agents sur ce projet, jour par jour.') : ouverte.aide}
+        </p>
+      </div>
+
+      {/* Sous un grand titre, les chiffres et la facturation gardent leurs outils à eux : ils ne montent pas dans la
+          rangée du titre, réservée aux tâches. */}
+      {grandTitre ? <HorsDeLaRangeeDeLaPage>{chiffres}</HorsDeLaRangeeDeLaPage> : chiffres}
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-resume={rubrique}>
       {/* L'ENTÊTE : le titre, puis la période, calée à droite. On quitte la page
           par la colonne de gauche, ou par le menu du bas sur téléphone. */}
       <h1 className="sr-only">{t('Résumé')}</h1>
-      <GestesDePage className="px-3">
-        <div data-periode-resume={`${periode.debut}-${periode.fin}`}>
-          <SelecteurPeriode
-            /* Dans la barre d'en-tête du téléphone : un seul bouton. */
-            compact={telephone}
-            echelles={[7, 30, 90]}
-            echelle={periode.echelle}
-            debut={periode.debut}
-            fin={periode.fin}
-            onEchelle={(jours) => {
-              const { debut, fin } = bornesDeLEchelle(jours, Date.now());
-              setPeriode({ echelle: jours, debut, fin });
-            }}
-            onLibre={(d, f) => {
-              const { debut, fin } = bornesDeLaPeriode(d, f, Date.now());
-              setPeriode({ echelle: null, debut, fin });
-            }}
-          />
-        </div>
-      </GestesDePage>
+      {grandTitre ? null : periodeDansLaBarre}
 
       {/* LE FIL D'ARIANE DIT LA RUBRIQUE OUVERTE — « Services › Résumé ›
           Consommation » ; « Résumé » y ramène à la vue d'ensemble. */}
@@ -169,6 +229,7 @@ export function Dashboard() {
 
       {/* LES RUBRIQUES VIVENT DANS LA COLONNE DE GAUCHE, à la place des projets :
           une seule colonne, jamais deux côte à côte. */}
+      {projet ? null : (
       <ColonneDeService>
         <ZoneDefilement hauteur={16} className="pb-4" classeEnveloppe="w-full">
           <nav aria-label="Rubriques du resume">
@@ -181,7 +242,7 @@ export function Dashboard() {
                     type="button"
                     onClick={() => setRubrique(cle)}
                     aria-current={cle === rubrique ? 'page' : undefined}
-                    className={cn(CLASSE_LIGNE_DE_SERVICE, cle === rubrique ? 'bg-ligne-active text-teinte' : 'hover:bg-raised')}
+                    className={cn(CLASSE_LIGNE_DE_SERVICE, 'hover:bg-raised', cle === rubrique && 'bg-ligne-active')}
                     data-rubrique={cle}
                   >
                     <Icone className="h-4 w-4 shrink-0 text-muted" />
@@ -193,33 +254,25 @@ export function Dashboard() {
           </nav>
         </ZoneDefilement>
       </ColonneDeService>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <ZoneDefilement className="px-3 py-2 sm:px-8 sm:pb-20 sm:pt-6" data-fil="tableau-de-bord">
-            <div className="mx-auto w-full max-w-[920px] space-y-6">
-              {/* SUR TÉLÉPHONE, la colonne devient une liste déroulante en tête. */}
-              <div className="block sm:hidden">
-                <ListeDeroulante
-                  titre={t('Rubrique')}
-                  valeur={rubrique}
-                  onChoisir={setRubrique}
-                  className="h-10 bg-surface text-[14px]"
-                  data-rubrique-choix=""
-                  options={groupes.flatMap((groupe) => groupe.entrees.map(({ cle, libelle }) => ({ valeur: cle, libelle, groupe: groupe.groupe })))}
-                />
+          {grandTitre ? (
+            /* Comme une page de service : la zone qui défile prend toute la largeur, la colonne commune vit dedans. */
+            <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="sm:pb-20" data-fil="tableau-de-bord">
+              <div className={CLASSE_COLONNE_DE_SERVICE} data-colonne-de-l-accueil>
+                <PageAGrandTitre titre={titre!} repere="accueil-du-projet">
+                  {periodeDansLaBarre}
+                  {contenu}
+                </PageAGrandTitre>
               </div>
-
-              <div>
-                <h2 className="text-[26px] font-semibold tracking-tight text-text">{ouverte.libelle}</h2>
-                <p className="mt-1.5 text-[14.5px] text-muted">{ouverte.aide}</p>
-              </div>
-
-              <React.Suspense fallback={<SilhouetteRubrique />}>
-                <Composant key={rubrique} debut={periode.debut} fin={periode.fin} />
-              </React.Suspense>
-            </div>
-          </ZoneDefilement>
+            </ZoneDefilement>
+          ) : (
+            <ZoneDefilement className="px-3 py-2 sm:px-8 sm:pb-20 sm:pt-6" data-fil="tableau-de-bord">
+              <div className={cn('mx-auto w-full', avant || apres ? 'max-w-[1120px]' : 'max-w-[920px]')}>{contenu}</div>
+            </ZoneDefilement>
+          )}
         </div>
       </div>
     </div>

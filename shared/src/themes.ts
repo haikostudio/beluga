@@ -60,7 +60,7 @@ export const THEMES: readonly Theme[] = [
     description: 'Noir et blanc, sur fond sombre.',
     clarte: 'sombre',
     plat: true,
-    apercu: ['hsl(0 0% 13%)', 'hsl(0 0% 19%)', 'hsl(0 0% 96%)', 'hsl(0 0% 93%)'],
+    apercu: ['hsl(0 0% 7.5%)', 'hsl(0 0% 15%)', 'hsl(0 0% 96%)', 'hsl(0 0% 93%)'],
   },
   {
     id: 'clair',
@@ -69,7 +69,7 @@ export const THEMES: readonly Theme[] = [
     description: 'Noir et blanc, sur fond clair.',
     clarte: 'clair',
     plat: true,
-    apercu: ['hsl(0 0% 100%)', 'hsl(0 0% 93%)', 'hsl(0 0% 5%)', 'hsl(0 0% 5%)'],
+    apercu: ['hsl(0 0% 100%)', 'hsl(0 0% 95.6%)', 'hsl(0 0% 5%)', 'hsl(0 0% 5%)'],
   },
 ];
 

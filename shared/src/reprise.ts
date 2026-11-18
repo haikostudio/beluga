@@ -53,6 +53,12 @@ export function carteAReprendre(
   return carte && carte.projectId === projectId ? carte.id : null;
 }
 
+/*
+ * L'ENTRÉE DANS UN PROJET QUI ROUVRAIT SA DERNIÈRE TÂCHE (31/10/2026) EST RETIRÉE LE 14/11/2026 : le nom d'un projet mène
+ * toujours à son accueil, qui porte le tableau de ses tâches (« s'il y a déjà une tâche dans un projet, je ne peux pas
+ * accéder à la page principale du projet »).
+ */
+
 /**
  * L'onglet à retrouver, parmi ceux qui existent VRAIMENT aujourd'hui : la
  * barre du bas change avec le temps, et un onglet retiré ne doit pas ouvrir

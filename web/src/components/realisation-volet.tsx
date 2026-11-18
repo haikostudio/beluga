@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BookOpen, Download, FileText, FileType, Loader2 } from 'lucide-react';
+import { BookOpen, Download, FileText, FileType, Loader2 } from '@/components/ui/icones';
 import { Card, nomDeLaRealisationExportee, partiesDuCahier, realisationDeLaCarte } from '@beluga/shared';
 import {
   Button,

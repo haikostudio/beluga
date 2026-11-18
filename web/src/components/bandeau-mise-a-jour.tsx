@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { X } from 'lucide-react';
+import { X } from '@/components/ui/icones';
 import { bandeauDeMiseAJour, type EtatDesNouveautes } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';

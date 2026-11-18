@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Settings2 } from 'lucide-react';
+import { Settings2 } from '@/components/ui/icones';
 import { explicationDuProcessus, pourquoiCeProcessus, type ProcessusDeProduction } from '@beluga/shared';
 import { BulleInfo, Button, Drawer, EnteteDeFeuille } from '@/components/ui';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';

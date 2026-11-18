@@ -44,6 +44,12 @@ export interface EntreeDeBibliotheque {
    * viennent de cette bibliothèque.
    */
   adoptees?: boolean;
+  /**
+   * BIBLIOTHÈQUE PROTÉGÉE (licence d'autrui : usage permis, pas de partage plus
+   * loin). Ses fiches partent CHIFFRÉES dans le lot des serveurs clients et n'y
+   * montrent que leur nom et une ligne (`lot-competences-clients.ts`).
+   */
+  protegee?: boolean;
 }
 
 export type RegistreDesBibliotheques = Record<string, EntreeDeBibliotheque>;
@@ -64,6 +70,7 @@ export function registreDepuisTexte(texte: string | undefined): RegistreDesBibli
         importeeLe: Number(valeur.importeeLe) || 0,
         competences: Array.isArray(valeur.competences) ? valeur.competences.map(String).filter(Boolean) : [],
         adoptees: valeur.adoptees === true ? true : undefined,
+        protegee: valeur.protegee === true ? true : undefined,
       };
     }
     return registre;

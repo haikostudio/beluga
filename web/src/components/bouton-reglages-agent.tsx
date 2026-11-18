@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from '@/components/ui/icones';
 import type { Agent } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { RunSelectors, type RunChoix } from '@/components/run-selectors';
@@ -13,11 +13,15 @@ import { t } from '@/lib/langue';
  * même menu que partout (moteur, modèle, réflexion, compte — `RunSelectors`),
  * ancré à son bouton : jamais une page.
  *
+ * DANS LE VOLET DE L'ASSISTANT, il monte dans l'ENTÊTE, juste à gauche de la croix (carte « Mode voix Jarvis dans le
+ * champ d'écriture », 17/11/2026) : `dansLEntete`, et le `Chat` de l'assistant ne le pose plus dans le champ
+ * (`sansReglagesDuChamp`). Les autres conversations sans carte le gardent dans le champ.
+ *
  * L'assistant garde en plus sa bande du haut (mode, plafond) et le Studio son
  * propre bouton : deux accès au même réglage, voulu. Une carte a le sien
  * (`MenuDesReglagesDeLaCarte`, `chat.tsx`) — ce composant ne s'y pose pas.
  */
-export function BoutonReglagesAgent({ agent }: { agent: Agent }) {
+export function BoutonReglagesAgent({ agent, dansLEntete }: { agent: Agent; /** Posé dans l'entête du volet de l'assistant, à gauche de la croix : sa taille, menu aligné à droite. */ dansLEntete?: boolean }) {
   const state = useApp();
   return (
     <RunSelectors
@@ -25,11 +29,12 @@ export function BoutonReglagesAgent({ agent }: { agent: Agent }) {
       choix={agent.run as RunChoix | undefined}
       comptes={state.quotas}
       onSelect={(patch) => void appliquerUnReglageDAgent(agent.id, patch)}
+      aligne={dansLEntete ? 'end' : 'start'}
       declencheur={
         <Button
           variant="ghost"
           size="icon"
-          className="shrink-0"
+          className={dansLEntete ? 'h-[34px] w-[34px] shrink-0 text-muted sm:h-7 sm:w-7' : 'shrink-0'}
           title={t('Configuration de l’agent')}
           aria-label="Configuration de l’agent"
           data-raccourci-reglages-agent

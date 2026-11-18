@@ -740,3 +740,70 @@ export function sectionsDuTelechargement(e: {
   }
   return { finaux, valides: valides.map(fichier), esquisses: finis.map(fichier) };
 }
+
+/* ------------------------------------------------------------------ */
+/* 8. Le montage vidéo nourri de tous les éléments validés              */
+/* ------------------------------------------------------------------ */
+
+/** Un élément à verser dans le montage de la carte : posé sur la ligne de temps, ou seulement rangé à portée de main. */
+export interface ElementAVerser {
+  attachmentId: string;
+  genre: 'image' | 'video' | 'son';
+  sujet: string;
+  /** Posé sur la ligne de temps (séquences, voix, musique) ; sinon seulement dans la bibliothèque (images). */
+  poser: boolean;
+}
+
+/**
+ * CE QUE LE MONTAGE D'UNE VIDÉO REÇOIT : la séquence VALIDÉE de chaque plan, DANS
+ * L'ORDRE DU DÉCOUPAGE (plus l'ordre des livraisons), puis la voix off et la
+ * musique validées sur leurs pistes ; les images validées vont à la bibliothèque,
+ * à portée de main. Rien de non validé, rien de déjà versé.
+ */
+export function elementsAVerserDuMedia(e: {
+  elements: readonly ElementDeProduction[];
+  medias: readonly (MediaDuPassage & { attachmentId: string | null; version: number })[];
+  deja: ReadonlySet<string>;
+}): ElementAVerser[] {
+  const plans = decoupageDuMedia(e.elements);
+  const valides = e.medias.filter((m) => estRetenu(m) && !!m.attachmentId);
+  const sortie: ElementAVerser[] = [];
+  const ajouter = (m: (typeof valides)[number], poser: boolean) => {
+    if (e.deja.has(m.attachmentId!) || sortie.some((x) => x.attachmentId === m.attachmentId)) return;
+    sortie.push({ attachmentId: m.attachmentId!, genre: m.genre, sujet: m.plan, poser });
+  };
+  for (const p of etatDesPlans(plans, valides)) {
+    const sequence = p.sequence ? valides.find((m) => m.id === p.sequence!.id) : undefined;
+    if (sequence) ajouter(sequence, true);
+  }
+  /* Une séquence validée hors découpage (un plan ajouté en route) vient ensuite, dans l'ordre de sa fabrication. */
+  for (const m of [...valides].sort((a, b) => a.creeLe - b.creeLe)) if (m.genre === 'video') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'son' && m.capacite === 'voix') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'son' && m.capacite !== 'voix') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'image') ajouter(m, false);
+  return sortie;
+}
+
+/* ------------------------------------------------------------------ */
+/* Le travail fait avance la carte                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE TRAVAIL FAIT AVANCE LA CARTE (décision de l'utilisateur du 15/11/2026, capture #abd87). La carte « Vidéo teaser
+ * avant lancement » restait « Brief · 1 sur 4 » alors que son film était monté (73e version, cinq exports) : seul un
+ * clic sur « Passer aux esquisses » faisait avancer les étapes, et le directeur du Studio monte le film sans jamais
+ * passer par ce bouton. Dès qu'un FILM SE LIT (une version dont une piste visuelle porte un segment de durée non
+ * nulle, `uneVersionSeLit`), Brief et Esquisses sont faits et la carte est au Montage : la barre du bas et le suivi
+ * disent la même chose. Une carte sans film ne bouge pas.
+ *
+ * Rend les passages À POSER (les horodatages qui manquent), ou `null` s'il n'y a rien à écrire.
+ */
+export function passagesDUnFilmMonte(
+  realisation: Pick<EtatDeRealisation, 'esquissesA' | 'montageA'> | null | undefined,
+  filmSeLit: boolean,
+  maintenant: number,
+): { esquissesA: number; montageA: number } | null {
+  if (!filmSeLit || !realisation) return null;
+  if (realisation.montageA && realisation.esquissesA) return null;
+  return { esquissesA: realisation.esquissesA ?? maintenant, montageA: realisation.montageA ?? maintenant };
+}

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   Palette,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import { AppearancePicker } from '@/components/appearance-picker';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { t } from '@/lib/langue';

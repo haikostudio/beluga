@@ -1,5 +1,12 @@
 import fs from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
+  adresseDeSuiviKie,
+  entetesKie,
+  lireCommandeKie,
+  lireSuiviKie,
+  requeteDeCommandeKie,
   type EtatDuTravail,
   type IdServiceCreation,
   type IdServiceEnPlus,
@@ -43,10 +50,11 @@ import { log } from './logger.js';
  * sont dans `shared/src/studio-services.ts`.
  *
  * AUCUN APPEL PAYANT NE PART D'ICI SANS DÉPENSE VALIDÉE : `fabriquerClipChezLeService`
- * n'est appelé que par `lancerGenerationValidee`, après `raisonDepenseRefusee`.
+ * n'est appelé que par la fabrication d'un devis accordé (`realisation.ts`), et `voixChezKie` que par une dépense de voix validée.
  * Le test d'une clé est une lecture gratuite (liste, compte, travail inexistant).
  */
 
+const execFileAsync = promisify(execFile);
 const cleDuTest = (id: IdServiceGeneration) => `studio.service.test.${id}`;
 
 interface TestDeService {
@@ -289,4 +297,54 @@ export async function fabriquerClipChezLeService(
   });
   if (!telechargement.ok) throw new Error(`l’extrait est prêt mais son téléchargement a échoué (${telechargement.status})`);
   fs.writeFileSync(fichier, Buffer.from(await telechargement.arrayBuffer()));
+}
+
+/* ------------------------------------------------------------------ */
+/* La voix finale du Studio chez kie.ai                                 */
+/* ------------------------------------------------------------------ */
+
+/** Le plafond d'une prise de voix chez kie.ai (publié au millier de signes), ou `null` si la liste des prix ne le donne pas. */
+export async function prixDeLaVoixChezKie(modele: string, caracteres: number): Promise<number | null> {
+  const k = modeleKie(modele, 'voix');
+  return k ? prixKie(await tarifsKie(), { tarif: k.tarif }, { caracteres }) : null;
+}
+
+/**
+ * UNE PRISE DE VOIX CHEZ kie.ai, écrite en WAV dans `sortie` : commande, suivi
+ * borné, téléchargement, conversion. La langue française est demandée d'office
+ * (`language_code`). Rend le prix publié : kie.ai ne rend pas le coût du travail.
+ */
+export async function voixChezKie(
+  modele: string,
+  texte: string,
+  sortie: string,
+  attente: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  /** La voix ElevenLabs voulue (son identifiant chez kie.ai) ; absente, celle du modèle par défaut. */
+  voice?: string,
+): Promise<number> {
+  const k = modeleKie(modele, 'voix');
+  if (!k) throw new Error(`modèle de voix inconnu chez kie.ai : ${modele}`);
+  const cle = cleDuService('kie');
+  if (!cle) throw new Error('kie.ai n’est plus branché : sa clé a été retirée');
+  const commande = await appeler(requeteDeCommandeKie(k.id, cle, { text: texte, language_code: 'fr', ...k.defauts, ...(voice ? { voice } : {}) }), 60_000);
+  let etat = lireCommandeKie(commande.statut, commande.corps);
+  const commandee = Date.now();
+  const fin = commandee + RYTHME_DU_SUIVI.delaiMaxMs;
+  while (etat.etat === 'attente') {
+    if (Date.now() > fin) throw new Error('kie.ai n’a pas rendu la voix en 20 minutes');
+    await attente(RYTHME_DU_SUIVI.pauseMs);
+    const r = await appeler({ methode: 'GET', adresse: adresseDeSuiviKie(etat.suivi), entetes: entetesKie(cle) }, 30_000);
+    etat = lireSuiviKie(r.statut, r.corps, etat.suivi, Date.now() - commandee);
+  }
+  if (etat.etat === 'echec') throw new Error(etat.raison);
+  const telechargement = await fetch(etat.url, { signal: AbortSignal.timeout(5 * 60_000) });
+  if (!telechargement.ok) throw new Error(`la voix est prête mais son téléchargement a échoué (${telechargement.status})`);
+  const brut = `${sortie}.source`;
+  fs.writeFileSync(brut, Buffer.from(await telechargement.arrayBuffer()));
+  try {
+    await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', brut, '-ac', '1', '-ar', '24000', sortie], { timeout: 120_000 });
+  } finally {
+    fs.rmSync(brut, { force: true });
+  }
+  return (await prixDeLaVoixChezKie(modele, texte.length)) ?? 0;
 }

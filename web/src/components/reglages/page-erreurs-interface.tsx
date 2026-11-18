@@ -3,7 +3,7 @@ import {
   Bug,
   Loader2,
   Trash2,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   ERREURS_MONTREES_REGLAGES,
   ErreurInterface,

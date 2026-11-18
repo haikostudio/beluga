@@ -5,7 +5,7 @@ import {
   Play,
   Power,
   ShieldCheck,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   SystemProcess,
   detailDesAgents,
@@ -27,7 +27,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { Mesure, Sparkline, gigas } from '@/components/reglages/communs';
+import { Mesure, gigas } from '@/components/reglages/communs';
 import { lancerIntervalleVisible } from '@/lib/veille';
 
 
@@ -36,12 +36,11 @@ export function SectionSysteme() {
      l'enveloppe des réglages, du temps où tout vivait dans un seul fichier :
      ils étaient donc demandés même pour ouvrir la page des thèmes. Une page
      qu'on n'ouvre pas ne doit rien demander. */
-  const [history, setHistory] = React.useState<{ at: number; loadPct: number }[]>([]);
+  /* La courbe de charge vit désormais avec celles de la mémoire et des disques,
+     en tête de la page « Serveur » (`serveur-machine.tsx`) : plus de seconde
+     courbe ici. */
   React.useEffect(() => {
     client.send({ type: 'capacity.processes' });
-    client
-      .call<{ history: { at: number; loadPct: number }[] }>({ type: 'capacity.history' })
-      .then((data) => setHistory(data.history ?? []));
     return lancerIntervalleVisible(() => client.send({ type: 'capacity.processes' }), 5000);
   }, []);
 
@@ -164,7 +163,6 @@ export function SectionSysteme() {
               />
             </div>
 
-            {history.length > 3 ? <Sparkline points={history} /> : null}
           </>
         ) : null}
       </section>

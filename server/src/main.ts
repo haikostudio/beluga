@@ -1,6 +1,10 @@
+import { demarrerSecurite } from './service-securite.js';
+import { menageQuotidienDesJournaux } from './menage-des-journaux.js';
 import { demarrerLesVeilles } from './veille-de-carte.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
 import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { titreDuProcessus } from '@beluga/shared';
 import { CONFIG, ROOT, ensureDirs } from './config.js';
 import { effacerProvisoiresOublies } from './envoi-piece-jointe.js';
@@ -24,7 +28,7 @@ import {
 } from './competences.js';
 import { brancherLesCompetencesSurLaMemoire } from './competences-memoire.js';
 import { bus } from './bus.js';
-import { sampleCapacity } from './capacity.js';
+import { sampleCapacity, fermerLesRestesDEssai } from './capacity.js';
 import { startCard, startScheduler, startVeille, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
@@ -57,7 +61,9 @@ import { planifierRangementDesInstructions } from './instructions-en-attente.js'
 import { planifierLaMemoireDeNuit } from './memoire-de-nuit.js';
 import { planifierLeMenage } from './menage.js';
 import { planifierLeMiroirDesProjets } from './miroir-des-projets.js';
+import { planifierLeRangementDesChemins } from './gestes-de-jarvis.js';
 import { planifierPurgeDesArchives } from './coffre-fort.js';
+import { planifierPurgeDeLaCorbeilleDesMedias } from './communication.js';
 import { remettreLeCoffreEnOrdreAuDemarrage } from './coffre-structuration.js';
 import { veillerSurLesTitresHumains } from './titres-humains.js';
 import { veillerSurLaRelectureDeLaMemoire } from './relecture-memoire.js';
@@ -69,12 +75,19 @@ import { demarrerLaVeilleDesDecrochages } from './decrochages.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
+import { demarrerTourneeDesServicesIa } from './services-ia-releve.js';
 import { demarrerMarketing } from './marketing.js';
+import { demarrerLeDirecteur } from './directeur-marketing.js';
 import { demarrerPublicationSociale } from './publication-sociale.js';
+import { demarrerLeSuiviStudio } from './suivi-studio.js';
+import { demarrerLeRangementDesFichiers } from './fichiers-ranges.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
 import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
 import { convertirLesSuppositionsDesCartes } from './questions-de-carte.js';
 import { completerLesDemandesManquantes, relancerLesCadragesJamaisPartis } from './naissance-de-carte.js';
+import { completerLesDemandesDesSuites } from './cahier-des-charges.js';
+import { effacerTousLesDechiffrements, retenirLaCleDesCompetences } from './lot-competences-clients.js';
+import { planifierLeDepotDuLot } from './depot-lot-competences.js';
 
 /*
  * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT — ET UN SERVEUR
@@ -99,6 +112,20 @@ process.title = titreDuProcessus({
   port: CONFIG.port,
   essaiDeclare: process.env.BELUGA_ESSAI === '1',
 });
+
+/*
+ * LA CLÉ DES COMPÉTENCES PROTÉGÉES quitte l'environnement AVANT que quoi que ce
+ * soit ne soit lancé (moteurs, terminal, scripts héritent de `process.env`), et
+ * aucun contenu déchiffré d'un tour passé ne survit à un redémarrage ou une
+ * panne (`server/src/lot-competences-clients.ts`).
+ */
+retenirLaCleDesCompetences();
+// Un dossier par base servie : un démon d'essai n'efface jamais ce qu'un autre a ouvert.
+process.env.BELUGA_DECHIFFREMENTS ||= path.join(
+  os.tmpdir(),
+  `beluga-competences-ouvertes-${createHash('sha256').update(CONFIG.dataDir).digest('hex').slice(0, 12)}`,
+);
+effacerTousLesDechiffrements();
 
 /**
  * LE DOSSIER DES BACKUPS PASSE AU NOUVEAU NOM, au démarrage, juste après la
@@ -160,7 +187,7 @@ async function main(): Promise<void> {
   // Le pool est son propre dépôt git : `data/` est écarté du dépôt du projet,
   // le pool serait donc hors sauvegarde alors qu'il devient la mémoire commune
   // de tous les projets. Pousser reste un geste de l'utilisateur.
-  preparerLeDepotDuPool();
+  void preparerLeDepotDuPool();
   // Une installation neuve reçoit les compétences publiées avec le code (`semis-competences.ts`).
   semerAuDemarrage();
   // Le coffre personnel de l'utilisateur entre DANS le pool : quinze fiches y
@@ -199,6 +226,8 @@ async function main(): Promise<void> {
   signalerLInstallation();
   demarrerLaMesureDUsage();
   surveillerLesTelechargements();
+  // Chez l'auteur : le lot de compétences des serveurs clients, refait et déposé au central la nuit.
+  planifierLeDepotDuLot();
 
   // Les projets dont l'icône manque encore — jamais récupérée, ou fichier
   // disparu depuis : on la va chercher sans attendre un prochain changement
@@ -299,6 +328,16 @@ async function main(): Promise<void> {
     log.warn('complément des demandes de cartes impossible', err);
   }
   /*
+   * LES CARTES DE CONSTRUCTION D'UN CAHIER DES CHARGES nées sans leur demande
+   * (avant la règle) reçoivent le jalon « Demande » et le cahier joint — aucun
+   * agent, aucun moteur. Idempotent.
+   */
+  void completerLesDemandesDesSuites()
+    .then((n) => {
+      if (n) log.info(`cartes de construction : ${n} demande(s) écrite(s) avec leur cahier des charges`);
+    })
+    .catch((err) => log.warn('complément des demandes des cartes de construction impossible', err));
+  /*
    * LE FILET DES CADRAGES JAMAIS PARTIS : une carte dont l'agent de cadrage est
    * né sans jamais recevoir son premier tour (panne, ancienne règle) le reçoit,
    * une carte après l'autre, jusqu'à la compréhension seulement. Trente
@@ -341,8 +380,18 @@ async function main(): Promise<void> {
   // Un travail coupé par une limite attend peut-être qu'un compte se libère :
   // le même flux de quotas le lui dit, sans boucle en plus.
   const suivreReprises = surveillerRepriseDeCompte();
+  let passagesDeCapacite = 0;
   const capacityTimer = setInterval(() => {
     sampleCapacity();
+    // Toutes les cinq minutes : les serveurs d'essai laissés par une carte qui ne travaille plus.
+    passagesDeCapacite += 1;
+    if (passagesDeCapacite % 10 === 0) {
+      try {
+        fermerLesRestesDEssai();
+      } catch (err) {
+        log.warn('ménage des restes d’essai impossible', err);
+      }
+    }
     // Le même rythme sert à dire si le démon tourne encore sur du code périmé :
     // quelques lectures de dates de fichiers, rien de plus.
     diffuserEtatDemon();
@@ -364,6 +413,18 @@ async function main(): Promise<void> {
    */
   const surveillanceTimer = demarrerSurveillance();
   /*
+   * LE SERVICE SÉCURITÉ : une tournée horaire qui lance l'audit des projets suivis DUS (sept jours après le dernier) et
+   * range les audits de plus de douze mois. Sans agent ni quota (`server/src/service-securite.ts`).
+   */
+  const securiteTimer = demarrerSecurite();
+  void import('./belugapass.js').then((m) => m.nettoyerLesLectures()).catch(() => {});
+  /*
+   * LES SOLDES DES SERVICES D'IA (OpenRouter, kie.ai, HeyGen, Agentik…) : une tournée de 30 min, à part du
+   * relevé des moteurs et jamais sur le chemin d'un lancement. Elle allume le point orange du pied de
+   * colonne et prévient quand un service tombe à sec (`server/src/services-ia-releve.ts`).
+   */
+  const servicesIaTimer = demarrerTourneeDesServicesIa();
+  /*
    * LES VEILLES DE CARTE : un battement d'une minute qui rejoue, sans moteur
    * ni quota, les contrôles DUS des cartes en attente d'un tiers. Au
    * redémarrage, chaque veille reprend d'après son prochain passage relu en
@@ -375,6 +436,7 @@ async function main(): Promise<void> {
    * plan de la semaine du dimanche soir (`server/src/marketing.ts`).
    */
   const marketingTimer = demarrerMarketing();
+  const directeurTimer = demarrerLeDirecteur();
   /*
    * LA PUBLICATION OFFICIELLE SUR LES RÉSEAUX : les contenus programmés qui
    * visent des comptes reliés partent à l'heure prévue, les accès se
@@ -382,6 +444,43 @@ async function main(): Promise<void> {
    * (`server/src/publication-sociale.ts`).
    */
   const publicationSocialeTimer = demarrerPublicationSociale();
+  /* Les vidéos demandées par un agent : leur bloc de suivi et les miroirs des boutons à prix (`suivi-studio.ts`). */
+  demarrerLeSuiviStudio();
+  /* LES FICHIERS RANGÉS PAR PROJET ET PAR SERVICE : pièces neuves rangées au dépôt, rangement complet toutes les 30 min. */
+  demarrerLeRangementDesFichiers();
+  /*
+   * LE STUDIO : un export resté « en cours » a été coupé par l'arrêt du démon.
+   * Il le DIT au démarrage, au lieu de rester affiché comme s'il tournait.
+   */
+  void import('./studio-rendu.js')
+    .then((m) => m.rattraperExportsCoupes())
+    .catch((err) => log.warn('studio : rattrapage des exports coupés impossible', err));
+  /* …et une fabrication de voix finales coupée de même ne reste pas affichée « en cours ». */
+  void import('./studio-generation.js')
+    .then((m) => m.rattraperVoixCoupees())
+    .catch((err) => log.warn('studio : rattrapage des voix coupées impossible', err));
+  /* …et une carte dont le film se lit déjà passe au Montage (15/11/2026, « le travail fait avance la carte »). */
+  void import('./studio.js')
+    .then((m) => m.rattraperLesFilmsMontes())
+    .catch((err) => log.warn('studio : rattrapage des films montés impossible', err));
+  /* …ni un personnage 3D dont la fabrication a été coupée par le redémarrage. */
+  void Promise.all([import('./studio-3d.js'), import('./studio.js')])
+    .then(([m, s]) => m.rattraperLesPersonnages3dCoupes(s.depensesValideesDeGenre('modele3d')))
+    .catch((err) => log.warn('studio : rattrapage des personnages 3D coupés impossible', err));
+  /* LES EXTRAITS DES VOIX FINALES SONT PRÊTS D'AVANCE : ceux qui manquent se fabriquent une fois, l'un après l'autre,
+     deux minutes après le démarrage — l'écoute d'une voix ne fait plus attendre (`preparerLesExtraitsManquants`). */
+  setTimeout(() => {
+    void import('./studio-generation.js')
+      .then((m) => m.preparerLesExtraitsManquants())
+      .catch((err) => log.warn('studio : préparation des extraits de voix impossible', err));
+  }, 120_000).unref();
+  /* LES MÉDIAS VALIDÉS ABSENTS DE LEUR PISTE (capture #ae82) s'y posent, une minute après le démarrage (`rattraperLesValidesDuMontage`). */
+  setTimeout(() => {
+    void import('./studio-montage-de-carte.js')
+      .then((m) => m.rattraperLesValidesDuMontage())
+      .then((n) => n && log.info(`montage : ${n} média(s) validé(s) posé(s) sur leur piste`))
+      .catch((err) => log.warn('montage : rattrapage des médias validés impossible', err));
+  }, 60_000).unref();
   /* LES ARCHIVES DU STUDIO, une seule fois : ses vidéos rangées dans une carte « Archivé » (`server/src/archives-du-studio.ts`). */
   setTimeout(() => {
     void import('./archives-du-studio.js')
@@ -390,6 +489,8 @@ async function main(): Promise<void> {
   }, 40_000).unref();
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
+  // L'agent de l'assistant porte le titre « Assistant <nom> » : un agent créé avant le réglage du nom est renommé.
+  void import('./assistant-global.js').then((m) => m.retitrerLAssistant()).catch(() => undefined);
   // Les backups des sites en production : leur propre heure, après celle de
   // la sauvegarde du démon, et rien tant qu'aucun dossier de stockage n'est réglé.
   const backupsSitesTimer = planifierLesBackups();
@@ -412,6 +513,8 @@ async function main(): Promise<void> {
     45_000,
   ).unref?.();
   const rattrapageTimer = setInterval(() => void reprendreLesRattrapages(), 120_000);
+  // Premier passage différé : le démarrage n'attend pas un ménage qui peut toucher des centaines de milliers de lignes.
+  setTimeout(() => void menageQuotidienDesJournaux(), 120_000).unref?.();
   const janitorTimer = setInterval(
     () => {
       purgeOldArchives();
@@ -419,6 +522,12 @@ async function main(): Promise<void> {
       void refreshGitInfo();
       // Les copies de secours des projets supprimés vivent 15 jours (`copie-de-projet-supprime.ts`).
       void purgerCopiesDeProjetsSupprimes().catch((err) => log.warn('purge des copies de projets supprimés', err));
+      // Le texte des vieux journaux de cartes et les traces du juge de plus de 7 jours : une passe par jour.
+      void menageQuotidienDesJournaux();
+      // Le récapitulatif des commentaires des clients sur les documents (Charte graphique) : une fois par jour, s'il y a du nouveau.
+      void import('./plaquettes.js')
+        .then((pl) => pl.envoyerLeRecapDesCommentaires())
+        .catch((err) => log.warn('récapitulatif des commentaires', err));
     },
     60 * 60 * 1000,
   );
@@ -490,8 +599,14 @@ async function main(): Promise<void> {
    * (`server/src/miroir-des-projets.ts`).
    */
   const miroirTimer = planifierLeMiroirDesProjets();
+  // Les chemins réussis de Jarvis à l'écran se rangent chaque nuit en compétences (`server/src/gestes-de-jarvis.ts`).
+  const cheminsDeJarvisTimer = planifierLeRangementDesChemins();
   // Les fiches du coffre retirées depuis plus de six mois s'effacent (`server/src/coffre-fort.ts`).
   const archivesTimers = planifierPurgeDesArchives();
+  // Les gestes répétés dans Chrome partent à leur échéance, ou au retour de Chrome (`server/src/extension-chrome.ts`).
+  void import('./extension-chrome.js').then((m) => m.planifierLesRoutines()).catch(() => {});
+  // Les médias de Communication restés 30 jours à la corbeille s'effacent (`server/src/communication.ts`).
+  const corbeilleDesMediasTimers = planifierPurgeDeLaCorbeilleDesMedias();
   // La remise en ordre des fiches (chaque valeur dans sa case), UNE fois, après une copie sur le disque de stockage.
   remettreLeCoffreEnOrdreAuDemarrage();
   // Les unités de mémoire sans titre clair en reçoivent un, par lots, en tâche de fond (`server/src/titres-humains.ts`).
@@ -536,6 +651,11 @@ async function main(): Promise<void> {
   }
 
   sampleCapacity();
+  // La page « Serveur » : historique horaire des disques, et relevé des plus
+  // lourds en arrière-plan (jamais sur l'offre hébergée ni sur un démon d'essai).
+  void import('./occupation-disque.js')
+    .then(({ demarrerLeSuiviDesDisques }) => demarrerLeSuiviDesDisques())
+    .catch((err) => log.error('suivi des disques', err));
   void refreshQuotas(true).then((quotas) => {
     bus.emit({ type: 'quotas', quotas });
     void amorcerFenetres();
@@ -559,8 +679,11 @@ async function main(): Promise<void> {
     suivreEcheances();
     suivreReprises();
     clearInterval(surveillanceTimer);
+    clearInterval(securiteTimer);
+    clearInterval(servicesIaTimer);
     clearInterval(veillesTimer);
     clearInterval(marketingTimer);
+    clearInterval(directeurTimer);
     if (publicationSocialeTimer) clearInterval(publicationSocialeTimer);
     void fermerNavigateur();
     clearInterval(backupTimer);
@@ -577,8 +700,10 @@ async function main(): Promise<void> {
     clearInterval(instructionsTimer);
     clearInterval(menageTimer);
     clearInterval(miroirTimer);
+    clearInterval(cheminsDeJarvisTimer);
     for (const minuteur of memoireTimers) clearTimeout(minuteur);
     for (const minuteur of archivesTimers) clearTimeout(minuteur);
+    for (const minuteur of corbeilleDesMediasTimers) clearTimeout(minuteur);
     arreterLesTitresHumains();
     arreterLaRelecture();
     arreterLeVectoriseur();

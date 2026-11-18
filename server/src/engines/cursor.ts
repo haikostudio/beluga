@@ -183,6 +183,9 @@ export async function creditCursor(cle: string): Promise<CreditCursor> {
 export async function modelesCursor(cle: string): Promise<ModeleCursorCli[]> {
   const { stdout } = await execFileAsync(cursorAdapter.binary, ['--list-models'], {
     timeout: 30_000,
+    // Un outil qui ignore SIGTERM ne rendait JAMAIS la main malgré le délai
+    // (15/11/2026, `shared/src/plafond.ts`) : le délai l'achève.
+    killSignal: 'SIGKILL',
     env: { ...process.env, ...(cle ? { CURSOR_API_KEY: cle } : {}), FORCE_COLOR: '0' },
     maxBuffer: 4 * 1024 * 1024,
   });
@@ -380,7 +383,7 @@ export function buildCursorArgs(options: EngineRunOptions, modele: string): stri
 /** L'outil `cursor-agent` répond-il sur cette machine ? Aucune clé n'entre ici. */
 async function detecterLOutilCursor(): Promise<{ installed: boolean; version?: string }> {
   try {
-    const { stdout } = await execFileAsync(cursorAdapter.binary, ['--version'], { timeout: 15_000 });
+    const { stdout } = await execFileAsync(cursorAdapter.binary, ['--version'], { timeout: 15_000, killSignal: 'SIGKILL' });
     return { installed: true, version: stdout.trim().split('\n')[0] };
   } catch {
     return { installed: false };

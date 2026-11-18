@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy } from '@/components/ui/icones';
 import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 

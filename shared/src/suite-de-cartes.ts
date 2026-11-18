@@ -55,7 +55,9 @@ export function etapeRetenueEnFinDeTour(
   card: { rangDansLaSuite?: number | null },
   cible: ColumnKey | null | undefined,
 ): boolean {
-  return estEtapeDeSuite(card) && cible === 'to_deploy';
+  /* Une étape rendue SANS code (« Archivé » d'office) reste AUSSI dans le
+     groupe : la suite range ses étapes ensemble, sinon elle perdrait le fil. */
+  return estEtapeDeSuite(card) && (cible === 'to_deploy' || cible === 'archived');
 }
 
 /** Ce que l'enchaînement lit de chaque étape, dans l'ordre de la suite. */

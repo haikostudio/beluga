@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from './config.js';
+import { disqueDeStockage } from './pieces-jointes.js';
 
 /**
  * LES VIGNETTES NE TÉLÉCHARGENT PAS L'ORIGINAL.
@@ -26,9 +27,18 @@ const FORMATS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'application/pdf': 'png',
+  /* UNE VIDÉO A SA VIGNETTE : une image prise une demi-seconde après le début (fenêtre Fichiers). */
+  'video/mp4': 'jpg',
+  'video/webm': 'jpg',
+  'video/quicktime': 'jpg',
 };
 /** Le type de la miniature quand il diffère de l'original. */
-const TYPE_DE_LA_MINIATURE: Record<string, string> = { 'application/pdf': 'image/png' };
+const TYPE_DE_LA_MINIATURE: Record<string, string> = { 'application/pdf': 'image/png', 'video/mp4': 'image/jpeg', 'video/webm': 'image/jpeg', 'video/quicktime': 'image/jpeg' };
+
+/** Une vidéo demandée en vignette ne se sert JAMAIS entière : sans image, l'appelant répond 404. */
+export function vignetteSansOriginal(mime: string | null | undefined): boolean {
+  return !!mime && mime.startsWith('video/');
+}
 /** Largeurs demandées, bornées : une adresse ne fabrique pas n'importe quelle taille. */
 export const LARGEUR_MIN = 64;
 export const LARGEUR_MAX = 1024;
@@ -73,7 +83,8 @@ function premierePageDuPdf(source: string, cible: string, largeur: number): Prom
 
 function fabriquer(source: string, cible: string, largeur: number, extension: string, mime: string): Promise<boolean> {
   if (mime === 'application/pdf') return premierePageDuPdf(source, cible, largeur);
-  const args = ['-v', 'error', '-y', '-i', source, '-frames:v', '1', '-vf', `scale='min(${largeur},iw)':-2`];
+  const video = mime.startsWith('video/');
+  const args = ['-v', 'error', '-y', ...(video ? ['-ss', '0.5'] : []), '-i', source, '-frames:v', '1', '-vf', `scale='min(${largeur},iw)':-2`];
   if (extension === 'jpg') args.push('-q:v', '4');
   args.push(cible);
   return new Promise((resolve) => {
@@ -98,7 +109,11 @@ export async function miniatureDe(
   } catch {
     return null;
   }
-  const dossier = path.join(CONFIG.dataDir, 'miniatures');
+  /* SUR LE DISQUE DE STOCKAGE (04/11/2026, demande de l'utilisateur : images et captures sur le disque de 1 To,
+     même si elles chargent un peu moins vite). Voisin des pièces jointes : `…/beluga-miniatures`. Disque absent :
+     le dossier du serveur, en repli. */
+  const stockage = disqueDeStockage();
+  const dossier = stockage ? path.join(path.dirname(stockage.replace(/\/+$/, '')), 'beluga-miniatures') : path.join(CONFIG.dataDir, 'miniatures');
   const cle = crypto.createHash('sha1').update(`${fichier}|${stat.mtimeMs}|${stat.size}|${largeur}`).digest('hex');
   const cible = path.join(dossier, `${cle}.${extension}`);
   const servir = (): { file: string; mime: string; taille: number } | null => {

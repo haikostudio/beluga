@@ -22,13 +22,14 @@
  * Rien ici ne touche à la base ni au disque.
  */
 
-import { ficheEnService, type Competence } from './competences.js';
+import { ficheEnService, quandSenServir, type Competence } from './competences.js';
 import {
   DETAIL_UNITE_MAX,
   GENRE_SOURCE_COMPETENCE,
   PORTEE_GLOBALE,
   RESUME_UNITE_MAX,
   RESUME_UNITE_MIN,
+  SUJETS_PAR_UNITE_MAX,
   TITRE_UNITE_MAX,
   estUniteDeCompetence,
   idDeSujetDUnite,
@@ -49,6 +50,9 @@ export const IMPORTANCE_COMPETENCE_BIBLIOTHEQUE: Importance = 'P3';
 
 /** Au-delà, le mode d'emploi s'arrête dans l'unité et renvoie au `SKILL.md` : le détail d'une unité est plafonné. */
 export const MODE_D_EMPLOI_DANS_L_UNITE_MAX = 8_000;
+
+/** La description d'origine recopiée dans le détail d'une fiche qui a un résumé en français, au plus. */
+const DESCRIPTION_D_ORIGINE_MAX = 500;
 
 /** Les fichiers de détail cités dans l'unité, au plus. */
 const ANNEXES_CITEES_MAX = 25;
@@ -95,9 +99,14 @@ export function titresDescendus(texte: string): string {
     .join('\n');
 }
 
-/** Le résumé de l'unité : la description de la fiche, celle qui dit QUAND s'en servir. */
-export function resumeDeLUniteDeCompetence(fiche: Pick<Competence, 'nom' | 'description'>): string {
-  let resume = fiche.description.replace(/\s+/g, ' ').trim();
+/**
+ * Le résumé de l'unité : ce qui dit QUAND s'en servir — le résumé en français
+ * d'une fiche de bibliothèque s'il existe (`resume-fr`), sinon sa description.
+ * C'est la tête du texte vectorisé : en français, la fiche ressort d'une
+ * demande en français dite autrement.
+ */
+export function resumeDeLUniteDeCompetence(fiche: Pick<Competence, 'nom' | 'description'> & { resumeFr?: string }): string {
+  let resume = quandSenServir(fiche).replace(/\s+/g, ' ').trim();
   if (resume.length < RESUME_UNITE_MIN) resume = `${resume || 'Compétence sans description'} — compétence partagée « ${fiche.nom} ».`;
   return couper(resume, RESUME_UNITE_MAX);
 }
@@ -110,10 +119,15 @@ export function resumeDeLUniteDeCompetence(fiche: Pick<Competence, 'nom' | 'desc
 export function detailDeLUniteDeCompetence(fiche: Competence, texteDuSkill: string): string {
   const sections: string[] = [];
 
-  // La description est déjà le résumé de l'unité : on ne la recopie pas ici.
+  // La description est déjà le résumé de l'unité : on ne la recopie pas ici —
+  // sauf quand un résumé en français la remplace : elle suit alors les symptômes,
+  // bornée, pour que ses mots d'origine (souvent anglais) restent cherchables.
   const quand: string[] = [];
   if (fiche.symptomes.length) quand.push(`Symptômes : ${fiche.symptomes.join(', ')}.`);
   if (fiche.themes.length) quand.push(`Thèmes : ${fiche.themes.join(', ')}.`);
+  if (fiche.resumeFr?.trim() && fiche.description.trim()) {
+    quand.push(`Description d'origine : ${couper(fiche.description.replace(/\s+/g, ' ').trim(), DESCRIPTION_D_ORIGINE_MAX)}`);
+  }
   quand.push(fiche.projets.length ? `Projets : ${fiche.projets.join(', ')}.` : 'Vaut pour tous les projets.');
   if (fiche.etat !== 'active') quand.push(`État de la fiche : ${fiche.etat === 'depreciee' ? 'dépréciée — elle a été contredite ou n’aide plus, lis-la avec prudence' : 'archivée'}.`);
   sections.push(`### Quand s'en servir\n\n${quand.join('\n\n')}`);
@@ -159,7 +173,15 @@ export function propositionDeLaCompetence(
   texteDuSkill: string,
   options: { confiance: number; id?: string },
 ): PropositionUnite {
-  const sujets = [SUJET_COMPETENCES, ...fiche.projets.map(sujetDeProjetDeCompetence), ...fiche.themes, ...(fiche.bibliotheque ? [`bibliotheque-${fiche.bibliotheque}`] : [])];
+  // Bornés comme la porte d'écriture les borne (`SUJETS_PAR_UNITE_MAX`) : sinon une fiche à treize
+  // thèmes n'est jamais « à jour » et la synchro écrit une version de plus à chaque passage.
+  const sujets = [
+    ...new Set(
+      [SUJET_COMPETENCES, ...fiche.projets.map(sujetDeProjetDeCompetence), ...fiche.themes, ...(fiche.bibliotheque ? [`bibliotheque-${fiche.bibliotheque}`] : [])]
+        .map((s) => String(s ?? '').trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, SUJETS_PAR_UNITE_MAX);
   return {
     action: options.id ? 'update' : 'create',
     id: options.id,

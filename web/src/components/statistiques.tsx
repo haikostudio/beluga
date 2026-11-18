@@ -1,6 +1,11 @@
+import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, CourbeDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
+import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
+import { BasculeDePage, DroiteDePage, RechercheDuService, RubriquesDePage, useDansUnePageDeService } from '@/components/fenetre-de-service';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Download, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
+import { useProjetDuService } from '@/components/projet-du-service';
+import { BoutonVue } from '@/components/ui/boutons-a-menu';
+import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Download, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from '@/components/ui/icones';
 import {
   type AnalyseDesParcours,
   type Card,
@@ -169,6 +174,11 @@ export function Statistiques({
   onOuvrirCarte?: (card: Card) => void;
 }) {
   const state = useApp();
+  /* DANS L'ONGLET D'UN PROJET (refonte du 13/11/2026) : le détail de ce projet s'ouvre de lui-même. */
+  const projetDuService = useProjetDuService();
+  React.useEffect(() => {
+    if (projetDuService && !(vise ?? '').startsWith(projetDuService.id)) onVise?.(projetDuService.id);
+  }, [projetDuService, vise, onVise]);
   const version = Object.values(state.marketingVersions).reduce((a, b) => a + b, 0);
   const [liste, setListe] = React.useState<{ sites: LigneSite[]; jours: string[] } | null>(null);
   const [creation, setCreation] = React.useState(false);
@@ -220,6 +230,7 @@ export function Statistiques({
     setAssistantVoulu(assistant);
     onVise?.(id);
   };
+  const [vueDeLaListe, setVueDeLaListe] = useVueDeLaListe('statistiques.vueDeLaListe');
   /* Les chiffres des rubriques de la colonne : ceux de la liste, pas ceux de la recherche. */
   const comptesDesGroupes = React.useMemo(() => {
     const sites = liste?.sites ?? [];
@@ -320,32 +331,16 @@ export function Statistiques({
               </OptionDePage>
             </OptionsDePage>
           ) : null}
-          <div className={cn('shrink-0 pb-4', groupe === 'installations' && 'hidden')}>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-              <Input
-                value={recherche}
-                onChange={(e) => setRecherche(e.target.value)}
-                onKeyDown={(e) => e.key === 'Escape' && recherche && (e.stopPropagation(), setRecherche(''))}
-                placeholder={t('Rechercher un projet ou un site')}
-                aria-label="Rechercher un projet ou un site"
-                className="h-10 rounded-xl pl-10 pr-9 text-[14px]"
-                data-stats-recherche
-              />
-              {recherche ? (
-                <button
-                  type="button"
-                  onClick={() => setRecherche('')}
-                  aria-label="Effacer la recherche"
-                  title={t('Effacer la recherche')}
-                  className="absolute right-1 top-1/2 flex h-[29px] sm:h-6 w-[29px] sm:w-6 -translate-y-1/2 items-center justify-center rounded-sm text-faint hover:text-text"
-                  data-stats-recherche-effacer
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-          </div>
+          {/* LA RECHERCHE ET LA BASCULE, DANS LA RANGÉE DU TITRE (carte « Services homogènes et centrés ») : un champ sur
+              ordinateur, une loupe dans la rangée de la feuille sur téléphone. */}
+          {groupe === 'installations' ? null : (
+            <>
+              <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher un projet ou un site')} aria-label="Rechercher un projet ou un site" data-stats-recherche />
+              <BasculeDePage>
+                <BasculeTableauCartes repere="vue-des-statistiques" valeur={vueDeLaListe} onChange={setVueDeLaListe} />
+              </BasculeDePage>
+            </>
+          )}
           <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
             {groupe === 'installations' ? (
               <React.Suspense fallback={<SilhouetteStatistiques />}>
@@ -354,7 +349,7 @@ export function Statistiques({
             ) : liste === null ? (
               <SilhouetteStatistiques />
             ) : (
-              <ListeDesSites sites={liste.sites} recherche={recherche} groupe={groupe} onOuvrir={(id) => ouvrir(id)} />
+              <ListeDesSites sites={liste.sites} recherche={recherche} groupe={groupe} onOuvrir={(id) => ouvrir(id)} enCartes={vueDeLaListe === 'cartes'} />
             )}
           </ZoneDefilement>
         </>
@@ -398,11 +393,14 @@ function ListeDesSites({
   recherche,
   groupe = 'tous',
   onOuvrir,
+  enCartes = false,
 }: {
   sites: LigneSite[];
   recherche: string;
   groupe?: GroupeDeLaListe;
   onOuvrir: (id: string) => void;
+  /** La vue en cartes : un groupe, puis ses sites en cartes de même forme (courbe, adresse, trois chiffres). */
+  enCartes?: boolean;
 }) {
   const [garde, garder] = usePref<TriDeLaListe | null>('statistiques.liste.tri', null);
   // Le titre d'un groupe couvre EXACTEMENT les colonnes affichées : plus large, il en créerait de fantômes.
@@ -440,10 +438,78 @@ function ListeDesSites({
   const entete = (colonne: ColonneDeLaListe, libelle: string, className?: string) => (
     <EnteteDeColonne colonne={colonne} libelle={libelle} tri={tri} onTrier={trierPar} className={className} />
   );
+  if (enCartes) {
+    /* LA VUE EN CARTES (carte « Services homogènes et centrés », 14/11/2026) : les mêmes groupes, chacun en grille de
+       cartes communes — la courbe des 28 jours en tête, le projet et l'état du suivi, l'adresse, trois chiffres. */
+    const groupes: { cle: string; titre: string; sites: LigneSite[] }[] = [
+      ...(voir('actifs') && actifs.length ? [{ cle: 'actifs', titre: t('Projets actifs'), sites: actifs }] : []),
+      ...(voir('inactifs') && inactifs.length ? [{ cle: 'inactifs', titre: t('Projets inactifs'), sites: inactifs }] : []),
+      ...(voir('autonomes') && autonomes.length ? [{ cle: 'autonomes', titre: t('Sites autonomes'), sites: autonomes }] : []),
+    ];
+    const chiffre = (n: number) => n.toLocaleString(formatRegional());
+    return (
+      <div className="flex flex-col gap-6" data-tableau="statistiques" data-stats-liste={retenus.length} data-stats-cartes>
+        {groupes.map((g) => (
+          <section key={g.cle} className="flex flex-col gap-3" data-stats-groupe={g.cle}>
+            <h2 className="text-[13px] font-normal text-faint">
+              {g.titre} <span className="tabular-nums">· {g.sites.length}</span>
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-tableau-cartes>
+              {g.sites.map((s) => {
+                const total = s.visites.reduce((a, b) => a + b, 0);
+                return (
+                  <div
+                    key={s.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onOuvrir(s.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) onOuvrir(s.id);
+                    }}
+                    className="flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl bg-surface text-[13px] text-text transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teinte/40"
+                    data-stats-site={s.id}
+                    data-ligne-de-tableau={s.id}
+                  >
+                    <CarteDeTableau
+                      image={
+                        <span className="flex h-full w-full items-end px-4 pb-3">
+                          <CourbeDApercu valeurs={s.visites} />
+                        </span>
+                      }
+                      projet={s.autonome ? null : { id: s.id, nom: s.nom }}
+                      etat={<span className={cn('text-[12px]', couleurDuSuivi(s.etatAffiche))}>{libelleSuivi(s.etatAffiche)}</span>}
+                      titre={s.nom}
+                      texte={s.adresse ?? t('Aucune adresse')}
+                      chiffres={[
+                        {
+                          libelle: t('Visites'),
+                          valeur: (
+                            <span className="inline-flex items-center gap-1">
+                              {chiffre(total)}
+                              <FlecheDeTendance tendance={tendanceDesVisites(total, s.visitesPrecedentes)} />
+                            </span>
+                          ),
+                        },
+                        { libelle: t('Visiteurs'), valeur: chiffre(s.visiteurs) },
+                        { libelle: t('Objectifs'), valeur: chiffre(s.objectifs) },
+                      ]}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+  /* L'APERÇU AU SURVOL (carte « Onglets, services et listes repensés », 14/11/2026) : la courbe des visites en
+     grand et les chiffres de 28 jours, pris dans la liste déjà chargée. La liste était déjà un tableau triable. */
   return (
-    <table className="w-full table-fixed border-collapse text-left" data-stats-liste={retenus.length} data-stats-tri={`${tri.colonne}:${tri.sens}`}>
+    <ApercuAuSurvol lire={(id) => sites.find((s) => s.id === id)} rendu={(s) => <ApercuDuSite site={s} />}>
+    <table className="w-full table-fixed border-collapse text-left" data-tableau="statistiques" data-stats-liste={retenus.length} data-stats-tri={`${tri.colonne}:${tri.sens}`}>
       <thead>
-        <tr className="text-[11.5px] text-faint">
+        <tr className="text-[11.5px] bg-tableau-entete text-muted [&>th:first-child]:rounded-l-md [&>th:last-child]:rounded-r-md">
           {entete('nom', t('Projet'), 'pl-1 max-sm:pl-0')}
           <th className="hidden w-20 px-2 py-1.5 font-normal sm:table-cell" aria-hidden />
           {entete('visites', t('Visites'), 'w-[4.5rem] sm:w-24')}
@@ -465,6 +531,34 @@ function ListeDesSites({
         />
       ) : null}
     </table>
+    </ApercuAuSurvol>
+  );
+}
+
+/** L'aperçu d'un site au survol : la courbe des visites, les chiffres de 28 jours, l'état du suivi. */
+function ApercuDuSite({ site: s }: { site: LigneSite }) {
+  const total = s.visites.reduce((a, b) => a + b, 0);
+  const chiffre = (n: number) => n.toLocaleString(formatRegional());
+  return (
+    <CorpsDApercu
+      sous={s.adresse ?? t('Aucune adresse')}
+      titre={s.nom}
+      chiffres={[
+        { libelle: t('Visites'), valeur: chiffre(total) },
+        { libelle: t('Visiteurs'), valeur: chiffre(s.visiteurs) },
+        { libelle: t('Objectifs'), valeur: chiffre(s.objectifs) },
+        { libelle: t('Tendance'), valeur: <FlecheDeTendance tendance={tendanceDesVisites(total, s.visitesPrecedentes)} /> },
+      ]}
+    >
+      <CourbeDApercu
+        valeurs={s.visites}
+        legende={
+          <>
+            {t('28 derniers jours')} · <span className={couleurDuSuivi(s.etatAffiche)}>{libelleSuivi(s.etatAffiche)}</span>
+          </>
+        }
+      />
+    </CorpsDApercu>
   );
 }
 
@@ -536,6 +630,7 @@ function GroupeDeSites({
               key={s.id}
               onClick={() => onOuvrir(s.id)}
               data-stats-site={s.id}
+              data-ligne-de-tableau={s.id}
               className="cursor-pointer text-[13px] transition-colors hover:bg-surface"
             >
               {/* SUR TÉLÉPHONE, LE TEXTE S'ALIGNE SUR LE CHAMP DE RECHERCHE : la
@@ -692,6 +787,7 @@ function DetailDuSite({
      liste, et « Audience » et « Parcours ». Sur téléphone, les onglets restent
      dans la page. */
   const dansLaColonne = useColonneDeService();
+  const enRangee = useDansUnePageDeService();
   /** Les blocs du tableau affiché : sur téléphone, « Blocs » est une ligne du menu à trois points. */
   const [blocsDeclares, setBlocsDeclares] = React.useState<BlocsDeLaPage | null>(null);
 
@@ -742,7 +838,7 @@ function DetailDuSite({
           les lignes du menu à trois points ; tant que le suivi n'est pas posé,
           « Installer le suivi » est le bouton du bas de l'écran. */}
       <OptionsDePage>
-        {telephone ? null : dates}
+        {telephone || enRangee ? null : dates}
         {/* « SUIVI ACTIF » : le même réglage que l'atelier Marketing — éteint, le
             projet passe dans « Projets inactifs ». Un site autonome n'a pas cet état. */}
         {detail && !detail.autonome ? <InterrupteurDeSuivi projectId={detail.id} actif={detail.espace.actif !== false} libelle={t('Suivi actif')} repere="Suivi actif" /> : null}
@@ -753,7 +849,7 @@ function DetailDuSite({
             {bouton.libelle}
           </OptionDePage>
         ) : null}
-        {telephone && blocsDeclares ? <LignesDesBlocs declares={blocsDeclares} /> : null}
+        {blocsDeclares ? <LignesDesBlocs declares={blocsDeclares} /> : null}
       </OptionsDePage>
       {detail && bouton?.principal ? (
         <GestePrincipal>
@@ -763,7 +859,7 @@ function DetailDuSite({
           </BoutonPrincipal>
         </GestePrincipal>
       ) : null}
-      <ColonneDeService niveau={{ titre: nom, onRetour: () => onChoisir(null) }}>
+      <ColonneDeService niveau={{ titre: nom }}>
         <nav aria-label="Rubriques du site" data-colonne-statistiques-site className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
           <RubriqueDeColonne
             icone={<BarChart3 />}
@@ -782,18 +878,43 @@ function DetailDuSite({
         </nav>
       </ColonneDeService>
       {!detail ? (
-        <div className="sm:px-3">
+        <div>
           <SilhouetteStatistiques lignes={3} />
         </div>
       ) : (
         <FournirLeMenuDesBlocs value={setBlocsDeclares}>
           <Tabs value={onglet} onValueChange={(v) => setOnglet(v as OngletStats)} className="flex min-h-0 flex-1 flex-col">
-            {dansLaColonne ? null : (
+            {dansLaColonne ? null : enRangee ? (
+              /* DANS LA RANGÉE DU TITRE (carte « Services homogènes et centrés », capture #f0c5) : « Audience ▾ » en tête,
+                 la période à droite — plus de seconde rangée sous le fil. */
+              <>
+                <RubriquesDePage>
+                  <BoutonVue
+                    repere="statistiques"
+                    valeur={onglet}
+                    onChoisir={(v) => setOnglet(v as OngletStats)}
+                    attributs={{ 'data-stats-vue': onglet }}
+                    choix={[
+                      { cle: 'audience', libelle: t('Audience'), attributs: { 'data-stats-onglet': 'audience' } },
+                      { cle: 'parcours', libelle: t('Parcours'), attributs: { 'data-stats-onglet': 'parcours' } },
+                    ]}
+                  />
+                </RubriquesDePage>
+                <DroiteDePage>{dates}</DroiteDePage>
+              </>
+            ) : (
               <div className="flex shrink-0 items-center gap-2 pb-2 sm:px-3" data-stats-rangee-onglets>
-                <TabsList defilable>
-                  <TabsTrigger value="audience" data-stats-onglet="audience">{t('Audience')}</TabsTrigger>
-                  <TabsTrigger value="parcours" data-stats-onglet="parcours">{t('Parcours')}</TabsTrigger>
-                </TabsList>
+                {/* LA VUE SE CHOISIT PAR UN BOUTON À MENU (04/11/2026, deuxième passe : plus de barre d'onglets). */}
+                <BoutonVue
+                  repere="statistiques"
+                  valeur={onglet}
+                  onChoisir={(v) => setOnglet(v as OngletStats)}
+                  attributs={{ 'data-stats-vue': onglet }}
+                  choix={[
+                    { cle: 'audience', libelle: t('Audience'), attributs: { 'data-stats-onglet': 'audience' } },
+                    { cle: 'parcours', libelle: t('Parcours'), attributs: { 'data-stats-onglet': 'parcours' } },
+                  ]}
+                />
                 {telephone ? (
                   <>
                     <span className="min-w-0 flex-1" aria-hidden />
@@ -803,12 +924,12 @@ function DetailDuSite({
               </div>
             )}
             <TabsContent value="audience" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4 sm:px-3">
+              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4">
                 <Audience detail={detail} dates={null} onInstaller={() => setAssistant(true)} />
               </ZoneDefilement>
             </TabsContent>
             <TabsContent value="parcours" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4 sm:px-3">
+              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4">
                 <Parcours detail={detail} dates={null} onInstaller={() => setAssistant(true)} onOuvrirCarte={onOuvrirCarte} />
               </ZoneDefilement>
             </TabsContent>
@@ -1307,7 +1428,7 @@ function DetailDuParcours({ detail, parcours, flux, barre }: { detail: DetailSit
       <Bloc titre={t('Les étapes du parcours')} repere="etapes">
         <table className="w-full text-[12.5px]" data-stats-nomenclature={parcours.etapes.length}>
           <thead>
-            <tr className="text-left text-[11.5px] text-faint">
+            <tr className="text-left text-[11.5px] bg-tableau-entete text-muted [&>th:first-child]:rounded-l-md [&>th:last-child]:rounded-r-md">
               <th className="w-8 py-1 font-normal">#</th>
               <th className="py-1 font-normal">{t('Étape')}</th>
               <th className="w-20 py-1 text-right font-normal">{t('Sessions')}</th>

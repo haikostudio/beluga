@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Maximize2, Pause, Play } from 'lucide-react';
+import { Maximize2, Pause, Play } from '@/components/ui/icones';
 import { POIDS_MAX_POUR_L_ONDE, instantDuPointeur, ondeDeRepli, picsDOnde } from '@beluga/shared';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
 import { tempsDeLecture } from '@/components/lecteur-video';
@@ -238,7 +238,7 @@ export function LecteurSon({
           type="button"
           onClick={onAgrandir}
           className="flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface hover:text-text"
-          aria-label={t('Ouvrir en grand')}
+          aria-label="Ouvrir en grand"
           title={t('Ouvrir en grand')}
           data-son-agrandir
         >

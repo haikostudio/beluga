@@ -20,13 +20,19 @@ import {
   pressionDesTaches,
   pressionMemoire,
   pressionDeProcessus,
+  porteDesDeparts,
+  psiSomeAvg10,
+  reserveDesDepartsRecents,
+  ajustementOomVoulu,
+  estUnResteDEssai,
 
 } from '@beluga/shared';
 import * as store from './store.js';
-import { runningAgentIds, pidFor, stopAgent } from './runtime.js';
+import { runningAgentIds, pidFor, stopAgent, instantsDesDepartsRecents, agentsActifs } from './runtime.js';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
+import { DEMON_D_ESSAI } from './config.js';
 
 /**
  * L'identifiant de Beluga Build dans la liste des processus. Le service s'appelle
@@ -202,6 +208,17 @@ let dernierEchange: { pages: number; at: number } | null = null;
  * démarrage ; on en prend la différence entre deux lectures. La toute première
  * lecture ne rend donc rien — il n'y a encore rien à soustraire.
  */
+let dernierDebit: number | undefined;
+
+/** La pression mémoire du noyau (`some avg10`, en %), ou `undefined` si la machine ne la publie pas. */
+function pressionDuNoyau(): number | undefined {
+  try {
+    return psiSomeAvg10(fs.readFileSync('/proc/pressure/memory', 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
 function debitDEchangeKoS(): number | undefined {
   try {
     const stats = fs.readFileSync('/proc/vmstat', 'utf8');
@@ -212,12 +229,20 @@ function debitDEchangeKoS(): number | undefined {
     const pages = compteur('pswpin') + compteur('pswpout');
     const at = Date.now();
     const avant = dernierEchange;
+    /*
+     * UN ÉCART TROP COURT NE MESURE RIEN. La porte de départ lit aussi ce débit,
+     * parfois à quelques millisecondes de l'échantillon précédent : la différence
+     * sautait alors de zéro à des dizaines de Mo/s sur une seule rafale de pages.
+     * Sous cinq secondes, on rend la dernière mesure sans toucher à la base.
+     */
+    if (avant && at - avant.at < 5000) return dernierDebit;
     dernierEchange = { pages, at };
     if (!avant) return undefined;
     const secondes = (at - avant.at) / 1000;
     if (secondes <= 0) return undefined;
     // Une page vaut 4 ko sur toutes les machines que ce démon connaît.
-    return Math.round(((pages - avant.pages) * 4) / secondes);
+    dernierDebit = Math.round(((pages - avant.pages) * 4) / secondes);
+    return dernierDebit;
   } catch {
     return undefined;
   }
@@ -263,7 +288,16 @@ export function etatCapacite(): CapacityEtat {
   const measured = store.averageAgentMemMb();
   const perAgent = measured && measured > 50 ? measured : FALLBACK_AGENT_MEM_MB;
 
-  const freeForAgents = Math.max(0, mem.total - mem.used - RESERVED_MEM_MB);
+  /*
+   * LA PLACE DES AGENTS QUI VIENNENT DE PARTIR EST DÉJÀ PRISE. Un agent démarre
+   * petit puis grossit pendant quelques minutes : sans cette réserve, chaque
+   * départ d'une rafale trouvait la mémoire libre que le précédent allait
+   * occuper (`reserveDesDepartsRecents`).
+   */
+  const maintenant = Date.now();
+  const departs = instantsDesDepartsRecents();
+  const reserveRecente = reserveDesDepartsRecents(departs, maintenant, perAgent);
+  const freeForAgents = Math.max(0, mem.total - mem.used - RESERVED_MEM_MB - reserveRecente);
   const byMemory = Math.floor(freeForAgents / perAgent);
   const byCeiling = Math.max(0, settings.maxAgents - running);
 
@@ -274,7 +308,9 @@ export function etatCapacite(): CapacityEtat {
   const echange = echangeMb();
   const echangePct = swapPct();
   const echangeDebit = debitDEchangeKoS();
-  const pression = pressionMemoire(memPct, echangePct);
+  const psi = pressionDuNoyau();
+  const pression = pressionMemoire(memPct, echangePct, { psiSomeAvg10: psi, debitEchangeKoS: echangeDebit });
+  const etalement = porteDesDeparts(departs, maintenant);
   /*
    * LE PLAFOND DE TÂCHES SUSPEND AUSSI. Un cgroup plein refuse tout `fork` de
    * plus, à mémoire large : c'est le verrou qui a bloqué la publication du
@@ -304,6 +340,12 @@ export function etatCapacite(): CapacityEtat {
   // déguiser en manque de place, et sa cause se dit en clair.
   const frein = freinDeCharge(charge);
   const slotsFree = frein.placesMax === null ? places : Math.min(places, frein.placesMax);
+  /*
+   * L'ÉTALEMENT FREINE, IL NE SUSPEND PAS : comme la charge, il retient le
+   * départ suivant sans se déguiser en manque de place, et la jauge ne dit pas
+   * « saturé » pour autant (DEC-075).
+   */
+  const startable = etalement.ok ? slotsFree : 0;
 
   return {
     loadPct: Math.max(Math.min(load, 100), memPct),
@@ -318,7 +360,7 @@ export function etatCapacite(): CapacityEtat {
     slotsFree: places,
     placesParMemoire: byMemory,
     placesParTaches: parTaches === null ? undefined : parTaches,
-    startableNow: slotsFree,
+    startableNow: startable,
     paused,
     pauseReason: paused
       ? manualPause
@@ -328,7 +370,9 @@ export function etatCapacite(): CapacityEtat {
     filsUtilises: fils.max ? fils.utilises : undefined,
     filsMax: fils.max || undefined,
     filsPct: fils.max ? pressionFils.partPct : undefined,
-    loadHoldReason: frein.raison,
+    loadHoldReason: etalement.ok ? frein.raison : etalement.raison,
+    memPressionPsi: psi,
+    reserveDepartsMb: reserveRecente || undefined,
     avgAgentMemMb: Math.round(perAgent),
     // Le fichier d'échange : son remplissage ET son débit. Le second seul dit
     // si la machine rame vraiment ; le premier ne fait que décrire un rangement.
@@ -390,8 +434,154 @@ export function canStartAgent(): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
+/**
+ * UN ENFANT DU DÉMON PART AVANT LE DÉMON QUAND LA MÉMOIRE MANQUE.
+ *
+ * L'unité pose `OOMScoreAdjust=-500`, que TOUT processus lancé par le démon
+ * hérite : le 15/11/2026, un navigateur d'essai tué par le noyau valait autant
+ * que Beluga, et l'unité entière tombait avec lui (`OOMPolicy=stop`). À chaque
+ * échantillon, le démon relève donc la note de chaque processus de son service
+ * (`cgroup.procs`) : un moteur passe à 200, tout le reste (navigateurs,
+ * constructions, serveurs d'essai) à 600 ; lui-même garde -500. On ne fait que
+ * MONTER une note : sans privilège, c'est permis sur ses propres processus, et
+ * une note déjà plus haute n'est jamais abaissée. Un démon d'essai, qui vit
+ * dans le cgroup d'un agent, ne touche à rien d'autre qu'à ses propres enfants.
+ */
+export function designerLesVictimesDeLaMemoire(): number {
+  if (process.platform !== 'linux' || DEMON_D_ESSAI) return 0;
+  const cgroup = cheminDuCgroup();
+  if (!cgroup) return 0;
+  let liste: string;
+  try {
+    liste = fs.readFileSync(`/sys/fs/cgroup${cgroup}/cgroup.procs`, 'utf8');
+  } catch {
+    return 0;
+  }
+  let releves = 0;
+  for (const brut of liste.split('\n')) {
+    const pid = Number(brut.trim());
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    try {
+      const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8');
+      const voulu = ajustementOomVoulu(comm, pid === process.pid);
+      if (voulu === undefined) continue;
+      const actuel = Number(fs.readFileSync(`/proc/${pid}/oom_score_adj`, 'utf8').trim());
+      if (Number.isFinite(actuel) && actuel >= voulu) continue;
+      fs.writeFileSync(`/proc/${pid}/oom_score_adj`, String(voulu));
+      releves += 1;
+    } catch {
+      /* processus déjà fini, ou d'un autre compte : rien à faire */
+    }
+  }
+  return releves;
+}
+
+/** Les copies de travail qu'un agent occupe encore : au travail, en préparation, ou carte toujours « En cours ». */
+function copiesOccupees(): string[] {
+  const dossiers = new Set<string>();
+  for (const id of agentsActifs()) {
+    const dossier = store.getAgent(id)?.workdir;
+    if (dossier) dossiers.add(dossier);
+  }
+  for (const projet of store.listProjects()) {
+    for (const carte of store.listCardsInColumn(projet.id, 'running')) {
+      const dossier = carte.agentId ? store.getAgent(carte.agentId)?.workdir : undefined;
+      if (dossier) dossiers.add(dossier);
+    }
+  }
+  for (const attente of store.reprisesDeCompteEnAttente()) {
+    const dossier = store.getAgent(attente.agentId)?.workdir;
+    if (dossier) dossiers.add(dossier);
+  }
+  return [...dossiers];
+}
+
+/** `ppid` et instant de départ (en tops d'horloge depuis le démarrage) d'un processus. */
+function lireStat(pid: number): { ppid: number; depart: number } | undefined {
+  try {
+    const brut = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // Le nom, entre parenthèses, peut contenir des espaces : on lit après la dernière.
+    const champs = brut.slice(brut.lastIndexOf(')') + 2).split(' ');
+    return { ppid: Number(champs[1]), depart: Number(champs[19]) };
+  } catch {
+    return undefined;
+  }
+}
+
+function descendantsDe(pid: number, vus = new Set<number>()): number[] {
+  if (vus.has(pid)) return [];
+  vus.add(pid);
+  const enfants: number[] = [];
+  try {
+    for (const tache of fs.readdirSync(`/proc/${pid}/task`)) {
+      for (const m of fs.readFileSync(`/proc/${pid}/task/${tache}/children`, 'utf8').trim().split(/\s+/)) {
+        const n = Number(m);
+        if (Number.isInteger(n) && n > 1) enfants.push(n);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return [...new Set(enfants)].flatMap((e) => [e, ...descendantsDe(e, vus)]);
+}
+
+/**
+ * LES RESTES D'ESSAI SE REFERMENT (`estUnResteDEssai`) : un serveur lancé en
+ * arrière-plan par un agent dont la carte ne travaille plus est arrêté
+ * (SIGTERM), lui et ses descendants. Jamais le démon, jamais hors du service.
+ */
+export function fermerLesRestesDEssai(): number {
+  if (process.platform !== 'linux' || DEMON_D_ESSAI) return 0;
+  const cgroup = cheminDuCgroup();
+  if (!cgroup) return 0;
+  let liste: string;
+  let tops: number;
+  try {
+    liste = fs.readFileSync(`/sys/fs/cgroup${cgroup}/cgroup.procs`, 'utf8');
+    tops = Number(fs.readFileSync('/proc/uptime', 'utf8').split(' ')[0]) * 100;
+  } catch {
+    return 0;
+  }
+  let occupees: string[] | null = null;
+  let fermes = 0;
+  for (const brut of liste.split('\n')) {
+    const pid = Number(brut.trim());
+    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue;
+    const stat = lireStat(pid);
+    if (!stat || stat.ppid !== 1) continue;
+    let cwd: string;
+    try {
+      cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      continue;
+    }
+    // CLK_TCK vaut 100 sur Linux.
+    const ageMs = ((tops - stat.depart) / 100) * 1000;
+    occupees ??= copiesOccupees();
+    if (!estUnResteDEssai({ ppid: stat.ppid, cwd, ageMs }, occupees)) continue;
+    let commande = '';
+    try {
+      commande = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').slice(0, 120);
+    } catch {
+      /* rien à dire */
+    }
+    for (const cible of [...descendantsDe(pid), pid]) {
+      if (cible === process.pid) continue;
+      try {
+        process.kill(cible, 'SIGTERM');
+      } catch {
+        /* déjà parti */
+      }
+    }
+    fermes += 1;
+    log.info(`reste d'essai refermé : ${commande.trim() || `processus ${pid}`} (${cwd}), sa carte ne travaille plus`);
+  }
+  return fermes;
+}
+
 /** Échantillonnage régulier : la courbe 24 h et l'alerte prolongée. */
 export function sampleCapacity(): void {
+  designerLesVictimesDeLaMemoire();
   const snap = etatCapacite();
   store.recordCapacity(snap.loadPct, snap.memUsedMb, snap.runningAgents);
   bus.emit({ type: 'capacity', capacity: snap });

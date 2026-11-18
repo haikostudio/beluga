@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, ChevronRight, Clapperboard, Copy, Download, History, Loader2, MoreVertical, Play, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clapperboard, Copy, Download, History, Loader2, MoreVertical, Music, Play, RotateCcw } from '@/components/ui/icones';
 import {
   arrondi,
   decoupageDuMedia,
@@ -19,6 +19,7 @@ import {
   LIBELLE_ETAPE_DE_SUIVI,
   type BlocDuMedia,
   type EtapeDuMedia,
+  type FilmDeLaCarte,
   type EtapeDuVoletDuMedia,
   heureExacte,
   etiquetteDePiece,
@@ -51,6 +52,7 @@ import {
   type MediaDuSuivi,
   type VersionDuSuivi,
   type TodoItem,
+  LABEL_STUDIO,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { copierLeTexte } from '@/components/bouton-copier-document';
@@ -72,7 +74,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { LectureDuCahierDeRealisation } from '@/components/realisation-volet';
-import { studioDuMedia, useEtapesDuMedia } from '@/lib/production-de-carte';
+import { monterAuStudio, studioDuMedia, useEtapesDuMedia } from '@/lib/production-de-carte';
 import { ouvrirLeDocument } from '@/lib/document-de-carte';
 import { fermerLeSuivi } from '@/lib/suivi-de-carte';
 import { useEtatDeLaCase, useSourceDuGlisser } from '@/components/glisser-vers-un-plan';
@@ -191,8 +193,11 @@ export function VoletDeSuivi({ card }: { card: Card }) {
       for (const id of e.ambiance) ajouter(id, t('Ambiance'), 'image/jpeg', 0);
       for (const m of e.medias) if (m.attachmentId && m.etat !== 'en-cours') ajouter(m.attachmentId, m.plan, MIME_DU_GENRE[m.genre], m.creeLe);
     }
+    /* LE FILM DU STUDIO (15/11/2026) : ce qui est posé sur sa ligne de temps, puis ses exports, se lisent aussi. */
+    for (const p of production?.film?.posees ?? []) ajouter(p.attachmentId, p.nom, MIME_DU_GENRE[p.genre], 0);
+    for (const x of production?.film?.exports ?? []) ajouter(x.attachmentId, x.nom, MIME_DU_GENRE[x.genre], 0);
     return liste;
-  }, [etapes, pieces, card.projectId]);
+  }, [etapes, pieces, card.projectId, production?.film]);
   const [ouverte, setOuverte] = React.useState<string | null>(null);
   const piece = ouverte ? galerie.find((p) => p.id === ouverte) ?? null : null;
   const pieceDe = (id: string) => galerie.find((p) => p.id === id);
@@ -225,6 +230,7 @@ export function VoletDeSuivi({ card }: { card: Card }) {
       ) : (
         <AccordeonDesEtapes
           cardId={card.id}
+          film={production.film ?? null}
           etapes={groupes}
           types={types}
           courante={courante}
@@ -260,6 +266,7 @@ function mimeDuNom(nom: string | null): string {
  */
 function AccordeonDesEtapes({
   cardId,
+  film,
   etapes,
   types,
   courante,
@@ -269,6 +276,8 @@ function AccordeonDesEtapes({
   carte,
 }: {
   cardId: string;
+  /** Le film de la carte au Studio : ses médias posés (Esquisses) et ses exports (Montage). */
+  film: FilmDeLaCarte | null;
   etapes: readonly EtapeDuVoletDuMedia[];
   /** Les types de média choisis, en mots (« Vidéo ») : la première ligne du « Brief ». */
   types: string;
@@ -301,6 +310,7 @@ function AccordeonDesEtapes({
           <EtapeEnAccordeon
             key={etape.etape}
             cardId={cardId}
+            film={film}
             numero={ETAPES_DU_MEDIA_EN_ORDRE.indexOf(etape.etape) + 1}
             etape={etape}
             types={types}
@@ -342,6 +352,7 @@ function RubriqueDEtape({ icone, titre, nombre, children, repere }: { icone: Rea
 
 function EtapeEnAccordeon({
   cardId,
+  film,
   numero,
   etape,
   types,
@@ -354,6 +365,7 @@ function EtapeEnAccordeon({
   carte,
 }: {
   cardId: string;
+  film: FilmDeLaCarte | null;
   numero: number;
   etape: EtapeDuVoletDuMedia;
   types: string;
@@ -447,6 +459,7 @@ function EtapeEnAccordeon({
           ) : null}
           {/* Le brief pose l'écrit entre ce qu'on crée et l'ambiance ; les autres étapes le posent après ce qui est validé. */}
           <ProductionDeLEtape cardId={cardId} etape={etape} blocs={etape.blocs} types={types} pieceDe={pieceDe} onOuvrir={onOuvrir} carte={carte} ecrit={ecrit} />
+          {film ? <FilmDeLEtape etape={etape.etape} film={film} onOuvrir={onOuvrir} /> : null}
           {etape.etape !== 'brief' ? ecrit : null}
         </div>
       ) : null}
@@ -460,6 +473,58 @@ function EtapeEnAccordeon({
       />
     </li>
   );
+}
+
+/**
+ * LE FILM DU STUDIO DANS LE SUIVI (15/11/2026, capture #abd87 : « Esquisses et Montage doivent avoir du contenu ») :
+ * sous « Esquisses », les images et extraits réellement posés sur la ligne de temps du film ; sous « Montage », les
+ * exports finis du film, du plus récent au plus ancien. Un clic ouvre la pièce dans l'aperçu.
+ */
+function FilmDeLEtape({ etape, film, onOuvrir }: { etape: EtapeDuMedia; film: FilmDeLaCarte; onOuvrir: (id: string) => void }) {
+  if (etape === 'esquisses' && film.posees.length) {
+    return (
+      <section className="flex flex-col gap-2" data-film-posees={film.posees.length}>
+        <h3 className="text-[12.5px] font-medium text-muted">{t('Posés dans le film')}</h3>
+        <ul className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+          {film.posees.map((p) => (
+            <li key={p.attachmentId}>
+              <button type="button" onClick={() => onOuvrir(p.attachmentId)} title={p.nom} className="block aspect-square w-full overflow-hidden rounded-lg bg-raised" data-piece-du-film={p.attachmentId}>
+                <VignetteDuFilm piece={p.attachmentId} genre={p.genre} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  if (etape === 'montage' && film.exports.length) {
+    return (
+      <section className="flex flex-col gap-2" data-film-exports={film.exports.length}>
+        <h3 className="text-[12.5px] font-medium text-muted">{t('Le film monté')}</h3>
+        <ul className="flex flex-col gap-1.5">
+          {film.exports.map((x) => (
+            <li key={x.attachmentId}>
+              <button type="button" onClick={() => onOuvrir(x.attachmentId)} className="flex w-full min-w-0 items-center gap-2.5 rounded-lg bg-raised px-2 py-1.5 text-left hover:bg-fond-survol" data-export-du-film={x.attachmentId}>
+                <span className="block h-10 w-16 shrink-0 overflow-hidden rounded-md bg-surface">
+                  <VignetteDuFilm piece={x.attachmentId} genre={x.genre} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-text">{t('Version {n}', { n: x.version })}</span>
+                {x.duree ? <span className="shrink-0 text-[12px] tabular-nums text-faint">{`${x.duree.toFixed(1).replace('.', ',')} s`}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  return null;
+}
+
+function VignetteDuFilm({ piece, genre }: { piece: string; genre: 'image' | 'video' | 'son' }) {
+  const src = `/api/attachment?id=${encodeURIComponent(piece)}`;
+  if (genre === 'image') return <img src={`${src}&w=300`} alt="" loading="lazy" className="h-full w-full object-cover" />;
+  if (genre === 'video') return <video src={src} preload="metadata" muted playsInline className="h-full w-full object-cover" />;
+  return <span className="flex h-full w-full items-center justify-center text-faint"><Music className="h-4 w-4" /></span>;
 }
 
 /**
@@ -810,7 +875,7 @@ function ProductionDeLEtape({
         {/* Le type vit dans le titre (« Brief (Vidéo) ») ; sans type choisi, l'invite reste dans le corps. */}
         {types ? null : (
           <p className="text-[13px] text-text" data-invite-du-type="">
-            {t('Choisissez ce que vous voulez créer au bouton caméra.')}
+            {t('Le type de média se confirme avec l’agent, dans la discussion.')}
           </p>
         )}
         {ecrit ?? (
@@ -897,9 +962,18 @@ function ProductionDeLEtape({
         {etape.etat === 'a-definir' ? (
           rien(t('Rien encore : cette étape viendra en son temps.'))
         ) : (
-          <Button type="button" size="sm" className="self-start" onClick={() => ouvrirLeDocument(studioDuMedia(carte))} data-ouvrir-le-studio="">
-            {video ? t('Ouvrir le montage') : typesDeLaCarte.includes('image') ? t('Ouvrir le studio photo') : t('Ouvrir le studio son')}
-          </Button>
+          /* UNE VIDÉO SE MONTE AU STUDIO : l'aller-retour (`monterAuStudio`) ; sans objet quand la carte y est déjà née. */
+          video ? (
+            carte.labels.includes(LABEL_STUDIO) ? null : (
+              <Button type="button" size="sm" className="self-start" onClick={() => void monterAuStudio(carte.id).catch((err: any) => client.pushToast('error', err?.message ?? t('Le Studio ne s’ouvre pas')))} data-monter-au-studio="">
+                {t('Monter au Studio')}
+              </Button>
+            )
+          ) : (
+            <Button type="button" size="sm" className="self-start" onClick={() => ouvrirLeDocument(studioDuMedia(carte))} data-ouvrir-le-studio="">
+              {typesDeLaCarte.includes('image') ? t('Ouvrir le studio photo') : t('Ouvrir le studio son')}
+            </Button>
+          )
         )}
         {typesDeLaCarte.includes('image') && typesDeLaCarte.some((x) => x !== 'image' && x !== 'video') && etape.etat !== 'a-definir' ? (
           <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => ouvrirLeDocument({ cardId, genre: 'studio-son' })} data-ouvrir-le-studio-son="">
@@ -1510,7 +1584,7 @@ function FeuilleDesArchives({
     <>
       <Drawer open={open} onClose={onClose} feuille empile>
         <EnteteDeFeuille titre={t('Archives')} sousTitre={libelle} data-feuille-des-archives={etape} />
-        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="flex flex-col gap-5 px-4 pb-[calc(16px+env(safe-area-inset-bottom))]">
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="flex flex-col gap-5 px-4 pb-[var(--pied-natif,calc(16px+env(safe-area-inset-bottom)+var(--marche-du-bas,0px)))]">
           {aDesArchives(archives) ? null : (
             <p className="py-2 text-[13px] text-faint" data-archives-vides="">
               {t('Aucune version antérieure pour l’instant.')}
@@ -1656,7 +1730,7 @@ function TiroirDeLecture({
       <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-4 pb-4">
         <TexteDePiece contenu={contenu} className="mx-auto max-w-[720px] pt-1" data-texte-de-version="" />
       </ZoneDefilement>
-      <div className="flex shrink-0 items-center justify-end gap-2 px-4 pb-[calc(12px+env(safe-area-inset-bottom))] pt-2">
+      <div className="flex shrink-0 items-center justify-end gap-2 px-4 pb-[var(--pied-natif,calc(12px+env(safe-area-inset-bottom)+var(--marche-du-bas,0px)))] pt-2">
         {estCourante ? (
           <span className="text-[12.5px] text-faint" data-version-en-cours="">
             {t('Version en cours')}

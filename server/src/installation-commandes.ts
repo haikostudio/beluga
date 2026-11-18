@@ -41,7 +41,7 @@ import { machineHebergee } from './offre-hebergee.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 import { getSettings, saveSettings } from './store.js';
-import { vectoriseurDisponible } from './vectoriseur.js';
+import { modeleDeTriDisponible } from './vectoriseur.js';
 import { voiceAvailable } from './voice.js';
 
 const execFileAsync = promisify(execFile);
@@ -608,7 +608,7 @@ function fonctionsFacultatives(): FonctionFacultative[] {
   const voix = voiceAvailable();
   return [
     { id: 'dictee', installee: voix.transcribe, commande: scriptDuDepot('installer-transcription.mjs') },
-    { id: 'voix', installee: voix.speak, commande: `${scriptDuDepot('installer-transcription.mjs')} && ${scriptDuDepot('installer-voix.mjs')}` },
+    { id: 'voix', installee: voix.voixDuStudio, commande: `${scriptDuDepot('installer-transcription.mjs')} && ${scriptDuDepot('installer-voix.mjs')}` },
   ];
 }
 
@@ -673,7 +673,7 @@ export async function etatDeLInstallation(): Promise<EtatDeLInstallation> {
     bibliotheques: bibliothequesImportees(),
     bibliothequesProposees: BIBLIOTHEQUES_PROPOSEES,
     facultatif: fonctionsFacultatives(),
-    memoire: { enPlace: vectoriseurDisponible(), commande: scriptDuDepot('installer-modele-vecteurs.mjs') },
+    memoire: { enPlace: modeleDeTriDisponible(), commande: scriptDuDepot('installer-modele-vecteurs.mjs') },
   };
 }
 

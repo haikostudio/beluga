@@ -11,8 +11,8 @@ import {
   type ResumeMarketing,
   type ResumeMemoire,
   type ResumeMessagerie,
-  type ResumeNotes,
   type ResumeStatistiques,
+  type ResumeStudio,
   type ResumeSurveillance,
   type ResumeTaches,
   type RubriqueDuResume,
@@ -83,26 +83,33 @@ const dans = (at: number | null | undefined, b: Bornes) => typeof at === 'number
 /* Vue d'ensemble et tâches                                             */
 /* ------------------------------------------------------------------ */
 
-function ensemble(base: BaseDuResume): ResumeEnsemble {
+/*
+ * UN SEUL PROJET (13/11/2026) : l'onglet « Résumé » de l'accueil d'un projet ne montre que ses chiffres. Sans projet,
+ * tout — la page commune « Tous les projets » ne change pas.
+ */
+function ensemble(base: BaseDuResume, projet?: string): ResumeEnsemble {
   const db = getDb();
+  const filtre = projet ? ' AND u.project_id = ?' : '';
+  const filtreNu = projet ? ' AND project_id = ?' : '';
+  const params = (...v: unknown[]) => (projet ? [...v, projet] : v);
   const projets = db
     .prepare(
       `SELECT u.project_id AS projectId, COALESCE(p.name, MAX(u.project_name)) AS nom,
               COUNT(DISTINCT u.card_id) AS taches, COUNT(*) AS tours,
               SUM(u.seconds) AS secondes, SUM(u.tokens) AS jetons
          FROM usage u LEFT JOIN projects p ON p.id = u.project_id
-        WHERE u.created_at BETWEEN ? AND ?
+        WHERE u.created_at BETWEEN ? AND ?${filtre}
         GROUP BY u.project_id
         ORDER BY SUM(u.seconds) DESC`,
     )
-    .all(base.debut, base.fin) as ResumeEnsemble['projets'];
+    .all(...params(base.debut, base.fin)) as ResumeEnsemble['projets'];
   const points = db
-    .prepare('SELECT created_at AS at, seconds AS valeur, card_id AS cle FROM usage WHERE created_at BETWEEN ? AND ?')
-    .all(base.debut, base.fin) as { at: number; valeur: number; cle: string | null }[];
+    .prepare(`SELECT created_at AS at, seconds AS valeur, card_id AS cle FROM usage WHERE created_at BETWEEN ? AND ?${filtreNu}`)
+    .all(...params(base.debut, base.fin)) as { at: number; valeur: number; cle: string | null }[];
   const taches = new Set(points.map((p) => p.cle).filter(Boolean)).size;
   const note = db
-    .prepare('SELECT AVG(note) AS n FROM telemetrie_tache WHERE created_at BETWEEN ? AND ?')
-    .get(base.debut, base.fin) as { n: number | null };
+    .prepare(`SELECT AVG(note) AS n FROM telemetrie_tache WHERE created_at BETWEEN ? AND ?${filtreNu}`)
+    .get(...params(base.debut, base.fin)) as { n: number | null };
   return {
     ...base,
     rubrique: 'ensemble',
@@ -130,7 +137,7 @@ function ensemble(base: BaseDuResume): ResumeEnsemble {
   };
 }
 
-function taches(base: BaseDuResume): ResumeTaches {
+function taches(base: BaseDuResume, projet?: string): ResumeTaches {
   const lignes = getDb()
     .prepare(
       `SELECT u.card_id AS cardId, c.title AS titre, COALESCE(p.name, MAX(u.project_name)) AS projet,
@@ -140,11 +147,11 @@ function taches(base: BaseDuResume): ResumeTaches {
          FROM usage u
          LEFT JOIN cards c ON c.id = u.card_id
          LEFT JOIN projects p ON p.id = u.project_id
-        WHERE u.card_id IS NOT NULL AND u.created_at BETWEEN ? AND ?
+        WHERE u.card_id IS NOT NULL AND u.created_at BETWEEN ? AND ?${projet ? ' AND u.project_id = ?' : ''}
         GROUP BY u.card_id
         ORDER BY at DESC`,
     )
-    .all(base.debut, base.fin) as ResumeTaches['lignes'];
+    .all(...(projet ? [base.debut, base.fin, projet] : [base.debut, base.fin])) as ResumeTaches['lignes'];
   return {
     ...base,
     rubrique: 'taches',
@@ -346,6 +353,51 @@ function surveillance(base: BaseDuResume): ResumeSurveillance {
         constats: constats.get(s.id) ?? 0,
       };
     }),
+  };
+}
+
+function studio(base: BaseDuResume): ResumeStudio {
+  const db = getDb();
+  const b = base;
+  const noms = nomsDesProjets();
+  const creations = db
+    .prepare('SELECT id, project_id AS projet, titre, etat, cree_le AS creeLe, maj_le AS majLe FROM studio_creations WHERE maj_le >= ? AND cree_le <= ?')
+    .all(b.debut, b.fin) as { id: string; projet: string; titre: string; etat: string; creeLe: number; majLe: number }[];
+  const exports = db
+    .prepare('SELECT creation_id AS creation, etat, cree_le AS at FROM studio_exports WHERE cree_le BETWEEN ? AND ?')
+    .all(b.debut, b.fin) as { creation: string; etat: string; at: number }[];
+  const depenses = db
+    .prepare('SELECT creation_id AS creation, montant_reel AS montant FROM studio_depenses WHERE cree_le BETWEEN ? AND ? AND montant_reel IS NOT NULL')
+    .all(b.debut, b.fin) as { creation: string; montant: number }[];
+  const medias = db.prepare('SELECT COUNT(*) AS n FROM studio_medias WHERE cree_le BETWEEN ? AND ?').get(b.debut, b.fin) as { n: number };
+  const nees = creations.filter((c) => dans(c.creeLe, b));
+  return {
+    ...base,
+    rubrique: 'studio',
+    depuis: plusAncien('studio_creations', 'cree_le'),
+    creations: nees.length,
+    exports: exports.length,
+    exportsEnEchec: exports.filter((e) => e.etat === 'echoue').length,
+    depense: depenses.reduce((t, d) => t + (d.montant ?? 0), 0),
+    medias: medias.n ?? 0,
+    parJour: {
+      creations: sommesParJour(
+        nees.map((c) => ({ at: c.creeLe })),
+        b.debut,
+        b.fin,
+      ),
+      exports: sommesParJour(exports, b.debut, b.fin),
+    },
+    lignes: creations.map((c) => ({
+      id: c.id,
+      titre: c.titre,
+      projet: noms.get(c.projet) ?? null,
+      etat: c.etat,
+      exports: exports.filter((e) => e.creation === c.id).length,
+      depense: depenses.filter((d) => d.creation === c.id).reduce((t, d) => t + (d.montant ?? 0), 0),
+      creeLe: c.creeLe,
+      majLe: c.majLe,
+    })),
   };
 }
 
@@ -650,57 +702,27 @@ function marketing(base: BaseDuResume): ResumeMarketing {
   };
 }
 
-function notes(base: BaseDuResume): ResumeNotes {
-  const b = base;
-  const noms = nomsDesProjets();
-  const toutes = getDb()
-    .prepare('SELECT id, project_id AS projet, titre, importance, echeance, cree_le AS creeLe, modifie_le AS modifieLe FROM notes')
-    .all() as { id: string; projet: string; titre: string; importance: string; echeance: number | null; creeLe: number; modifieLe: number }[];
-  const modifiee = (n: (typeof toutes)[number]) => dans(n.modifieLe, b) && n.modifieLe - n.creeLe > 1000;
-  return {
-    ...base,
-    rubrique: 'notes',
-    depuis: plusAncien('notes', 'cree_le'),
-    total: toutes.length,
-    creees: toutes.filter((n) => dans(n.creeLe, b)).length,
-    modifiees: toutes.filter(modifiee).length,
-    parJour: {
-      creees: sommesParJour(
-        toutes.map((n) => ({ at: n.creeLe })),
-        b.debut,
-        b.fin,
-      ),
-      modifiees: sommesParJour(
-        toutes.filter(modifiee).map((n) => ({ at: n.modifieLe })),
-        b.debut,
-        b.fin,
-      ),
-    },
-    lignes: toutes
-      .filter((n) => n.modifieLe >= b.debut && n.creeLe <= b.fin)
-      .sort((x, y) => y.modifieLe - x.modifieLe)
-      .map((n) => ({ ...n, projet: noms.get(n.projet) ?? null, echeance: n.echeance ?? null })),
-  };
-}
-
 const CALCULS: Record<RubriqueDuResume, (base: BaseDuResume) => ResumeDeRubrique> = {
   ensemble,
   taches,
   memoire,
   surveillance,
+  studio,
   coffre,
   backups,
   statistiques,
   messagerie,
   marketing,
-  notes,
 };
 
 /** CE QUE MONTRE UNE RUBRIQUE DU RÉSUMÉ sur la période demandée (remise d'aplomb ici). */
 export function resumeDeRubrique(
   rubrique: RubriqueDuResume,
-  demande: { debut?: number; fin?: number } = {},
+  demande: { debut?: number; fin?: number; projectId?: string } = {},
   maintenant = Date.now(),
 ): ResumeDeRubrique {
-  return CALCULS[rubrique](socle(demande.debut, demande.fin, maintenant));
+  const base = socle(demande.debut, demande.fin, maintenant);
+  if (demande.projectId && rubrique === 'ensemble') return ensemble(base, demande.projectId);
+  if (demande.projectId && rubrique === 'taches') return taches(base, demande.projectId);
+  return CALCULS[rubrique](base);
 }

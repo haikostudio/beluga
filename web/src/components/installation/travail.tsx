@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown, ChevronUp, Download, Loader2, TerminalSquare, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Download, Loader2, TerminalSquare, TriangleAlert } from '@/components/ui/icones';
 import type { TravailDInstallation } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -174,7 +174,7 @@ export function BarreDuTerminal({ className }: { className?: string }) {
         'flex shrink-0 flex-col bg-surface shadow-[inset_0_10px_14px_-8px_hsl(var(--voile)/0.45)]',
         className,
       )}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{ paddingBottom: `var(--pied-natif, calc(env(safe-area-inset-bottom) + var(--marche-du-bas, 0px)))` }}
     >
       <button
         type="button"

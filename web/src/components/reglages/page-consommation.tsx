@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {
   Activity,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import { type CreditCursor } from '@beluga/shared';
 import { UsageCursor } from '@/components/quota-badge';
 import { client } from '@/lib/client';
@@ -14,7 +14,11 @@ import { BulleInfo } from '@/components/ui';
  * Cumuls de consommation (PLAN §24) et synthèse de facturation (PLAN §7).
  * Ces chiffres éclairent ; ils ne modifient jamais tout seuls une facture.
  */
-export function UsageSection({ open }: { open: boolean }) {
+export function UsageSection({
+  open,
+}: {
+  open: boolean;
+}) {
   const state = useApp();
   const [usage, setUsage] = React.useState<{
     byProject: { projectId?: string | null; name?: string; tokens: number; seconds: number; tasks: number }[];

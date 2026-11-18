@@ -16,6 +16,39 @@ const execFileAsync = promisify(execFile);
  * arrêter le service. Les secrets restent dehors : ils se recréent.
  */
 
+/*
+ * L'ARCHIVE NE DORT PAS SUR LE DISQUE QU'ELLE PROTÈGE (04/11/2026). Elle
+ * s'écrivait dans `data/backups`, et le nettoyage du serveur ne l'emportait
+ * sur le grand disque qu'au bout de 24 h : 1,5 Go restait donc en permanence
+ * sur le disque du serveur. Elle s'écrit désormais DIRECTEMENT sur le grand
+ * disque, dans le dossier où le nettoyage la rangeait déjà. Seule la copie de
+ * la base, le temps de l'archiver, reste sur ce disque (quelques minutes) :
+ * SQLite ne copie pas de façon fiable vers un montage réseau. Grand disque
+ * absent : repli sur `data/backups`, que le nettoyage videra ensuite.
+ */
+const RACINE_GRAND_DISQUE = '/mnt/sauvegardes';
+// « backups-beluga » jusqu'au 08/11/2026 : renommé au démarrage (`passage-backups.ts`), avant toute archive.
+const DOSSIER_GRAND_DISQUE = path.join(RACINE_GRAND_DISQUE, 'sauvegardes-service-beluga', 'copies-locales-archivees');
+
+/** Le dossier des archives sur le grand disque, s'il est vraiment monté. `BELUGA_SAUVEGARDES_DISTANTES` sert aux essais. */
+function dossierSurLeGrandDisque(): string | undefined {
+  const force = process.env.BELUGA_SAUVEGARDES_DISTANTES?.trim();
+  if (force) return force;
+  // Un disque non monté laisserait mkdir écrire sur le disque du serveur : on vérifie le montage.
+  try {
+    const montages = fs.readFileSync('/proc/mounts', 'utf8');
+    return montages.split('\n').some((l) => l.split(' ')[1] === RACINE_GRAND_DISQUE) ? DOSSIER_GRAND_DISQUE : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Les dossiers où vivent les archives de Beluga : le local (repli, anciennes) puis le grand disque. */
+function dossiersDesArchives(): string[] {
+  const distant = dossierSurLeGrandDisque();
+  return distant ? [PATHS.backups, distant] : [PATHS.backups];
+}
+
 export interface BackupEntry {
   name: string;
   size: number;
@@ -51,7 +84,11 @@ export async function runBackup(reason = 'automatique'): Promise<{ ok: boolean; 
     });
 
     // Archive compressée : la base depuis le dossier temporaire, les données volumineuses lues directement.
-    const archive = `${dir}.tar.gz`;
+    // Écrite sur le grand disque quand il est là, jamais posée ici pour y attendre.
+    const distant = dossierSurLeGrandDisque();
+    if (distant) fs.mkdirSync(distant, { recursive: true });
+    else log.warn('grand disque absent : la sauvegarde reste sur le disque du serveur jusqu’au prochain nettoyage');
+    const archive = path.join(distant ?? PATHS.backups, `${path.basename(dir)}.tar.gz`);
     const tarArgs = [
       'czf', archive,
       '-C', dir, 'beluga.db',
@@ -66,8 +103,15 @@ export async function runBackup(reason = 'automatique'): Promise<{ ok: boolean; 
     }
 
     tarArgs.push('--transform', `s,^,${path.basename(dir)}/,`);
-    await execFileAsync('tar', tarArgs, { timeout: 300000 });
-    fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      // Vers le grand disque, l'écriture passe par le réseau : plus de temps qu'en local.
+      await execFileAsync('tar', tarArgs, { timeout: distant ? 1_800_000 : 300_000 });
+    } catch (err) {
+      fs.rmSync(archive, { force: true });
+      throw err;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
 
     await copyOffSite(archive);
     prune();
@@ -113,7 +157,8 @@ async function copyOffSite(archive: string): Promise<void> {
 
 /** Conservation dégressive : chaque jour de la semaine, chaque semaine du mois, chaque mois de l'année. */
 function prune(): void {
-  const files = listBackups();
+  // Le grand disque n'est pas élagué ici (il ne l'était pas non plus quand le nettoyage y rangeait les archives).
+  const files = listBackups().filter((f) => f.dir === PATHS.backups);
   const keep = new Set<string>();
   const byDay = new Map<string, BackupEntry>();
   const byWeek = new Map<string, BackupEntry>();
@@ -137,7 +182,7 @@ function prune(): void {
   for (const file of files) {
     if (!keep.has(file.name)) {
       try {
-        fs.unlinkSync(path.join(PATHS.backups, file.name));
+        fs.unlinkSync(path.join(file.dir, file.name));
       } catch {
         /* déjà parti */
       }
@@ -145,26 +190,32 @@ function prune(): void {
   }
 }
 
-export function listBackups(): BackupEntry[] {
-  try {
-    return fs
-      .readdirSync(PATHS.backups)
-      .filter((name) => name.endsWith('.tar.gz'))
-      .map((name) => {
-        const stat = fs.statSync(path.join(PATHS.backups, name));
-        return { name, size: stat.size, at: stat.mtimeMs };
-      })
-      .sort((a, b) => b.at - a.at);
-  } catch {
-    return [];
+export function listBackups(): Array<BackupEntry & { dir: string }> {
+  const entrees: Array<BackupEntry & { dir: string }> = [];
+  for (const dir of dossiersDesArchives()) {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        // Le dossier du grand disque reçoit aussi d'autres copies : seules les archives de Beluga comptent.
+        if (!name.endsWith('.tar.gz') || !name.startsWith('beluga-')) continue;
+        const stat = fs.statSync(path.join(dir, name));
+        entrees.push({ name, size: stat.size, at: stat.mtimeMs, dir });
+      }
+    } catch {
+      /* dossier absent */
+    }
   }
+  return entrees.sort((a, b) => b.at - a.at);
 }
 
 /** Restauration testée pour de vrai : une sauvegarde jamais remontée n'existe pas. */
 export async function verifyBackup(file: string): Promise<{ ok: boolean; detail: string }> {
-  const archive = path.join(PATHS.backups, path.basename(file));
-  if (!fs.existsSync(archive)) return { ok: false, detail: 'archive introuvable' };
-  const temp = fs.mkdtempSync(path.join(PATHS.backups, 'verif-'));
+  const nom = path.basename(file);
+  const archive = dossiersDesArchives()
+    .map((dir) => path.join(dir, nom))
+    .find((chemin) => fs.existsSync(chemin));
+  if (!archive) return { ok: false, detail: 'archive introuvable' };
+  // Extraite à côté de l'archive : sur le grand disque quand elle y est.
+  const temp = fs.mkdtempSync(path.join(path.dirname(archive), 'verif-'));
   try {
     await execFileAsync('tar', ['xzf', archive, '-C', temp], { timeout: 300000 });
     const inner = fs.readdirSync(temp)[0];

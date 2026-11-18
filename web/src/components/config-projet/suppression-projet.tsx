@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, Loader2, Trash2 } from 'lucide-react';
+import { Archive, Loader2, Trash2 } from '@/components/ui/icones';
 import {
   Button,
   Dialog,

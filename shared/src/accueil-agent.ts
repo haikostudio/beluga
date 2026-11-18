@@ -84,7 +84,14 @@ export type MotifDAppel =
    * consigne dit tout : il lit le dépôt au besoin, mais l'index de la mémoire
    * et les fichiers d'instructions du développement ne lui servent à rien.
    */
-  | 'configuration-marketing';
+  | 'configuration-marketing'
+  /** LE DIRECTEUR MARKETING de l'espace Communication (`shared/src/directeur-marketing.ts`) : sa consigne dit tout. */
+  | 'directeur-marketing'
+  /** Les chefs de marque et de projet de Communication (`shared/src/chefs-de-communication.ts`). */
+  | 'chef-de-marque'
+  | 'chef-de-projet'
+  /** L'agent d'une campagne de Communication (10/11/2026) : il la conçoit par questions, puis la mène. */
+  | 'chef-de-campagne';
 
 /**
  * Les dépannages : une panne nommée, réparée sur place, rien d'autre.
@@ -129,7 +136,11 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
   if (
     input.motif === 'configuration-backup' ||
     input.motif === 'configuration-surveillance' ||
-    input.motif === 'configuration-marketing'
+    input.motif === 'configuration-marketing' ||
+    input.motif === 'directeur-marketing' ||
+    input.motif === 'chef-de-marque' ||
+    input.motif === 'chef-de-projet' ||
+    input.motif === 'chef-de-campagne'
   )
     return 'minimal';
   /*

@@ -146,7 +146,15 @@ async function reglerLeMoteurDeLaReprise(
 }
 
 /** Ce que le fil neuf doit savoir : dossier, branche, plan, étapes, derniers textes. */
-function passationDe(agent: Agent, messageId: string, reprise: RepriseDeCompte, compteChoisi: string, moteur: string, modele?: string) {
+function passationDe(
+  agent: Agent,
+  messageId: string,
+  reprise: RepriseDeCompte,
+  compteChoisi: string,
+  moteur: string,
+  modele?: string,
+  demandeDuTour?: string | null,
+) {
   const carte = agent.cardId ? store.getCard(agent.cardId) : null;
   const messages = store.listMessages(agent.id);
   const avecTaches = [...messages].reverse().find((m) => m.todos?.length);
@@ -165,6 +173,7 @@ function passationDe(agent: Agent, messageId: string, reprise: RepriseDeCompte, 
       .filter((m) => m.role === 'assistant' && m.id !== messageId && m.content?.trim())
       .slice(-3)
       .map((m) => m.content),
+    demandeDuTour,
   });
 }
 
@@ -316,9 +325,16 @@ export async function reprendreSurCompte(
   /* LA RÉFLEXION SE CHANGE AUSSI depuis la fenêtre ; elle seule ne change pas de fil. */
   const changeDeReflexion = !!options.thinking && options.thinking !== agent.run.thinking;
   // La passation se lit sur l'agent tel qu'il était : son dossier, ses messages.
+  /*
+   * LA DEMANDE DU TOUR COUPÉ REPART EN ENTIER (DEC-036, carte 5e10116a) : le prompt réellement envoyé au moteur
+   * est gardé sur le message du tour. Le fil d'un compte n'est pas celui d'un autre : sans elle, l'agent relevé
+   * ne savait plus ce qu'on lui avait demandé.
+   */
+  const demandeDuTour = message.sentContext?.prompt ?? null;
+  const travailCommence = !!message.content?.trim() || (message.steps ?? []).some((e) => e.id !== 'memoire' && e.id !== 'panne-moteur');
   const demande = changeDeMoteur
-    ? passationDe(agent, messageId, reprise, choisi.label, moteur, modele)
-    : demandeDeReprise(reprise.compteEpuiseLabel, choisi.label);
+    ? passationDe(agent, messageId, reprise, choisi.label, moteur, modele, demandeDuTour)
+    : demandeDeReprise(reprise.compteEpuiseLabel, choisi.label, { prompt: demandeDuTour, travailCommence });
   const retenue = store.saveMessage({
     ...message,
     repriseCompte: {
@@ -514,6 +530,7 @@ export async function reprendreLesAttentesRedevenuesPossibles(): Promise<void> {
   for (const marque of [...signales]) if (!vivantes.has(marque)) signales.delete(marque);
 
   const { agentsActifs } = await import('./runtime.js');
+  const { canStartAgent } = await import('./capacity.js');
   const actifs = new Set(agentsActifs());
   for (const attente of attentes) {
     if (releveEnRoute(attente.messageId) || actifs.has(attente.agentId)) continue;
@@ -528,6 +545,18 @@ export async function reprendreLesAttentesRedevenuesPossibles(): Promise<void> {
     const reprise = message?.repriseCompte;
     if (!reprise) continue;
     if (compteDeLaReleve(reprise, comptesConnus(), true).compte) {
+      /*
+       * LE RETOUR DU QUOTA PASSE PAR LA PORTE DE CAPACITÉ. Un compte libéré
+       * relançait d'un coup TOUS les travaux qui l'attendaient (douze « reprise
+       * consommée » en une minute le 15/11/2026, sur une machine déjà pleine).
+       * Retenue par la mémoire ou par l'étalement, la reprise n'est pas perdue :
+       * sa décision reste ouverte, et un nouveau passage est prévu.
+       */
+      const place = canStartAgent();
+      if (!place.ok) {
+        prevoirUnNouveauPassage();
+        continue;
+      }
       const repartie = await reprendreAutomatiquement(attente.messageId, { retourDuQuota: true }).catch((err) => {
         log.warn('relève au retour du quota impossible', err);
         return false;
@@ -559,6 +588,22 @@ export async function reprendreLesAttentesRedevenuesPossibles(): Promise<void> {
       agentId: attente.agentId,
     });
   }
+}
+
+/**
+ * UN SEUL PASSAGE DIFFÉRÉ À LA FOIS : la porte de capacité se rouvre d'elle-même
+ * (un départ sort de la fenêtre, un agent finit), mais aucun relevé de quota ne
+ * viendra forcément le dire. Une minute plus tard, on repasse.
+ */
+let passageDiffere: NodeJS.Timeout | null = null;
+
+function prevoirUnNouveauPassage(): void {
+  if (passageDiffere) return;
+  passageDiffere = setTimeout(() => {
+    passageDiffere = null;
+    void reprendreLesAttentesRedevenuesPossibles().catch((err) => log.warn('reprise différée au retour du quota impossible', err));
+  }, 60_000);
+  passageDiffere.unref?.();
 }
 
 /**

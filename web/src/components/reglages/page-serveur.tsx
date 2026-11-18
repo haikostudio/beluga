@@ -1,13 +1,38 @@
 import * as React from 'react';
-import { Loader2, Power, Square, TerminalSquare } from 'lucide-react';
+import { Hash, Loader2, Power, Smartphone, Square, TerminalSquare } from '@/components/ui/icones';
 import { Button, CLASSE_GROUPE_DE_LIGNES, ConfirmDialog } from '@/components/ui';
 import { Groupe } from '@/components/reglages/communs';
 import { COULEUR_DU_POINT_DE_REDEMARRAGE, useRedemarrage } from '@/components/redemarrage';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { ouvrirLeTerminal } from '@/lib/ouvrir-terminal';
+import { plateformeNative, versionNative } from '@/lib/natif';
 import { useApp } from '@/lib/use-app';
-import { cn } from '@/lib/utils';
+import { cn, heureDuMessage } from '@/lib/utils';
+import { SectionSysteme } from '@/components/reglages/page-capacite';
+import {
+  CourbesDuServeur,
+  ExplorateurDuServeur,
+  FicheDeLaMachineVue,
+  LesPlusLourds,
+  useFicheDuServeur,
+} from '@/components/reglages/serveur-machine';
+
+/**
+ * LA PAGE « SERVEUR » RÉUNIT TOUT CE QUI PARLE DE LA MACHINE (demande du
+ * 06/11/2026) : la fiche (adresses, vCPU, mémoire, disques — stockage externe
+ * compris), les courbes (processeur et mémoire sur 24 h, disques sur 30 jours),
+ * les dix éléments les plus lourds avec l'explorateur en lecture seule, puis
+ * l'ancienne page « Capacité du système » (places des agents, processus) et
+ * les trois gestes sur la machine. L'adresse « capacite » mène ici
+ * (`settings-view.tsx`).
+ *
+ * Sur un serveur loué (offre hébergée) : fiche et courbes seulement — ni les
+ * plus lourds, ni l'explorateur, ni le ménage, que le démon refuse aussi.
+ *
+ * Repères : `data-fiche-serveur`, `data-courbes-serveur`, `data-plus-lourds`,
+ * `data-parcourir-dossiers`, `data-explorateur-serveur`.
+ */
 
 /**
  * CE QUI AGIT SUR LA MACHINE ENTIÈRE : redémarrer le serveur, ouvrir son
@@ -22,6 +47,7 @@ import { cn } from '@/lib/utils';
  */
 export function SectionServeur() {
   const state = useApp();
+  const offreHebergee = state.offreHebergee;
   const redemarrage = useRedemarrage();
   const [arretTous, setArretTous] = React.useState(false);
 
@@ -47,9 +73,26 @@ export function SectionServeur() {
         client.pushToast('error', err?.message ?? t('Arrêt refusé'));
       });
 
+  const fiche = useFicheDuServeur();
+  const [explorateur, setExplorateur] = React.useState<string | null>(null);
+
   return (
-    <div className="space-y-5" data-reglages-serveur>
-      <Groupe titre={t('Serveur')}>
+    <div className="space-y-6" data-reglages-serveur>
+      <VersionEnLigne />
+
+      <Groupe titre={t('La machine')}>
+        <FicheDeLaMachineVue donnees={fiche} />
+      </Groupe>
+
+      <Groupe titre={t('Au fil du temps')}>
+        <CourbesDuServeur donnees={fiche} />
+      </Groupe>
+
+      {!offreHebergee ? <LesPlusLourds onParcourir={setExplorateur} /> : null}
+
+      <SectionSysteme />
+
+      <Groupe titre={t('Gestes sur le serveur')}>
         <div className={CLASSE_GROUPE_DE_LIGNES}>
           <Ligne
             icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
@@ -68,11 +111,14 @@ export function SectionServeur() {
               {t('Redémarrer')}
             </Button>
           </Ligne>
-          <Ligne icone={<TerminalSquare className="h-4 w-4" />} titre={t('Terminal du serveur')}>
-            <Button variant="subtle" size="sm" onClick={ouvrirLeTerminal} data-terminal-bouton>
-              {t('Ouvrir')}
-            </Button>
-          </Ligne>
+          {/* Le terminal est fermé sur un serveur loué (offre hébergée). */}
+          {!offreHebergee ? (
+            <Ligne icone={<TerminalSquare className="h-4 w-4" />} titre={t('Terminal du serveur')}>
+              <Button variant="subtle" size="sm" onClick={ouvrirLeTerminal} data-terminal-bouton>
+                {t('Ouvrir')}
+              </Button>
+            </Ligne>
+          ) : null}
           <Ligne
             icone={<Square className="h-3.5 w-3.5 fill-current" />}
             titre={t('Arrêter tous les agents')}
@@ -93,6 +139,10 @@ export function SectionServeur() {
 
       {redemarrage.dialogue}
 
+      {!offreHebergee ? (
+        <ExplorateurDuServeur chemin={explorateur} onChemin={setExplorateur} onClose={() => setExplorateur(null)} />
+      ) : null}
+
       <ConfirmDialog
         open={arretTous}
         danger
@@ -110,6 +160,66 @@ export function SectionServeur() {
         onClose={() => setArretTous(false)}
       />
     </div>
+  );
+}
+
+/**
+ * LA VERSION EN LIGNE (décision de l'utilisateur du 16/11/2026) : de quoi savoir d'un coup d'œil si l'écran affiché
+ * porte le dernier travail. L'écran en ligne : son empreinte (celle du cache de l'application installable, `sw.js`),
+ * sa date de mise en ligne et son commit, lus dans `version.json` que la construction dépose à côté du paquet
+ * (`web/empreinte-paquet.ts`). L'application iPhone ou Mac : son numéro de version (`__belugaNatif.version`), qui
+ * n'avance que quand la coque elle-même change. Repères : `data-version-en-ligne`, `data-version-native`.
+ */
+interface VersionDuPaquet {
+  empreinte: string;
+  construitA: number;
+  commit?: string;
+}
+
+function VersionEnLigne() {
+  const [paquet, setPaquet] = React.useState<VersionDuPaquet | null | 'absent'>(null);
+  React.useEffect(() => {
+    let vivant = true;
+    fetch('/version.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (!vivant) return;
+        setPaquet(v && typeof v.empreinte === 'string' && typeof v.construitA === 'number' ? v : 'absent');
+      })
+      .catch(() => vivant && setPaquet('absent'));
+    return () => {
+      vivant = false;
+    };
+  }, []);
+  const natif = versionNative();
+  const plateforme = plateformeNative();
+  const detailEcran =
+    paquet === null
+      ? t('Lecture…')
+      : paquet === 'absent'
+        ? t('Version de développement : rien n’a encore été mis en ligne depuis ce dossier.')
+        : t('Mis en ligne : {v0}', { v0: heureDuMessage(paquet.construitA) });
+  return (
+    <Groupe titre={t('Version')}>
+      <div className={CLASSE_GROUPE_DE_LIGNES}>
+        <Ligne icone={<Hash className="h-4 w-4" />} titre={t('Écran en ligne')} detail={detailEcran}>
+          <span className="font-mono text-[12.5px] text-muted" data-version-en-ligne={paquet && paquet !== 'absent' ? paquet.empreinte : ''}>
+            {paquet && paquet !== 'absent' ? [paquet.commit, paquet.empreinte.slice(0, 8)].filter(Boolean).join(' · ') : '—'}
+          </span>
+        </Ligne>
+        {natif ? (
+          <Ligne
+            icone={<Smartphone className="h-4 w-4" />}
+            titre={plateforme === 'mac' ? t('Application Mac') : t('Application iPhone')}
+            detail={t('Elle n’avance que quand l’application elle-même change ; vos écrans, eux, suivent la mise en ligne.')}
+          >
+            <span className="font-mono text-[12.5px] text-muted" data-version-native={natif}>
+              {natif}
+            </span>
+          </Ligne>
+        ) : null}
+      </div>
+    </Groupe>
   );
 }
 

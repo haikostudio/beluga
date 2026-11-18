@@ -1,5 +1,7 @@
 import React from 'react';
 import { ZoneDefilement } from './ui';
+import { EVENEMENT_MESURE_DU_CLAVIER } from '@/lib/ecriture-au-clavier';
+import { useMesureDuClavier } from '@/lib/mesure-du-clavier';
 
 /*
  * ÉCRAN CACHÉ DES MESURES (19/10/2026, carte « Marge du haut des applications
@@ -38,6 +40,23 @@ function lireBasFixe(): DOMRect | null {
   return rect;
 }
 
+/** Le repère que l'iPhone lit pour teinter la barre (`lib/barre-de-l-heure.ts`) : une capture dit s'il tient son rôle. */
+function lireLeRepere(): Mesures {
+  const repere = document.getElementById('repere-de-l-heure');
+  if (!repere) return [['repère', 'absent']];
+  const style = getComputedStyle(repere);
+  const boite = repere.getBoundingClientRect();
+  const sommet = document.elementFromPoint(window.innerWidth / 2, 4);
+  return [
+    ['repère : couleur', repere.dataset.couleur ?? style.backgroundColor],
+    ['repère : haut / hauteur / largeur', `${px(boite.top)} / ${px(boite.height)} / ${px(boite.width)}`],
+    ['repère : opacité / position', `${style.opacity} / ${style.position}`],
+    ['repère : relectures forcées', repere.dataset.relectures ?? '0'],
+    ['repère : enfant direct de body', String(repere.parentElement === document.body)],
+    ['élément sous le point lu (milieu, 4 px)', sommet ? `${sommet.tagName.toLowerCase()}${sommet.id ? `#${sommet.id}` : ''}` : 'aucun'],
+  ];
+}
+
 function relever(): Mesures {
   const vv = window.visualViewport;
   const racine = getComputedStyle(document.documentElement);
@@ -50,7 +69,23 @@ function relever(): Mesures {
   const fond = lireBasFixe();
   const meta = (nom: string) => document.querySelector(`meta[name="${nom}"]`)?.getAttribute('content') ?? '(absent)';
   const nav = navigator as Navigator & { standalone?: boolean };
+  const attr = (nom: string) => document.documentElement.getAttribute(nom);
+  const actif = document.activeElement;
   return [
+    /* LE CLAVIER (carte « Clavier mobile et choix des dates ») : la source dit
+       si la hauteur vient de l'iPhone (mesurée), de la mémoire (secours, zone
+       visible bloquée) ou de rien. Écart nul + source « aucune », clavier
+       ouvert : l'iPhone n'a rien dit et aucune hauteur n'est encore retenue. */
+    ['CLAVIER', ''],
+    ['--clavier', racine.getPropertyValue('--clavier').trim() || '(non défini)'],
+    ['source', attr('data-clavier-source') ?? '(aucune mesure)'],
+    ['écart mesuré (fenêtre − zone visible)', `${attr('data-clavier-ecart') ?? '?'} px`],
+    ['hauteur retenue (cette orientation)', `${attr('data-clavier-retenu') ?? '0'} px`],
+    ['hauteur de repos (fenêtre hors saisie)', `${attr('data-hauteur-de-repos') ?? '0'} px`],
+    ['--hauteur-visible', racine.getPropertyValue('--hauteur-visible').trim() || '(non défini)'],
+    ['clavier dit ouvert', String(document.documentElement.hasAttribute('data-clavier-ouvert'))],
+    ['champ actif', actif && actif !== document.body ? actif.tagName.toLowerCase() : 'aucun'],
+    ['pointeur grossier', String(window.matchMedia('(pointer: coarse)').matches)],
     ['MODE', ''],
     ['display-mode', mode ?? '?'],
     ['navigator.standalone', String(nav.standalone ?? 'non défini')],
@@ -88,12 +123,16 @@ function relever(): Mesures {
     ['status-bar-style', meta('apple-mobile-web-app-status-bar-style')],
     ['viewport', meta('viewport')],
     ['theme-color', meta('theme-color')],
+    ['BARRE DE L\'HEURE', ''],
+    ...lireLeRepere(),
     ['adresse', location.href],
     ['navigateur', navigator.userAgent],
   ];
 }
 
 export function MesuresEcran() {
+  /* L'écran remplace l'application : il monte lui-même la mesure du clavier qu'il affiche. */
+  useMesureDuClavier();
   const [mesures, setMesures] = React.useState<Mesures>(() => relever());
   const [copie, setCopie] = React.useState(false);
 
@@ -105,10 +144,19 @@ export function MesuresEcran() {
     window.addEventListener('scroll', actualiser, { passive: true });
     vv?.addEventListener('resize', actualiser);
     vv?.addEventListener('scroll', actualiser);
+    window.addEventListener(EVENEMENT_MESURE_DU_CLAVIER, actualiser);
+    window.addEventListener('focusin', actualiser);
+    window.addEventListener('focusout', actualiser);
+    /* Le cas à attraper (zone visible bloquée) ne prévient par aucun événement : relecture deux fois par seconde. */
+    const releve = window.setInterval(actualiser, 500);
     /* Une dernière lecture après le premier affichage : iOS annonce parfois ses encarts un instant plus tard. */
     const retard = window.setTimeout(actualiser, 600);
     return () => {
       window.clearTimeout(retard);
+      window.clearInterval(releve);
+      window.removeEventListener(EVENEMENT_MESURE_DU_CLAVIER, actualiser);
+      window.removeEventListener('focusin', actualiser);
+      window.removeEventListener('focusout', actualiser);
       window.removeEventListener('resize', actualiser);
       window.removeEventListener('orientationchange', actualiser);
       window.removeEventListener('scroll', actualiser);
@@ -145,6 +193,13 @@ export function MesuresEcran() {
         <p className="mt-1 text-xs text-faint">
           Une capture d'écran de cette page suffit. Les valeurs se mettent à jour toutes seules.
         </p>
+        {/* Un champ qui fait monter le clavier : on lit ensuite la section « Clavier ». */}
+        <input
+          type="text"
+          data-mesures-champ-clavier
+          placeholder="Touchez ici pour ouvrir le clavier"
+          className="mt-4 w-full rounded-md bg-surface px-3 py-2 text-base text-text placeholder:text-faint outline-none"
+        />
         <dl className="mt-4 text-xs">
           {mesures.map(([k, v]) =>
             v === '' ? (

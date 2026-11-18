@@ -7,18 +7,20 @@ import {
   Film,
   HardDriveDownload,
   Key,
-  LayoutDashboard,
-  LayoutGrid,
+  Gauge,
   Library,
   Megaphone,
-  NotebookPen,
   Repeat,
   UsersRound,
-} from 'lucide-react';
+  Palette,
+  FolderOpen,
+  Paperclip,
+  ShieldCheck,
+} from '@/components/ui/icones';
 import { compterEnPanne, type VueCentrale } from '@beluga/shared';
-import { Button, CLASSE_BOUTON_DE_CREATION, CLASSE_POINT_DE_BOUTON, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui';
-import { PastillesMessagerie } from '@/components/pastilles-messagerie';
+import { Drawer, EnteteDeFeuille } from '@/components/ui';
 import { useApp } from '@/lib/use-app';
+import { ouvrirLesFichiers as ouvrirLaFenetreDesFichiers } from '@/lib/ouvrir-les-fichiers';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -29,158 +31,161 @@ type Service = Exclude<VueCentrale, 'projet' | 'en-route'>;
  * LES SERVICES, UNE SEULE DÉFINITION : leur ordre, leur icône, leur nom (une
  * CLÉ du dictionnaire) et le repère `data-ouvrir-*` que visent les contrôles.
  */
-const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleLibelle: string }[] = [
-  { cle: 'tableau-de-bord', repere: 'tableau-de-bord', Icone: LayoutDashboard, cleLibelle: 'Résumé' },
+export const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleLibelle: string }[] = [
+  { cle: 'tableau-de-bord', repere: 'tableau-de-bord', Icone: Gauge, cleLibelle: 'Résumé' },
   { cle: 'statistiques', repere: 'statistiques', Icone: BarChart3, cleLibelle: 'Statistiques' },
   { cle: 'coffre', repere: 'coffre', Icone: Key, cleLibelle: 'Coffre-fort' },
   { cle: 'memoire', repere: 'memoire', Icone: Library, cleLibelle: 'Mémoire' },
   { cle: 'espace-client', repere: 'espace-client', Icone: UsersRound, cleLibelle: 'Messagerie' },
   { cle: 'backups', repere: 'backups', Icone: HardDriveDownload, cleLibelle: 'Backup' },
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
+  { cle: 'securite', repere: 'securite', Icone: ShieldCheck, cleLibelle: 'Sécurité' },
   { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes' },
-  { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Réseaux sociaux' },
-  { cle: 'medias', repere: 'medias', Icone: Film, cleLibelle: 'Médias' },
-  { cle: 'notes', repere: 'notes', Icone: NotebookPen, cleLibelle: 'Notes' },
+  { cle: 'plaquettes', repere: 'plaquettes', Icone: Palette, cleLibelle: 'Charte graphique' },
+  /* LES NOUVEAUX OUTILS PRENNENT LA PLACE DES ANCIENS (décision de l'utilisateur, 10/11/2026) : l'ancien
+     Communication (vue `communication`) et l'ancien Marketing (vue `strategie`) sont SUPPRIMÉS le 11/11/2026 : leurs
+     anciennes adresses ouvrent les nouveaux. Les nouveaux (vues `communication2`, `marketing2`, identifiants
+     gardés pour les adresses déjà données) s'appellent « Communication » et « Marketing », avec leurs icônes. */
+  { cle: 'communication2', repere: 'communication2', Icone: Megaphone, cleLibelle: 'Communication' },
+  { cle: 'studio', repere: 'studio', Icone: Clapperboard, cleLibelle: 'Studio' },
 ];
 
-/** Le compte des sites en panne, en chiffre nu : la seule alerte du service Surveillance. */
-function PastillePanne({ nombre }: { nombre: number }) {
-  return (
-    <span
-      data-surveillance-pastille={nombre}
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-sur-etat"
-    >
-      {nombre}
-    </span>
-  );
-}
-
-/**
- * LE BOUTON DES SERVICES — TOUT À GAUCHE DU FIL D'ARIANE, dans la barre
- * d'en-tête (demandes du 11/10/2026 : d'abord « un bouton avec quatre carrés »,
- * puis en tête de la colonne, enfin « dans le fil d'Ariane, tout à gauche,
- * l'icône du service qui permet de changer directement sans aller dans la
- * sidebar »). Il porte l'ICÔNE DU SERVICE OÙ L'ON EST — quatre carrés sur un
- * tableau de projet — et la colonne de gauche ne le porte plus. Sur téléphone,
- * où la gauche de la barre ouvre la colonne, il reste à droite.
- *
- * Il ouvre d'abord une ligne « Tableaux de bord » sur toute la largeur, puis
- * une grille : une tuile par service — Résumé, Statistiques,
- * Coffre-fort, Mémoire, Messagerie, Backup, Surveillance, Tâches récurrentes,
- * Marketing, Studio, Médias,
- * Notes. Choisir une tuile REMPLACE le contenu de la zone principale. Celle du
- * service affiché est marquée. Sur téléphone, la grille s'ouvre au bas de
- * l'écran, comme tout menu.
- *
- * UNE ALERTE NE SE CACHE JAMAIS DERRIÈRE LE BOUTON : un point sur son coin dit
- * qu'un message attend ou qu'un site est tombé ; le compte se lit sur la tuile.
- *
- * Les repères des contrôles ont suivi : `data-navigation-compacte` sur le
- * bouton, `data-navigation-panneau` sur la grille, `data-destination` et
- * `data-ouvrir-*` sur chaque tuile.
- */
-export function BoutonDesServices({
-  vue,
-  onOuvrirVue,
-  cote = 'end',
-}: {
-  vue: VueCentrale;
-  onOuvrirVue: (vue: VueCentrale) => void;
-  /** Le bord du bouton sur lequel la grille s'aligne : `start` en tête de la colonne de gauche. */
-  cote?: 'start' | 'end';
-}) {
+/** Les services que ce compte peut ouvrir : l'accès tiers n'a que ce que sa grille lui ouvre. */
+export function useServicesOuverts() {
   const state = useApp();
-  const [ouvert, setOuvert] = React.useState(false);
-  const sitesEnPanne = compterEnPanne(state.surveillance);
-  const messages = state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter;
-  const alertes = messages + sitesEnPanne;
-  /* LES SERVICES SONT À L'ADMINISTRATEUR : un accès tiers n'a que ses projets,
-     plus le coffre-fort si sa grille le lui ouvre. */
   /* Les services réservés à un seul compte, que ce compte-ci n'a pas. */
   const reserves = new Set<string>();
-  const services = CLES_DES_SERVICES.filter((service) =>
+  return CLES_DES_SERVICES.filter((service) =>
     reserves.has(service.cle)
       ? false
       : state.monRole === 'admin'
         ? true
-        : service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun',
+        : service.cle === 'communication2' || (service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun'),
   );
-  const serviceOuvert = services.find((service) => service.cle === vue);
-  const surUnService = !!serviceOuvert;
-  /* « Tableaux de bord » : la vue qui les nomme, ou un projet qu'aucun clic n'a encore ouvert. */
-  const surLesTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
-  const Icone = serviceOuvert?.Icone ?? LayoutGrid;
+}
 
-  // Ni « Tableaux de bord » (toutes les cartes de tous les projets) pour un accès tiers, et aucun menu s'il n'a aucun service.
-  if (state.monRole !== 'admin' && !services.length) return null;
+/** Les deux groupes des outils d'un projet (maquette A du 12/11/2026). */
+export const OUTILS_DE_CREATION: readonly string[] = ['plaquettes', 'communication2', 'studio', 'marketing2'];
+export const OUTILS_DE_FONCTIONNEMENT: readonly string[] = [
+  'tableau-de-bord',
+  'statistiques',
+  'espace-client',
+  'backups',
+  'surveillance',
+  'securite',
+  'taches-recurrentes',
+];
 
+/** Un point sur une entrée quand un message attend, qu'un site est tombé, ou que le directeur a écrit. */
+export function useAlerteDuService(): (cle: string) => boolean {
+  const state = useApp();
+  const sitesEnPanne = compterEnPanne(state.surveillance);
+  return (cle: string) =>
+    (cle === 'espace-client' && state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter > 0) ||
+    (cle === 'surveillance' && sitesEnPanne > 0) ||
+    (cle === 'communication2' && state.communicationNonLus > 0);
+}
+
+/*
+ * LE MENU EN GRILLE N'EXISTE PLUS (décision du 13/11/2026, capture #72c1 : « je ne veux plus du tout avoir ce menu
+ * nulle part ») : ni bouton aux quatre carrés en tête du fil des pages communes, ni tuiles, ni bouton violet
+ * « Tableaux de bord ». Les outils d'un projet passent par `MenuDesOutils` (sa barre) ; le menu ⋮ de la colonne ne
+ * les porte plus (13/11/2026 au soir : ils n'ont de sens que dans un projet).
+ */
+
+/** Le titre d'un groupe de la feuille des outils : petit, pâle, comme celui d'un menu. */
+function TitreDeGroupe({ titre, repere }: { titre: string; repere: string }) {
   return (
-    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('relative h-[38px] sm:h-8 w-[38px] sm:w-8 shrink-0 text-muted', ouvert && 'bg-raised text-text', surUnService && 'text-text')}
-          data-service-ouvert={serviceOuvert?.cle}
-          aria-label="Services"
-          title={t('Services')}
-          data-navigation-compacte={ouvert ? 'ouverte' : 'fermee'}
-        >
-          <Icone className="h-4 w-4" />
-          {alertes ? (
-            <span className={cn(CLASSE_POINT_DE_BOUTON, 'bg-text')} data-alerte-navigation aria-hidden />
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align={cote} className="sm:w-[348px]" data-navigation-panneau={ouvert ? 'ouvert' : 'ferme'}>
-        <p className="px-2.5 pb-1.5 pt-1 text-[12.5px] text-faint">{t('Services')}</p>
-        {/* « TABLEAUX DE BORD », TOUT EN HAUT, SUR TOUTE LA LARGEUR : la page qui
-            réunit ce qui est en route dans tous les projets n'est pas un service
-            comme les autres tuiles, mais le lieu d'où l'on part — d'où une
-            ligne à elle, au-dessus de la grille. */}
-        {state.monRole === 'admin' ? (
-        <DropdownMenuItem
-          data-destination="en-route"
-          data-ouvrir-en-route
-          aria-current={surLesTableauxDeBord ? 'page' : undefined}
-          onSelect={() => onOuvrirVue('en-route')}
-          /* UN BOUTON PLEIN, NOIR À ÉCRITURE BLANCHE, CENTRÉ (demande du 12/10/2026) :
-             le même dessin que les boutons « Nouveau » (`CLASSE_BOUTON_DE_CREATION`), et
-             la même allure qu'on soit ou non sur la page — `aria-current` la dit. */
-          className={cn(
-            'mb-1 h-11 w-full justify-center gap-2 rounded-lg px-2.5 font-medium',
-            CLASSE_BOUTON_DE_CREATION,
-            'data-[highlighted]:bg-encre data-[highlighted]:opacity-90',
-          )}
-        >
-          <LayoutGrid className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 truncate">{t('Tableaux de bord')}</span>
-        </DropdownMenuItem>
-        ) : null}
-        <div className="grid grid-cols-2 gap-1">
-          {services.map(({ cle, repere, Icone: IconeDuService, cleLibelle }) => (
-            <DropdownMenuItem
-              key={cle}
-              data-destination={cle}
-              {...{ [['data-ouvrir', repere].join('-')]: true }}
-              aria-current={vue === cle ? 'page' : undefined}
-              onSelect={() => onOuvrirVue(cle)}
-              className={cn('h-11 gap-2.5 rounded-lg px-2.5 text-text', vue === cle && 'bg-raised text-teinte')}
+    <div className="px-2.5 pb-0.5 pt-1 text-[12px] uppercase tracking-wide text-faint" data-titre-groupe-outils={repere}>
+      {titre}
+    </div>
+  );
+}
+
+/**
+ * SUR TÉLÉPHONE, LES OUTILS DU PROJET montent du bas (la feuille commune), depuis les trois points du haut : la même
+ * LISTE en deux groupes que `MenuDesOutils` sur ordinateur — plus de tuiles.
+ */
+export function FeuilleDesServices({
+  ouvert,
+  onFermer,
+  vue,
+  onOuvrirVue,
+}: {
+  ouvert: boolean;
+  onFermer: () => void;
+  vue: VueCentrale;
+  onOuvrirVue: (vue: VueCentrale) => void;
+}) {
+  const state = useApp();
+  const services = useServicesOuverts().filter((s) => s.cle !== 'coffre' && s.cle !== 'memoire');
+  const alerte = useAlerteDuService();
+  const groupe = (cles: readonly string[], titre: string, repere: string) => {
+    const liste = services.filter((s) => cles.includes(s.cle));
+    if (!liste.length) return null;
+    return (
+      <div className="flex flex-col gap-0.5 pt-2">
+        <TitreDeGroupe titre={titre} repere={repere} />
+        {liste.map(({ cle, repere, Icone, cleLibelle }) => (
+          <button
+            key={cle}
+            type="button"
+            {...{ [`data-ouvrir-${repere}`]: '' }}
+            data-destination={cle}
+            aria-current={vue === cle ? 'page' : undefined}
+            onClick={() => {
+              onOuvrirVue(cle);
+              onFermer();
+            }}
+            className={cn(
+              'flex h-11 items-center gap-3 rounded-lg px-2.5 text-left text-[15px] transition-colors active:bg-raised',
+              vue === cle ? 'text-teinte' : 'text-text',
+            )}
+          >
+            <Icone className={cn('h-[18px] w-[18px] shrink-0', vue === cle ? 'text-teinte' : 'text-muted')} />
+            <span className="min-w-0 flex-1 truncate">{t(cleLibelle)}</span>
+            {alerte(cle) ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-teinte" data-alerte-de-tuile aria-hidden /> : null}
+          </button>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <Drawer feuille open={ouvert} onClose={onFermer}>
+      <EnteteDeFeuille titre={t('Outils du projet')} droite={null} />
+      <div className="px-4 pb-6" data-navigation-panneau={ouvert ? 'ouvert' : 'ferme'} data-feuille-des-services="projet">
+        {/* LES MÊMES TROIS GROUPES TITRÉS que le menu de l'ordinateur (13/11/2026, capture #6fac). */}
+        {groupe(OUTILS_DE_CREATION, t('Artefacts'), 'artefacts')}
+        {groupe(OUTILS_DE_FONCTIONNEMENT, t('Services'), 'services')}
+        <div className="flex flex-col gap-0.5 pt-2">
+          <TitreDeGroupe titre={t('Documents')} repere="documents" />
+          {(
+            [
+              { repere: 'data-menu-fichiers', Icone: FolderOpen, libelle: t('Fichiers'), geste: () => ouvrirLaFenetreDesFichiers({ projetId: state.activeProjectId ?? undefined }) },
+              {
+                repere: 'data-menu-pieces',
+                Icone: Paperclip,
+                libelle: t('Pièces jointes'),
+                geste: () => window.dispatchEvent(new CustomEvent('beluga:ouvrir-fichiers', { detail: { vue: 'pieces' } })),
+              },
+            ] as const
+          ).map(({ repere, Icone, libelle, geste }) => (
+            <button
+              key={repere}
+              type="button"
+              {...{ [repere]: '' }}
+              onClick={() => {
+                onFermer();
+                geste();
+              }}
+              className="flex h-11 items-center gap-3 rounded-lg px-2.5 text-left text-[15px] text-text transition-colors active:bg-raised"
             >
-              <IconeDuService className="h-4 w-4 shrink-0 text-muted" />
-              <span className="min-w-0 flex-1 truncate">{t(cleLibelle)}</span>
-              {cle === 'espace-client' ? <PastillesMessagerie compteurs={state.compteursMessagerie} colleADroite /> : null}
-              {cle === 'surveillance' && sitesEnPanne ? <PastillePanne nombre={sitesEnPanne} /> : null}
-              {/* Le nombre de veilles qui courent : un chiffre gris, jamais une alerte. */}
-              {cle === 'taches-recurrentes' && state.veilles.actives ? (
-                <span className="shrink-0 text-[12px] text-faint" data-recurrentes-compte={state.veilles.actives}>
-                  {state.veilles.actives}
-                </span>
-              ) : null}
-            </DropdownMenuItem>
+              <Icone className="h-[18px] w-[18px] shrink-0 text-muted" />
+              <span className="min-w-0 flex-1 truncate">{libelle}</span>
+            </button>
           ))}
         </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </div>
+    </Drawer>
   );
 }

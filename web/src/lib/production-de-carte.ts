@@ -92,14 +92,22 @@ export function useBoutonDuMedia(carte: Card | null | undefined): BoutonDuMedia 
 }
 
 /**
- * LE STUDIO DE MONTAGE DU MÉDIA : une image a le studio photo, un son le
- * studio son. Une vidéo n'a plus d'éditeur (retiré le 26/10/2026) : son film
- * final est écrit par le directeur artistique et rendu par le serveur, et le
- * document « montage » qu'on lui rend ici n'est affiché par aucun volet.
+ * LE STUDIO DE MONTAGE DU MÉDIA : une image a le studio photo, un son le studio
+ * son. Une vidéo se monte au STUDIO, le service : `monterAuStudio`.
  */
 export function studioDuMedia(carte: Pick<Card, 'id' | 'realisation'>): DocumentDeCarte {
   const types = typesDeMediaDeLaRealisation(carte.realisation);
-  if (types.includes('video')) return { cardId: carte.id, genre: 'montage' };
   if (types.includes('image')) return { cardId: carte.id, genre: 'studio-photo' };
   return { cardId: carte.id, genre: 'studio-son' };
+}
+
+/**
+ * « MONTER AU STUDIO » (décision de l'utilisateur du 30/10/2026) : la création de la
+ * carte, nourrie de ce qu'elle a validé, s'ouvre au Studio. La conversation y reste
+ * celle de la carte, et l'export prêt revient à ses médias finaux.
+ */
+export async function monterAuStudio(cardId: string): Promise<void> {
+  const r = await client.call<{ creationId: string }>({ type: 'studio.carte.montage', cardId });
+  window.history.pushState(null, '', `#studio/${encodeURIComponent(r.creationId)}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }

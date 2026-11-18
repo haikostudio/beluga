@@ -332,6 +332,7 @@ export const ETAPES_DE_L_ASSISTANT = [
   'moteurs',
   'domaine',
   'projet',
+  'assistant',
   'copie',
   'courriels',
   'espace-client',
@@ -348,7 +349,11 @@ export function etapesDeLAssistant(hebergee = false): readonly EtapeDeLAssistant
   return hebergee ? ETAPES_DE_L_ASSISTANT.filter((etape) => etape !== 'copie') : ETAPES_DE_L_ASSISTANT;
 }
 
-export const ETAPES_OBLIGATOIRES: readonly EtapeDeLAssistant[] = ['moteurs', 'projet'];
+/*
+ * « assistant » (17/11/2026) : le prénom de qui installe et le nom donné à l'assistant, qui fixe la phrase qui
+ * l'appelle (« Dis <nom> ») — nécessaire, comme les moteurs et GitHub.
+ */
+export const ETAPES_OBLIGATOIRES: readonly EtapeDeLAssistant[] = ['moteurs', 'projet', 'assistant'];
 
 export const EtatDeLAssistant = z.object({
   /**
@@ -437,13 +442,13 @@ export const BIBLIOTHEQUES_PROPOSEES: readonly { id: string; source: string; nom
  * l'écran ne s'exécute jamais.
  */
 /*
- * `voix-reparer` : la voix refaite (fichiers rendus au compte du service,
- * environnement Python inutilisable mis de côté et refait), puis essayée ;
+ * `voix` : les voix d'essai du Studio (Piper, sur ce serveur) — la voix parlante de Beluga a été retirée le
+ * 17/11/2026, seul le direct avec Codex parle ;
  * `gh` : l'outil GitHub, quand l'installateur n'a pas pu le poser ;
  * `signature-des-courriels` : la signature DKIM des courriels envoyés par ce
  * serveur, pour le domaine de l'adresse d'expédition.
  */
-export const FONCTIONS_INSTALLABLES = ['memoire', 'dictee', 'voix', 'voix-reparer', 'gh', 'signature-des-courriels'] as const;
+export const FONCTIONS_INSTALLABLES = ['memoire', 'dictee', 'voix', 'gh', 'signature-des-courriels'] as const;
 export type FonctionInstallable = (typeof FONCTIONS_INSTALLABLES)[number];
 
 /** Un travail d'installation, tel que l'écran le suit. Un seul à la fois. */

@@ -522,10 +522,37 @@ export function reditSonTitre(titre: string, suite: string): boolean {
   return ditLaMemeChose(nom, dit) || crieLeTitre(dit, nom) || reprendSonTitre(nom, dit);
 }
 
+/**
+ * UN SECOND TITRE EN GRAS EN TÊTE DU CONTRAT : « **A** — **B** — repère ».
+ *
+ * `sansPrefixeDeTitre` ne décape B que s'il PARAPHRASE A (mesure lexicale). Quand B est
+ * une autre façon de nommer la même règle, sans mots communs, il restait payé deux fois
+ * à chaque aller-retour de chaque agent. On le retire donc, et on garde ce qui le suit.
+ *
+ * Garde de non-perte : B qui porte un repère NEUF (commande, fichier, nombre, libellé
+ * cité, `Composant`) est conservé — `reperesNouveaux` est le même juge que partout.
+ * Le texte entier de la règle vit de toute façon dans la base de connaissances.
+ * Ne retire QUE B : le reste de la ligne (repères compris) est rendu tel quel.
+ */
+const SECOND_TITRE = /^\*\*(.+?)\*\*\s*(?:[—-]\s*([\s\S]*))?$/;
+
+export function secondTitreRetirable(titre: string, contrat: string): { second: string; reste: string } | null {
+  const trouve = SECOND_TITRE.exec(contrat.trim());
+  if (!trouve) return null;
+  if (reperesNouveaux(titre, trouve[1]).length) return null;
+  return { second: trouve[1].trim(), reste: (trouve[2] ?? '').trim() };
+}
+
 /** La ligne de contrat d'une règle : sans redire son titre quand le contrat le répète. */
 export function ligneDeContrat(titre: string, contrat: string): string {
   const nom = titre.trim();
   if (reditSonTitre(nom, contrat)) return `- **${nom}**`;
+  const second = secondTitreRetirable(nom, contrat);
+  if (second) {
+    // Rejoué sur son propre résultat, le reste est jugé seul : il doit l'être déjà ici.
+    if (!second.reste || reditSonTitre(nom, second.reste)) return `- **${nom}**`;
+    return `- **${nom}** — ${second.reste}`;
+  }
   return `- **${nom}** — ${sansPrefixeDeTitre(nom, contrat.trim())}`;
 }
 
@@ -538,6 +565,8 @@ export interface CompactageInstructions {
   compactees: number;
   /** Les signes gagnés. */
   gagnes: number;
+  /** Les seconds titres en gras retirés (leur texte reste dans le rangement de la règle). */
+  secondsTitres: string[];
 }
 
 /**
@@ -560,6 +589,7 @@ export function compacterInstructions(texte: string): CompactageInstructions {
   const vues = new Set<string>();
   let doublons = 0;
   let compactees = 0;
+  const secondsTitres: string[] = [];
 
   const gardees = lignes.filter((ligne) => {
     const contrat = /^- \*\*(.+?)\*\*(?: — (.+?))?\s*$/.exec(ligne);
@@ -577,12 +607,16 @@ export function compacterInstructions(texte: string): CompactageInstructions {
     const contrat = /^- \*\*(.+?)\*\* — (.+?)\s*$/.exec(ligne);
     if (!contrat) return ligne;
     const reduite = ligneDeContrat(contrat[1], contrat[2]);
-    if (reduite !== ligne.trimEnd()) compactees += 1;
+    if (reduite !== ligne.trimEnd()) {
+      compactees += 1;
+      const second = secondTitreRetirable(contrat[1].trim(), contrat[2]);
+      if (second && !reditSonTitre(contrat[1].trim(), contrat[2])) secondsTitres.push(second.second);
+    }
     return reduite;
   });
 
   const resultat = compactes.join('\n');
-  return { texte: resultat, doublons, compactees, gagnes: texte.length - resultat.length };
+  return { texte: resultat, doublons, compactees, gagnes: texte.length - resultat.length, secondsTitres };
 }
 
 /** Résultat du retrait explicite de lignes de contrat périmées. */

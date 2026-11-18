@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   GENRE_SOURCE_COMPETENCE,
   PORTEE_DES_COMPETENCES,
@@ -11,11 +12,20 @@ import {
   REPONSE_UTILISER,
   etatApresReponse,
   ficheServieAuProjet,
+  ficheProposableAuCadrage,
   nuancesDeLaCommune,
   nomDeCompetenceDeLUnite,
   questionDeCompetence,
+  quandSenServir,
   rattacherLesNuances,
   retenirLesPropositions,
+  retenirParLeTri,
+  demandePourLeTri,
+  ordreDesCompetencesProches,
+  texteDeFichePourLeTri,
+  PRESELECTION_DU_TRI,
+  PROPOSITIONS_PAR_CARTE_MAX,
+  PROPOSITIONS_PAR_RECHERCHE_MAX,
   texteDIssueDesPropositions,
   texteDesCompetencesValidees,
   titreLisibleDeCompetence,
@@ -23,12 +33,15 @@ import {
   type Card,
   type Competence,
   type CompetenceProposee,
+  CONSIGNE_DES_FICHES_PROTEGEES,
 } from '@beluga/shared';
+import { ouvrirLaFicheProtegee } from './lot-competences-clients.js';
 import { bus } from './bus.js';
 import { compter, listerCompetences } from './competences.js';
 import { chercherUnitesMelees, proximitesParLeSens, unitesDeLaSource } from './connaissances.js';
 import { garderLesPertinents } from './jugement-rapide.js';
 import { log } from './logger.js';
+import { noterParLeTri } from './vectoriseur.js';
 import * as store from './store.js';
 
 /**
@@ -47,6 +60,13 @@ import * as store from './store.js';
 
 /** La recherche et le juge ne font jamais attendre un cadrage plus que cela : sans résultat, rien n'est proposé. */
 const DELAI_DE_RECHERCHE_MS = 12_000;
+/**
+ * Le tri par le modèle qui lit, au cadrage : ~2 à 4 s pour 24 fiches une fois chargé (jusqu'à 7 s sur un serveur
+ * chargé), ~3 à 8 s de chargement à froid. Il prend au plus ce temps, et jamais plus que ce qui reste avant
+ * `DELAI_DE_RECHERCHE_MS` moins une seconde : la saillance seule décide alors — et le modèle, chargé
+ * entre-temps, sert la fois suivante.
+ */
+const DELAI_DU_TRI_AU_CADRAGE_MS = 9_000;
 
 /** Le dernier tour (message) où l'on a cherché pour cette carte : UNE recherche de compétences par tour. */
 const dernierTourCherche = new Map<string, string>();
@@ -62,10 +82,51 @@ export interface CompetenceAProposer {
 }
 
 /**
+ * LES PROPOSITIONS, TRIÉES PAR LE MODÈLE QUI LIT (carte 71e1006a, 14/11/2026). La présélection (fusion des rangs
+ * du sens et de la mêlée, `ordreDesCompetencesProches`) passe au modèle de tri ; ce qu'il note nettement est
+ * proposé d'abord (`retenirParLeTri`), puis la saillance d'avant (`retenirLesPropositions`) complète jusqu'au
+ * plafond — les deux signaux se rattrapent : le tri trouve ce qui ne se détachait pas par le sens (abonnés qui
+ * résilient, parcours d'inscription), la saillance garde ce que le tri note mal (« faire un devis »). Sans note
+ * (modèle absent, trop lent, en panne), la saillance seule décide, comme avant.
+ */
+async function retenirAvecLeTri<T extends { nom: string; proximite: number; rang: number; bibliotheque: boolean; fiche: Competence }>(
+  texte: string,
+  sujets: readonly T[],
+  dejaProposees: readonly string[],
+  delaiMs: number,
+): Promise<T[]> {
+  const saillantes = retenirLesPropositions(sujets, dejaProposees);
+  const place = Math.min(PROPOSITIONS_PAR_RECHERCHE_MAX, PROPOSITIONS_PAR_CARTE_MAX - new Set(dejaProposees).size);
+  if (place <= 0) return saillantes;
+  const parSens = [...sujets].sort((a, b) => b.proximite - a.proximite);
+  const parNom = new Map(sujets.map((s) => [s.nom, s] as const));
+  const aTrier = ordreDesCompetencesProches(
+    parSens.map((s, i) => ({ nom: s.nom, rangSens: i, rangMele: Number.isFinite(s.rang) ? s.rang : undefined })),
+  )
+    .slice(0, PRESELECTION_DU_TRI)
+    .map((nom) => parNom.get(nom)!);
+  const notes = await noterParLeTri(
+    demandePourLeTri(texte),
+    aTrier.map((s) => texteDeFichePourLeTri({ titre: titreLisibleDeCompetence(s.nom), quandSenServir: quandSenServir(s.fiche), themes: s.fiche.themes })),
+    delaiMs,
+  );
+  if (!notes) return saillantes;
+  const parLeTri = retenirParLeTri(
+    aTrier.map((s, i) => ({ ...s, note: notes[i]! })),
+    dejaProposees,
+    place,
+  );
+  const retenues = new Map<string, T>(parLeTri.map((s) => [s.nom, parNom.get(s.nom)!]));
+  for (const s of saillantes) if (retenues.size < place && !retenues.has(s.nom)) retenues.set(s.nom, s);
+  return [...retenues.values()];
+}
+
+/**
  * CE QUE BELUGA PROPOSERAIT POUR CETTE DEMANDE. Les deux recherches de la
  * mémoire — la mêlée (mots + sens) et la proximité brute par le sens —,
  * restreintes aux unités de compétence du classeur global ; seules comptent les
- * fiches EN SERVICE et servies à CE projet, bibliothèques comprises. La règle
+ * fiches EN SERVICE et servies à CE projet, bibliothèques comprises — sauf celles
+ * laissées au jugement de l'agent d'exécution (`ficheProposableAuCadrage`). La règle
  * (`retenirLesPropositions`) ne garde que celles qui se DÉTACHENT de la foule
  * et que les deux recherches classent en tête ; le juge rapide, s'il est allumé,
  * écarte encore le hors sujet.
@@ -76,11 +137,12 @@ export async function competencesAProposer(
   cardId?: string,
   dejaProposees: readonly string[] = [],
 ): Promise<CompetenceAProposer[]> {
+  const debut = Date.now();
   const texte = demande.trim().slice(0, 1500);
   if (!texte) return [];
   const fiches = new Map<string, Competence>(
     listerCompetences()
-      .filter((fiche) => ficheServieAuProjet(fiche, projet.name))
+      .filter((fiche) => ficheServieAuProjet(fiche, projet.name) && ficheProposableAuCadrage(fiche))
       .map((fiche) => [fiche.nom, fiche]),
   );
   if (!fiches.size) return [];
@@ -100,7 +162,7 @@ export async function competencesAProposer(
     if (nom && fiches.has(nom) && !rangs.has(nom)) rangs.set(nom, rangs.size);
   }
   /* LA FOULE : toutes les fiches servies au projet, avec leur proximité brute. */
-  const candidates: { nom: string; proximite: number; rang: number; fiche: Competence }[] = [];
+  const candidates: { nom: string; proximite: number; rang: number; bibliotheque: boolean; fiche: Competence }[] = [];
   const vues = new Set<string>();
   for (const unite of unitesDeLaSource(PORTEE_DES_COMPETENCES, GENRE_SOURCE_COMPETENCE)) {
     const nom = nomDeCompetenceDeLUnite(unite);
@@ -108,7 +170,14 @@ export async function competencesAProposer(
     const proximite = proximites.get(unite.id);
     if (!fiche || proximite === undefined || vues.has(fiche.nom)) continue;
     vues.add(fiche.nom);
-    candidates.push({ nom: fiche.nom, proximite, rang: rangs.get(fiche.nom) ?? Number.POSITIVE_INFINITY, fiche });
+    candidates.push({
+      nom: fiche.nom,
+      proximite,
+      rang: rangs.get(fiche.nom) ?? Number.POSITIVE_INFINITY,
+      // Une fiche de bibliothèque (P3) part avec un handicap dans la mêlée : son rang est jugé à part.
+      bibliotheque: Boolean(fiche.bibliotheque),
+      fiche,
+    });
   }
   /* UN SUJET, UN ENCADRÉ : la nuance propre se fond dans sa commune (`rattacherLesNuances`). */
   const servies = [...fiches.values()];
@@ -116,19 +185,20 @@ export async function competencesAProposer(
     const fiche = fiches.get(nom);
     return fiche ? communeEtendue(fiche, servies)?.nom : undefined;
   });
-  const saillantes = retenirLesPropositions(sujets, dejaProposees);
+  const delaiDuTri = Math.min(DELAI_DU_TRI_AU_CADRAGE_MS, DELAI_DE_RECHERCHE_MS - 1_000 - (Date.now() - debut));
+  const saillantes = await retenirAvecLeTri(texte, sujets, dejaProposees, delaiDuTri);
   if (!saillantes.length) return [];
   // Le juge rapide, quand son usage est allumé, écarte encore le franchement hors sujet ; sans avis, tout passe.
   const jugees = await garderLesPertinents(
     texte,
     saillantes,
-    { cle: (c) => c.nom, texte: (c) => `${c.nom} : ${c.fiche.description}` },
+    { cle: (c) => c.nom, texte: (c) => `${c.nom} : ${quandSenServir(c.fiche)}` },
     { usage: 'pertinence-competences', cardId, projectId: projet.id },
   );
   return jugees.map((c) => ({
     nom: c.nom,
     titre: titreLisibleDeCompetence(c.nom),
-    correspondance: correspondanceAvecNuance(correspondanceDeLaCompetence(c.fiche.description), projet.name, c.nuances),
+    correspondance: correspondanceAvecNuance(correspondanceDeLaCompetence(quandSenServir(c.fiche)), projet.name, c.nuances),
     chemin: c.fiche.fichier,
     score: c.proximite,
   }));
@@ -316,9 +386,19 @@ export function trancherLaCompetence(entree: { agentId: string; questionId: stri
  * LE MODE D'EMPLOI D'UNE COMPÉTENCE, pour la fenêtre ouverte d'un clic sur son
  * nom. Le nom est cherché DANS LE POOL : jamais un chemin reçu de l'écran.
  */
-export function lireLaCompetence(nom: string): { nom: string; titre: string; description: string; corps: string } {
+export function lireLaCompetence(nom: string): { nom: string; titre: string; description: string; corps: string; protegee?: true } {
   const fiche = listerCompetences().find((f) => f.nom === nom);
   if (!fiche) throw new Error('compétence introuvable');
+  /* UNE FICHE PROTÉGÉE NE S'AFFICHE JAMAIS : son nom et sa ligne, rien d'autre. */
+  if (fiche.protegee) {
+    return {
+      nom: fiche.nom,
+      titre: titreLisibleDeCompetence(fiche.nom),
+      description: fiche.description,
+      corps: 'Compétence protégée : son contenu n’est pas affiché. Les agents s’en servent pour vos cartes.',
+      protegee: true,
+    };
+  }
   const texte = fs.readFileSync(fiche.fichier, 'utf8');
   // Le corps sans son frontmatter : la description est rendue à part.
   const corps = texte.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
@@ -333,6 +413,7 @@ export function lireLaCompetence(nom: string): { nom: string; titre: string; des
  */
 export function briefingDesCompetencesValidees(
   card: (Pick<Card, 'parcours'> & { projectId?: string }) | null | undefined,
+  agentId?: string,
 ): string {
   const validees = competencesValidees(card?.parcours?.competencesProposees);
   if (!validees.length) return '';
@@ -341,6 +422,22 @@ export function briefingDesCompetencesValidees(
   const projet = card?.projectId ? store.getProject(card.projectId)?.name : undefined;
   const lire = (fiche: Competence) => {
     try {
+      /*
+       * UNE FICHE PROTÉGÉE est ouverte pour CET agent, le temps de son tour :
+       * son texte ne part PAS dans le briefing (que l'écran montre en bulles),
+       * seul son chemin, avec la consigne de ne jamais la recopier.
+       */
+      if (fiche.protegee) {
+        if (!agentId) return undefined;
+        const ouverte = ouvrirLaFicheProtegee(path.dirname(fiche.dossier), path.basename(fiche.dossier), agentId);
+        if (!ouverte) return undefined;
+        compter(fiche.nom, 'servie');
+        return {
+          nom: fiche.nom,
+          chemin: ouverte.fichier,
+          texte: `${CONSIGNE_DES_FICHES_PROTEGEES}\n\nLis son mode d'emploi dans le fichier ci-dessus (ouvert pour ce tour seulement) et suis-le.`,
+        };
+      }
       const texte = fs.readFileSync(fiche.fichier, 'utf8');
       compter(fiche.nom, 'servie');
       return { nom: fiche.nom, chemin: fiche.fichier, texte };

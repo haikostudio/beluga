@@ -1,0 +1,11 @@
+{
+ "nom": {
+  "message": "Beluga Chrome 扩展"
+ },
+ "description": {
+  "message": "将 Chrome 关联到 Beluga：代理在您同意后打开自己的标签页、阅读、点击和输入。"
+ },
+ "demander": {
+  "message": "询问 Beluga"
+ }
+}

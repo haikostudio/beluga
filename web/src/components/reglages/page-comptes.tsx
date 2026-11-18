@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Save,
   Trash2,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   AccountQuota,
   ClientCommand,
@@ -30,6 +30,7 @@ import {
   BulleInfo,
   Badge,
   Button,
+  buttonVariants,
   Input,
   Label,
   Switch,
@@ -103,24 +104,31 @@ export function SectionComptes() {
           return (
             <div key={groupe.engine} className="space-y-1" data-groupe-moteur={groupe.engine}>
               {groupes.length > 1 ? (
-                <div className="flex items-center gap-1.5 px-1">
+                /* LES FLÈCHES DU MOTEUR SUR LA MÊME VERTICALE QUE CELLES DE SES COMPTES : à droite
+                   d'elles, les places vides de Reconnecter, du crayon et de la corbeille, et la marge
+                   de droite d'une fiche de compte (1 px de trait + `px-2`). */
+                <div className="flex items-center gap-1.5 pl-1 pr-[9px]" data-titre-groupe-moteur={groupe.engine}>
                   <IconeMoteur engine={groupe.engine} className="h-3.5 w-3.5" />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted">
                     {descriptionMoteur(groupe.engine)?.nomCourt ?? groupe.engine}
                     {!groupe.reglable ? <span className="font-normal text-faint"> · {t('jamais choisi tout seul')}</span> : null}
                   </span>
                   {groupe.reglable && moteursRangeables.length > 1 ? (
-                    <FlechesOrdre
-                      id={`moteur-${groupe.engine}`}
-                      rang={rangMoteur + 1}
-                      premier={rangMoteur === 0}
-                      dernier={rangMoteur === moteursRangeables.length - 1}
-                      enCours={deplace}
-                      onDeplacer={(sens) => {
-                        const ids = deplacerUnCran(moteursRangeables, groupe.engine, sens);
-                        if (ids) void envoyerOrdre(`moteur-${groupe.engine}:${sens}`, { type: 'engine.reorder', ids });
-                      }}
-                    />
+                    /* Même écart (`gap-1`) que dans la rangée des commandes d'un compte. */
+                    <span className="flex shrink-0 items-center gap-1">
+                      <FlechesOrdre
+                        id={`moteur-${groupe.engine}`}
+                        rang={rangMoteur + 1}
+                        premier={rangMoteur === 0}
+                        dernier={rangMoteur === moteursRangeables.length - 1}
+                        enCours={deplace}
+                        onDeplacer={(sens) => {
+                          const ids = deplacerUnCran(moteursRangeables, groupe.engine, sens);
+                          if (ids) void envoyerOrdre(`moteur-${groupe.engine}:${sens}`, { type: 'engine.reorder', ids });
+                        }}
+                      />
+                      <PlaceDesOutilsDeCompte />
+                    </span>
                   ) : null}
                 </div>
               ) : null}
@@ -214,6 +222,40 @@ function FlechesOrdre({
       {fleche(-1, t('Monter'), ChevronUp, premier)}
       {fleche(1, t('Descendre'), ChevronDown, dernier)}
     </span>
+  );
+}
+
+/** LA PLACE DES FLÈCHES, VIDE : la même largeur que `FlechesOrdre`, sans rien de cliquable. */
+function PlaceDesFleches() {
+  return (
+    <span aria-hidden className="invisible flex shrink-0 items-center gap-0.5" data-place-vide="ordre">
+      <span className="min-w-[1.25rem] text-[12.5px]">0</span>
+      <span className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }))} />
+      <span className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }))} />
+    </span>
+  );
+}
+
+/** LA PLACE DE « RECONNECTER », VIDE : le même bouton, invisible, de la largeur exacte dans la langue affichée — trait compris (la variante mise en avant en porte un). */
+function PlaceDeReconnecter() {
+  return (
+    <span aria-hidden className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'invisible')} data-place-vide="reconnecter">
+      <LogIn className="h-3 w-3" />
+      {t('Reconnecter')}
+    </span>
+  );
+}
+
+/** LA PLACE DU CRAYON ET DE LA CORBEILLE, VIDE : dans le titre d'un groupe, pour caler ses flèches sur celles des comptes. */
+function PlaceDesOutilsDeCompte() {
+  return (
+    <>
+      <span className="grid shrink-0">
+        <PlaceDeReconnecter />
+      </span>
+      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible')} />
+      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible')} />
+    </>
   );
 }
 
@@ -351,11 +393,28 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
           ) : (
             // Le logo du moteur ouvre la ligne et ne rétrécit pas : c'est le
             // nom, dans son propre bloc, qui se tronque.
-            <p className="flex items-center gap-1.5 text-[13.5px] text-text">
-              <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5" />
+            <p className="flex min-w-0 items-center gap-1.5 text-[13.5px] text-text">
+              <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 truncate" data-nom-compte={quota.id}>
                 {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
               </span>
+              {/* LES ÉTIQUETTES D'ÉTAT SUIVENT LE NOM (01/11/2026, capture #985d5) : à droite, elles
+                  décalaient d'une ligne à l'autre les commandes qu'on veut voir en colonnes. Le nom
+                  seul se tronque. Pendant une reconnexion, ni étiquette ni bouton (voir plus bas). */}
+              {lignePleine ? (
+                <>
+                  {quota.active ? <Badge tone="success" className="shrink-0">{t('actif')}</Badge> : null}
+                  {compteEpuise(quota) ? <Badge tone="danger" className="shrink-0">{t('épuisé')}</Badge> : null}
+                  {quota.jumeaux?.length ? <Badge tone="warning" className="shrink-0">{t('même abonnement')}</Badge> : null}
+                  {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
+                      un compte qui marche n'a pas besoin d'un badge de plus. */}
+                  {quota.connexion?.doitReconnecter ? (
+                    <Badge tone="warning" className="shrink-0" data-etat-connexion={quota.connexion.etat}>
+                      {t(quota.connexion.libelle)}
+                    </Badge>
+                  ) : null}
+                </>
+              ) : null}
             </p>
           )}
           {/* À QUEL COMPTE CETTE FICHE EST BRANCHÉE. Seul Claude publie un
@@ -385,41 +444,12 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
           ) : null}
         </div>
         {!edite && lignePleine ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-1" data-actions-compte={quota.id}>
-            {ordre}
-            {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
-            {compteEpuise(quota) ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
-            {quota.jumeaux?.length ? <Badge tone="warning">{t('même abonnement')}</Badge> : null}
-            {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
-                un compte qui marche n'a pas besoin d'un badge de plus. */}
-            {quota.connexion?.doitReconnecter ? <Badge tone="warning" data-etat-connexion={quota.connexion.etat}>{t(quota.connexion.libelle)}</Badge> : null}
-            {/* RECONNECTER EST OUVERT SUR TOUS LES COMPTES, pas seulement sur
-                ceux qui sont en panne : c'est le seul geste qui sépare deux
-                coffres branchés au même abonnement. Mis en avant sur un compte
-                à reconnecter, discret et confirmé sur un compte qui répond. */}
-            {phase === 'aucune' ? (
-              <Button
-                data-reconnecter-compte={quota.id}
-                variant={quota.connexion?.doitReconnecter ? 'outline' : 'ghost'}
-                size="sm"
-                disabled={reconnexion}
-                onClick={() =>
-                  parCle
-                    ? setConfirmation((v) => (v === 'cle' ? null : 'cle'))
-                    : quota.connexion?.doitReconnecter
-                      ? void reconnecter()
-                      : setConfirmation((v) => (v === 'reconnecter' ? null : 'reconnecter'))
-                }
-              >
-                {/* L'ATTENTE SE VOIT SUR LE BOUTON QUI A ÉTÉ CLIQUÉ. Un compte
-                    dont la session est tombée se reconnecte SANS confirmation :
-                    sans ce témoin, le seul signe du voyage de la demande serait
-                    l'absence de signe. */}
-                {reconnexion ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogIn className="h-3 w-3" />}
-                
-{t('Reconnecter')}
-</Button>
-            ) : null}
+          /* LES COMMANDES EN COLONNES (01/11/2026, capture #985d5) : ordre, Reconnecter, crayon,
+             corbeille tombent à la même place d'un compte à l'autre. Chaque emplacement garde sa
+             largeur même vide — une ligne sans flèches ou sans Reconnecter pose un double
+             INVISIBLE, de la largeur exacte dans la langue affichée. Le forfait MiMo se pose à
+             GAUCHE des colonnes. Ancré à droite (`ml-auto`), même replié sous le nom. */
+          <div className="ml-auto flex shrink-0 items-center gap-1" data-actions-compte={quota.id}>
             {/* Un abonnement MiMo n'a qu'un plafond par mois, que Xiaomi ne publie
                 pas : il se saisit ici, et la barre du volet des quotas en découle. */}
             {quota.engine === 'mimo' ? (
@@ -434,6 +464,40 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
                 </Button>
               </Tooltip>
             ) : null}
+            <span className="flex shrink-0 justify-end" data-colonne-compte="ordre">
+              {ordre ?? <PlaceDesFleches />}
+            </span>
+            {/* RECONNECTER EST OUVERT SUR TOUS LES COMPTES, pas seulement sur
+                ceux qui sont en panne : c'est le seul geste qui sépare deux
+                coffres branchés au même abonnement. Mis en avant sur un compte
+                à reconnecter, discret et confirmé sur un compte qui répond. */}
+            {/* LA PLACE VIDE ET LE BOUTON SE SUPERPOSENT dans la même case : elle a toujours la
+                largeur du plus large des deux (le bouton mis en avant porte un trait d'un pixel). */}
+            <span className="grid shrink-0 [&>*]:[grid-area:1/1]" data-colonne-compte="reconnecter">
+              <PlaceDeReconnecter />
+              {phase === 'aucune' ? (
+                <Button
+                  data-reconnecter-compte={quota.id}
+                  variant={quota.connexion?.doitReconnecter ? 'outline' : 'ghost'}
+                  size="sm"
+                  disabled={reconnexion}
+                  onClick={() =>
+                    parCle
+                      ? setConfirmation((v) => (v === 'cle' ? null : 'cle'))
+                      : quota.connexion?.doitReconnecter
+                        ? void reconnecter()
+                        : setConfirmation((v) => (v === 'reconnecter' ? null : 'reconnecter'))
+                  }
+                >
+                  {/* L'ATTENTE SE VOIT SUR LE BOUTON QUI A ÉTÉ CLIQUÉ. Un compte
+                      dont la session est tombée se reconnecte SANS confirmation :
+                      sans ce témoin, le seul signe du voyage de la demande serait
+                      l'absence de signe. */}
+                  {reconnexion ? <Loader2 className="h-3 w-3 animate-spin" /> : <LogIn className="h-3 w-3" />}
+                  {t('Reconnecter')}
+                </Button>
+              ) : null}
+            </span>
             <Tooltip label={t('Renommer ce compte')}>
               <Button variant="ghost" size="icon-sm" onClick={() => setEdite(true)}>
                 <Pencil className="h-3 w-3" />

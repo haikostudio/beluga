@@ -110,31 +110,3 @@ export const CLASSES_ALERTE_RANGEE = 'shrink-0 px-1.5';
  */
 export const CLASSES_BANDE = 'flex flex-col gap-1.5 px-1.5 pb-1.5 pt-0';
 
-/** Le pied de « À déployer » : le bouton de mise en ligne, en bas de la colonne. */
-export const CLASSES_PIED_RANGEE = 'mt-auto flex shrink-0 items-center gap-2 px-2 pb-3 pt-1.5';
-
-/*
- * « TABLEAUX DE BORD » : TROIS COLONNES, « ACTIFS », « TERMINER » ET « ARCHIVER »,
- * côte à côte comme celles du tableau. Sur ordinateur elles se partagent la largeur ; sur
- * téléphone chacune tient l'écran et le rail défile de côté, colonne par
- * colonne (aimantation au bord gauche), comme le tableau en colonnes. Chaque
- * colonne défile seule à la verticale. La page et sa silhouette lisent ces
- * mêmes classes : rien ne se déplace à l'arrivée des cartes.
- */
-export const classesRailEnRoute = (telephone: boolean): string =>
-  telephone
-    ? 'flex gap-2.5 scroll-px-3 px-3 pb-3 pt-0 snap-x snap-mandatory'
-    : 'mx-auto flex h-full w-full max-w-[1600px] gap-3 px-4 pb-4 pt-0';
-
-/** Une colonne de la page : son fond, sa largeur, son aimantation. */
-export const classesColonneEnRoute = (telephone: boolean): string =>
-  [
-    'fond-de-colonne-tableau flex min-h-0 flex-col overflow-hidden rounded-xl',
-    telephone ? 'w-[calc(100vw-2.5rem)] shrink-0 snap-start' : 'h-full min-w-0 flex-1 basis-0',
-  ].join(' ');
-
-/** Le bandeau de titre d'une colonne de la page. */
-export const CLASSES_TETE_COLONNE_EN_ROUTE = 'flex h-9 shrink-0 items-center gap-1.5 px-3';
-
-/** Ce qui défile dans une colonne : le pied laisse la place au bouton flottant (ordinateur). */
-export const CLASSES_LISTE_COLONNE_EN_ROUTE = 'px-2 pb-6 sm:pb-20';

@@ -1,5 +1,10 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { Globe as IconePlanete } from '@/components/ui/icones';
+import { ouvrirLesOutilsDuProjet, useBarreDuProjet, useCibleDuMenuDeTache } from '@/components/barre-du-projet';
+import { unGesteDepuisLeChargement } from '@/lib/geste-depuis-le-chargement';
+import { VueVisible, useVueVisible } from '@/lib/vue-visible';
+import { CLASSE_FENETRE_DU_VOLET, CLASSE_VOLET_DU_PLAN, CLE_DE_LARGEUR_DU_PLAN, bornesDuVoletDuPlan } from '@/components/volet-comme-un-plan';
 import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, ouvrirLeSuiviSiRienNestOuvert, useDocumentDeCarte } from '@/lib/document-de-carte';
 import { VoletDeSuivi } from '@/components/volet-de-suivi';
 import { ContexteAgentDuFil } from '@/components/menu-du-media';
@@ -20,12 +25,11 @@ import {
   PenLine,
   Trash2,
   X,
-  AppWindow,
   FolderOpen,
   Settings2,
-  Volume2,
   PanelRight,
-} from 'lucide-react';
+  LayoutGrid,
+} from '@/components/ui/icones';
 import {
   ONGLET_DE_CARTE_PAR_DEFAUT,
   Attachment,
@@ -58,7 +62,10 @@ import {
   cheminDeRealisationVisible,
   planCourant,
   carteDeMedia,
+  brancheDeLaCarte,
+  EVENEMENT_CARTE_INTROUVABLE,
   type EtatDuRepli,
+  deployeeNonVue,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -89,14 +96,8 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
-import { MenuDesProjets } from '@/components/menu-des-projets';
-import { EnteteDeZone, SeparateurDuFil, useLieuDeLaZone } from '@/components/entete-de-zone';
+import { EnteteDeZone, SeparateurDuFil, useCranDesTableauxDeBord, useLieuDeLaZone } from '@/components/entete-de-zone';
 import { BoutonDeBranche } from '@/components/bouton-de-branche';
-import {
-  useColonneDeService,
-} from '@/components/colonne-de-service';
-import { ecouterLePoint } from '@/components/quota-bar';
-import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { RepereAttention } from '@/components/repere-attention';
@@ -114,6 +115,7 @@ import { MenuExportDuCahier } from '@/components/cahier-des-charges';
 import { ResizeHandle, useResizable } from '@/components/resizer';
 import { VoletApercu } from '@/components/volet-apercu';
 import { CLASSE_FEUILLE_DU_VOLET, PoigneeDuVolet, useFeuilleDuVolet, VoileDuVolet } from '@/components/feuille-du-volet';
+import { ouvrirLesFichiers as ouvrirLaFenetreDesFichiers } from '@/lib/ouvrir-les-fichiers';
 
 /** La colonne de lecture d'une carte : la conversation se centre, elle ne s'étale pas. */
 export const CLASSE_COLONNE_DE_CARTE = 'max-w-[820px]';
@@ -129,8 +131,14 @@ export function CardPanel({
   onglet,
   onOnglet,
   onOuvrirVue,
+  cache = false,
 }: {
   cardId: string | null;
+  /**
+   * L'ONGLET DE CETTE TÂCHE N'EST PAS CELUI QU'ON REGARDE (13/11/2026) : la page reste montée, cachée, et revient
+   * d'un coup — sa conversation, son défilement, son brouillon. Rien ne s'y lit comme « vu » tant qu'elle est cachée.
+   */
+  cache?: boolean;
   onClose: () => void;
   /** L'ONGLET DÉSIGNÉ PAR L'ADRESSE : « …/tache/<id>-<slug>/<onglet> ». */
   onglet?: string | null;
@@ -141,6 +149,10 @@ export function CardPanel({
 }) {
   const state = useApp();
   const card = cardId ? state.cards[cardId] : null;
+  /* SUR TÉLÉPHONE, DANS UN PROJET, LA TÂCHE S'OUVRE SOUS LE HAUT COMMUN (13/11/2026) : le nom du projet, « Tâches »,
+     la rangée d'onglets, les trois points et « Publier » restent ceux de l'application, à l'identique sur l'accueil,
+     une tâche ou un outil — la page ne pose plus d'en-tête à elle. */
+  const hautCommun = useHautCommunDuTelephone();
 
   if (!cardId) return null;
 
@@ -165,10 +177,19 @@ export function CardPanel({
        doit pas grandir d'un bond au passage. */
     /* LA CARTE EST UNE PAGE, pleine largeur : elle pose elle-même sa barre
        d'en-tête (fil d'Ariane, gestes, options) et centre sa conversation. */
-    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe entete={<></>} className="max-w-none sm:px-0">
-      <TiroirDeCarte card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} onOuvrirVue={onOuvrirVue} />
+    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe entete={<></>} cache={cache} sousLeHaut={hautCommun} className="max-w-none sm:px-0">
+      <VueVisible.Provider value={!cache}>
+        <TiroirDeCarte card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} onOuvrirVue={onOuvrirVue} />
+      </VueVisible.Provider>
     </Drawer>
   );
+}
+
+/** Sur téléphone, dans un projet : la page d'une tâche (ou de sa facturation) vit sous le haut commun de l'application. */
+function useHautCommunDuTelephone(): boolean {
+  const telephone = useTelephone();
+  const barreDuProjet = useBarreDuProjet();
+  return telephone && !!barreDuProjet;
 }
 
 /**
@@ -200,19 +221,25 @@ function TiroirDeCarte({
 }) {
   const state = useApp();
   const recues = donneesDeCarteRecues(state, card.id);
+  const telephone = useTelephone();
+  const barreDuProjet = useBarreDuProjet();
   const [tropLong, setTropLong] = React.useState(false);
 
   React.useEffect(() => {
     setTropLong(false);
-    client.ouvrirLesDonneesDeCarte(card.id);
+    /* UNE TÂCHE DÉPLOYÉE NON VUE, REPOSÉE PAR LE CHARGEMENT DE LA PAGE, N'EST PAS OUVERTE (15/11/2026) : elle garde sa
+       place en gras dans « En cours » jusqu'à un vrai geste (`unGesteDepuisLeChargement`). */
+    client.ouvrirLesDonneesDeCarte(card.id, { lire: !(deployeeNonVue(card) && !unGesteDepuisLeChargement()) });
     const minuteur = window.setTimeout(() => setTropLong(true), 12_000);
     return () => window.clearTimeout(minuteur);
   }, [card.id]);
 
   if (!recues && !tropLong) {
+    /* LA SILHOUETTE PREND LE VRAI HAUT DE LA PAGE (13/11/2026) : la barre à onglets du projet sur ordinateur ; sur
+       téléphone, le haut commun de l'application reste au-dessus ; seul le milieu attend. */
     return (
       <>
-        <EnteteDeZone onRetour={onClose} titre={card.title} />
+        {telephone && barreDuProjet ? null : <EnteteDeZone ongletsDuProjet deuxRangsSurPetitEcran onRetour={onClose} titre={card.title} />}
         <div className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col', CLASSE_COLONNE_DE_CARTE)}>
           <SilhouetteTiroirCarte />
         </div>
@@ -241,7 +268,12 @@ function CarteReclamee({ cardId, onClose }: { cardId: string; onClose: () => voi
       if (!vivant || resultat === 'ok') return;
       // La carte n'existe plus : les annonces gardées dans ce navigateur qui la
       // désignent ne mènent nulle part non plus, elles quittent la cloche.
-      if (resultat === 'introuvable') client.oublierAnnoncesDeCarte(cardId);
+      if (resultat === 'introuvable') {
+        client.oublierAnnoncesDeCarte(cardId);
+        /* SON ONGLET TOMBE AUSSI (13/11/2026) : l'application retire l'onglet de la tâche et montre son voisin, au
+           lieu de garder un onglet qui n'ouvre que « Cette tâche n'existe plus ». */
+        window.dispatchEvent(new CustomEvent(EVENEMENT_CARTE_INTROUVABLE, { detail: { cardId } }));
+      }
       setIssue(resultat);
     });
     return () => {
@@ -369,6 +401,8 @@ function CardPanelBody({
   }, []);
   const remonterOnglet = React.useRef(onOnglet);
   remonterOnglet.current = onOnglet;
+  /* DANS UN PROJET À ONGLETS, LA FACTURATION EST UN ONGLET DU PROJET À PART (13/11/2026) : elle ne remplace jamais la
+     conversation de la tâche. Seule une tâche ouverte hors d'un projet (tableaux de bord) la garde en onglet interne. */
   React.useEffect(() => {
     if (!ongletVise || ongletVise === onglet) return;
     setOnglet(ongletVise);
@@ -442,6 +476,7 @@ function CardPanelBody({
    * n'existe pas.
    */
   const telephone = useTelephone();
+  const cranDesTableauxDeBord = useCranDesTableauxDeBord();
   /* Téléphone ou tablette (moins de 1024 px) : la double entête s'y affiche, et
      son rang du haut s'y replie au défilement. */
   const petitEcran = useTabletteOuTelephone();
@@ -562,11 +597,10 @@ function CardPanelBody({
           hauteur = fil.scrollHeight;
           stableDepuis = maintenant;
         } else if (maintenant - stableDepuis >= STABLE_A_L_OUVERTURE) {
-          /* L'en-tête maître et la barre des étapes se replient ensemble : le
-             fil doit pouvoir rendre leurs DEUX hauteurs (le rang du titre reste). */
-          const enTete = page.current?.querySelector('[data-entete-maitre]')?.getBoundingClientRect().height ?? 0;
+          /* Seule la barre des étapes se replie (plus d'en-tête maître depuis le 01/11/2026) : le fil doit
+             pouvoir rendre sa hauteur. */
           const barre = emplacementBarre.current?.getBoundingClientRect().height ?? 0;
-          const etat = repliALOuverture(fil.scrollTop, fil.scrollHeight - fil.clientHeight, enTete + barre);
+          const etat = repliALOuverture(fil.scrollTop, fil.scrollHeight - fil.clientHeight, barre);
           if (etat) {
             zoneSuivie.current = fil;
             repli.current = etat;
@@ -604,14 +638,14 @@ function CardPanelBody({
      jointes, réglages, point du jour). La conversation est le seul onglet
      qu'on ouvre d'ici ; GitHub s'ouvre par « Voir la branche », dans le menu de
      la branche ; les commentaires sont masqués (leur onglet reste dans le code). */
-  const dansLaColonne = useColonneDeService();
+  /* Le retour d'une tâche est porté par la colonne de gauche des projets, toujours là sur ordinateur. */
+  const dansLaColonne = !useTelephone();
   const nonLuPossible = peutRedevenirNonLue({ colonne: card.column, renduA: card.renduA, luA: card.lastReadAt });
   const ONGLETS: { cle: string; cleLibelle: string; Icone: React.ComponentType<{ className?: string }> }[] = [
     { cle: 'chat', cleLibelle: 'Conversation', Icone: MessageSquare },
     { cle: 'comments', cleLibelle: 'Commentaires', Icone: MessagesSquare },
   ];
-  const [voixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
-  const [pointEnLecture, setPointEnLecture] = React.useState(false);
+  const barreDuProjetDeLaCarte = useBarreDuProjet();
   /* L'APERÇU DU SITE (l'ancien bouton à fenêtre de la barre) : seulement quand
      le projet a une adresse de développement. */
   const adresseDeDevDuProjet = !!project?.devUrl?.trim();
@@ -623,8 +657,11 @@ function CardPanelBody({
     setBarreVisible(true);
   };
   /* Les fichiers et les pièces jointes du projet : le tiroir de l'application (`app.tsx`). */
+  /* « Fichiers » : la fenêtre par-dessus la page, sur le dossier du projet ; « Pièces jointes » : le tiroir. */
   const ouvrirLesFichiers = (vue: 'fichiers' | 'pieces') =>
-    window.dispatchEvent(new CustomEvent('beluga:ouvrir-fichiers', { detail: { vue } }));
+    vue === 'fichiers'
+      ? ouvrirLaFenetreDesFichiers({ projetId: card.projectId })
+      : window.dispatchEvent(new CustomEvent('beluga:ouvrir-fichiers', { detail: { vue } }));
   const entreesDeLAgent = voletDuCahier ? null : (
     <>
       <DropdownMenuLabel data-menu-groupe="agent">{t('Cet agent')}</DropdownMenuLabel>
@@ -634,9 +671,11 @@ function CardPanelBody({
           <span className="flex-1">{t('Conversation')}</span>
         </DropdownMenuItem>
       ) : null}
-      {adresseDeDevDuProjet ? (
+      {/* SUR ORDINATEUR, DANS UN PROJET, L'APERÇU EST UN BOUTON DE LA BARRE (13/11/2026, capture #5b9bc), entre les trois
+          points et les outils ; il reste ici sur téléphone et hors d'un projet. */}
+      {adresseDeDevDuProjet && (telephone || !barreDuProjetDeLaCarte) ? (
         <DropdownMenuItem data-geste-apercu={apercu ? 'ouvert' : 'ferme'} onSelect={basculerLApercu}>
-          <AppWindow className="h-3.5 w-3.5" />
+          <IconePlanete className="h-3.5 w-3.5" />
           <span className="flex-1">{apercu ? t('Fermer l’aperçu du site') : t('Aperçu du site')}</span>
         </DropdownMenuItem>
       ) : null}
@@ -652,30 +691,19 @@ function CardPanelBody({
     <>
       <DropdownMenuSeparator />
       <DropdownMenuLabel data-menu-groupe="projet">{t('Ce projet')}</DropdownMenuLabel>
-      <DropdownMenuItem data-menu-fichiers onSelect={() => ouvrirLesFichiers('fichiers')}>
-        <FolderOpen className="h-3.5 w-3.5" />
-        <span className="flex-1">{t('Fichiers')}</span>
-      </DropdownMenuItem>
-      <DropdownMenuItem data-menu-pieces onSelect={() => ouvrirLesFichiers('pieces')}>
-        <Paperclip className="h-3.5 w-3.5" />
-        <span className="flex-1">{t('Pièces jointes')}</span>
-      </DropdownMenuItem>
+      {telephone ? (
+        /* LES OUTILS DU PROJET, SUR TÉLÉPHONE (13/11/2026) : le bas ne porte plus que « Publier ». */
+        <DropdownMenuItem data-ouvrir-outils-du-projet onSelect={ouvrirLesOutilsDuProjet}>
+          <LayoutGrid className="h-3.5 w-3.5" />
+          <span className="flex-1">{t('Outils du projet')}</span>
+        </DropdownMenuItem>
+      ) : null}
+      {/* FICHIERS ET PIÈCES JOINTES ONT QUITTÉ CE MENU (13/11/2026, maquettes #16ff3 et #debd) : ils vivent dans le
+          menu des outils du projet, à côté des autres outils. */}
       <DropdownMenuItem data-option-du-projet="reglages" onSelect={() => ouvrirConfigProjet(card.projectId)}>
         <Settings2 className="h-3.5 w-3.5" />
         <span className="flex-1">{t('Réglages du projet')}</span>
       </DropdownMenuItem>
-      {voixVisible ? (
-        <DropdownMenuItem
-          disabled={pointEnLecture}
-          onSelect={() => {
-            setPointEnLecture(true);
-            void ecouterLePoint(card.projectId, () => setPointEnLecture(false));
-          }}
-        >
-          <Volume2 className={cn('h-3.5 w-3.5', pointEnLecture && 'animate-pulse-soft')} />
-          <span className="flex-1">{t('Écouter le point')}</span>
-        </DropdownMenuItem>
-      ) : null}
     </>
   );
 
@@ -775,11 +803,7 @@ function CardPanelBody({
     }
   }, [telephone, documentOuvert?.genre]);
   /* Sa largeur, réglable et gardée ; le plafond laisse 360 px à la conversation. */
-  const largeurDuDocument = useResizable('document-de-carte', {
-    initial: 520,
-    min: 360,
-    max: placeDeLaRangee ? Math.max(360, Math.min(960, placeDeLaRangee - 360)) : 960,
-  });
+  const largeurDuDocument = useResizable(CLE_DE_LARGEUR_DU_PLAN, bornesDuVoletDuPlan(placeDeLaRangee));
   /* Les studios photo et son et la page Téléchargement d'une création de média prennent un volet élargi (sa largeur a sa propre mémoire). */
   const voletElargi = documentOuvert?.genre === 'studio-photo' || documentOuvert?.genre === 'studio-son' || documentOuvert?.genre === 'telechargement';
   const largeurDuMontage = useResizable('montage-de-carte', {
@@ -795,72 +819,135 @@ function CardPanelBody({
   const fermerLApercu = React.useCallback(() => setApercu(false), []);
   const feuilleDeLApercu = useFeuilleDuVolet(apercuEnFeuille, fermerLApercu);
 
+  const barreDuProjet = useBarreDuProjet();
+  /* SUR TÉLÉPHONE, DANS UN PROJET : pas d'en-tête à la page, ses trois points se posent dans le haut commun. */
+  const hautCommun = telephone && !!barreDuProjet;
+  const cibleDuMenu = useCibleDuMenuDeTache();
+  const vueVisible = useVueVisible();
+  /* L'APERÇU DU SITE, BOUTON DE LA BARRE SUR ORDINATEUR (13/11/2026, capture #5b9bc) : entre les trois points et les
+     outils du projet, allumé en violet quand l'aperçu est ouvert. */
+  const boutonApercu =
+    !telephone && barreDuProjet && adresseDeDev && !voletDuCahier ? (
+      <Tooltip label={apercuOuvert ? t('Fermer l’aperçu du site') : t('Aperçu du site')} side="bottom">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-8 w-8 shrink-0', apercuOuvert ? 'bg-teinte/10 text-teinte hover:bg-teinte/15' : 'text-muted')}
+          aria-label="Aperçu du site"
+          aria-pressed={apercuOuvert}
+          data-geste-apercu={apercu ? 'ouvert' : 'ferme'}
+          data-bouton-apercu
+          onClick={basculerLApercu}
+        >
+          <IconePlanete className="h-4 w-4" />
+        </Button>
+      </Tooltip>
+    ) : null;
+  const menuDeLaCarte = (
+    <MenuCarte
+      card={card}
+      apresSuppression={onClose}
+      enTete={
+        <>
+          {(barreDuProjet || telephone) && !voletDuCahier ? (
+            /* LA BRANCHE DE LA TÂCHE, PREMIÈRE LIGNE DES TROIS POINTS (refonte du 13/11/2026), sur ordinateur comme
+               sur téléphone : son nom dessous ; son parcours se lit dans l'onglet GitHub de la tâche. */
+            <DropdownMenuItem data-voir-la-branche onSelect={() => setOnglet('github')} className="items-start">
+              <GitBranch className="mt-0.5 h-3.5 w-3.5" strokeWidth={1.75} />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span>{t('Branche de la tâche')}</span>
+                {brancheDeLaCarte(card) ? (
+                  <span className="truncate text-[12px] text-faint" data-nom-de-branche>
+                    {brancheDeLaCarte(card)}
+                  </span>
+                ) : null}
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {telephone && voletDeDroite ? (
+            /* LE VOLET DE DROITE, SUR TÉLÉPHONE, EST UNE ENTRÉE DES TROIS POINTS (06/11/2026). */
+            <DropdownMenuItem
+              data-ouvrir-le-volet={voletDeDroite.genre}
+              data-volet-ouvert={documentOuvert ? '' : undefined}
+              onSelect={() => (documentOuvert ? fermerLeDocument() : voletDeDroite.ouvrir())}
+            >
+              <PanelRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <span className="flex-1">
+                {documentOuvert
+                  ? t('Fermer le volet')
+                  : voletDeDroite.genre === 'suivi'
+                    ? t('Suivi de la production')
+                    : t('Voir le plan')}
+              </span>
+            </DropdownMenuItem>
+          ) : null}
+          {entreesDeLAgent}
+          {/* L'ASSISTANT N'EST PLUS DANS LES TROIS POINTS (16/11/2026) : le bouton du bord est sa seule entrée. */}
+        </>
+      }
+      enPied={entreesDuProjet}
+      sansNonLu
+      declencheur={
+        <Button
+          variant="doux"
+          size="pastille"
+          className="relative shrink-0"
+          aria-label="Autres actions"
+          data-menu-de-carte
+        >
+          <EllipsisVertical className="h-4 w-4" />
+          {decisions > 0 && ongletActif !== 'chat' ? (
+            <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-text" aria-hidden />
+          ) : null}
+        </Button>
+      }
+    />
+  );
   return (
-    <div ref={page} className="flex min-h-0 flex-1 flex-col" data-page-carte={card.id}>
+    <div
+      ref={page}
+      className="flex min-h-0 flex-1 flex-col"
+      data-page-carte={card.id}
+    >
       {/* LA BARRE D'EN-TÊTE DE LA CARTE : la flèche de retour, le fil d'Ariane
           (le projet, puis le titre), les deux gestes de mise en ligne, et les
           options derrière trois points. Rien d'autre. */}
+      {hautCommun ? (
+        vueVisible && cibleDuMenu ? createPortal(menuDeLaCarte, cibleDuMenu) : null
+      ) : (
       <EnteteDeZone
-        avant={lieu?.avant}
+        /* DANS SON PROJET, SUR ORDINATEUR : la barre unique à onglets (refonte du 13/11/2026). */
+        ongletsDuProjet
+        /* SUR TÉLÉPHONE, UNE SEULE RANGÉE (01/11/2026, capture #d6cd) : menu, fil, options. */
         deuxRangsSurPetitEcran
-        /* LE RANG DU HAUT SE REPLIE AVEC LA BARRE DES ÉTAPES (demande du
-           24/10/2026) ; le rang du titre, avec la branche, reste. */
-        rangDuHautMasque={!barreVisible}
         /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
            à la conversation ; un second appui quitte la carte. */
         onRetour={documentEnFeuille ? fermerLeDocument : apercuEnFeuille ? fermerLApercu : onClose}
-        /* SUR TÉLÉPHONE, LE VOLET DE DROITE S'OUVRE D'UNE ICÔNE EN BOUT DE RANG
-           DU TITRE (demande du 30/10/2026, capture #cffe) : le suivi d'une
-           production, sinon le plan de la carte, en feuille du bas. */
-        finDuRangDuTitre={
-          telephone && voletDeDroite ? (
-            <Button
-              variant="ghost"
-              size="icon-barre"
-              className={cn('shrink-0', documentOuvert ? 'text-teinte' : 'text-muted')}
-              aria-label={documentOuvert ? t('Fermer le volet') : t('Ouvrir le volet')}
-              title={documentOuvert ? t('Fermer le volet') : t('Ouvrir le volet')}
-              aria-pressed={!!documentOuvert}
-              data-ouvrir-le-volet={voletDeDroite.genre}
-              onClick={() => (documentOuvert ? fermerLeDocument() : voletDeDroite.ouvrir())}
-            >
-              <PanelRight className="h-4 w-4" strokeWidth={1.75} />
-            </Button>
+        /* SUR TÉLÉPHONE (demande du 06/11/2026) : le logo du projet dans l'angle du bouton menu, la branche à droite
+           juste avant les trois points ; le volet de droite (plan, suivi) s'ouvre DEPUIS les trois points, et le
+           titre, centré, ouvre la grille des services (`EnteteDeZone`). Deux boutons au plus à droite. */
+        insigneDuMenu={
+          telephone && project ? (
+            membresDuGroupe.length ? <PastillesEmpilees projects={membresDuGroupe} taille={13} /> : <PastilleProjet project={project} taille={13} />
           ) : undefined
         }
+        /* LA BRANCHE N'EST PLUS UN BOUTON DU HAUT SUR TÉLÉPHONE (13/11/2026) : elle est la première ligne des trois
+           points, qui restent seuls à droite. */
         /* Sur ordinateur, le retour est porté par la colonne de gauche. */
         retourDansLaColonne={dansLaColonne}
+        apresLeMenu={boutonApercu}
         chemin={
           project
             ? [
-                /* LE FIL, DE GAUCHE À DROITE : les services (`avant`), « Tableaux
-                   de bord », le projet et son favicon, la branche, puis le nom de
-                   la tâche (demande du 15/10/2026). */
-                {
-                  libelle: t('Tableaux de bord'),
-                  onClick: () => (onOuvrirVue ? onOuvrirVue('en-route') : client.demanderTableau(project.id)),
-                },
+                ...(cranDesTableauxDeBord ? [cranDesTableauxDeBord] : []),
+                /* LE FIL, DE GAUCHE À DROITE : le projet et son favicon, la branche, puis le nom de la tâche. */
                 {
                   libelle: project.name,
-                  /* Le nom du projet OUVRE LA LISTE DES PROJETS, comme sur les
-                     autres pages : « Tableaux de bord » en tête, le projet
-                     courant coché. Choisir referme la carte (`onOuvrirVue`). */
-                  menu: (declencheur: React.ReactElement) => (
-                    <MenuDesProjets
-                      declencheur={declencheur}
-                      projetCourantId={project.id}
-                      onOuvrirVue={(vue) => {
-                        if (onOuvrirVue) onOuvrirVue(vue);
-                        else client.demanderTableau(project.id);
-                      }}
-                    />
-                  ),
-                  /* Son icône le précède, et reste là sur téléphone où le nom
-                     est masqué. Un appui dessus referme la carte et montre le
-                     tableau du projet : `onClick` ne sert qu'à l'icône, le nom
-                     garde la liste des projets (la branche `menu` passe avant). */
+                  /* Son icône le précède, et reste là sur téléphone où le nom est
+                     masqué : un appui referme la carte et montre le projet. */
                   onClick: () => client.demanderTableau(project.id),
-                  icone: membresDuGroupe.length ? (
+                  /* Sur téléphone, l'icône part dans l'angle du bouton menu (`insigneDuMenu`). */
+                  icone: telephone ? undefined : membresDuGroupe.length ? (
                     <PastillesEmpilees projects={membresDuGroupe} />
                   ) : (
                     <PastilleProjet project={project} />
@@ -883,36 +970,14 @@ function CardPanelBody({
            suivre son parcours vers la mise en ligne (`BoutonDeBranche`). Pas
            pour le cahier des charges, qui n'a pas de branche. */
         suite={
-          voletDuCahier ? undefined : (
+          voletDuCahier || telephone ? undefined : (
             <>
               <SeparateurDuFil />
               <BoutonDeBranche card={card} onVoirLaBranche={() => setOnglet('github')} />
             </>
           )
         }
-        menu={
-          <MenuCarte
-            card={card}
-            apresSuppression={onClose}
-            enTete={entreesDeLAgent}
-            enPied={entreesDuProjet}
-            sansNonLu
-            declencheur={
-              <Button
-                variant="ghost"
-                size="icon-barre"
-                className="relative shrink-0 text-muted"
-                aria-label="Autres actions"
-                data-menu-de-carte
-              >
-                <EllipsisVertical className="h-4 w-4" />
-                {decisions > 0 && ongletActif !== 'chat' ? (
-                  <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-text" aria-hidden />
-                ) : null}
-              </Button>
-            }
-          />
-        }
+        menu={menuDeLaCarte}
       >
         {/* PLUS DE « i » NI DE BOUTON D'APERÇU DANS LA BARRE (30/10/2026) :
             l'aperçu du site est dans les trois points ; l'état de la carte se
@@ -923,8 +988,9 @@ function CardPanelBody({
             le déploiement (sur ce serveur) en contour, la mise en production en
             aplat. Ils ouvrent les MÊMES pages que le tableau. JAMAIS SUR UNE
             CRÉATION DE MÉDIA (décision du 25/10/2026) : un média ne se déploie pas. */}
-        {voletDuCahier || telephone || carteDeMedia(card) ? null : <GestesDePublicationDeCarte projectId={card.projectId} />}
+        {voletDuCahier || telephone || carteDeMedia(card) || barreDuProjet ? null : <GestesDePublicationDeCarte projectId={card.projectId} />}
       </EnteteDeZone>
+      )}
       {/* Le titre, pour les lecteurs d'écran : la page est une fenêtre Radix. */}
       <DialogTitle className="sr-only">{card.title}</DialogTitle>
 
@@ -960,7 +1026,7 @@ function CardPanelBody({
             conversation la pose ici par un portail (`emplacementBarre`,
             `chat.tsx`). Sur ordinateur, elle vit en tête de la conversation. */}
         {telephone ? (
-          /* Elle se replie avec l'en-tête maître quand on descend, et revient dès qu'on remonte. */
+          /* Elle se replie quand on descend, et revient dès qu'on remonte. */
           <div
             data-repli-des-etapes
             data-barre-masquee={barreVisible ? undefined : ''}
@@ -1009,7 +1075,7 @@ function CardPanelBody({
 
       </Tabs>
       <Drawer open={githubOuvert} onClose={() => setGithubOuvert(false)} feuille adresse="github-de-la-carte">
-        <EnteteDeFeuille titre="GitHub" data-entete-feuille-github="" />
+        <EnteteDeFeuille titre={t('GitHub')} data-entete-feuille-github="" />
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" data-tiroir-github={card.id}>
           <FournisseurDeChargement signaler={signalerChargement}>
             <GithubTab card={card} />
@@ -1034,10 +1100,11 @@ function CardPanelBody({
             aria-modal="true"
             aria-label="Aperçu du site"
             data-feuille-du-volet="apercu"
+            ref={feuilleDeLApercu.feuille}
             className={CLASSE_FEUILLE_DU_VOLET}
             style={feuilleDeLApercu.style}
           >
-            <PoigneeDuVolet tirer={feuilleDeLApercu.tirer} onFermer={fermerLApercu} croix />
+            <PoigneeDuVolet tirer={feuilleDeLApercu.tirer} onFermer={fermerLApercu} />
             <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={fermerLApercu} inerte={poigneeTenue} />
           </div>
         </>
@@ -1066,6 +1133,7 @@ function CardPanelBody({
        */}
       {documentEnFeuille ? <VoileDuVolet onFermer={fermerLeDocument} /> : null}
       <div
+        ref={feuilleDuDocument.feuille}
         data-volet-du-document=""
         data-feuille-du-volet={documentEnFeuille ? documentOuvert.genre : undefined}
         role={documentEnFeuille ? 'dialog' : undefined}
@@ -1077,16 +1145,16 @@ function CardPanelBody({
             ? 'hidden'
             : documentEnFeuille
               ? CLASSE_FEUILLE_DU_VOLET
-              : 'flex shrink-0 flex-col bg-fond-plan p-2',
+              : CLASSE_VOLET_DU_PLAN,
         )}
       >
         {documentEnFeuille ? (
-          <PoigneeDuVolet tirer={feuilleDuDocument.tirer} onFermer={fermerLeDocument} croix={documentOuvert.genre !== 'plan'} />
+          <PoigneeDuVolet tirer={feuilleDuDocument.tirer} onFermer={fermerLeDocument} />
         ) : null}
         {voletElargi ? (
           <div
             data-volet-de-montage=""
-            className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25')}
+            className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !documentEnFeuille && CLASSE_FENETRE_DU_VOLET)}
           >
             <React.Suspense fallback={null}>
               {documentOuvert?.genre === 'studio-photo' ? (
@@ -1105,7 +1173,7 @@ function CardPanelBody({
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
             voletElargi && 'hidden',
-            documentOuvert && !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25',
+            documentOuvert && !documentEnFeuille && CLASSE_FENETRE_DU_VOLET,
           )}
         />
         {documentOuvert?.genre === 'suivi' && emplacementDuDocument ? createPortal(
@@ -1119,7 +1187,7 @@ function CardPanelBody({
       </div>
       </FournisseurGlisserVersUnPlan>
       </ContexteEmplacementDuDocument.Provider>
-
+      {/* PLUS RIEN EN BAS D'UNE TÂCHE SUR TÉLÉPHONE (13/11/2026) : « Publier » est un petit bouton du haut commun. */}
     </div>
   );
 }

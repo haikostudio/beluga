@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { MessageSquare, Route, TriangleAlert } from 'lucide-react';
+import { MessageSquare, Route, TriangleAlert } from '@/components/ui/icones';
 import { type IconeDAttention } from '@beluga/shared';
 import { Tooltip } from '@/components/ui';
 import { cn } from '@/lib/utils';

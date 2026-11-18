@@ -10,8 +10,15 @@ export default {
         bg: 'hsl(var(--bg))',
         surface: 'hsl(var(--surface))',
         raised: 'hsl(var(--raised))',
+        /* Le fond d'un champ de saisie (`--champ`), distinct de tout panneau. */
+        champ: 'hsl(var(--champ))',
         // Le survol d'un élément posé sur `raised` : une marche au-dessus.
         'fond-survol': 'hsl(var(--fond-survol))',
+        // Les trois fonds des onglets (barre, repos, choisi) et l'en-tête des tableaux (03/11/2026).
+        'onglets-barre': 'hsl(var(--onglets-barre))',
+        'onglets-repos': 'hsl(var(--onglets-repos))',
+        'onglets-actif': 'hsl(var(--onglets-actif))',
+        'tableau-entete': 'hsl(var(--tableau-entete))',
         border: 'hsl(var(--border))',
         text: 'hsl(var(--text))',
         muted: 'hsl(var(--muted))',
@@ -62,6 +69,10 @@ export default {
         // bordure ne dessine plus rien. Son alpha vit DANS le jeton : on n'écrit
         // jamais `bg-controle/50`, qui produirait un `hsl()` invalide.
         controle: 'hsl(var(--controle))',
+        // Le fond DOUX d'un contrôle (bouton d'icône, champ de recherche, bouton de pied) : un voile de l'encre du
+        // texte, lisible sur tout fond porteur. Alpha DANS le jeton, comme `controle`.
+        'controle-doux': 'hsl(var(--controle-doux))',
+        'controle-doux-survol': 'hsl(var(--controle-doux-survol))',
         // Le fond de la ligne du projet OUVERT, colonne de gauche : distinct du
         // fond de page et du survol dans les quatre thèmes (styles.css).
         'ligne-active': 'hsl(var(--ligne-active))',
@@ -83,6 +94,8 @@ export default {
         'teinte-trait': 'hsl(var(--teinte-trait))',
         // Le violet PLEIN sous un texte blanc : boutons de l'assistant de démarrage.
         'teinte-plein': 'hsl(var(--teinte-plein))',
+        // L'ORANGE DE L'IMPORTANT (14/11/2026) : liens, questions, « à vous », alertes, l'actif de la colonne.
+        important: { DEFAULT: 'hsl(var(--important))', fond: 'hsl(var(--important-fond))', trait: 'hsl(var(--important-trait))' },
         'sur-couleur': 'hsl(var(--sur-couleur))',
         // Le JAUNE du badge de statut « Compréhension » (styles.css) : son seul
         // usage, avec le fond et le trait de la même teinte.
@@ -90,6 +103,20 @@ export default {
           DEFAULT: 'hsl(var(--comprehension))',
           fond: 'hsl(var(--comprehension-fond))',
           trait: 'hsl(var(--comprehension-trait))',
+        },
+        // Le VERT de ce qui est prêt (styles.css) : badge d'état d'un agent et rond de la colonne, rien d'autre.
+        pret: {
+          DEFAULT: 'hsl(var(--pret))',
+          fond: 'hsl(var(--pret-fond))',
+          trait: 'hsl(var(--pret-trait))',
+        },
+        // Les têtes de colonnes de l'espace client (styles.css, 08/11/2026) : gris, bleu, vert — là seulement.
+        colonne: {
+          bleu: 'hsl(var(--colonne-bleu))',
+          'bleu-fond': 'hsl(var(--colonne-bleu-fond))',
+          vert: 'hsl(var(--colonne-vert))',
+          'vert-fond': 'hsl(var(--colonne-vert-fond))',
+          'gris-fond': 'hsl(var(--colonne-gris-fond))',
         },
         // L'aplat d'encre (bulle de l'utilisateur, bouton qui arrête) : noir
         // en clair, GRIS soutenu en sombre — jamais blanc (styles.css).
@@ -124,8 +151,11 @@ export default {
         // Une feuille qui monte du BAS de l'écran : le geste des fenêtres et des
         // confirmations sur téléphone.
         'slide-sheet': { from: { transform: 'translateY(100%)' }, to: { transform: 'translateY(0)' } },
-        'slide-sheet-out': { from: { transform: 'translateY(0)' }, to: { transform: 'translateY(100%)' } },
+        // Part du décalage laissé par le doigt (`--decalage-feuille`, posé par
+        // useGlisserPourFermer à 100 % après une sortie au doigt) : rien ne remonte.
+        'slide-sheet-out': { from: { transform: 'translateY(var(--decalage-feuille, 0px))' }, to: { transform: 'translateY(100%)' } },
         'pulse-soft': { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.45' } },
+        'glisse-du-bord': { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(0)' } },
         // LES DEUX RYTHMES DE LA FRISE : le jaune du travail SCINTILLE (vif,
         // irrégulier, un halo qui s'allume) ; le bleu « fini, à voir »
         // CLIGNOTE (lent, franc, allumé/éteint). Jamais le même battement :
@@ -186,6 +216,7 @@ export default {
         'slide-sheet': 'slide-sheet 200ms ease-out',
         'slide-sheet-out': 'slide-sheet-out 200ms ease-in',
         'pulse-soft': 'pulse-soft 1.6s ease-in-out infinite',
+        'glisse-du-bord': 'glisse-du-bord 180ms cubic-bezier(0.16, 1, 0.3, 1)',
         scintille: 'scintille 0.9s ease-in-out infinite',
         clignote: 'clignote 1.4s ease-in-out infinite',
         appel: 'appel 1.8s ease-in-out 3',

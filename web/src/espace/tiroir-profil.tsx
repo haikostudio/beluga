@@ -6,7 +6,7 @@
  * le mot de passe exigent le mot de passe actuel, sans cadre ni trait — vivent
  * avec le formulaire, que les réglages de l'application principale réutilisent.
  */
-import { X } from 'lucide-react';
+import { X } from '@/components/ui/icones';
 import { Button, DialogTitle, Drawer } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';

@@ -1,4 +1,4 @@
-import { CheckCheck, Eye } from 'lucide-react';
+import { CheckCheck, Eye } from '@/components/ui/icones';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 

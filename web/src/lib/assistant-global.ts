@@ -61,21 +61,30 @@ export function useEtatAssistant() {
 }
 
 /**
- * OUVRIR L'ASSISTANT DEPUIS UN ÉCRAN, UNE AMORCE DANS SON CHAMP. Un seul robot
- * dans l'application (demande du 20/10/2026) : l'écran Marketing n'a plus son
- * propre chat, il ouvre celui-ci. L'amorce (« Marketing de « ProjetA » : ») dit à
- * l'assistant quel projet viser ; elle ne se pose QUE dans un champ vide — un
- * texte déjà commencé n'est jamais recouvert. Rien n'est envoyé.
+ * OÙ EST LE BOUTON DU BORD (carte « Jarvis : volet, voix et rapidité », 16/11/2026) : son bord et le milieu de sa
+ * place le long de ce bord, posés par le bouton (`jarvis-natif.tsx`) et lus par le volet, qui s'ouvre de son côté.
  */
-export async function ouvrirLAssistant(amorce?: string): Promise<void> {
-  const retenu = chatAssistantRetenu(readPref<unknown>(CLE_ASSISTANT_GLOBAL, CHAT_ASSISTANT_DEFAUT));
-  if (!retenu.ouvert) writePref(CLE_ASSISTANT_GLOBAL, { ...retenu, ouvert: true });
-  if (!amorce) return;
-  try {
-    const id = agentIdCourant ?? (await client.call<{ agent: Agent }>({ type: 'assistant.agent' })).agent.id;
-    const cle = `draft.${id}`;
-    if (!readPref<string>(cle, '').trim()) writePref(cle, amorce);
-  } catch {
-    /* l'assistant s'ouvre quand même, champ vide */
-  }
+export interface BoutonDuBordVu {
+  bord: 'gauche' | 'droite' | 'haut' | 'bas';
+  centre: number;
+}
+
+let bouton: BoutonDuBordVu = { bord: 'gauche', centre: 0 };
+const abonnesDuBouton = new Set<() => void>();
+
+export function poserLeBoutonDuBord(suite: BoutonDuBordVu): void {
+  if (bouton.bord === suite.bord && bouton.centre === suite.centre) return;
+  bouton = suite;
+  for (const abonne of abonnesDuBouton) abonne();
+}
+
+export function useBoutonDuBord(): BoutonDuBordVu {
+  return React.useSyncExternalStore(
+    (abonne) => {
+      abonnesDuBouton.add(abonne);
+      return () => abonnesDuBouton.delete(abonne);
+    },
+    () => bouton,
+    () => bouton,
+  );
 }

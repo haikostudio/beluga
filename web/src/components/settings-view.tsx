@@ -1,7 +1,7 @@
+import { ChampDeRecherche } from '@/components/ui/champ-de-recherche';
 import * as React from 'react';
 import { niveauDeMonService } from '@/lib/mes-droits';
 import {
-  Activity,
   Bell,
   ChevronLeft,
   ChevronRight,
@@ -9,6 +9,8 @@ import {
   Download,
   FolderTree,
   Github,
+  ShieldCheck,
+  Puzzle,
   Globe,
   KeyRound,
   Camera,
@@ -21,13 +23,12 @@ import {
   Save,
   Scale,
   Search,
-  Sparkles,
   UserRound,
   Users,
   Volume2,
   Wallet,
   Zap,
-} from 'lucide-react';
+} from '@/components/ui/icones';
 import {
   ARBORESCENCE_REGLAGES,
   chercherDansLesReglages,
@@ -66,6 +67,9 @@ const paresseux = (charge: () => Promise<Record<string, any>>, nom: string) =>
 
 /** Les groupes de réglages qu'ouvre le service « Réglages de Beluga » d'un accès tiers. */
 const GROUPES_DES_REGLAGES = ['apparence', 'projets', 'notifications', 'agents'];
+
+/** Les pages retirées du menu parce qu'elles en ont rejoint une autre : l'ancienne clé mène à la nouvelle. */
+const PAGES_REUNIES: Record<string, string> = { capacite: 'serveur' };
 
 const RENDU_DES_PAGES: Record<string, RenduDePage> = {
   'mon-compte': {
@@ -106,6 +110,7 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
   consommation: {
     icone: Wallet,
     avecOuverture: true,
+    avecReglages: true,
     rendu: paresseux(() => import('@/components/reglages/page-consommation'), 'UsageSection'),
   },
   'mise-a-jour': {
@@ -116,17 +121,22 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     icone: Globe,
     rendu: paresseux(() => import('@/components/reglages/page-installation'), 'PageInstallation'),
   },
+  extension: {
+    icone: Puzzle,
+    rendu: paresseux(() => import('@/components/reglages/page-extension'), 'PageExtension'),
+  },
   github: {
     icone: Github,
     rendu: paresseux(() => import('@/components/reglages/page-github'), 'PageGithub'),
   },
+  /* La liaison avec Beluga Pass (carte « Relier Beluga Pass dans les réglages », 16/11/2026) : sortie du coffre-fort. */
+  belugapass: {
+    icone: ShieldCheck,
+    rendu: paresseux(() => import('@/components/reglages/page-belugapass'), 'PageBelugaPass'),
+  },
   serveur: {
     icone: Power,
     rendu: paresseux(() => import('@/components/reglages/page-serveur'), 'SectionServeur'),
-  },
-  capacite: {
-    icone: Activity,
-    rendu: paresseux(() => import('@/components/reglages/page-capacite'), 'SectionSysteme'),
   },
   erreurs: {
     icone: Bug,
@@ -151,11 +161,6 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     icone: Zap,
     avecOuverture: true,
     rendu: paresseux(() => import('@/components/reglages/page-acces-api'), 'SectionClesApi'),
-  },
-  'mode-creation': {
-    icone: Sparkles,
-    avecReglages: true,
-    rendu: paresseux(() => import('@/components/reglages/page-mode-creation'), 'PageModeCreation'),
   },
   'services-creation': {
     icone: Clapperboard,
@@ -248,7 +253,10 @@ function CorpsDesReglages({
   React.useEffect(() => {
     if (page) setPageInterne(page);
   }, [page]);
-  const pageOuverte = pages.find((item) => item.cle === pageInterne) ?? pages[0];
+  /* « Capacité du système » a rejoint la page « Serveur » (06/11/2026) : un
+     lien vers l'ancienne page y mène, au lieu de retomber sur la première. */
+  const cleDemandee = PAGES_REUNIES[pageInterne] ?? pageInterne;
+  const pageOuverte = pages.find((item) => item.cle === cleDemandee) ?? pages[0];
   const rendu = pageOuverte ? RENDU_DES_PAGES[pageOuverte.cle] : undefined;
 
   /* SUR TÉLÉPHONE, une seule des deux colonnes est à l'écran : le menu, ou la
@@ -340,22 +348,17 @@ function CorpsDesReglages({
           )}
         >
           <div className="shrink-0 px-4 py-2 sm:px-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-              <Input
-                value={recherche}
-                onChange={(event) => setRecherche(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') return;
-                  const premier = resultatsGroupes[0]?.fiches[0];
-                  if (premier) ouvrir(premier.cle);
-                }}
-                placeholder={t('Rechercher un réglage')}
-                data-recherche-reglages
-                className="h-8 pl-7 text-[13px]"
-                autoComplete="off"
-              />
-            </div>
+            <ChampDeRecherche
+              valeur={recherche}
+              onChange={setRecherche}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                const premier = resultatsGroupes[0]?.fiches[0];
+                if (premier) ouvrir(premier.cle);
+              }}
+              placeholder={t('Rechercher un réglage')}
+              data-recherche-reglages
+            />
           </div>
 
           <ZoneDefilement className="px-2 pb-3">

@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { AlertTriangle, Check, Database, Download, Loader2, Upload } from 'lucide-react';
+import { BoutonVue } from '@/components/ui/boutons-a-menu';
+import { AlertTriangle, Check, Database, Download, Loader2, Upload } from '@/components/ui/icones';
 import {
   BilanImport,
   CategorieExport,
@@ -55,6 +56,7 @@ interface EtatCategorie {
 const POLITIQUES: PolitiqueConflit[] = ['ignorer', 'remplacer', 'remettre-a-zero'];
 
 export function TiroirDonnees({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [sens, setSens] = React.useState<'exporter' | 'importer'>('exporter');
   return (
     <Drawer adresse="export-donnees" open={open} onClose={onClose}>
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
@@ -67,16 +69,18 @@ export function TiroirDonnees({ open, onClose }: { open: boolean; onClose: () =>
         </BulleInfo>
       </header>
 
-      <Tabs defaultValue="exporter" className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={sens} onValueChange={(v) => setSens(v as 'exporter' | 'importer')} className="flex min-h-0 flex-1 flex-col">
+        {/* EXPORTER OU IMPORTER : un bouton à menu (04/11/2026, deuxième passe : plus de barre d'onglets). */}
         <div className="shrink-0 px-3 pb-2">
-          <TabsList>
-            <TabsTrigger value="exporter" data-donnees-onglet="exporter">
-              {t('Exporter')}
-            </TabsTrigger>
-            <TabsTrigger value="importer" data-donnees-onglet="importer">
-              {t('Importer')}
-            </TabsTrigger>
-          </TabsList>
+          <BoutonVue
+            repere="donnees"
+            valeur={sens}
+            onChoisir={setSens}
+            choix={[
+              { cle: 'exporter', libelle: t('Exporter'), attributs: { 'data-donnees-onglet': 'exporter' } },
+              { cle: 'importer', libelle: t('Importer'), attributs: { 'data-donnees-onglet': 'importer' } },
+            ]}
+          />
         </div>
 
         <TabsContent value="exporter" className="flex min-h-0 flex-1 flex-col outline-none">

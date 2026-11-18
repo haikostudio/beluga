@@ -63,6 +63,16 @@ function rendreLaFileAuChamp(agentId: string, textes: string[]): void {
   writePref(cle, brouillonApresSuspension(typeof ancien === 'string' ? ancien : '', textes));
 }
 
+/* LA FILE RENDUE PAR LE DÉMON (message refusé sous une carte en ligne ou en
+   publication, file vidée par un arrêt) suit le même chemin que celle de
+   « Suspendre » : champ à l'écran, sinon brouillon retenu. */
+if (typeof window !== 'undefined') {
+  window.addEventListener('beluga:queue-rendue', (event) => {
+    const detail = (event as CustomEvent<DetailFileRendue>).detail;
+    if (detail?.agentId) rendreLaFileAuChamp(detail.agentId, detail.textes ?? []);
+  });
+}
+
 /**
  * « 12 s », « 7 min 3 s » — ou rien si l'agent n'a pas d'heure de départ.
  * Exportée : la barre de travail du tableau (`board.tsx`) en a besoin pour

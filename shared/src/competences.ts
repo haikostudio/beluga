@@ -125,6 +125,16 @@ export interface Competence {
   /** Les symptômes déclarés : les mots par lesquels on la cherche. */
   symptomes: string[];
   /**
+   * LE RÉSUMÉ EN FRANÇAIS d'une fiche de BIBLIOTHÈQUE (en-tête `resume-fr`) :
+   * une à trois phrases « À utiliser quand… », rédigées par un petit modèle
+   * (`scripts/resumer-competences-importees.mjs`) parce que la description
+   * d'origine est souvent anglaise ou vague. Il est servi À LA PLACE de la
+   * description (unité de mémoire, briefing, encadré du cadrage) ; la
+   * description, elle, n'est JAMAIS réécrite — elle revient de la source à
+   * chaque réimport, qui garde ce champ tant que la source n'en déclare pas.
+   */
+  resumeFr?: string;
+  /**
    * Les projets auxquels elle s'applique. VIDE = commune : elle sert partout.
    * Sinon elle n'est servie qu'à ces projets (`ficheServieAuProjet`).
    */
@@ -132,8 +142,8 @@ export interface Competence {
   /**
    * LA FICHE COMMUNE QUE CETTE FICHE PROPRE PRÉCISE (en-tête `etend`). Posé, la
    * commune est le MODÈLE et cette fiche n'en est que la NUANCE pour son projet :
-   * elles se proposent et se servent ensemble, la commune d'abord
-   * (`fichesServiesAvecLeursNuances`). Absent : la fiche se suffit à elle-même.
+   * elles se proposent et se servent ensemble, la commune d'abord.
+   * Absent : la fiche se suffit à elle-même.
    */
   etend?: string;
   /** D'où elle vient, et ce qui l'a renforcée. */
@@ -158,6 +168,17 @@ export interface Competence {
    * SERVIE PAR LA MÉMOIRE SEULEMENT : ni briefing, ni coffre des comptes.
    */
   bibliotheque?: string;
+  /**
+   * FOURNIE par le lot de l'auteur sur un serveur loué (`data/competences-fournies`) :
+   * en lecture seule, jamais réécrite ici.
+   */
+  fournie?: boolean;
+  /**
+   * PROTÉGÉE (licence d'autrui) : seuls son nom et sa ligne de description
+   * existent en clair. Son contenu ne s'ouvre que pour l'agent, le temps d'un
+   * tour (`server/src/lot-competences-clients.ts`), jamais à l'écran.
+   */
+  protegee?: boolean;
 }
 
 /**
@@ -167,6 +188,10 @@ export interface Competence {
  * Claude (dont l'outil de compétences charge toutes les descriptions), ferait
  * payer leur liste à CHAQUE tour de CHAQUE agent. Elles se trouvent par la
  * recherche de la mémoire, et s'ouvrent en entier au besoin.
+ *
+ * SEULE EXCEPTION (carte dd481232, 13/11/2026) : le briefing d'une CARTE nomme
+ * les fiches les plus proches de son travail par le sens, bibliothèques
+ * comprises (`texteDesCompetencesProches`) — une quinzaine, jamais la liste.
  */
 export function annonceeEnTeteDeSession(fiche: Pick<Competence, 'bibliotheque'>): boolean {
   return !fiche.bibliotheque;
@@ -239,23 +264,6 @@ export function nuancesDeLaCommune<T extends Pick<Competence, 'nom' | 'projets' 
   );
 }
 
-/**
- * CE QU'UN PROJET REÇOIT, SUJET PAR SUJET : une fiche PRINCIPALE et, quand elle
- * est commune, les nuances que ce projet y ajoute. Une fiche propre liée à une
- * commune servie n'apparaît JAMAIS seule — elle suit sa commune ; une fiche
- * propre sans commune reste principale ; une commune sans nuance sert seule.
- * L'ordre du pool est gardé.
- */
-export function fichesServiesAvecLeursNuances<T extends Pick<Competence, 'nom' | 'projets' | 'etat' | 'etend'>>(
-  pool: readonly T[],
-  nomDuProjet?: string,
-): { principale: T; nuances: T[] }[] {
-  const servies = pool.filter((fiche) => ficheEnService(fiche.etat) && ficheServieAuProjet(fiche, nomDuProjet));
-  return servies
-    .filter((fiche) => !communeEtendue(fiche, servies))
-    .map((principale) => ({ principale, nuances: nuancesDeLaCommune(principale, servies, nomDuProjet) }));
-}
-
 /** Pourquoi une entrée du dossier n'a PAS été retenue comme compétence. */
 export type CauseDeRefus =
   | 'pas-un-dossier'
@@ -303,6 +311,8 @@ export interface EnTeteDeCompetence {
   etat?: string;
   themes?: string;
   symptomes?: string;
+  /** Le résumé en français d'une fiche de bibliothèque (`Competence.resumeFr`). */
+  resumeFr?: string;
   projets?: string;
   /** La fiche commune que cette fiche propre précise (`Competence.etend`). */
   etend?: string;
@@ -310,6 +320,14 @@ export interface EnTeteDeCompetence {
   provenance?: Record<string, string>;
   /** Toutes les clés lues, pour ne rien perdre à la réécriture. */
   brut: Record<string, string>;
+}
+
+/** La clé d'en-tête du résumé en français d'une fiche de bibliothèque. */
+export const CLE_RESUME_FR = 'resume-fr';
+
+/** Ce qui dit QUAND se servir d'une fiche : son résumé en français s'il existe, sinon sa description. */
+export function quandSenServir(fiche: Pick<Competence, 'description'> & { resumeFr?: string }): string {
+  return (fiche.resumeFr?.trim() || fiche.description || '').trim();
 }
 
 export function enTeteDeCompetence(texte: string): EnTeteDeCompetence {
@@ -378,6 +396,7 @@ export function enTeteDeCompetence(texte: string): EnTeteDeCompetence {
     else if (cle === 'etat' || cle === 'état') entete.etat = valeur;
     else if (cle === 'themes' || cle === 'thèmes') entete.themes = valeur;
     else if (cle === 'symptomes' || cle === 'symptômes') entete.symptomes = valeur;
+    else if (cle === CLE_RESUME_FR) entete.resumeFr = valeur;
     else if (cle === 'projets') entete.projets = valeur;
     else if (cle === 'etend' || cle === 'étend') entete.etend = valeur;
     else if (cle.startsWith('provenance-')) {
@@ -616,7 +635,7 @@ export const COMPETENCES_MINIMUM_POUR_FILTRER = 6;
  * de l'en-tête qu'elle porte.
  */
 export function texteClassableDUneFiche(fiche: Competence): string {
-  return [fiche.nom, fiche.description, ...fiche.symptomes, ...fiche.themes].join(' ');
+  return [fiche.nom, fiche.resumeFr ?? '', fiche.description, ...fiche.symptomes, ...fiche.themes].join(' ');
 }
 
 /**
@@ -659,6 +678,73 @@ function lignesParTheme(liste: Competence[], servies: readonly Competence[] = li
     .join('\n');
 }
 
+/** Combien de fiches le briefing d'une carte nomme, au plus : les plus proches de son travail. */
+export const COMPETENCES_PROCHES_DU_BRIEFING = 15;
+/** La ligne « quand s'en servir » d'une fiche proche, au plus. */
+const QUAND_DANS_LE_BRIEFING_MAX = 170;
+
+function quandEnUneLigne(fiche: Competence): string {
+  const texte = quandSenServir(fiche).replace(/\s+/g, ' ').trim();
+  if (texte.length <= QUAND_DANS_LE_BRIEFING_MAX) return texte;
+  const coupe = texte.slice(0, QUAND_DANS_LE_BRIEFING_MAX);
+  const fin = coupe.lastIndexOf('. ');
+  return fin > QUAND_DANS_LE_BRIEFING_MAX * 0.5 ? coupe.slice(0, fin + 1) : `${coupe.slice(0, coupe.lastIndexOf(' ')).trim()}…`;
+}
+
+/**
+ * LE BLOC D'UNE CARTE : LES FICHES LES PLUS PROCHES, PAR LE SENS (carte dd481232).
+ *
+ * La liste par thème nommait ~360 fiches maison à chaque carte (≈ 10 000 signes)
+ * et taisait les ~1 100 fiches importées. Pour une carte, on nomme désormais les
+ * `proches` (une quinzaine, maison et bibliothèques mêlées), chacune avec la
+ * ligne qui dit quand s'en servir — son résumé en français s'il existe — puis
+ * on renvoie au sommaire et à la recherche pour le reste. Une NUANCE propre
+ * cède sa place à sa commune, qui s'écrit « commune (+ nuance x) ». Vide si
+ * aucune des `proches` n'est servie ici : l'appelant retombe sur la liste.
+ */
+export function texteDesCompetencesProches(
+  enService: readonly Competence[],
+  proches: readonly string[],
+  dossier = '',
+  projet?: string,
+): string {
+  const parNom = new Map(enService.map((fiche) => [fiche.nom, fiche]));
+  const retenues: Competence[] = [];
+  for (const nom of proches) {
+    const fiche = parNom.get(nom);
+    if (!fiche) continue;
+    const principale = communeEtendue(fiche, enService) ?? fiche;
+    if (!retenues.includes(principale)) retenues.push(principale);
+    if (retenues.length >= COMPETENCES_PROCHES_DU_BRIEFING) break;
+  }
+  if (!retenues.length) return '';
+  const nommer = (fiche: Competence) => {
+    const nuances = enService.filter((autre) => communeEtendue(autre, enService) === fiche).map((autre) => autre.nom);
+    return nuances.length ? `${fiche.nom} (+ nuance ${nuances.join(', ')})` : fiche.nom;
+  };
+  const lignes = retenues.map((fiche) => `- ${nommer(fiche)}${fiche.bibliotheque ? ' [importée]' : ''} — ${quandEnUneLigne(fiche)}`);
+  const portee = projet?.trim() ? `communes à tous les projets ou propres à « ${projet.trim()} »` : 'valables pour TOUS les projets';
+  const lignePropres =
+    projet?.trim() && !enService.some((fiche) => !fiche.bibliotheque && !ficheCommune(fiche))
+      ? `\n« ${projet.trim()} » n'a encore aucune compétence propre.`
+      : '';
+  const entree = dossier
+    ? `Le sommaire complet et l'index par symptôme sont dans ${dossier}/${FICHIER_SOMMAIRE} et ${dossier}/${FICHIER_INDEX_SYMPTOMES} ; `
+    : '';
+  const avecNuance = retenues.some((fiche) => enService.some((autre) => communeEtendue(autre, enService) === fiche));
+  return [
+    `COMPÉTENCES PARTAGÉES — les ${retenues.length} plus proches du travail de ta carte, par le sens, parmi ${enService.length} modes d'emploi déjà écrits (${portee}, bibliothèques importées comprises) :`,
+    lignes.join('\n'),
+    `${entree}pour une autre compétence, cherche avec l'outil « memoire » (geste « chercher »). Une fiche [importée] vient d'une bibliothèque publiée ailleurs : elle n'a pas encore fait ses preuves ici.${lignePropres}`,
+    `Dès qu'une demande entre dans le champ d'une compétence, OUVRE son mode d'emploi (le SKILL.md de son dossier) ` +
+      `et suis-le : il dit quelle commande lancer et avec quels identifiants. Ne réponds jamais que tu ne sais pas faire ` +
+      `ce qu'une compétence sait faire — et si tu ne fais pas le travail toi-même, nomme-la dans la carte que tu proposes.` +
+      (avecNuance
+        ? `\nUne compétence notée « (+ nuance …) » est COMMUNE : c'est le modèle. Ouvre-la d'abord, puis sa nuance propre à ton projet, qui la précise sans la remplacer.`
+        : ''),
+  ].join('\n');
+}
+
 export function texteDesCompetences(
   liste: Competence[],
   dossier = '',
@@ -677,10 +763,23 @@ export function texteDesCompetences(
    * Absent (tests, scripts), le pool entier est annoncé, comme avant.
    */
   projet?: string,
+  /**
+   * LES FICHES LES PLUS PROCHES DU TRAVAIL DE LA CARTE, PAR LE SENS, dans
+   * l'ordre (`competencesProchesDuTravail`, server/src/memory.ts) — maison ET
+   * bibliothèques mêlées. Données avec un travail, elles REMPLACENT la liste par
+   * thème : une quinzaine de lignes « nom — quand s'en servir » au lieu de
+   * plusieurs centaines de noms. Absentes (pas de carte, vectoriseur muet) :
+   * la liste par thème, comme avant.
+   */
+  proches?: readonly string[],
 ): string {
   const enService = liste
     .filter((fiche) => ficheEnService(fiche.etat))
     .filter((fiche) => projet === undefined || ficheServieAuProjet(fiche, projet));
+  if (travail.trim() && proches?.length) {
+    const compact = texteDesCompetencesProches(enService, proches, dossier, projet);
+    if (compact) return compact;
+  }
   // Les fiches de BIBLIOTHÈQUE ne sont pas annoncées : une ligne les COMPTE et
   // dit où les chercher, sans jamais les énumérer (`annonceeEnTeteDeSession`).
   const servies = enService.filter(annonceeEnTeteDeSession);

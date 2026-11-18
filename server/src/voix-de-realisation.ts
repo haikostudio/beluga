@@ -53,29 +53,22 @@ export async function dureeDuFichier(fichier: string): Promise<number> {
 /* ------------------------------------------------------------------ */
 
 /**
- * Une voix d'essai est TOUJOURS une voix Piper du serveur : jamais Gemini, même mal nommée.
- * `voice.ts` se charge à la demande : il importe `runtime.ts`, et ce module est
- * chargé par `realisation.ts`, lui-même chargé par `tools.ts` — un import en
- * tête refermerait la boucle tools → runtime → tools au démarrage.
+ * Une voix d'essai est TOUJOURS une voix Piper du serveur : jamais Gemini, même mal nommée. « modele@personne »
+ * désigne une personne d'un modèle à plusieurs voix (numéro lu dans le `.json` du modèle). Ce chemin est le SEUL :
+ * la synthèse de Beluga (`voice.ts`) a été retirée le 17/11/2026.
  */
-async function resoudreEssai(id: string): Promise<{ modele: string; personne?: number } | null> {
-  const dossier = dossierDesOutils();
-  if (dossier !== CONFIG.dataDir) {
-    // Depuis une copie de carte, les modèles vivent dans le dépôt principal.
-    const [modele, personne] = id.split('@');
-    const fichier = path.join(dossier, 'models', 'piper', `${modele}.onnx`);
-    if (!fs.existsSync(fichier)) return null;
-    if (!personne) return { modele: fichier };
-    try {
-      const numero = JSON.parse(fs.readFileSync(`${fichier}.json`, 'utf8')).speaker_id_map?.[personne];
-      return typeof numero === 'number' ? { modele: fichier, personne: numero } : null;
-    } catch {
-      return null;
-    }
+export async function resoudreEssai(id: string): Promise<{ modele: string; personne?: number } | null> {
+  const [modele, personne] = id.split('@');
+  if (!modele || !/^[\w.-]+$/.test(modele)) return null;
+  const fichier = path.join(dossierDesOutils(), 'models', 'piper', `${modele}.onnx`);
+  if (!fs.existsSync(fichier)) return null;
+  if (!personne) return { modele: fichier };
+  try {
+    const numero = JSON.parse(fs.readFileSync(`${fichier}.json`, 'utf8')).speaker_id_map?.[personne];
+    return typeof numero === 'number' ? { modele: fichier, personne: numero } : null;
+  } catch {
+    return null;
   }
-  const { resoudre } = await import('./voice.js');
-  const r = resoudre(id);
-  return r && r.moteur === 'piper' ? { modele: r.modele, ...(r.personne !== undefined ? { personne: r.personne } : {}) } : null;
 }
 
 /** Les voix d'essai proposées : les voix Piper posées sur le serveur. */
@@ -95,7 +88,7 @@ export function voixDEssaiDisponibles(): { id: string; label: string }[] {
  * PIPER, PAR SON MODULE (`python -m piper`, jamais le lanceur `venv/bin/piper`
  * dont l'entête vise un chemin disparu — MEM-4331).
  */
-function synthetiserParPiper(retenue: { modele: string; personne?: number }, texte: string, sortie: string): Promise<void> {
+export function synthetiserParPiper(retenue: { modele: string; personne?: number }, texte: string, sortie: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const enfant = execFile(
       PYTHON(),
@@ -126,7 +119,8 @@ export async function fabriquerVoixDEssai(texte: string, sortie: string, voix = 
 /* Mots horodatés (faster-whisper)                                      */
 /* ------------------------------------------------------------------ */
 
-async function motsReconnus(fichier: string): Promise<MotHorodate[]> {
+/** Les mots reconnus par Whisper (passe par la file lourde elle-même). */
+export async function motsReconnusDuFichier(fichier: string): Promise<MotHorodate[]> {
   const { stdout } = await dansLaFileLourde(() =>
     execFileAsync(PYTHON(), [SCRIPT_MOTS, fichier, 'base'], {
       timeout: 180_000,
@@ -146,7 +140,7 @@ async function motsReconnus(fichier: string): Promise<MotHorodate[]> {
 export async function motsDeLaVoix(fichier: string, texte?: string): Promise<{ mots: MotHorodate[]; reconnus: boolean; duree: number }> {
   const duree = await dureeDuFichier(fichier);
   try {
-    const reconnus = await motsReconnus(fichier);
+    const reconnus = await motsReconnusDuFichier(fichier);
     if (reconnus.length) return { mots: texte?.trim() ? alignerMots(texte, reconnus, duree) : reconnus, reconnus: true, duree };
   } catch (err: any) {
     log.warn('réalisation : reconnaissance des mots impossible, temps répartis au prorata', err?.message);

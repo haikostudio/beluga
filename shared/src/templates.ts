@@ -1,5 +1,5 @@
 import { ColumnKey } from './columns.js';
-import { FORME_D_UN_MESSAGE } from './message-court.js';
+import { FORME_D_UN_MESSAGE, FORME_DU_COMPTE_RENDU, FORME_DU_COMPTE_RENDU_EN_BREF } from './message-court.js';
 
 /**
  * Les gabarits de réponse (PLAN §9). Le démon enveloppe chaque instruction
@@ -264,7 +264,8 @@ NE GONFLE PAS LE CHIFFRE « PAR SÉCURITÉ ». Un agent va vite : relire deux fi
 
 /** Le rappel de forme des tours suivants : quelques mots au lieu du bloc entier. */
 function rappelDeForme(kind: TemplateKind, ampleur: Ampleur): string {
-  if (gabaritEnMessage(kind)) return `RAPPEL DE FORME (les règles complètes sont déjà dans ce fil) : ${FORME_D_UN_MESSAGE}. ${CONSIGNE_DES_SUITES}`;
+  if (gabaritEnMessage(kind))
+    return `RAPPEL DE FORME (les règles complètes sont déjà dans ce fil) : ${FORME_D_UN_MESSAGE}.${kind === 'in_run' ? ` ${FORME_DU_COMPTE_RENDU_EN_BREF}.` : ''} ${CONSIGNE_DES_SUITES}`;
   const titres = sectionsPour(kind, ampleur);
   const forme = titres.length
     ? `titres numérotés « ${titres.join(' », « ')} »`
@@ -286,6 +287,13 @@ Une section sans rien à dire ne s'écrit pas. Raccourcir ne veut jamais dire ta
 export const CONSIGNE_DES_SUITES =
   "Les suites possibles ne s'écrivent PAS dans le message : quand le travail ou la question en appelle, appelle l'outil « proposer_suites » avec deux ou trois suites, chacune un « titre » de quelques mots (une demande qu'on pourrait t'envoyer) et une « description » d'une phrase qui dit ce qu'elle apporterait.";
 
+/**
+ * LES IMAGES DE CE QUI A ÉTÉ FAIT, DANS LA RÉPONSE (31/10/2026) : l'agent choisit parmi ses captures et les images
+ * jointes par l'utilisateur, et l'écran les montre sous les yeux, ouvrables en grand.
+ */
+export const CONSIGNE_DES_IMAGES =
+  "Quand une image montre ce qui a été fait (ta capture, une image jointe par l'utilisateur), pose-la dans le message, seule sur sa ligne : « ![légende courte](piece:<identifiant>) » ; « attach_file » sur son chemin rend cet identifiant. Dans un compte rendu, sous le point qu'elle montre : une par point, six au plus.";
+
 /** La forme d'un message de messagerie, envoyée en entier au premier tour. */
 function enveloppeDuMessage(kind: TemplateKind, userText: string, context: string | undefined, chiffrage: boolean): string {
   const tpl = TEMPLATES[kind];
@@ -295,8 +303,9 @@ ${userText}
 
 ---
 FORME DE TA RÉPONSE FINALE (imposée) : ${FORME_D_UN_MESSAGE}.
-- À la fin d'un travail : la synthèse d'abord, puis ce qui a été fait et ce qu'on peut constater ; si la demande attendait un résultat (une liste, une recherche, une analyse), il est donné EN ENTIER dans le message. Un échec, un point à vérifier ou une décision prise se dit, jamais passé sous silence.
+- À la fin d'un travail : ce qui a été fait et ce qu'on peut constater, point par point, sans synthèse au-dessus du premier titre ; si la demande attendait un résultat (une liste, une recherche, une analyse), il est donné EN ENTIER dans le message. Un échec, un point à vérifier ou une décision prise se dit, jamais passé sous silence.${kind === 'in_run' ? `\n- ${FORME_DU_COMPTE_RENDU}.` : ''}
 - Pas de ligne d'en-tête, pas de coût, pas de récapitulatif : le détail technique va aux messages d'enregistrement, à la mémoire et au changelog.
+- ${CONSIGNE_DES_IMAGES}
 - ${CONSIGNE_DES_SUITES}
 ${exclusions}${chiffrage ? CONSIGNE_CHIFFRAGE : ''}`;
 }

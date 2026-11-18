@@ -1,0 +1,11 @@
+{
+ "nom": {
+  "message": "Beluga para Chrome"
+ },
+ "description": {
+  "message": "Vincula Chrome a Beluga: los agentes abren sus pestañas, leen, hacen clic y escriben con su permiso."
+ },
+ "demander": {
+  "message": "Preguntar a Beluga"
+ }
+}

@@ -31,7 +31,7 @@
  * largeur.
  */
 import * as React from 'react';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare } from '@/components/ui/icones';
 import { Pastille } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

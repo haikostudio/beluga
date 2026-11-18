@@ -20,7 +20,7 @@
  * d'information en `--faint`, et TOUT S'OUVRE DANS LE TIROIR DE L'APPLICATION.
  */
 import * as React from 'react';
-import { Send, X } from 'lucide-react';
+import { Send, X } from '@/components/ui/icones';
 import { Button, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
 import { SilhouetteDemandes } from '@/components/silhouettes';
 import { cn } from '@/lib/utils';

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, Search, SlidersHorizontal } from '@/components/ui/icones';
 import {
   AccountQuota,
   EngineInfo,
@@ -92,6 +92,7 @@ export function RunSelectors({
   comptes,
   declencheur,
   ouvrirSur,
+  aligne = 'start',
 }: {
   engines: EngineInfo[];
   choix: RunChoix | undefined;
@@ -121,6 +122,8 @@ export function RunSelectors({
    * Sans cette propriété, le menu porte une entrée par réglage.
    */
   ouvrirSur?: ReglageDeRun;
+  /** Le bord du bouton où le menu s'aligne : « end » pour un bouton posé au bord droit (entête du volet de l'assistant). */
+  aligne?: 'start' | 'end';
 }) {
   const lu = lireLesReglages(engines, choix, comptes);
   const [ouvert, setOuvert] = React.useState(false);
@@ -159,7 +162,7 @@ export function RunSelectors({
         /* Un seul réglage : le menu EST sa liste, et choisir le referme — il n'y
            a rien d'autre à y faire. Il garde le nom de la ligne qui l'a ouvert. */
         <DropdownMenuContent
-          align="start"
+          align={aligne}
           collisionPadding={8}
           className={CLASSE_MENU_DE_REGLAGES}
           data-menu-reglages={ouvrirSur}
@@ -170,7 +173,7 @@ export function RunSelectors({
         /* Tous les réglages : le menu porte SON nom, pas celui du bouton — un
            résumé qui change à chaque choix. */
         <DropdownMenuContent
-          align="start"
+          align={aligne}
           collisionPadding={8}
           className={CLASSE_MENU_DE_REGLAGES}
           data-menu-reglages="tous"
@@ -366,7 +369,7 @@ function ListeDesModeles({
         <div className="flex items-center gap-1.5 px-2 pb-1">
           <Search className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
           <input
-            type="search"
+            type="text"
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}
             onKeyDown={(e) => {

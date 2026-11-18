@@ -12,13 +12,14 @@
  * LA RÉPONSE EST `null` QUAND IL N'Y A RIEN OÙ ALLER : un agent de configuration
  * (carte Système violette, qui ouvre déjà son tiroir), une carte ordinaire, la
  * bibliothèque de styles (sa conversation ne se lit que dans sa carte) ou un
- * élément disparu (site retiré, conversation d'un site
+ * élément disparu (création supprimée, site retiré, conversation d'un site
  * remplacée par une plus récente). Le client rouvre alors la carte, comme avant :
  * un clic ne tombe jamais dans le vide.
  */
 import { serviceAUneConversation, serviceDeLaCarte, type LieuDeService } from '@beluga/shared';
 import { listerSites as listerSitesDeSauvegarde } from './backups.js';
 import { getDb } from './db.js';
+import { creationDeLAgent } from './studio.js';
 import * as store from './store.js';
 import { listerSites as listerSitesSurveilles } from './surveillance.js';
 
@@ -30,6 +31,10 @@ export function lieuDuServiceDeLaCarte(cardId: string): LieuDeService | null {
   if (!agent || !service || !serviceAUneConversation(service)) return null;
 
   switch (service) {
+    case 'studio': {
+      const creation = creationDeLAgent(agent.id);
+      return creation ? { vue: 'studio', elementId: creation.id } : null;
+    }
     case 'marketing': {
       const ligne = getDb().prepare('SELECT project_id FROM marketing_espaces WHERE agent_id = ?').get(agent.id) as { project_id: string } | undefined;
       return ligne ? { vue: 'marketing', elementId: ligne.project_id } : null;
@@ -41,6 +46,11 @@ export function lieuDuServiceDeLaCarte(cardId: string): LieuDeService | null {
     case 'backups': {
       const site = listerSitesDeSauvegarde().find((s) => s.assistantId === agent.id || s.recetteAgentId === agent.id);
       return site ? { vue: 'backups', elementId: site.id } : null;
+    }
+    case 'securite': {
+      /* L'agent de sécurité d'un projet suivi : sa carte ramène à la page du projet dans le service Sécurité. */
+      const ligne = getDb().prepare('SELECT project_id FROM securite_projets WHERE agent_id = ?').get(agent.id) as { project_id: string } | undefined;
+      return ligne ? { vue: 'securite', elementId: ligne.project_id } : null;
     }
     default:
       return null;

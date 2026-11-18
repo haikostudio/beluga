@@ -6,7 +6,7 @@
  * gauche, et montrée d'office quand aucun projet n'est ouvert. Elle remplace
  * la pile flottante qui listait les agents au pied de la colonne : ce qui
  * travaille sur une carte se lit SUR la carte (témoin orange, barre de
- * travail), ce qui travaille sans carte — mise en ligne, analyse, chef — dans
+ * travail), ce qui travaille sans carte — mises en ligne, analyse, chef — dans
  * la bande en tête, avec son bouton d'arrêt.
  *
  * UNE LISTE UNIQUE, TOUS PROJETS (demande du 30/10/2026, « projets sans
@@ -21,14 +21,12 @@
  * n'a pas ouvert ne se télécharge pas.
  */
 import * as React from 'react';
-import { Bot, Loader2, Microscope, Power, Square, UploadCloud, Wrench } from 'lucide-react';
+import { Bot, Loader2, Microscope, Power, Square, UploadCloud, Wrench } from '@/components/ui/icones';
 import {
   agentTientSonTour,
   agentsDeLaBande,
-  type DeployRun,
   depannagesDeLaBande,
   etatDeLaVignetteDInitialisation,
-  misesEnProductionAAfficher,
   depanneurVivant,
   etapeDeLAgentDeConfiguration,
   procedureEnPlace,
@@ -38,21 +36,36 @@ import {
   type OngletEnRoute,
   estUnRegroupement,
   membresActifsDuRegroupement,
+  SERVICE_DU_DIRECTEUR,
+  ongletDesTableauxDeBord,
+  PREF_ONGLET_DES_TABLEAUX_DE_BORD,
+  type OngletDesTableauxDeBord,
 } from '@beluga/shared';
 import { client } from '@/lib/client';
+import { allerALEcranDeLAgentDeService } from '@/lib/ouvrir-un-agent';
 import { useRedemarrage } from '@/components/redemarrage';
 import { OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
 import { useApp } from '@/lib/use-app';
+import { usePref } from '@/lib/prefs';
 import { useMinute } from '@/lib/horloge';
 import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
-import { Dot } from '@/components/ui';
+import { Dot, ZoneDefilement } from '@/components/ui';
+import { TableauDesTaches } from '@/components/tableau-des-taches';
+import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre } from '@/components/fenetre-de-service';
+import {
+  PublicationsEnAttenteDesProjets,
+  TableauADeployer,
+  TableauAProduire,
+  usePublicationsEnAttenteVisibles,
+} from '@/components/publications-en-attente';
+import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
+import { Silhouette } from '@/components/silhouettes';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
-import { ListeDesAgents } from '@/components/liste-des-agents';
+import { ListeDesAgents, useCartesParDate, useLignesDAgents } from '@/components/liste-des-agents';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
-import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { GRILLE_EN_ROUTE } from '@/components/silhouettes';
 import { CLASSE_CADRE_SYSTEME } from '@/lib/gabarit-tableau';
@@ -84,17 +97,13 @@ export function EnRoute({
      réponse, en tête d'« Actifs » ; finies depuis moins de 24 heures, dans
      « Archiver », rangées par date de fin parmi les cartes (06/10/2026). */
   const agents = Object.values(state.agents);
-  const bande = agentsDeLaBande(agents);
+  /* Les chefs de Communication vont en tête de la liste des agents (`LignesDesChefsAuTravail`), pas dans la bande. */
+  const bande = agentsDeLaBande(agents).filter((a) => a.service?.id !== SERVICE_DU_DIRECTEUR);
   /* LES DÉPANNAGES DE PUBLICATION (« Résoudre le problème ») : leur carte
      spéciale, en tête de la colonne « Actifs », tant que l'agent travaille. */
   const depannages = depannagesDeLaBande(agents);
-  /* LES MISES EN PRODUCTION, tout en haut : celle qui tourne dans chaque
-     projet en service. */
-  const productionsAffichees = misesEnProductionAAfficher(
-    Object.values(state.productions).filter((run) => enService.has(run.projectId)),
-    maintenant,
-  );
-  const productions = productionsAffichees.filter((run) => run.state === 'running');
+  /* Les déploiements et mises en production ne sont plus un groupe en tête : chacun est une ligne datée de la liste
+     unique (`LigneDeMiseEnLigne`, `fluxMele`), décision du 31/10/2026. */
   /* La vignette d'un agent sans carte : celle de l'agent de configuration
      garde sa forme à part, la même qu'en tête de « En cours » du tableau. */
   const vignetteAgent = (agent: Agent) => {
@@ -116,21 +125,10 @@ export function EnRoute({
       <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
     );
   };
-  const vignetteProduction = (run: DeployRun) => (
-    <VignetteMiseEnProduction
-      key={run.id}
-      run={run}
-      projet={state.projects.find((p) => p.id === run.projectId)}
-      onOpen={() => client.ouvrirMiseEnProduction(run.projectId)}
-      avecProjet
-      formatCarte
-    />
-  );
   const ouvrirAgent = (agent: Agent) => {
     /* L'AGENT D'UN SERVICE (sans projet) s'ouvre sur l'écran de son service, jamais sur un tableau. */
     if (agent.service) {
-      window.history.pushState(null, '', `#${agent.service.adresse}`);
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      allerALEcranDeLAgentDeService(agent.service);
       return;
     }
     const carte = agent.cardId
@@ -149,12 +147,6 @@ export function EnRoute({
      chacun leur vignette, comme avant. */
   const bandes = (
     <>
-      {productions.length ? (
-        <section className="mb-4" data-bande-productions>
-          <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Mises en production')}</h2>
-          <div className={GRILLE_DE_BANDE}>{productions.map(vignetteProduction)}</div>
-        </section>
-      ) : null}
       {depannages.length ? (
         <section className="mb-4" data-bande-depannages>
           <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Dépannages')}</h2>
@@ -173,7 +165,24 @@ export function EnRoute({
       ) : null}
     </>
   );
-  const aDesBandes = productions.length > 0 || depannages.length > 0 || bande.length > 0;
+  const aDesBandes = depannages.length > 0 || bande.length > 0;
+
+  /* Le redémarrage du serveur, rangé au chevron des options de la page (voir plus bas). */
+  const options = (
+    <OptionsDePage enMenu>
+      <OptionDePage
+        icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+        onClick={redemarrage.ouvrir}
+        disabled={!!redemarrage.bloque}
+        detail={redemarrage.bloque ?? redemarrage.raison}
+        data-bouton-redemarrage="tableaux-de-bord"
+        data-etat-redemarrage={redemarrage.etat}
+        data-redemarrage-bloque={redemarrage.bloque ? 'oui' : 'non'}
+      >
+        {redemarrage.repart ? redemarrage.libelle : t('Redémarrer le serveur')}
+      </OptionDePage>
+    </OptionsDePage>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-page-en-route>
@@ -181,31 +190,38 @@ export function EnRoute({
           (demande du 20/10/2026), sur ordinateur comme sur téléphone. Il passe
           par la même fenêtre de confirmation que les réglages ; il s'éteint et
           dit pourquoi tant qu'une tâche ou une publication tourne. */}
-      <OptionsDePage enMenu>
-        <OptionDePage
-          icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-          onClick={redemarrage.ouvrir}
-          disabled={!!redemarrage.bloque}
-          detail={redemarrage.bloque ?? redemarrage.raison}
-          data-bouton-redemarrage="tableaux-de-bord"
-          data-etat-redemarrage={redemarrage.etat}
-          data-redemarrage-bloque={redemarrage.bloque ? 'oui' : 'non'}
-        >
-          {redemarrage.repart ? redemarrage.libelle : t('Redémarrer le serveur')}
-        </OptionDePage>
-      </OptionsDePage>
+      {telephone ? options : null}
       {redemarrage.dialogue}
       {/* UNE LISTE UNIQUE, TOUS PROJETS (demande du 30/10/2026, « projets sans
           kanban ») : les trois colonnes « Actifs », « Terminer », « Archiver »,
           leur glisser et « Tout archiver » ont laissé la place à la MÊME liste
           que la colonne d'un projet — le projet sur chaque ligne, un filtre par
           projet en plus. Un agent s'ouvre dans son projet. */}
-      <div className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col', !telephone && 'max-w-[820px] px-6 pt-4')}>
-        {aDesBandes ? (
-          <div className={cn('max-h-[40%] shrink-0 overflow-y-auto', telephone ? 'px-4 pt-3' : 'pb-2')}>{bandes}</div>
-        ) : null}
-        <ListeDesAgents avecProjet pleinePage={telephone} onOuvrir={onOpenCard} />
-      </div>
+      {telephone ? (
+        <TableauxDeBordTelephone bandes={aDesBandes ? bandes : null} onOuvrir={onOpenCard} />
+      ) : (
+        /*
+         * SUR ORDINATEUR, UNE PAGE COMME CELLES DES SERVICES (16/11/2026, captures #56359 et #4f41) : UNE zone qui défile
+         * sur toute la largeur du panneau, et dedans la colonne commune des services — le grand titre « Tableaux de bord »
+         * avec, à droite sur la même ligne, la recherche et le filtre des tâches et le chevron des options ; puis les
+         * agents sans carte, les publications en attente (« À déployer », puis « Mise en production en attente », l'un
+         * sous l'autre) et le tableau de toutes les tâches.
+         *
+         * COLLÉ EN HAUT ET EN BAS (capture #39779) : le titre part avec la liste, qui remonte jusqu'au bandeau ; rien ne
+         * suit le tableau ni la zone, donc la barre de pagination, collée au bas de la zone, touche le bas de l'écran. Elle
+         * réserve à droite la place du bouton vocal flottant, posé par défaut dans ce coin.
+         */
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="[--retrait-droit-pied-tableau:132px]" hauteur={28}>
+          <div className={cn(CLASSE_COLONNE_DE_SERVICE, 'flex min-h-full flex-col')} data-colonne-des-tableaux-de-bord>
+            <PageAGrandTitre titre={t('Tableaux de bord')} repere="tableaux-de-bord">
+              {options}
+              {aDesBandes ? <div className="pb-2">{bandes}</div> : null}
+              <PublicationsEnAttenteDesProjets titreDeLaSuite={t('Toutes les tâches')} />
+              <TableauDesTaches onOuvrir={onOpenCard} titre={null} />
+            </PageAGrandTitre>
+          </div>
+        </ZoneDefilement>
+      )}
     </div>
   );
 }
@@ -454,6 +470,81 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
         </div>
       </div>
       {auTravail ? <BandeauTravail agent={agent} onClick={ouvrir} data-barre-depannage={agent.id} /> : null}
+    </div>
+  );
+}
+
+/**
+ * LES TABLEAUX DE BORD DU TÉLÉPHONE, EN TROIS ONGLETS (décision de l'utilisateur du 16/11/2026, capture #39c6 :
+ * « je dois voir la liste des déploiements et production et les tâches ensuite… avec une tabs bar en haut et la qty à
+ * côté du label »). « À déployer » et « Production » reprennent les tableaux de l'ordinateur (un clic ouvre le menu
+ * « Publier » du projet, rien ne part) ; « Tâches » garde la liste avec sa recherche et son filtre. Un compte qui ne
+ * peut pas publier n'a pas de barre : la page reste la liste des tâches. L'ordinateur n'est pas concerné (MEM-7553).
+ *
+ * ORDRE ET MÉMOIRE (décision du 17/11/2026, capture #b0b4) : « Tâches » vient en premier, et la page se rouvre sur le
+ * DERNIER onglet touché — une préférence du compte (`shared/src/onglets-des-tableaux-de-bord.ts`), « Tâches » sans
+ * elle. Le choix automatique du premier onglet non vide est retiré.
+ */
+function TableauxDeBordTelephone({ bandes, onOuvrir }: { bandes: React.ReactNode; onOuvrir: (card: Card) => void }) {
+  const { charge, permis, aDeployer, aProduire } = usePublicationsEnAttenteVisibles();
+  const lignes = useLignesDAgents(useCartesParDate().cartes);
+  const actives = React.useMemo(() => lignes.filter((l) => l.active).length, [lignes]);
+  const [retenu, retenir] = usePref<unknown>(PREF_ONGLET_DES_TABLEAUX_DE_BORD, null);
+  const liste = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {bandes ? <div className="max-h-[40%] shrink-0 overflow-y-auto px-[var(--marge-de-page,1rem)] pt-3">{bandes}</div> : null}
+      <ListeDesAgents avecProjet pleinePage onOuvrir={onOuvrir} />
+    </div>
+  );
+  if (!permis) return <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">{liste}</div>;
+  const onglet = ongletDesTableauxDeBord(retenu);
+  return (
+    <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">
+      <div className="shrink-0 px-[var(--marge-de-page,1rem)] pb-1 pt-2">
+        <BarreDOnglets<OngletDesTableauxDeBord>
+          repere="tableaux-de-bord"
+          libelle={t('Tableaux de bord')}
+          pleineLargeur
+          attributs={{ 'data-onglets-tableaux-de-bord': onglet }}
+          valeur={onglet}
+          onChange={retenir}
+          onglets={[
+            { cle: 'taches', libelle: t('Tâches'), nombre: actives },
+            { cle: 'a-deployer', libelle: t('À déployer'), nombre: charge ? aDeployer.length : null },
+            { cle: 'production', libelle: t('Production'), nombre: charge ? aProduire.length : null },
+          ]}
+        />
+      </div>
+      {onglet === 'taches' ? (
+        liste
+      ) : (
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-[var(--marge-de-page,1rem)] pb-4 pt-2" hauteur={16}>
+          {!charge ? (
+            <div className="flex flex-col gap-2" data-silhouette-publications>
+              <Silhouette className="h-14 w-full rounded-xl" />
+              <Silhouette className="h-14 w-full rounded-xl" />
+            </div>
+          ) : onglet === 'a-deployer' ? (
+            aDeployer.length ? (
+              <div data-projets-a-deployer={aDeployer.length}>
+                <TableauADeployer lignes={aDeployer} />
+              </div>
+            ) : (
+              <p className="py-10 text-center text-[14px] text-muted" data-onglet-vide="a-deployer">
+                {t('Rien à déployer.')}
+              </p>
+            )
+          ) : aProduire.length ? (
+            <div data-projets-production-en-attente={aProduire.length}>
+              <TableauAProduire lignes={aProduire} />
+            </div>
+          ) : (
+            <p className="py-10 text-center text-[14px] text-muted" data-onglet-vide="production">
+              {t('Aucune mise en production en attente.')}
+            </p>
+          )}
+        </ZoneDefilement>
+      )}
     </div>
   );
 }

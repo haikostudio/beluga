@@ -27,7 +27,7 @@
  * fait en glissant la vignette.
  */
 import * as React from 'react';
-import { ArrowRightLeft, CheckSquare, Inbox, MessageSquare, Paperclip } from 'lucide-react';
+import { ArrowRightLeft, CheckSquare, Inbox, MessageSquare, Paperclip } from '@/components/ui/icones';
 import { ActionTiroir, Badge, GroupeTiroir, MenuActions, Pastille } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';

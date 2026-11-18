@@ -254,8 +254,21 @@ export interface PressionMemoire {
  *
  * `swapPct` vaut `undefined` quand la machine n'a pas de fichier d'échange :
  * la mémoire vive décide alors seule.
+ *
+ * `signes` porte deux mesures qui disent que la machine SOUFFRE déjà, bien
+ * avant d'être pleine (décrochages du 15/11/2026 : à chaque silence du démon,
+ * la machine attendait sa mémoire 85 à 99 % du temps, alors que la porte ne
+ * regardait que des remplissages) :
+ *  - `psiSomeAvg10` : la part du temps, sur dix secondes, où au moins une tâche
+ *    a attendu de la mémoire (`/proc/pressure/memory`, ligne `some`) ;
+ *  - `debitEchangeKoS` : le va-et-vient du fichier d'échange — actif avec une
+ *    mémoire vive déjà tendue, c'est le début de la noyade, pas un rangement.
  */
-export function pressionMemoire(memPct: number, swapPct?: number): PressionMemoire {
+export function pressionMemoire(
+  memPct: number,
+  swapPct?: number,
+  signes: { psiSomeAvg10?: number; debitEchangeKoS?: number } = {},
+): PressionMemoire {
   const mem = Number.isFinite(memPct) ? memPct : 0;
   if (mem > SEUIL_PAUSE_MEM_PCT) {
     return {
@@ -276,7 +289,244 @@ export function pressionMemoire(memPct: number, swapPct?: number): PressionMemoi
         `départs sont suspendus`,
     };
   }
+  const psi = signes.psiSomeAvg10;
+  if (psi !== undefined && Number.isFinite(psi) && psi >= SEUIL_PAUSE_PSI_PCT) {
+    return {
+      suspendre: true,
+      raison:
+        `La machine attend sa mémoire ${Math.round(psi)} % du temps : les nouveaux départs sont ` +
+        `suspendus le temps qu'elle respire`,
+    };
+  }
+  const debit = signes.debitEchangeKoS;
+  if (debit !== undefined && Number.isFinite(debit) && debit > SEUIL_ECHANGE_ACTIF_KO_S && mem > SEUIL_MEM_TENDUE_PCT) {
+    return {
+      suspendre: true,
+      raison:
+        `Mémoire vive à ${Math.round(mem)} % et fichier d'échange qui travaille ` +
+        `(${Math.round(debit / 1024)} Mo/s) : les nouveaux départs sont suspendus`,
+    };
+  }
   return { suspendre: false };
+}
+
+/**
+ * Au-delà, la machine ATTEND sa mémoire trop souvent pour lancer un agent de
+ * plus (part du temps, sur dix secondes, `some avg10`). Au repos, ce serveur est
+ * à 2 % ; à chaque décrochage du 15/11/2026, entre 85 et 99 %.
+ */
+export const SEUIL_PAUSE_PSI_PCT = 20;
+
+/**
+ * La pression mémoire du noyau, lue dans le texte de `/proc/pressure/memory`.
+ * Rend la valeur `some avg10`, ou `undefined` si le texte ne la porte pas.
+ */
+export function psiSomeAvg10(texte: string): number | undefined {
+  const m = /^some\b[^\n]*\bavg10=([\d.]+)/m.exec(texte ?? '');
+  if (!m) return undefined;
+  const v = Number(m[1]);
+  return Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Les signes de mémoire lus dans le texte de `/proc/meminfo` : part de la
+ * mémoire vive prise (sur `MemAvailable`), mégaoctets encore disponibles, et
+ * part du fichier d'échange (absente sans fichier d'échange). Pur, pour que le
+ * garde des commandes (qui tourne hors du démon) lise comme le démon.
+ */
+export function signesDeMeminfo(texte: string): { memPct: number; memDispoMo: number; swapPct?: number } | undefined {
+  const lire = (cle: string) => {
+    const m = new RegExp(`^${cle}:\\s+(\\d+) kB`, 'm').exec(texte ?? '');
+    return m ? Number(m[1]) : undefined;
+  };
+  const total = lire('MemTotal');
+  const dispo = lire('MemAvailable');
+  if (!total || dispo === undefined) return undefined;
+  const swapTotal = lire('SwapTotal');
+  const swapLibre = lire('SwapFree');
+  return {
+    memPct: Math.round(((total - dispo) / total) * 100),
+    memDispoMo: Math.round(dispo / 1024),
+    ...(swapTotal && swapLibre !== undefined ? { swapPct: Math.round(((swapTotal - swapLibre) / swapTotal) * 100) } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES TRAVAUX LOURDS ATTENDENT LA PLACE                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA PORTE DES DÉPARTS NE GARDAIT QUE LES CARTES.
+ *
+ * Les trois décrochages des 17 et 18/11/2026 sont venus de travaux que rien ne
+ * retenait : une construction de la vitrine (898 Mo) et un `npm ci` lancés par
+ * une mise en production, un export vidéo du Studio (413 Mo), des serveurs
+ * d'essai et des navigateurs lancés par les tâches. Machine pleine, fichier
+ * d'échange plein : le démon, relégué sur le disque, s'est figé de 25 à 63 s.
+ *
+ * DÉCISION DE L'UTILISATEUR (18/11/2026) : quand la mémoire est pleine, un
+ * travail lourd ATTEND ET LE DIT — une attente BORNÉE, puis il part quand
+ * même, pour qu'une publication ne reste jamais bloquée sans rien dire. Les
+ * signaux sont ceux de `pressionMemoire`, rien de plus.
+ */
+
+/** Le plus long qu'un travail lourd attende la place avant de partir quand même. */
+export const ATTENTE_MAX_DES_TRAVAUX_LOURDS_MS = 3 * 60_000;
+/** Tous les combien la mémoire est relue pendant l'attente. */
+export const RELECTURE_DES_TRAVAUX_LOURDS_MS = 10_000;
+/** Une phrase STABLE, sans compte à rebours ni chiffre qui bouge (MEM-7530) : elle se dit une fois. */
+export const PHRASE_D_ATTENTE_DE_MEMOIRE =
+  'La mémoire de la machine est pleine : ce travail attend qu’elle se libère, quelques minutes au plus, puis part de lui-même.';
+
+export type VerdictDesTravauxLourds = 'partir' | 'attendre' | 'forcer';
+
+/**
+ * Un travail lourd peut-il partir ? `attenteDepuisMs` : depuis combien de temps
+ * il attend déjà (0 au premier regard). Sous pression, il attend — jusqu'à
+ * `maxMs`, au-delà il part quand même (« forcer », à noter au journal).
+ */
+export function porteDesTravauxLourds(
+  pression: PressionMemoire,
+  attenteDepuisMs: number,
+  maxMs = ATTENTE_MAX_DES_TRAVAUX_LOURDS_MS,
+): VerdictDesTravauxLourds {
+  if (!pression.suspendre) return 'partir';
+  return attenteDepuisMs >= maxMs ? 'forcer' : 'attendre';
+}
+
+/*
+ * LE TRI DES COMPÉTENCES SEULEMENT QUAND LA MACHINE A DE LA PLACE.
+ *
+ * Le 18/11/2026 entre 08:26 et 08:28, onze tris en deux minutes (cinq cadrages
+ * à la fois) ont chargé le trieur (1004 Mo + 313 Mo d'échange, 157 % de
+ * processeur) sur une machine pleine ; tous ont dépassé leur délai, et chacun
+ * continuait de calculer après l'abandon. DÉCISION DE L'UTILISATEUR : le tri
+ * est GARDÉ, mais seulement quand la machine a de la place. Sans tri, l'ordre
+ * de la présélection reste valable (DEC-322).
+ */
+
+/** Ce qu'il faut de mémoire disponible pour CHARGER le trieur (~1,1 Go une fois chargé, plus une marge). */
+export const MEMOIRE_POUR_CHARGER_LE_TRIEUR_MO = 1500;
+
+export function triDesCompetencesPermis(etat: {
+  pression: PressionMemoire;
+  /** Le trieur est-il déjà en mémoire (rien à charger) ? */
+  trieurCharge: boolean;
+  memDispoMo?: number;
+}): { permis: boolean; raison?: string } {
+  if (etat.pression.suspendre) return { permis: false, raison: 'mémoire pleine' };
+  if (!etat.trieurCharge && etat.memDispoMo !== undefined && Number.isFinite(etat.memDispoMo) && etat.memDispoMo < MEMOIRE_POUR_CHARGER_LE_TRIEUR_MO) {
+    return { permis: false, raison: `${Math.round(etat.memDispoMo)} Mo disponibles, trop peu pour charger le trieur` };
+  }
+  return { permis: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES DÉPARTS ÉTALÉS                                                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * UNE RAFALE DE DÉPARTS PASSAIT LA PORTE MÉMOIRE TOUT ENTIÈRE.
+ *
+ * Le 15/11/2026, quinze cartes « Étude de sécurité » sont parties en sept
+ * minutes, puis toutes de nouveau en deux minutes après le redémarrage. La
+ * porte ne voyait que l'INSTANT : un agent démarre à 150 Mo, puis grossit
+ * (construction, serveur d'essai, navigateur). Chaque départ trouvait donc de
+ * la place, et la machine se noyait cinq minutes plus tard.
+ *
+ * Deux règles, pures : pas plus de `DEPARTS_PAR_FENETRE` départs par fenêtre
+ * glissante, et une RÉSERVE pour chaque agent parti depuis moins de
+ * `DUREE_DE_CROISSANCE_MS`, qui décroît à mesure qu'il atteint sa taille.
+ */
+
+/** Au plus ce nombre de départs d'agents par fenêtre glissante. */
+export const DEPARTS_PAR_FENETRE = 2;
+/** La fenêtre glissante des départs. */
+export const FENETRE_DES_DEPARTS_MS = 60_000;
+/** Le temps qu'un agent met à atteindre sa taille de travail. */
+export const DUREE_DE_CROISSANCE_MS = 5 * 60_000;
+
+export interface PorteDesDeparts {
+  ok: boolean;
+  raison?: string;
+  /** Dans combien de temps la fenêtre laisse repartir un agent. */
+  dansMs?: number;
+}
+
+/**
+ * Un départ de plus est-il permis ? `departs` : les instants des départs
+ * récents (tours partis ou en préparation), dans n'importe quel ordre.
+ */
+export function porteDesDeparts(
+  departs: number[],
+  maintenant: number,
+  max = DEPARTS_PAR_FENETRE,
+  fenetreMs = FENETRE_DES_DEPARTS_MS,
+): PorteDesDeparts {
+  const recents = departs.filter((t) => Number.isFinite(t) && t <= maintenant && maintenant - t < fenetreMs).sort((a, b) => a - b);
+  if (recents.length < Math.max(1, max)) return { ok: true };
+  // La fenêtre se rouvre quand le plus ancien des `max` derniers en sort.
+  const libere = recents[recents.length - Math.max(1, max)] + fenetreMs;
+  const dansMs = Math.max(1000, libere - maintenant);
+  return {
+    ok: false,
+    dansMs,
+    // Une phrase STABLE, sans compte à rebours : elle s'écrit sur la carte, et
+    // une phrase qui change à chaque passage réécrirait la carte toutes les 15 s.
+    raison:
+      `Départs étalés : au plus ${Math.max(1, max)} agents par minute, le temps que les derniers partis ` +
+      `prennent leur place en mémoire — cette carte part toute seule dans un instant`,
+  };
+}
+
+/**
+ * La mémoire à garder pour les agents qui viennent de partir et n'ont pas
+ * encore atteint leur taille : un agent moyen entier au départ, plus rien
+ * après `dureeMs`, en ligne droite entre les deux.
+ */
+export function reserveDesDepartsRecents(
+  departs: number[],
+  maintenant: number,
+  parAgentMb: number,
+  dureeMs = DUREE_DE_CROISSANCE_MS,
+): number {
+  if (!(parAgentMb > 0) || !(dureeMs > 0)) return 0;
+  let reserve = 0;
+  for (const t of departs) {
+    if (!Number.isFinite(t) || t > maintenant) continue;
+    const age = maintenant - t;
+    if (age >= dureeMs) continue;
+    reserve += parAgentMb * (1 - age / dureeMs);
+  }
+  return Math.round(reserve);
+}
+
+/* ------------------------------------------------------------------ */
+/* QUI LE NOYAU TUE EN PREMIER                                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE DÉMON N'EST PLUS AUSSI PROTÉGÉ QUE SES ENFANTS… ET SES ENFANTS PLUS AUTANT
+ * QUE LUI. L'unité pose `OOMScoreAdjust=-500`, et chaque processus lancé par le
+ * démon en HÉRITE : moteurs, navigateurs d'essai, constructions étaient aussi
+ * protégés que Beluga lui-même. Le démon relève donc la note de ses enfants :
+ * un moteur reste moins désigné qu'un navigateur ou une construction, et tous
+ * passent avant le démon, qui garde -500.
+ */
+export const OOM_D_UN_MOTEUR = 200;
+export const OOM_D_UN_ENFANT_LOURD = 600;
+
+const MOTEURS = new Set(['claude', 'codex', 'cursor-agent', 'cursor']);
+
+/**
+ * La note voulue pour un processus du service, d'après son nom (`comm`).
+ * `undefined` : on n'y touche pas (le démon lui-même).
+ */
+export function ajustementOomVoulu(comm: string, estLeDemon: boolean): number | undefined {
+  // Le démon de production se nomme `beluga-serveur` (`titreDuProcessus`) : il
+  // n'est jamais désigné, même par un autre processus qui ferait le balayage.
+  if (estLeDemon || comm.trim() === 'beluga-serveur') return undefined;
+  return MOTEURS.has(comm.trim()) ? OOM_D_UN_MOTEUR : OOM_D_UN_ENFANT_LOURD;
 }
 
 /* ------------------------------------------------------------------ */
@@ -449,4 +699,38 @@ export function pressionDeProcessus(fils: number, plafond: number): PressionDePr
     };
   }
   return { suspendre: false, partPct };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES RESTES D'ESSAI D'UNE CARTE QUI NE TRAVAILLE PLUS                 */
+/* ------------------------------------------------------------------ */
+
+/*
+ * UN SERVEUR D'ESSAI LANCÉ EN ARRIÈRE-PLAN SURVIT À SON AGENT. La consigne veut
+ * qu'un agent lance son serveur d'essai avec « & » : à la fin du tour, le moteur
+ * quitte, le serveur est rattaché au processus n° 1 et reste dans le service de
+ * Beluga, à tenir sa mémoire (un `beluga-essai-71` de 500 Mo relevé le
+ * 15/11/2026). Rien ne le refermait. Est un RESTE : un processus orphelin (son
+ * parent est le n° 1), dont le dossier est la copie de travail d'une carte
+ * (`…/.worktrees/<dossier>`) que plus aucun agent n'occupe, et qui a plus de
+ * `AGE_D_UN_RESTE_MS` — jamais un service du système, jamais le démon.
+ */
+export const AGE_D_UN_RESTE_MS = 10 * 60_000;
+
+/** La racine de la copie de travail qui contient `chemin`, ou `undefined`. */
+export function copieDeTravailDe(chemin: string): string | undefined {
+  const propre = chemin.replace(/ \(deleted\)$/, '');
+  const m = /^(.*\/\.worktrees\/[^/]+)/.exec(propre);
+  return m ? m[1] : undefined;
+}
+
+export function estUnResteDEssai(
+  processus: { ppid: number; cwd: string; ageMs: number },
+  copiesOccupees: readonly string[],
+): boolean {
+  if (processus.ppid !== 1) return false;
+  if (!(processus.ageMs >= AGE_D_UN_RESTE_MS)) return false;
+  const copie = copieDeTravailDe(processus.cwd);
+  if (!copie) return false;
+  return !copiesOccupees.some((occupee) => copieDeTravailDe(occupee) === copie || occupee === copie);
 }

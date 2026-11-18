@@ -218,3 +218,35 @@ export function captureDuChemin(captures: readonly CaptureDuFlux[], chemin: stri
   const nom = nomDuChemin(chemin);
   return captures.find((c) => (c.chemin ? nomDuChemin(c.chemin) === nom : c.genre === 'jointe' && c.libelle === nom));
 }
+
+/** Au plus autant de vignettes sous une réponse quand l'agent n'en a choisi aucune. */
+export const VIGNETTES_DU_TOUR_MAX = 6;
+
+/** Les pièces qu'un texte pose en image, une par ligne : « ![légende](piece:identifiant) ». */
+export function piecesIllustreesDuTexte(texte: string): string[] {
+  const pieces: string[] = [];
+  /* Les marques d'écart (compréhension, U+E000 / U+E001) ne cachent jamais une image posée dans le texte. */
+  for (const ligne of (texte ?? '').replace(/[\uE000\uE001]/g, '').split('\n')) {
+    const m = /^\s*!\[[^\]]*\]\(piece:([A-Za-z0-9-]+)\)\s*$/.exec(ligne);
+    if (m && !pieces.includes(m[1]!)) pieces.push(m[1]!);
+  }
+  return pieces;
+}
+
+/**
+ * LES IMAGES D'UNE RÉPONSE OU D'UN RAPPORT (décision du 31/10/2026) : l'agent pose dans son texte les captures et les
+ * images jointes qui illustrent ce qui a été fait (`piecesIllustreesDuTexte`). FILET : s'il n'en a posé aucune alors
+ * que le tour a produit des images, celles du tour — entre `depuis` (exclu) et `jusqua` (inclus) — se montrent en
+ * vignettes sous le texte, les plus récentes d'abord, sans jamais redire une pièce déjà posée.
+ */
+export function vignettesDuTour(
+  texte: string,
+  captures: readonly CaptureDuFlux[],
+  fenetre: { depuis: number; jusqua: number },
+): CaptureDuFlux[] {
+  if (piecesIllustreesDuTexte(texte).length) return [];
+  return captures
+    .filter((c) => !(c.genre === 'jointe' && c.media))
+    .filter((c) => c.quand > fenetre.depuis && c.quand <= fenetre.jusqua)
+    .slice(0, VIGNETTES_DU_TOUR_MAX);
+}

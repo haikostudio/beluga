@@ -1,6 +1,7 @@
 import { CompteAClasser, compteQuiRecoitLeTravail } from './choix-de-compte.js';
 import type { RepriseDeCompte } from './models.js';
 import { aplatiLigne as aplati } from './mots.js';
+import { SEPARATEUR_DEMANDE } from './panne-passagere.js';
 
 /**
  * « Le compte est à sec au milieu du travail : sur lequel poursuivre ? »
@@ -487,15 +488,45 @@ export function tachesAPoursuivre(todos: readonly TacheEnCours[]): TacheEnCours[
  * dit seulement pourquoi il s'était arrêté et qu'il continue — jamais qu'il
  * recommence.
  */
-export function demandeDeReprise(compteEpuise: string, compteChoisi: string): string {
-  return (
+export function demandeDeReprise(
+  compteEpuise: string,
+  compteChoisi: string,
+  demandeDuTour?: { prompt?: string | null; travailCommence?: boolean },
+): string {
+  const entete =
     `REPRISE APRÈS ÉPUISEMENT DU QUOTA. Ton tour précédent a été coupé net : le compte ` +
     `« ${compteEpuise} » avait atteint sa limite. Tu repars sur le compte « ${compteChoisi} », ` +
-    `avec le même fil, la même branche et les mêmes fichiers.\n\n` +
-    `CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ : reprends ta liste de tâches là où elle en était et ` +
-    `finis les étapes qui restent. Ne recommence pas ce qui est déjà fait, ne repars pas de zéro, ` +
-    `ne refais pas la lecture du projet que tu as déjà faite. Si tu ne sais plus où tu en étais, ` +
-    `relis le dépôt et la liste de tâches avant de reprendre.`
+    `avec la même branche et les mêmes fichiers.`;
+  const prompt = demandeDuTour?.prompt?.trim();
+  /*
+   * SANS LA DEMANDE, UNE REPRISE PERD LE TRAVAIL (carte 5e10116a, 16/11/2026). Le fil d'un moteur appartient
+   * au COMPTE qui l'a ouvert : repartir sur un autre compte, c'est souvent repartir sur une conversation vide.
+   * « Continue où tu t'es arrêté » y renvoyait l'agent à la dernière demande dont il se souvenait — neuf
+   * demandes de l'utilisateur ont ainsi disparu. Comme après une panne (DEC-036), la demande du tour
+   * repart donc EN ENTIER.
+   */
+  if (!prompt) {
+    return (
+      `${entete}\n\n` +
+      `CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ : reprends ta liste de tâches là où elle en était et ` +
+      `finis les étapes qui restent. Ne recommence pas ce qui est déjà fait, ne repars pas de zéro, ` +
+      `ne refais pas la lecture du projet que tu as déjà faite. Si tu ne sais plus où tu en étais, ` +
+      `relis le dépôt et la liste de tâches avant de reprendre.`
+    );
+  }
+  const consigne = demandeDuTour?.travailCommence
+    ? "CONTINUE EXACTEMENT OÙ TU T'ES ARRÊTÉ si tu as encore la conversation d'avant : reprends ta liste de tâches " +
+      "et finis les étapes qui restent, sans recommencer ce qui est déjà fait. Si tu repars sur une conversation " +
+      "vide, relis le dépôt (git status, git log, diff) pour constater ce qui est fait, puis traite TOUT ce qui reste " +
+      'de la demande recopiée ci-dessous.'
+    : "TU ES TOMBÉ AVANT D'AVOIR TRAITÉ LA DEMANDE : il n'y a rien à reprendre, tout est à faire. " +
+      'Traite-la depuis le début.';
+  return (
+    `${entete}\n\n${consigne}\n\n` +
+    'LA DEMANDE DE CE TOUR EST CELLE RECOPIÉE CI-DESSOUS, EN ENTIER, ET AUCUNE AUTRE. Chacun de ses points est à ' +
+    "faire : ton compte rendu les reprend tous, et nomme celui qui n'a pas pu être fait, avec sa raison. " +
+    'Ne reprends jamais une demande PLUS ANCIENNE de la conversation : elle a déjà eu sa réponse.\n\n' +
+    `${SEPARATEUR_DEMANDE}\n${prompt}`
   );
 }
 
@@ -527,6 +558,8 @@ export interface Passation {
   taches: readonly TacheEnCours[];
   /** Les derniers textes rendus par l'agent, du plus ancien au plus récent. */
   derniersEchanges: readonly string[];
+  /** La demande ENTIÈRE du tour coupé : un fil neuf ne la connaît pas autrement. */
+  demandeDuTour?: string | null;
 }
 
 /** Au-delà, un texte de passation noierait la consigne : on garde la fin. */
@@ -564,6 +597,11 @@ export function demandeDePassation(p: Passation): string {
     `CONTINUE OÙ LE TRAVAIL S'EST ARRÊTÉ : relis l'état du dépôt (git status, git log, diff) pour ` +
       `constater ce qui est fait, reprends la liste de tâches ci-dessus et finis les étapes qui restent. ` +
       `Ne recommence pas ce qui est déjà fait, ne repars pas de zéro.`,
+    p.demandeDuTour?.trim()
+      ? 'LA DEMANDE DU TOUR COUPÉ, RECOPIÉE EN ENTIER CI-DESSOUS : chacun de ses points est à faire, et ton compte ' +
+        "rendu nomme celui qui n'a pas pu l'être, avec sa raison.\n\n" +
+        `${SEPARATEUR_DEMANDE}\n${p.demandeDuTour.trim()}`
+      : '',
   ];
   return blocs.filter(Boolean).join('\n\n');
 }

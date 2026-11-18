@@ -5,10 +5,10 @@ import { type Adaptateur, type MessageRelu, adresse, appel, basique, echeance, f
 /**
  * X — l'API v2, connexion OAuth 2.0 avec PKCE.
  *
- * Le jeton dure deux heures et se renouvelle (droit `offline.access`). L'accès
- * GRATUIT de X ne permet que de publier, en petit nombre ; relire les réponses
- * et les messages privés demande un accès payant chez X — sans lui, X répond
- * par un refus que l'écran rapporte tel quel. Les images partent par l'envoi
+ * Le jeton dure deux heures et se renouvelle (droit `offline.access`). Depuis
+ * la console développeur de X (console.x.com, constaté le 12/11/2026), l'accès
+ * se paie À L'USAGE (« Pay Per Use ») sur des crédits achetés d'avance : sans
+ * crédits, X répond par un refus que l'écran rapporte tel quel. Les images partent par l'envoi
  * simple de médias ; une vidéo seule ne part pas (le texte, si).
  */
 
@@ -115,6 +115,15 @@ export const x: Adaptateur = {
       body: JSON.stringify({ text: texte, reply: { in_reply_to_tweet_id: message.distantId } }),
     });
     return { distantId: r.corps.data.id, url: `https://x.com/i/status/${r.corps.data.id}` };
+  },
+
+  /* X API v2 : une réponse à une publication de la marque se masque (`hidden`). */
+  async masquerCommentaire({ ctx, message }) {
+    await appel(`${API}/tweets/${encodeURIComponent(message.distantId)}/hidden`, {
+      method: 'PUT',
+      headers: { ...auth(ctx.jeton), 'content-type': 'application/json' },
+      body: JSON.stringify({ hidden: true }),
+    });
   },
 
   async lireMessages({ ctx }) {

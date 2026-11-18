@@ -579,3 +579,22 @@ export function bilanDuLotEntierEcarte(taches: readonly Pick<TacheDuLot, 'etat'>
       'Ouvrez une des tâches restées dans « À déployer » et demandez à son agent d’intégrer la dernière version, puis cliquez « Relancer ».',
   };
 }
+
+/**
+ * UN DÉPLOIEMENT QUI N'A RIEN À METTRE EN LIGNE NE DÉMARRE PAS (13/11/2026 : quatre clics, quatre échecs empilés
+ * pour une carte rendue sans code dont la branche n'existait plus). Avant même de créer la publication, le démon
+ * cherche la branche de chaque carte du lot ; si AUCUNE n'existe, rien ne démarre. Une carte dont la phrase dit
+ * déjà « rien n'a été livré » (mention d'information) est rangée aux archives ; les autres restent à déployer —
+ * un travail perdu ne s'archive jamais en silence. Rend la phrase dite à l'utilisateur.
+ */
+export function raisonDuLotSansTravail(rangees: number, restantes: number): string {
+  const morceaux: string[] = ['Rien à mettre en ligne : aucune tâche du lot n’a de travail enregistré.'];
+  if (rangees) morceaux.push(rangees > 1 ? `${rangees} tâches rendues sans modification ont été archivées.` : 'La tâche rendue sans modification a été archivée.');
+  if (restantes)
+    morceaux.push(
+      restantes > 1
+        ? `${restantes} tâches restent dans « À déployer » : ouvrez-les pour retrouver leur travail.`
+        : 'Une tâche reste dans « À déployer » : ouvrez-la pour retrouver son travail.',
+    );
+  return morceaux.join(' ');
+}

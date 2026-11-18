@@ -27,7 +27,7 @@ L'image a une classe du genre `h-full w-full` dans un conteneur qui n'a qu'un `a
 
 ## Vérification
 
-Dans un vrai navigateur (Playwright), lire `getBoundingClientRect().height` des 20 à 40 premières cartes : un seul nombre attendu ; lire le rapport largeur/hauteur de la boîte d'aperçu (16/9 à 0,05 près) ; recommencer à 390 px de large. Preuve : Beluga, carte « Bibliothèque : grille, filtres et sources » (commit 10490230), `scripts/verif-studio.mjs` — 235 px partout sur bureau, 232 px partout sur téléphone, avec des aperçus 9:16, carrés et 16:9 dans les mêmes lignes.
+Dans un vrai navigateur (Playwright), lire `getBoundingClientRect().height` des 20 à 40 premières cartes : un seul nombre attendu ; lire le rapport largeur/hauteur de la boîte d'aperçu (16/9 à 0,05 près) ; recommencer à 390 px de large. Preuve : Beluga, carte « Bibliothèque : grille, filtres et sources » (commit 10490230) — 235 px partout sur bureau, 232 px partout sur téléphone, avec des aperçus 9:16, carrés et 16:9 dans les mêmes lignes. Le script de cette mesure a été retiré depuis (26/10/2026) : la réécrire pour l'écran visé.
 
 ## Pièges
 

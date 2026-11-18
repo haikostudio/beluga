@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import {
   Agent,
   agentDeLaCarteAuLancement,
+  raisonDuRefusDeLancement,
   estUnRegroupement,
   raisonDuRelais,
   BranchesDePublication,
@@ -32,7 +33,6 @@ import {
   etatDuDepart,
   raisonDattente,
   brancheDeLaCarte,
-  phraseDepuisReponse,
   porteDuDepot,
   porteDuDossier,
   avecMesureAnalyse,
@@ -44,6 +44,7 @@ import {
   suppositionsValidees,
   questionsSansReponse,
   RAISON_QUESTIONS_DE_CARTE,
+  questionsOuvertesDuFil,
   lignesDesReponses,
   titreDepuisLaDiscussion,
   planCourant,
@@ -761,6 +762,10 @@ export function validerLaComprehension(
  * chemin à côté du premier. L'écran éteint déjà le bouton ; le démon refuse
  * aussi, pour les chemins qui ne passent pas par lui (glisser-déposer, API).
  */
+/** Les deux refus d'un lancement demandé pendant le cadrage, dits tels quels à l'écran. */
+const RAISON_CADRAGE_EN_COURS = 'le cadrage n’est pas fini : attendez sa réponse, puis lancez.';
+const RAISON_QUESTION_DU_CADRAGE = 'le cadrage attend votre réponse à sa question : répondez-y, puis lancez.';
+
 export function decisionOuverteSurLaCarte(cardId: string): string | null {
   /*
    * SEULE UNE DÉCISION POSÉE SUR LE DERNIER TOUR DE L'AGENT COMPTE. Une erreur
@@ -777,6 +782,23 @@ export function decisionOuverteSurLaCarte(cardId: string): string | null {
   const carte = store.getCard(cardId);
   if (carte && COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && questionsSansReponse(carte.parcours?.comprehension).length) {
     return RAISON_QUESTIONS_DE_CARTE.replace(/^R/, 'r');
+  }
+  /*
+   * LE CADRAGE N'EST PAS FINI : AUCUN LANCEMENT (carte Wogo 4d0aeccc,
+   * 01/11/2026). Un lancement reçu 20 s après la création, pendant que le
+   * cadrage lisait le projet et allait poser ses questions, faisait partir un
+   * SECOND agent en parallèle (« un nouvel agent prend le relais du cadrage —
+   * le cadrage répond encore ») : le travail était livré et mis en ligne avant
+   * même que les réponses arrivent. Tant que le tour de cadrage est VIVANT
+   * (même témoin que le bouton « Annuler » de l'écran, `tourVivantDepuis`) ou
+   * qu'une de ses questions attend, tout chemin est refusé — bouton, glisser,
+   * API, ordonnanceur. Le lancement automatique, lui, attend déjà la fin du
+   * tour avant d'appeler `startCard` : il n'est pas concerné.
+   */
+  if (carte && carteEnCadrage(carte)) {
+    const cadrage = cadrageRouvertApresRapport(carte) ? cadrageDeLaCarte(cardId) : agentDeCadrage(cardId);
+    if (cadrage && isRunning(cadrage.id)) return RAISON_CADRAGE_EN_COURS;
+    if (cadrage && questionsOuvertesDuFil(store.listMessages(cadrage.id, 5))) return RAISON_QUESTION_DU_CADRAGE;
   }
   /*
    * UNE CARTE SUSPENDUE À LA MAIN N'A PLUS RIEN À TRANCHER : l'arrêt était le
@@ -1076,6 +1098,9 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
    * fil depuis un autre dossier : un nouvel agent prend le relais, et reçoit la
    * discussion en texte comme avant.
    */
+  /* Filet de la garde de `decisionOuverteSurLaCarte` : un tour de cadrage reparti
+     entre la garde et ici ne laisse plus partir un second agent à côté de lui. */
+  if (cadrage && isRunning(cadrage.id)) return refus(card, `Lancement refusé : ${RAISON_CADRAGE_EN_COURS}`, false, colonneAvant);
   if (cadrage) card = await prendreLaSuiteDuCadrage(card, discussion, cadrage.run);
   const choixDeLAgent = cadrage ? agentDeLaCarteAuLancement(cadrage.run, card.run ?? cadrage.run) : null;
   /* Une reprise d'un AUTRE agent d'exécution passe devant (cartes cadrées
@@ -1086,11 +1111,11 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
     card.agentId !== cadrage?.id &&
     store.getAgent(card.agentId)?.role === 'task';
   const agentUnique =
-    cadrage && choixDeLAgent?.reprendre && !isRunning(cadrage.id) && !autreAgentARependre ? cadrage : null;
+    cadrage && choixDeLAgent?.reprendre && !autreAgentARependre ? cadrage : null;
   if (cadrage && !agentUnique) {
     log.info(
       `lancement de « ${card.title} » : un nouvel agent prend le relais du cadrage — ${
-        choixDeLAgent && !choixDeLAgent.reprendre ? raisonDuRelais(choixDeLAgent.raison) : 'le cadrage répond encore'
+        choixDeLAgent && !choixDeLAgent.reprendre ? raisonDuRelais(choixDeLAgent.raison) : 'un autre agent d’exécution reprend son travail'
       }`,
     );
   }
@@ -1437,24 +1462,12 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
          * renvoie la carte en file, il n'y a donc pas de travail à annoncer.
          */
         if (fresh.column === COLONNE_DE_FIN_DE_TOUR) {
-          /*
-           * La voix préfère un résumé du VRAI contenu de la réponse au seul
-           * titre : on le tire du texte que l'agent vient d'écrire (aucune
-           * génération payante). Null quand rien de propre ne s'en dégage —
-           * la voix retombe alors sur la phrase par titre.
-           */
-          const voix =
-            phraseDepuisReponse(text, {
-              nom: store.getSettings().voixNom,
-              heure: new Date().getHours(),
-            }) ?? undefined;
           notify({
             motif: 'tache-terminee',
             title: 'Tâche terminée',
             body: fresh.title,
             reference: fresh.id,
             element: fresh.title,
-            voix,
             cardId: fresh.id,
             projectId: fresh.projectId,
           });
@@ -1603,6 +1616,27 @@ export function startVeille(): NodeJS.Timeout {
   return setInterval(passageDeVeille, PERIODE_VEILLE_MS);
 }
 
+/**
+ * UN REFUS DE L'ORDONNANCEUR SE LIT SUR LA CARTE (15/11/2026). `startCard`
+ * refusait une carte retenue par une décision ouverte, toutes les quinze
+ * secondes, et la boucle jetait la réponse : la carte gardait « repart
+ * d'elle-même » alors que rien ne partirait. La raison s'écrit désormais sur
+ * elle — seulement quand elle CHANGE, pour ne pas réécrire la carte à chaque
+ * passage. Un refus qui a déjà écrit sa raison (`refus`) n'est pas redit.
+ */
+function noterLeRefusSurLaCarte(cardId: string, erreur: string | undefined): void {
+  if (!erreur?.startsWith('Lancement refusé')) return;
+  const raison = raisonDuRefusDeLancement(erreur);
+  const fresh = store.getCard(cardId);
+  if (!raison || !fresh || !COLONNES_AVANT_LE_TRAVAIL.includes(fresh.column)) return;
+  if (fresh.scheduling?.waitingReason === raison) return;
+  const updated = store.saveCard({
+    ...fresh,
+    scheduling: { ...(fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: raison },
+  });
+  bus.emit({ type: 'card.upsert', card: updated });
+}
+
 export async function tick(): Promise<void> {
   if (menageEnCours) await menageEnCours.catch(() => undefined);
   /*
@@ -1672,7 +1706,8 @@ export async function tick(): Promise<void> {
           }
           continue;
         }
-        await startCard(card.id);
+        const lance = await startCard(card.id);
+        if (!lance.ok) noterLeRefusSurLaCarte(card.id, lance.error);
         // Les démarrages sont ÉCHELONNÉS : jamais quinze dans la même seconde.
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
@@ -1799,6 +1834,14 @@ export function startScheduler(): NodeJS.Timeout {
   menageEnCours = menageDesDossiersDeCarte().finally(() => {
     menageEnCours = null;
   });
+  /* LES PROPOSITIONS ORPHELINES DES CARTES DÉJÀ RENDUES, UNE FOIS (15/11/2026, `propositions-orphelines.ts`) : une
+     carte rangée avant la règle gardait son cadre orange pour des propositions que son travail avait couvertes. */
+  void import('./propositions-orphelines.js')
+    .then(({ rattraperLesPropositionsOrphelines }) => {
+      const retirees = rattraperLesPropositionsOrphelines();
+      if (retirees) log.info(`rattrapage : ${retirees} proposition(s) orpheline(s) retirée(s)`);
+    })
+    .catch((err) => log.warn('rattrapage des propositions orphelines impossible', err));
   return setInterval(() => {
     void tick();
   }, 15000);
