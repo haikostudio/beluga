@@ -45,6 +45,7 @@ import {
   filtrerDepots,
   lireLienGithub,
   caseCahierCocheeParDefaut,
+  CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF,
   activiteDeProjet,
   agentTientSonTour,
   avancementDeLaColonne,
@@ -3086,10 +3087,11 @@ function ProjectsDialog({
   const [newResume, setNewResume] = React.useState('');
   const [withGit, setWithGit] = React.useState(true);
   const [withGithub, setWithGithub] = React.useState(true);
-  /* « Démarrer par un cahier des charges » : cochée d'office pour un projet
-     VIDE, décochée pour un dépôt importé, qui contient souvent déjà une
-     application (`caseCahierCocheeParDefaut`). */
-  const [withCahier, setWithCahier] = React.useState(caseCahierCocheeParDefaut('vide'));
+  /* LE CAHIER DES CHARGES D'UN PROJET VIDE EST OBLIGATOIRE (décision du
+     18/11/2026, `CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF`) : plus
+     d'interrupteur. Un dépôt importé, qui contient souvent déjà une
+     application, garde le sien, décoché d'office (`caseCahierCocheeParDefaut`). */
+  const withCahier = CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF;
   const [ghCahier, setGhCahier] = React.useState(caseCahierCocheeParDefaut('github'));
   /* LE PRODUIT À CLONER (facultatif) : un lien ou un nom. Rempli, il coche le
      cahier des charges, qui part alors de cette source (`shared/src/clonage.ts`). */
@@ -3602,13 +3604,12 @@ function ProjectsDialog({
               
     {t('Créer aussi le dépôt privé sur GitHub')}
     </label>
-                <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="vide">
-                  <Switch checked={withCahier || avecSource} disabled={avecSource} onCheckedChange={setWithCahier} />
-                  <span>{t('Démarrer par un cahier des charges')}</span>
+                <p className="flex items-start gap-2 text-[14px] text-muted" data-cahier-obligatoire>
+                  <span>{t('Le projet démarre par son cahier des charges : son agent vous demande d’abord quel type de produit vous voulez créer, puis approfondit chaque point avant la construction.')}</span>
                   <BulleInfo cote="start">
                     {t('Une carte « Cahier des charges » apparaît dans le projet : son agent vous pose les questions une à une, rédige le cahier des charges sous vos yeux, puis le plan de construction. On peut le mettre en pause et le reprendre plus tard.')}
                   </BulleInfo>
-                </label>
+                </p>
 
                 <div className="flex items-center gap-1.5">
                   {/* Le bouton porte SA propre attente, sans l'avertissement commun

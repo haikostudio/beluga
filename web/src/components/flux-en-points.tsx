@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/icones';
 import { PointDuFil, type TonDuPoint } from '@/components/point-du-fil';
 import { PanneauDuVolet } from '@/components/volet-comme-un-plan';
+import { GestesDuPlan } from '@/components/gestes-du-plan';
 import { ICONE_DE_LA_LIGNE, ICONE_DU_GENRE, RondDeLaLigne } from '@/components/icone-du-point';
 import {
   AttenteDeLaDemande,
@@ -1734,7 +1735,9 @@ function MomentDePlan({
       </div>
       {ouvert && emplacement
         ? createPortal(
-            <PanneauDuPlan titre={t('Plan v{v0}', { v0: vue.numero })}>{bloc}</PanneauDuPlan>,
+            <PanneauDuPlan titre={t('Plan v{v0}', { v0: vue.numero })} gestes={<GestesDuPlan carte={carte} plan={vue} />}>
+              {bloc}
+            </PanneauDuPlan>,
             emplacement,
           )
         : null}
@@ -1749,10 +1752,10 @@ function MomentDePlan({
  * LE PANNEAU DU PLAN, rendu dans l'emplacement de droite de la page de la
  * carte : son titre, sa croix, et le plan qui défile sur lui-même.
  */
-function PanneauDuPlan({ titre, children }: { titre: string; children: React.ReactNode }) {
+function PanneauDuPlan({ titre, gestes, children }: { titre: string; gestes?: React.ReactNode; children: React.ReactNode }) {
   /* LE MÊME DESSIN QUE LE VOLET D'UNE CAMPAGNE (`volet-comme-un-plan.tsx`). */
   return (
-    <PanneauDuVolet titre={titre} onFermer={fermerLeDocument} reperesCroix={{ 'data-fermer-le-plan': '', 'data-croix-du-volet': 'plan' }} data-panneau-du-plan="">
+    <PanneauDuVolet titre={titre} gestes={gestes} onFermer={fermerLeDocument} reperesCroix={{ 'data-fermer-le-plan': '', 'data-croix-du-volet': 'plan' }} data-panneau-du-plan="">
       {children}
     </PanneauDuVolet>
   );

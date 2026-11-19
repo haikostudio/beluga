@@ -64,6 +64,23 @@ const LIBELLES: Record<string, string> = {
   realiser: 'Réalisation audiovisuelle',
   marketing: 'Réseaux sociaux',
   statistiques: 'Statistiques des visites',
+  exemple_de_choix: 'Maquette d’un choix',
+  rendre_comprehension: 'Compréhension rendue',
+  rendre_plan: 'Plan rendu',
+  bilan_du_travail: 'Bilan du travail',
+  veille_poser: 'Veille posée',
+  cahier_des_charges: 'Cahier des charges',
+  capture: 'Capture d’écran',
+  iphone: 'iPhone d’essai',
+  ordinateur: 'Pilotage de l’ordinateur',
+  services: 'Services de Beluga',
+  etude_marketing: 'Étude marketing',
+  media_en_cours: 'Média en cours',
+  production: 'Production audiovisuelle',
+  cahier_de_realisation: 'Cahier de réalisation',
+  apercu_de_realisation: 'Image d’essai',
+  moteurs: 'Moteurs ajoutés',
+  beluga_commande: 'Commande de Beluga',
 
   /* Les outils propres à l'assistant Beluga */
   assistant_resume: 'Résumé de Beluga',
@@ -71,6 +88,8 @@ const LIBELLES: Record<string, string> = {
   assistant_surveillances: 'Surveillance des sites',
   assistant_backups: 'Backups des sites',
   assistant_base_serveur: 'Base de données d’un serveur',
+  assistant_ecran: 'Gestes sur votre écran',
+  assistant_gestes: 'Gestes de l’application',
 
   /* Les outils du moteur */
   toolsearch: 'Recherche d’un outil',

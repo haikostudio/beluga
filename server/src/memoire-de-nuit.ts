@@ -2,7 +2,7 @@ import { PORTEE_GLOBALE, doitPasserLaNuit, sansRegroupements } from '@beluga/sha
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import { listProjects } from './store.js';
-import { completerLesVecteurs, importerLesLots, lireUnite, rendreLesFichiers, unitesARelire } from './connaissances.js';
+import { completerLesVecteurs, importerLesLots, lireUnite, rendreLesFichiersSansFiger, unitesARelire } from './connaissances.js';
 import { unitesIndecisesPourLaNuit } from './relecture-memoire.js';
 import { menageDeNuit } from './menage-memoire.js';
 
@@ -68,13 +68,8 @@ export function unitesARelireCetteNuit(): { id: string; portee: string; titre: s
 
 export async function repriseAuDemarrage(): Promise<void> {
   importerLesLots();
-  for (const portee of [PORTEE_GLOBALE, ...projetsActifs().map((p) => p.id)]) {
-    try {
-      rendreLesFichiers(portee);
-    } catch (err) {
-      log.warn(`base de connaissances : fichiers de ${portee} non rendus (${(err as Error).message})`);
-    }
-  }
+  // Par tranches : un rendu d'un seul tenant figeait le démon ~6 s (18/11/2026).
+  await rendreLesFichiersSansFiger([PORTEE_GLOBALE, ...projetsActifs().map((p) => p.id)]);
   await completerLesVecteurs();
 }
 

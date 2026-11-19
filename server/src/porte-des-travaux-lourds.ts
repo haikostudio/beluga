@@ -24,6 +24,8 @@ export interface MemoireDeLaMachine {
   pression: PressionMemoire;
   memPct?: number;
   memDispoMo?: number;
+  /** Le remplissage du fichier d'échange, en % (absent sans échange). */
+  swapPct?: number;
 }
 
 export function memoireDeLaMachine(): MemoireDeLaMachine {
@@ -44,6 +46,7 @@ export function memoireDeLaMachine(): MemoireDeLaMachine {
     pression: pressionMemoire(signes.memPct, signes.swapPct, { psiSomeAvg10: psi }),
     memPct: signes.memPct,
     memDispoMo: signes.memDispoMo,
+    ...(signes.swapPct !== undefined ? { swapPct: signes.swapPct } : {}),
   };
 }
 

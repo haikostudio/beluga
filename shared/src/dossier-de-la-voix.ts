@@ -4,12 +4,15 @@
  * Mesure du 18/11 (`scripts/verif-raisonnement-jarvis.mjs`, 91 demandes vocales du 03/11 au 18/11) : la mémoire de
  * Beluga n'était ouverte qu'UNE fois sur 91, et 54 % des réponses ne vérifiaient RIEN. La recherche faite par Beluga
  * ne partait que pour une phrase tournée vers le passé (`questionSurLePasse`), et la consigne du cerveau plafonnait
- * ses coups d'œil à « un, deux au plus ». Désormais, CHAQUE phrase qui a un contenu fait partir, en parallèle et sous
- * délai, une recherche dans les quatre sources (mémoire, discussions, tableau, activité) ; le cerveau la lit par
- * l'outil `voix_dossier` avant de répondre, et l'écran en montre les étapes cochées une à une.
+ * ses coups d'œil à « un, deux au plus ». Le dossier réunit, en parallèle et sous délai, les quatre sources (mémoire,
+ * discussions, tableau, activité) ; l'écran en montre les étapes cochées une à une.
  *
- * Ce fichier porte les règles pures : quelle phrase se vérifie, le texte du dossier, le court résultat d'une étape et
- * la consigne qui fait DIRE une étape à la voix.
+ * DÉCISION DE L'UTILISATEUR DU 18/11/2026 (carte « Jarvis : répondre sans tout raconter ») : le dossier NE PART PLUS
+ * D'OFFICE à chaque phrase — seulement quand le cerveau appelle `voix_dossier`, c'est-à-dire quand la demande l'exige
+ * (le passé, l'état de Beluga, une tâche, une action). Plus aucune étape n'est DITE à voix haute.
+ *
+ * Ce fichier porte les règles pures : quelle phrase pourrait se vérifier, le texte du dossier et le court résultat
+ * d'une étape.
  */
 import { normaliserParole } from './reveil-vocal.js';
 
@@ -140,44 +143,3 @@ export function resultatDeLOutil(outil: string, args: Record<string, unknown>, t
   return null;
 }
 
-/**
- * LA CONSIGNE QUI FAIT DIRE UNE ÉTAPE À LA VOIX, glissée en rôle « developer » comme le salut (essai réel du
- * 18/11/2026 : une note « dis mot pour mot » est dite telle quelle, sans fermer la session).
- */
-export function consigneDeLAnnonce(phrase: string): string {
-  return `ÉTAPE EN COURS : dis maintenant, mot pour mot et en français : « ${phrase.trim()} » — rien avant, rien après — puis continue d’attendre la réponse de Codex.`;
-}
-
-/**
- * CE QUE LA VOIX DIT QUAND UN OUTIL DU CERVEAU A FINI : la source et son résultat (« Mémoire : 3 éléments trouvés. »).
- * `null` quand il n'y a rien à dire de plus que le début (une lecture, une action : son encadré le montre).
- */
-export function finDeLEtape(outil: string, args: Record<string, unknown>, resultat: string | null | undefined): string | null {
-  if (!resultat) return null;
-  const action = typeof args.action === 'string' ? args.action : '';
-  const pourLOreille = resultat.replace(/ · /g, ', ');
-  if (outil === 'memoire' && args.geste === 'chercher') return `Mémoire : ${pourLOreille}.`;
-  if (outil === 'assistant_gestes' && action === 'trouver') return `Tableau : ${pourLOreille}.`;
-  if (outil === 'assistant_resume') return `Activité : ${pourLOreille}.`;
-  return null;
-}
-
-/** Ce que la voix dit quand le dossier est prêt : une phrase par source, sans identifiant. */
-export function phraseDuDossier(trouve: TrouveDuDossier): string {
-  const r = (cle: SourceDuDossier) => resultatDeLaSource(cle, trouve).replace(/ · /g, ', ');
-  return `J’ai regardé. Mémoire : ${r('memoire')}. Discussions : ${r('discussions')}. Tableau : ${r('cartes')}. En ce moment : ${r('activite')}.`;
-}
-
-/**
- * CETTE PHRASE DE LA VOIX EST-ELLE UNE ÉTAPE QUE BELUGA LUI A FAIT DIRE ? La liste cochée la montre déjà : sa bulle
- * serait un doublon, et elle n'a rien à faire dans la synthèse. Une phrase en cours de transcription compte dès qu'elle
- * commence comme une étape dite (douze signes au moins).
- */
-export function estUneAnnonce(texte: string, dites: readonly string[]): boolean {
-  const t = normaliserParole(texte ?? '');
-  if (t.length < 12) return false;
-  return dites.some((d) => {
-    const n = normaliserParole(d);
-    return n.length >= 12 && n.includes(t);
-  });
-}

@@ -107,6 +107,7 @@ export const MARQUE_A_VOIR = 'à voir';
 export const PHASES_DU_CAHIER = [
   'source',
   'vision',
+  'approfondissement',
   'interfaces',
   'mecanismes',
   'technologies',
@@ -119,6 +120,7 @@ export type PhaseDuCahier = (typeof PHASES_DU_CAHIER)[number];
 export const LIBELLES_PHASES_DU_CAHIER: Record<PhaseDuCahier, string> = {
   source: 'Source',
   vision: 'Vision et public',
+  approfondissement: 'Approfondissement du produit',
   interfaces: 'Interfaces',
   mecanismes: 'Fonctionnalités',
   technologies: 'Technologies',
@@ -299,9 +301,41 @@ export function cheminDuCahier(cahier: Pick<CahierDesCharges, 'phase' | 'faites'
   };
 }
 
-/** La case de la fenêtre « Nouveau projet » : cochée d'office pour un projet vide seulement. */
+/**
+ * LE CAHIER DES CHARGES D'UN PROJET PARTI DE RIEN EST OBLIGATOIRE (décision de l'utilisateur, 18/11/2026 : CopyFlow,
+ * créé sans lui, n'a reçu que des questions de surface et sa construction d'un seul trait n'a pas abouti). La fenêtre
+ * « Nouveau projet » n'a plus d'interrupteur, `project.new` et `project_manage` « creer » le posent toujours.
+ * Un dépôt importé de GitHub, qui contient souvent déjà une application, garde son choix, décoché d'office.
+ */
+export const CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF = true;
+
+/** La case « cahier des charges » : toujours vraie pour un projet vide (obligatoire), décochée d'office pour GitHub. */
 export function caseCahierCocheeParDefaut(source: 'vide' | 'github'): boolean {
   return source === 'vide';
+}
+
+/** La partie du document qui porte les questions de fond propres à chaque type de produit retenu (18/11/2026). */
+export const PARTIE_DES_SPECIFICITES = 'Spécificités par type';
+
+/** L'annexe de la compétence qui liste ces questions, type par type. */
+export const QUESTIONS_PAR_TYPE = 'questions-par-type.md';
+
+/**
+ * LE CAHIER PEUT-IL SE TERMINER ? Non tant qu'une partie reste « à voir », ni — pour un cahier parti de rien — tant
+ * que la partie « Spécificités par type » manque ou est vide : c'est elle qui fait d'un questionnaire de surface un
+ * cahier complet (décision de l'utilisateur du 18/11/2026, après CopyFlow). Un clonage suit son propre parcours :
+ * seule la marque « à voir » l'arrête. `null` : il peut se terminer.
+ */
+export function refusDeFinDuCahier(document: string, aUneSource: boolean): string | null {
+  const parties = partiesDuCahier(document);
+  const ouvertes = parties.filter((p) => p.titre && p.aVoir).map((p) => p.titre);
+  if (ouvertes.length) return `Pas encore terminé : ${ouvertes.length > 1 ? 'ces parties restent' : 'cette partie reste'} à trancher — ${ouvertes.join(', ')}. Pose les questions qui manquent, puis termine.`;
+  if (aUneSource) return null;
+  const specificites = parties.find((p) => p.titre.toLowerCase().startsWith(PARTIE_DES_SPECIFICITES.toLowerCase()));
+  if (!specificites || !specificites.texte.trim()) {
+    return `Pas encore terminé : la partie « ## ${PARTIE_DES_SPECIFICITES} » manque. Pour CHAQUE type de produit retenu, pose les questions de fond de l'annexe « ${QUESTIONS_PAR_TYPE} » de la compétence, écris les réponses dans cette partie (une sous-partie « ### » par type), puis termine.`;
+  }
+  return null;
 }
 
 /** Une partie du document, pour l'écran : son titre, son texte, et si elle reste à voir. */
@@ -353,7 +387,15 @@ export function consigneDuCahier(cheminCompetence: string, cheminDuProjet: strin
   return `CETTE CARTE SUIT LE PARCOURS DU CAHIER DES CHARGES D'UN NOUVEAU PROJET. Là où il diffère du cadrage ordinaire, c'est ce parcours qui prime.
 
 TON MODE D'EMPLOI est la compétence commune « ${COMPETENCE_DU_CAHIER} » : lis-la ENTIÈRE dès ton premier tour (${cheminCompetence}, avec ses annexes dans le même dossier) et suis son questionnaire, phase par phase : ${phasesDuCahier(aUneSource).map((p) => LIBELLES_PHASES_DU_CAHIER[p]).join(' → ')}.
+${
+  aUneSource
+    ? ''
+    : `
+LA TOUTE PREMIÈRE QUESTION EST LE TYPE DE PRODUIT (décision de l'utilisateur, 18/11/2026) : site vitrine, boutique en ligne, logiciel en ligne par abonnement (SaaS), application installable depuis le navigateur, application mobile, application de bureau, extension de navigateur, jeu, outil interne, service sans écran, automatisation, autre — plusieurs à la fois (« ask_user » kind multiple). Elle se pose TOUJOURS, même quand la description donnée à la création semble le dire : la description sert seulement à marquer la piste recommandée.
 
+UN CAHIER COMPLET, PAS UN QUESTIONNAIRE DE SURFACE : dans la phase « ${LIBELLES_PHASES_DU_CAHIER.approfondissement} », pour CHAQUE type retenu, pose une à une les questions de fond de l'annexe « ${QUESTIONS_PAR_TYPE} » (une boutique : catalogue, paiement, livraison, stock, retours ; un SaaS : offres et prix, essai, équipes et rôles, facturation, limites ; etc.), en sautant ce que la description ou une réponse a déjà tranché. Les réponses vont dans la partie « ## ${PARTIE_DES_SPECIFICITES} » du document, une sous-partie « ### » par type. L'outil REFUSE de terminer tant que cette partie manque ou qu'une partie reste « ${MARQUE_A_VOIR} ».
+`
+}
 UNE QUESTION À LA FOIS, AVEC « ask_user » : chacune a ses choix, sa « description » (ce que change la réponse, en mots courants) et la réponse que tu CONSEILLES, en tête et marquée « (recommandé) ». Saute ce que les réponses précédentes rendent sans objet. ${REGLE_DES_PISTES} Une précision de produit ne se suppose jamais ; une manière de construire se décide et s'écrit comme décidée.
 
 APRÈS CHAQUE RÉPONSE, AVANT LA QUESTION SUIVANTE, appelle « cahier_des_charges » avec le document ENTIER mis à jour et l'avancement : « faites » (questions tranchées), « total » (questions prévues, ajusté en chemin), « phase », « restants » (ce qui reste à voir, en quelques mots chacun). Le document suit le gabarit de la compétence ; une partie pas encore tranchée porte « ${MARQUE_A_VOIR} ». L'outil l'écrit dans ${DOCUMENT_DU_CAHIER} du projet, et l'utilisateur le lit depuis la carte pendant qu'il s'écrit. C'est AUSSI ce qui permet de reprendre après une pause : rien ne doit vivre seulement dans la conversation.
@@ -374,9 +416,9 @@ QUAND TOUT EST TRANCHÉ (relecture comprise) : appelle « cahier_des_charges » 
 /** Le premier tour, envoyé en silence à la naissance de la carte. */
 export function demandeDuPremierTour(projet: { name: string; description?: string }): string {
   const description = String(projet.description ?? '').trim();
-  return `LE PROJET « ${projet.name} » VIENT D'ÊTRE MONTÉ, et l'utilisateur a demandé à démarrer par un cahier des charges. Personne n'a encore rien écrit dans cette carte : c'est toi qui ouvres la discussion.
+  return `LE PROJET « ${projet.name} » VIENT D'ÊTRE MONTÉ. Tout projet parti de rien démarre par son cahier des charges COMPLET : c'est lui que l'agent de construction suivra d'un seul trait. Personne n'a encore rien écrit dans cette carte : c'est toi qui ouvres la discussion.
 ${description ? `\nCE QUE L'UTILISATEUR A DIT DU PROJET EN LE CRÉANT :\n${description}\n` : ''}
-Lis la compétence « ${COMPETENCE_DU_CAHIER} », écris un premier document (toutes les parties marquées « ${MARQUE_A_VOIR} ») et l'avancement avec « cahier_des_charges », puis pose la PREMIÈRE question de la phase « ${LIBELLES_PHASES_DU_CAHIER.vision} » avec « ask_user ». Continue ensuite question après question.`;
+Lis la compétence « ${COMPETENCE_DU_CAHIER} », écris un premier document (toutes les parties marquées « ${MARQUE_A_VOIR} ») et l'avancement avec « cahier_des_charges », puis pose avec « ask_user » LA PREMIÈRE QUESTION, TOUJOURS LA MÊME : « Quel type de produit voulez-vous créer ? » (kind multiple : site vitrine, boutique en ligne, logiciel en ligne par abonnement, application installable, application mobile, application de bureau, extension de navigateur, jeu, outil interne, service sans écran, automatisation, autre), la piste que la description suggère en tête, marquée « (recommandé) »${description ? '' : ', sinon aucune'}. Jamais sautée, même si la description semble le dire. Continue ensuite question après question, en approfondissant chaque type retenu.`;
 }
 
 /** La reprise après une pause : tout ce qu'il faut pour repartir sans la conversation. */

@@ -46,6 +46,7 @@ export function PanneauDuVolet({
   reperesCroix,
   children,
   pied,
+  gestes,
   ...reste
 }: {
   titre: string;
@@ -55,12 +56,15 @@ export function PanneauDuVolet({
   children: React.ReactNode;
   /** CE QUI RESTE COLLÉ EN BAS DU VOLET, hors de la zone qui défile (le rapport d'un dossier Marketing, 15/11/2026). */
   pied?: React.ReactNode;
+  /** LES GESTES DE L'ENTÊTE, posés avant la croix : copier, télécharger (le plan, 18/11/2026). */
+  gestes?: React.ReactNode;
 } & Record<`data-${string}`, string | undefined>) {
   return (
     <div className="flex h-full min-h-0 flex-col" {...reste}>
       <div className="flex shrink-0 items-center gap-2 px-5 pb-2 pt-3">
         <FileText className="h-4 w-4 text-muted" />
         <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{titre}</span>
+        {gestes ? <div className="flex shrink-0 items-center gap-1" data-gestes-du-volet>{gestes}</div> : null}
         <button
           type="button"
           onClick={onFermer}

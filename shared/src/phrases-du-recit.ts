@@ -1,4 +1,5 @@
 import { BlocRaconte, GenreDeBloc, sujetLisible } from './recit-du-tour.js';
+import { nomAfficheDOutil, nomSansPont } from './noms-outils.js';
 
 /**
  * CE QUE L'AGENT FAIT, DIT À LA PREMIÈRE PERSONNE.
@@ -74,6 +75,12 @@ export const MOTIFS_DE_PHRASE: Record<
   outil: { un: 'Je me sers d’un outil du projet.', plusieurs: 'Je me sers {v0} fois d’un outil du projet.' },
   suspension: { un: 'Je m’arrête : vous avez suspendu la tâche.', plusieurs: 'Je m’arrête {v0} fois : vous avez suspendu la tâche.' },
 };
+
+/** La phrase d'un outil qui n'a pas la sienne : il est NOMMÉ par son libellé. */
+export const PHRASE_OUTIL_NOMME = {
+  un: 'J’utilise l’outil « {v0} ».',
+  plusieurs: 'J’utilise l’outil « {v0} » {v1} fois.',
+} as const;
 
 /** La phrase d'une suspension, à l'heure du geste (heure locale de l'écran). */
 export const PHRASE_SUSPENDUE_A = 'Tâche suspendue à la main à {v0}.';
@@ -174,7 +181,15 @@ export function phraseDuBloc(bloc: BlocRaconte): PhraseRacontee {
   const motifs = MOTIFS_DE_PHRASE[bloc.genre] ?? MOTIFS_DE_PHRASE.outil;
   /* LA PHRASE DE L'OUTIL PASSE AVANT CELLE DE SON GENRE : « Je modifie une
      carte » vaut mieux que « Je me sers d'un outil du projet ». */
-  const parOutil = bloc.outil ? MOTIFS_PAR_OUTIL[bloc.outil.toLowerCase()] : undefined;
+  const parOutil = bloc.outil ? MOTIFS_PAR_OUTIL[nomSansPont(bloc.outil).toLowerCase()] : undefined;
+  /* UN OUTIL SANS PHRASE EST NOMMÉ, JAMAIS « UN OUTIL DU PROJET » : son
+     libellé français (`noms-outils.ts`), sinon son nom nu. Le refuge vague ne
+     reste que si aucun nom n'est connu. */
+  const nomme = bloc.genre === 'outil' && bloc.outil ? nomAfficheDOutil(bloc.outil) : '';
+  if (nomme && bloc.compte > 1 && !parOutil?.plusieurs) {
+    return { dit: 'demon', motif: PHRASE_OUTIL_NOMME.plusieurs, valeurs: { v0: nomme, v1: bloc.compte } };
+  }
+  if (nomme && !parOutil) return { dit: 'demon', motif: PHRASE_OUTIL_NOMME.un, valeurs: { v0: nomme } };
   /* Un outil sans forme au pluriel retombe sur celle de son genre : le NOMBRE
      compte plus que la précision quand vingt appels se réunissent. */
   if (bloc.compte > 1) {
@@ -241,7 +256,43 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   surveillance_essai: { un: 'J’essaie le contrôle du site.', plusieurs: 'J’essaie le contrôle du site {v0} fois.' },
   surveillance_recette: { un: 'J’enregistre la surveillance.' },
 
+  /* Le cadrage, les maquettes et la suite */
+  exemple_de_choix: { un: 'Je fabrique une maquette pour illustrer un choix.', plusieurs: 'Je fabrique {v0} maquettes pour illustrer des choix.' },
+  rendre_comprehension: { un: 'Je rends ma compréhension de la demande.' },
+  rendre_plan: { un: 'Je rends le plan.' },
+  proposer_suites: { un: 'Je propose des suites possibles.' },
+  bilan_du_travail: { un: 'Je fais le bilan de mon travail.' },
+  veille_poser: { un: 'Je pose une veille qui me relancera.' },
+  cahier_des_charges: { un: 'Je mets le cahier des charges à jour.' },
+
+  /* Les écrans, les appareils et les services de Beluga */
+  capture: { un: 'Je prends une capture d’écran.', plusieurs: 'Je prends {v0} captures d’écran.' },
+  iphone: { un: 'J’agis sur l’iPhone d’essai.', plusieurs: 'J’agis {v0} fois sur l’iPhone d’essai.' },
+  ordinateur: { un: 'J’agis sur l’ordinateur.', plusieurs: 'J’agis {v0} fois sur l’ordinateur.' },
+  services: { un: 'J’ouvre un service de Beluga.', plusieurs: 'J’ouvre {v0} fois un service de Beluga.' },
+  statistiques: { un: 'Je lis les statistiques des visites.' },
+  marketing: { un: 'Je passe par les réseaux sociaux.' },
+  etude_marketing: { un: 'Je travaille sur l’étude marketing.' },
+  media_en_cours: { un: 'Je suis un média en cours de fabrication.' },
+  realiser: { un: 'Je lance une réalisation audiovisuelle.' },
+  production: { un: 'Je prépare la production.' },
+  cahier_de_realisation: { un: 'J’enregistre le cahier de réalisation.' },
+  apercu_de_realisation: { un: 'Je fabrique une image d’essai.' },
+  moteurs: { un: 'Je règle les moteurs ajoutés.' },
+  deleguer: { un: 'Je consulte un autre modèle.' },
+  evaluer: { un: 'Je fais évaluer par le juge rapide.' },
+  beluga_commande: { un: 'J’agis dans Beluga.', plusieurs: 'J’agis {v0} fois dans Beluga.' },
+  assistant_resume: { un: 'Je fais le point sur Beluga.' },
+  assistant_messagerie: { un: 'J’ouvre la messagerie de l’espace client.' },
+  assistant_surveillances: { un: 'Je regarde la surveillance des sites.' },
+  assistant_backups: { un: 'Je regarde les sauvegardes des sites.' },
+  assistant_base_serveur: { un: 'J’interroge la base de données d’un serveur.' },
+  assistant_ecran: { un: 'J’agis sur votre écran.' },
+  assistant_gestes: { un: 'Je fais un geste dans l’application.' },
+
   /* Les outils du moteur qui n'ont pas de genre à eux */
+  toolsearch: { un: 'Je charge un outil dont j’ai besoin.', plusieurs: 'Je charge des outils dont j’ai besoin.' },
+  tool_search: { un: 'Je charge un outil dont j’ai besoin.', plusieurs: 'Je charge des outils dont j’ai besoin.' },
   taskcreate: { un: 'Je mets ma liste de tâches à jour.', plusieurs: 'Je mets ma liste de tâches à jour {v0} fois.' },
   taskupdate: { un: 'Je mets ma liste de tâches à jour.', plusieurs: 'Je mets ma liste de tâches à jour {v0} fois.' },
   todowrite: { un: 'Je mets ma liste de tâches à jour.', plusieurs: 'Je mets ma liste de tâches à jour {v0} fois.' },

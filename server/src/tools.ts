@@ -883,7 +883,7 @@ export const TOOL_DEFS: ToolDef[] = [
         cahierDesCharges: {
           type: 'boolean',
           description:
-            "Démarrer par un cahier des charges : une carte naît et son agent pose les questions du projet (creer, vrai par défaut ; faux si l'utilisateur ne le veut pas)",
+            "IGNORÉ : un projet créé à partir de rien démarre TOUJOURS par son cahier des charges (décision de l'utilisateur) — une carte naît et son agent pose les questions du projet, en commençant par le type de produit",
         },
         source: {
           type: 'object',

@@ -97,7 +97,42 @@ carte_du_processus() {
   printf '%s' '-'
 }
 
+# LA LIGNE « TRAVAUX LOURDS » (19/11/2026) : chaque travail qui a déjà fait
+# déborder la mémoire, NOMMÉ avec son poids et sa carte — construction, installation,
+# serveur d'essai, navigateur, export vidéo, trieur. Le 17/11 à 21:58, il fallait
+# recouper trois sections pour voir la construction de la vitrine + un npm ci.
+travaux_lourds() {
+  local pid rss comm args quoi liste=""
+  while read -r pid rss comm args; do
+    case "$comm" in
+      # Un moteur d'agent porte sa consigne dans sa commande (« npm install »…) : jamais un travail lourd.
+      claude|codex|cursor-agent|bash|sh|sudo|timeout) continue ;;
+      chrome|chromium|headless_shell) quoi="chrome" ;;
+      beluga-essai-*) quoi="$comm" ;;
+      ffmpeg) quoi="ffmpeg" ;;
+      *)
+        case "$args" in
+          *"nuxt build"*|*"nuxi build"*) quoi="nuxt build" ;;
+          *"next build"*) quoi="next build" ;;
+          *"vite build"*) quoi="vite build" ;;
+          *"npm ci"*) quoi="npm ci" ;;
+          *"npm install"*|*"npm i "*) quoi="npm install" ;;
+          *node_modules/.bin/vite*|*"npx vite"*|*/vite\ *) quoi="vite" ;;
+          *playwright*) quoi="playwright" ;;
+          *vectoriseur-processus.js*" - "*) quoi="trieur (bge-reranker)" ;;
+          *bge-reranker*) quoi="trieur (bge-reranker)" ;;
+          *) continue ;;
+        esac ;;
+    esac
+    # Un chrome compte une fois par arbre : seuls ceux de plus de 50 Mo sont nommés.
+    [ "$quoi" = "chrome" ] && [ "$rss" -lt 51200 ] && continue
+    liste="$liste${liste:+ ; }$quoi pid $pid $((rss / 1024)) Mo ($(carte_du_processus "$pid"))"
+  done < <(ps -eo pid=,rss=,comm=,args= --sort=-rss 2>/dev/null)
+  printf 'travaux lourds\t%s\n' "${liste:-aucun}"
+}
+
 processus_detailles() {
+  travaux_lourds
   printf 'pid\tmémoire\téchange\tgroupe\tcarte\tdossier courant\tcommande\n'
   ps -eo pid=,rss=,args= --sort=-rss 2>/dev/null | head -15 | while read -r pid rss args; do
     groupe=$(sed -n 's/^0:://p' "/proc/$pid/cgroup" 2>/dev/null | head -1)
@@ -194,7 +229,7 @@ ecrire_releve() {
     section "processus les plus gros" sh -c 'ps -eo pid,user,rss,pcpu,etime,comm --sort=-rss | head -15'
     # `timeout` ne lance pas une fonction : on la lui passe écrite en entier.
     section "processus les plus gros : commande et service" \
-      bash -c "$(declare -f masquer_secrets carte_du_processus processus_detailles); processus_detailles"
+      bash -c "$(declare -f masquer_secrets carte_du_processus travaux_lourds processus_detailles); processus_detailles"
     section "connexions vers 7070" sh -c "ss -tn state established '( sport = :7070 )' | tail -n +2 | wc -l"
     section "disque" df -h /
     section "fin du journal du démon (300 lignes)" sh -c "tail -c 200000 '$RACINE/data/logs/service.log' | tail -n 300"

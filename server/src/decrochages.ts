@@ -30,6 +30,7 @@ import {
   decisionDEnquete,
   demandeDEnqueteDecrochages,
   descriptionDEnqueteDecrochages,
+  figementsDuJournalDuDemon,
   incidentsDeDecrochage,
   incidentsNonSignales,
   ligneDesDecrochages,
@@ -204,9 +205,12 @@ export async function examinerLesDecrochages(maintenant = Date.now()): Promise<'
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
     const journalDuDemon = path.join(PATHS.logs, 'service.log');
-    const arretsVoulus = arretsVoulusDuJournalDuDemon(await finDuFichier(journalDuDemon, 4 * 1024 * 1024));
+    const texteDuDemon = await finDuFichier(journalDuDemon, 4 * 1024 * 1024);
+    const arretsVoulus = arretsVoulusDuJournalDuDemon(texteDuDemon);
+    // Une coupure vue par le navigateur seul ne compte que si le démon a flanché.
+    const tracesDuServeur = figementsDuJournalDuDemon(texteDuDemon);
 
-    const incidents = incidentsDeDecrochage({ journal, coupures, arretsVoulus, maintenant });
+    const incidents = incidentsDeDecrochage({ journal, coupures, arretsVoulus, tracesDuServeur, maintenant });
     const etat = lireEtat();
     const carte = etat.cardId ? store.getCard(etat.cardId) : null;
     const carteOuverte = Boolean(carte && COLONNES_NON_RANGEES.includes(carte.column));

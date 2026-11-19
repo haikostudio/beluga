@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
-import { JETONS_DU_TRI, LOT_DU_TRI, MODELE_DE_TRI, MODELE_VECTEURS, REPOS_DU_VECTORISEUR_MS, triDesCompetencesPermis } from '@beluga/shared';
+import { FILS_DU_TRI, JETONS_DU_TRI, LOT_DU_TRI, MODELE_DE_TRI, MODELE_VECTEURS, REPOS_DU_VECTORISEUR_MS, triDesCompetencesPermis } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { memoireDeLaMachine, type MemoireDeLaMachine } from './porte-des-travaux-lourds.js';
@@ -90,7 +90,7 @@ const vecteurs: Emplacement = {
 };
 const trieur: Emplacement = {
   nom: 'trieur',
-  args: () => [dossierDuVectoriseur(), '-', essai.modeleDeTri ?? MODELE_DE_TRI, String(JETONS_DU_TRI), String(LOT_DU_TRI)],
+  args: () => [dossierDuVectoriseur(), '-', essai.modeleDeTri ?? MODELE_DE_TRI, String(JETONS_DU_TRI), String(LOT_DU_TRI), String(FILS_DU_TRI)],
   repos: REPOS_DU_TRIEUR_MS,
   processus: null,
   enAttente: new Map(),
@@ -226,7 +226,7 @@ export async function noterParLeTri(requete: string, documents: readonly string[
     return undefined;
   }
   const memoire = (essai.memoire ?? memoireDeLaMachine)();
-  const porte = triDesCompetencesPermis({ pression: memoire.pression, trieurCharge: !!trieur.processus, memDispoMo: memoire.memDispoMo });
+  const porte = triDesCompetencesPermis({ pression: memoire.pression, trieurCharge: !!trieur.processus, memDispoMo: memoire.memDispoMo, swapPct: memoire.swapPct });
   if (!porte.permis) {
     log.info(`tri des compétences : ordre d’avant gardé (tri sauté : ${porte.raison})`);
     return undefined;

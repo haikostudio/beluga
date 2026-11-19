@@ -1079,7 +1079,10 @@ function ecrireSiChange(fichier: string, contenu: string): boolean {
     /* fichier absent : on l'écrit */
   }
   fs.mkdirSync(path.dirname(fichier), { recursive: true });
-  fs.writeFileSync(fichier, contenu);
+  // Atomique : un lecteur (ou un arrêt) ne voit jamais une fiche à moitié écrite.
+  const provisoire = `${fichier}.${process.pid}.tmp`;
+  fs.writeFileSync(provisoire, contenu);
+  fs.renameSync(provisoire, fichier);
   return true;
 }
 
@@ -1096,13 +1099,24 @@ export function unitesDeLaFiche(portee: string, fiche: FicheNumerotee, statut: '
   return unites.filter((u) => (statut === 'toutes' || u.statut === (statut === 'active' ? 'active' : 'deprecated')) && uniteDansLaFiche(fiche, u));
 }
 
-function renduDeLaFiche(portee: string, fiche: FicheNumerotee, unitesDeLaPorteeToutes: readonly Unite[]): RenduDeFiche {
+function renduDeLaFiche(
+  portee: string,
+  fiche: FicheNumerotee,
+  unitesDeLaPorteeToutes: readonly Unite[],
+  /** Les unités du Global déjà lues (toutes) : évite de relire ~1 500 compétences par projet. */
+  globalesToutes?: readonly Unite[],
+): RenduDeFiche {
   const competencesDeProjet = fiche.competences && portee !== PORTEE_GLOBALE;
+  const nom = nomDeLaPortee(portee);
   return {
     portee,
-    nomDeLaPortee: nomDeLaPortee(portee),
+    nomDeLaPortee: nom,
     fiche,
-    unites: competencesDeProjet ? unitesDeLaFiche(portee, fiche, 'toutes') : unitesDeLaPorteeToutes,
+    unites: competencesDeProjet
+      ? globalesToutes
+        ? globalesToutes.filter((u) => uniteDansLaFiche(fiche, u, nom))
+        : unitesDeLaFiche(portee, fiche, 'toutes')
+      : unitesDeLaPorteeToutes,
     competencesDe: competencesDeProjet ? nomDeLaPortee(portee) : undefined,
   };
 }
@@ -1122,21 +1136,65 @@ export function markdownDuChangelog(projectId: string): string {
   return rendreChangelog(nomDeLaPortee(projectId), entreesDuChangelog(projectId));
 }
 
-/** Régénère tous les fichiers d'une portée. Rend le nombre de fichiers réellement réécrits. */
-export function rendreLesFichiers(portee: string): number {
+/**
+ * Les ÉTAPES du rendu d'une portée : une par fiche (et son archive), plus le
+ * changelog. Chacune rend le nombre de fichiers réellement réécrits.
+ */
+function etapesDuRendu(portee: string, globalesToutes?: readonly Unite[]): (() => number)[] {
   const dossier = dossierDeLaPortee(portee);
-  let ecrits = 0;
-  const unites = unitesDeLaPortee(portee, 'toutes');
-  const nom = nomDeLaPortee(portee);
-  const toutes = portee === PORTEE_GLOBALE ? unites : [...unites, ...unitesDeLaPortee(PORTEE_GLOBALE).filter((u) => u.jamaisSupposer)];
-  for (const fiche of fichesDeLaPortee(portee)) {
-    const rendu = renduDeLaFiche(portee, fiche, unites);
+  const unites = portee === PORTEE_GLOBALE && globalesToutes ? [...globalesToutes] : unitesDeLaPortee(portee, 'toutes');
+  const jamaisSupposerGlobal = () =>
+    (globalesToutes ?? unitesDeLaPortee(PORTEE_GLOBALE)).filter((u) => u.statut === 'active' && u.jamaisSupposer);
+  const toutes = portee === PORTEE_GLOBALE ? unites : [...unites, ...jamaisSupposerGlobal()];
+  const etapes: (() => number)[] = fichesDeLaPortee(portee).map((fiche) => () => {
+    let ecrits = 0;
+    const rendu = renduDeLaFiche(portee, fiche, unites, globalesToutes);
     if (ecrireSiChange(path.join(dossier, `${fiche.id}.md`), rendreFicheNumerotee(rendu, toutes))) ecrits++;
     if (rendu.unites.some((u) => u.statut === 'deprecated' && uniteDansLaFiche(fiche, u, rendu.competencesDe))) {
       if (ecrireSiChange(path.join(dossier, 'archive', `${fiche.id}.md`), rendreArchive(rendu))) ecrits++;
     }
+    return ecrits;
+  });
+  if (portee !== PORTEE_GLOBALE) etapes.push(() => (ecrireSiChange(path.join(dossier, 'CHANGELOG.md'), markdownDuChangelog(portee)) ? 1 : 0));
+  return etapes;
+}
+
+/** Régénère tous les fichiers d'une portée. Rend le nombre de fichiers réellement réécrits. */
+export function rendreLesFichiers(portee: string): number {
+  return etapesDuRendu(portee).reduce((total, etape) => total + etape(), 0);
+}
+
+const cederLaMain = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * LE MÊME RENDU, SANS FIGER LE DÉMON (reprise au démarrage). Le 18/11/2026,
+ * `rendreLesFichiers` de toutes les portées d'un coup figeait le démon ~6 s une
+ * minute après chaque démarrage : chaque projet relisait et décodait les ~1 500
+ * unités du Global pour sa fiche « Compétences ». Ici, le Global est lu UNE
+ * fois, et la boucle d'événements reprend la main entre deux fiches. Chaque
+ * fiche s'écrit entière (fichier provisoire puis renommage).
+ */
+export async function rendreLesFichiersSansFiger(portees: readonly string[]): Promise<number> {
+  const globalesToutes = unitesDeLaPortee(PORTEE_GLOBALE, 'toutes');
+  let ecrits = 0;
+  for (const portee of portees) {
+    await cederLaMain();
+    let etapes: (() => number)[];
+    try {
+      etapes = etapesDuRendu(portee, globalesToutes);
+    } catch (err) {
+      log.warn(`base de connaissances : fichiers de ${portee} non rendus (${(err as Error).message})`);
+      continue;
+    }
+    for (const etape of etapes) {
+      await cederLaMain();
+      try {
+        ecrits += etape();
+      } catch (err) {
+        log.warn(`base de connaissances : une fiche de ${portee} non rendue (${(err as Error).message})`);
+      }
+    }
   }
-  if (portee !== PORTEE_GLOBALE && ecrireSiChange(path.join(dossier, 'CHANGELOG.md'), markdownDuChangelog(portee))) ecrits++;
   return ecrits;
 }
 

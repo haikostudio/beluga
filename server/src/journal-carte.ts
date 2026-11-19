@@ -1,9 +1,9 @@
 import {
   EntreeJournal,
   JournalDeCarte,
-  PLAFOND_RESULTAT,
   PhaseJournal,
   bornerTexte,
+  plafondDuResultat,
   donneesDuJournal,
   donneesFusionnees,
   ordonnerJournal,
@@ -122,7 +122,7 @@ export function ajouterAuJournal(ajout: AjoutJournal): EntreeJournal | null {
       libelle: (ajout.libelle ?? '').slice(0, 400),
       outil: ajout.outil,
       params: ajout.params === undefined ? undefined : paramsLisibles(ajout.params),
-      resultat: ajout.resultat === undefined ? undefined : bornerTexte(ajout.resultat, PLAFOND_RESULTAT),
+      resultat: ajout.resultat === undefined ? undefined : bornerTexte(ajout.resultat, plafondDuResultat(ajout)),
       reussie: ajout.reussie,
       dureeMs: ajout.dureeMs,
       etat: ajout.etat,
@@ -363,21 +363,20 @@ export function allegerLesJournaux(avant: number): number {
 const A_ALLEGER = `at < ? AND ((resultat IS NOT NULL AND resultat != '') OR params IS NOT NULL)`;
 
 /**
- * UN LOT SEULEMENT, pour le ménage quotidien : le premier passage touche des
- * centaines de milliers de lignes, et une seule écriture bloquerait la base.
- * Rend le nombre de lignes allégées (0 = terminé ou impossible).
+ * UNE TRANCHE DE ROWID `]apres, jusqua]` SEULEMENT, pour le ménage quotidien :
+ * une seule écriture bloquerait la base, et une requête « LIMIT » sans borne
+ * relisait d'un tenant toutes les lignes anciennes (lecture à froid de plusieurs
+ * secondes au démarrage, 18/11/2026). Rend le nombre de lignes allégées.
  */
-export function allegerUnLotDeJournaux(avant: number, limite = 5000): number {
+export function allegerUneTrancheDeJournaux(avant: number, apres: number, jusqua: number): number {
   try {
     const res = getDb()
-      .prepare(
-        `UPDATE card_journal SET resultat = '', params = NULL
-         WHERE rowid IN (SELECT rowid FROM card_journal WHERE ${A_ALLEGER} LIMIT ?)`,
-      )
-      .run(avant, limite);
+      .prepare(`UPDATE card_journal SET resultat = '', params = NULL WHERE rowid > ? AND rowid <= ? AND ${A_ALLEGER}`)
+      .run(apres, jusqua, avant);
     return res.changes ?? 0;
   } catch (err: any) {
-    log.warn(`journal de carte : allègement d'un lot impossible (${err?.message ?? err})`);
+    log.warn(`journal de carte : allègement d'une tranche impossible (${err?.message ?? err})`);
     return 0;
   }
 }
+

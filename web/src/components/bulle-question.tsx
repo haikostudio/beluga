@@ -395,7 +395,7 @@ function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
       <Drawer open={ouverte} onClose={() => setOuverte(false)} feuille>
         <EnteteDeFeuille titre={t('Une question vous attend')} data-entete-feuille-question="" />
         {/* AUCUNE MARGE SOUS LA BULLE (capture #c913, 28/10/2026) : la barre
-            « Répondre / Joindre / Annuler » colle au bord INTÉRIEUR de la zone
+            « Valider / Joindre / Annuler » colle au bord INTÉRIEUR de la zone
             qui défile — une marge basse laissait une bande où le texte des
             choix passait SOUS la barre. Le bas de la bulle est porté par la
             barre elle-même. */}
@@ -459,7 +459,7 @@ interface ProprietesDeLaBulle {
   questionId?: string;
   /** Le libellé du bouton qui valide (« Répondre » par défaut ; « Suivant » dans un formulaire). */
   libelleRepondre?: string;
-  /** Sans « Plus de choix » : une sous-question du formulaire ne relance pas l'agent. */
+  /** Sans « Valider et proposer plus / Autres choix » : une sous-question du formulaire ne relance pas l'agent. */
   sansPlusDeChoix?: boolean;
   /** Le brouillon reste après la réponse : on peut revenir sur une sous-question du formulaire. */
   garderLeBrouillon?: boolean;
@@ -470,7 +470,7 @@ interface ProprietesDeLaBulle {
 /**
  * LE CHAMP DE RÉPONSE RESTE AU-DESSUS DE LA BARRE COLLÉE EN BAS (capture
  * iPhone du 25/10/2026). Au focus, iOS ramène le champ juste au-dessus du
- * clavier, sans rien savoir de la barre « Répondre / Joindre / Annuler »
+ * clavier, sans rien savoir de la barre « Valider / Joindre / Annuler »
  * collée au bas de la zone qui défile (`sticky bottom-0`) : le champ finissait
  * dessous. La place du clavier est déjà réservée par la racine (`--clavier`,
  * app.tsx) ; ici, une fois le clavier monté (~350 ms, puis à chaque
@@ -677,19 +677,22 @@ function BulleQuestionComplete({
   };
 
   /*
-   * « PLUS DE CHOIX » : aucun choix proposé ne convient. Le geste RÉPOND à la
-   * question (l'agent arrêté sur `ask_user` reprend la main) par une consigne
-   * qui lui demande d'autres possibilités et de reposer la question.
+   * « VALIDER ET PROPOSER PLUS » / « AUTRES CHOIX » : le geste RÉPOND à la question
+   * (l'agent arrêté sur `ask_user` reprend la main) par une consigne qui lui
+   * demande d'autres possibilités et de reposer la question. Avec des choix
+   * cochés, la réponse COMMENCE par eux au format de `texteDeReponse` (libellés
+   * en tête, précision, images) : l'encadré du fil les marque donc retenus.
    */
   const [autresChoix, setAutresChoix] = React.useState(false);
   const demanderPlusDeChoix = async () => {
     const deja = question.options.map((o) => `« ${o.label} »`).join(', ');
+    const retenus = libellesDeLaReponse(choisis);
+    const reponse = retenus.length
+      ? `${texteDeReponse(retenus, texteLibre, images.length)} — Je retiens ces choix. Propose-moi d'autres possibilités complémentaires, qui s'y ajoutent et différentes de celles déjà proposées (${deja}), et repose la question avec ask_user.`
+      : `Aucun de ces choix ne me convient (${deja}).${texteLibre.trim() ? ` Précision : ${texteLibre.trim()}` : ''} Propose-moi d'autres possibilités, différentes de celles-ci, et repose la question avec ask_user.`;
     setAutresChoix(true);
     try {
-      await onRepondre(
-        `Aucun de ces choix ne me convient (${deja}). Propose-moi d'autres possibilités, différentes de celles-ci, et repose la question avec ask_user.`,
-        [],
-      );
+      await onRepondre(reponse, retenus.length ? images.map((a) => a.id) : []);
       ecrireLeBrouillon(BROUILLON_VIDE);
     } finally {
       setAutresChoix(false);
@@ -718,7 +721,7 @@ function BulleQuestionComplete({
   const pret = reponsePrete(libellesChoisis, texteLibre, images.length) && !envoi;
   /*
    * LA BULLE PORTE TOUT : options, texte libre et images. C'est le SEUL endroit
-   * où répondre — le bouton « Répondre » valide ce qui s'y trouve.
+   * où répondre — le bouton « Valider » valide ce qui s'y trouve.
    */
   const aValiderIci = question.options.length > 0 || images.length > 0 || !!question.allowFreeText;
 
@@ -930,19 +933,6 @@ function BulleQuestionComplete({
             {question.options.map((option) => ligneDeChoix(option))}
           </div>
           )}
-          {reponsePossible && !sansPlusDeChoix ? (
-            <button
-              type="button"
-              onClick={() => void demanderPlusDeChoix()}
-              disabled={autresChoix || envoi}
-              data-plus-de-choix
-              title={t('Aucun choix ne convient : demander d’autres possibilités à l’agent')}
-              className="mt-1 flex items-center gap-1.5 rounded-md px-2.5 sm:px-2 py-1.5 sm:py-1 text-[13px] text-muted transition-colors hover:bg-text/5 hover:text-text disabled:opacity-60"
-            >
-              {autresChoix ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-              {t('Plus de choix')}
-            </button>
-          ) : null}
         </div>
       ) : null}
 
@@ -1036,7 +1026,27 @@ function BulleQuestionComplete({
                 data-repondre-question
               >
                 {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                {libelleRepondre ?? t('Répondre')}</Button>
+                {libelleRepondre ?? t('Valider')}</Button>
+            ) : null}
+            {/* LE SECOND GESTE, JUSTE À DROITE DE « VALIDER » (carte plus-de-choix-a-cote-de-repondre) :
+                avec des choix cochés il les VALIDE et demande des pistes en plus ; sans rien de coché,
+                il dit qu'aucun ne convient. Absent du formulaire du brief (`sansPlusDeChoix`). */}
+            {!sansPlusDeChoix && question.options.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void demanderPlusDeChoix()}
+                disabled={autresChoix || envoi}
+                data-plus-de-choix={libellesChoisis.length > 0 ? 'valider' : 'autres'}
+                title={
+                  libellesChoisis.length > 0
+                    ? t('Garder les choix cochés et demander à l’agent d’autres pistes qui s’y ajoutent')
+                    : t('Aucun choix ne convient : demander d’autres possibilités à l’agent')
+                }
+              >
+                {autresChoix ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                {libellesChoisis.length > 0 ? t('Valider et proposer plus') : t('Autres choix')}
+              </Button>
             ) : null}
             <input
               ref={fileRef}

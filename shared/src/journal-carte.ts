@@ -106,6 +106,46 @@ export function bornerTexte(texte: string, plafond: number): string {
   return `${texte.slice(0, plafond)}\n\n[… ${retire} signes de plus, non conservés dans le journal]`;
 }
 
+/**
+ * UNE COMPRÉHENSION OU UN PLAN SE LIT EN ENTIER, JAMAIS COUPÉ À 8 000 SIGNES.
+ *
+ * Le plafond des résultats protège la base contre les sorties d'outils
+ * énormes. Mais les jalons « Compréhension » et « Plan proposé » portent le
+ * texte que l'écran AFFICHE comme réponse de l'agent : coupé, le fil montrait
+ * « [… 4096 signes de plus, non conservés dans le journal] » au bas d'une
+ * compréhension de 12 000 signes. Ces jalons — et la « Demande », écrite par
+ * l'utilisateur — ont donc leur propre borne, large, et seulement eux. Les
+ * anciennes versions déjà coupées ne se rattrapent que pour la DERNIÈRE
+ * compréhension et chaque plan, que la carte garde en entier.
+ */
+export const PLAFOND_TEXTE_DE_JALON = 60000;
+const JALONS_A_TEXTE_ENTIER = new Set(['Demande', 'Compréhension', 'Plan proposé']);
+
+/** La borne du résultat d'une entrée, selon sa nature et son libellé. */
+export function plafondDuResultat(entree: { nature?: string; libelle?: string }): number {
+  return entree.nature === 'jalon' && JALONS_A_TEXTE_ENTIER.has(entree.libelle ?? '')
+    ? PLAFOND_TEXTE_DE_JALON
+    : PLAFOND_RESULTAT;
+}
+
+const MENTION_DE_COUPURE = /\n\n\[… \d+ signes de plus, non conservés dans le journal\]$/;
+
+/**
+ * LE TEXTE ENTIER D'UN JALON DÉJÀ COUPÉ, RETROUVÉ SUR LA CARTE. Les jalons
+ * écrits avant `PLAFOND_TEXTE_DE_JALON` sont coupés pour toujours dans le
+ * journal ; la carte, elle, garde le texte entier de sa dernière compréhension
+ * et de chacun de ses plans. On ne substitue ce texte que s'il PROLONGE
+ * exactement la partie gardée : une version antérieure, différente, n'est
+ * jamais remplacée par la courante.
+ */
+export function texteEntierDuJalon(resultat: string | undefined, entier: string | undefined): string | undefined {
+  if (!resultat || !entier) return resultat;
+  const coupure = MENTION_DE_COUPURE.exec(resultat);
+  if (!coupure) return resultat;
+  const garde = resultat.slice(0, coupure.index);
+  return entier.length > garde.length && entier.startsWith(garde) ? entier : resultat;
+}
+
 /** Une entrée du journal — une requête, un point de travail ou un jalon. */
 export const EntreeJournal = z.object({
   id: z.string(),

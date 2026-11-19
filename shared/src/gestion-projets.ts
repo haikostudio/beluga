@@ -26,7 +26,7 @@
  *     l'utilisateur.
  */
 
-import { caseCahierCocheeParDefaut } from './cahier-des-charges.js';
+import { CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF } from './cahier-des-charges.js';
 import { lireSourceFournie, type SourceDuClonage } from './clonage.js';
 import { minusculesSansAccents } from './mots.js';
 
@@ -269,9 +269,9 @@ export function lireGesteProjet(args: Record<string, unknown>): Recevable<Demand
         port,
         sansAdresse,
         github: args.github === undefined ? true : vrai(args.github),
-        /* Une source à cloner ne se comprend qu'avec son cahier des charges : il est coché d'office. */
-        cahierDesCharges:
-          !!source || (args.cahierDesCharges === undefined ? caseCahierCocheeParDefaut('vide') : vrai(args.cahierDesCharges)),
+        /* UN PROJET PARTI DE RIEN PASSE TOUJOURS PAR SON CAHIER DES CHARGES (décision du 18/11/2026) : la valeur
+           envoyée par l'agent est ignorée, même « faux ». Une source à cloner l'exige aussi. */
+        cahierDesCharges: CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF || !!source,
         source,
       },
     };

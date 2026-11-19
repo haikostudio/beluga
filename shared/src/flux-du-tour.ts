@@ -18,6 +18,7 @@
  * Règle PURE : l'écran ne fait que dessiner la liste rendue. Éprouvée dans `server/src/test/flux-du-tour.test.ts`.
  */
 import type { EntreeJournal } from './journal-carte.js';
+import { nomAfficheDOutil } from './noms-outils.js';
 import {
   estDePlomberie,
   estUneNoteDAgent,
@@ -62,6 +63,9 @@ export const LIBELLES_DU_GROUPE: Record<GenreDeGroupe, { un: string; plusieurs: 
   outil: { un: '1 outil utilisé', plusieurs: '{v0} outils utilisés' },
 };
 
+/** Le libellé d'un outil NOMMÉ dans un groupe (libellé français ou nom nu). */
+export const LIBELLE_OUTIL_NOMME = { un: 'Outil « {v0} »', plusieurs: 'Outil « {v0} » ({v1} fois)' } as const;
+
 /** Le libellé d'un groupe fait dans le navigateur, repris de l'extension. */
 export const LIBELLE_GROUPE_CHROME = { un: 'A utilisé Chrome (1 action)', plusieurs: 'A utilisé Chrome ({v0} actions)' };
 
@@ -83,22 +87,31 @@ export function libelleDuGroupe(entrees: readonly EntreeJournal[]): { libelle: P
       dominant: 'chrome',
     };
   }
-  const comptes = new Map<GenreDeGroupe, { n: number; premier: number }>();
+  /* UN OUTIL SE NOMME, JAMAIS « 1 OUTIL UTILISÉ » : chaque outil sans genre à
+     lui compte à part, sous son libellé français (`nomAfficheDOutil`). */
+  const comptes = new Map<string, { genre: GenreDeGroupe; nom?: string; n: number; premier: number }>();
   entrees.forEach((entree, rang) => {
     const genre = recitDeLEntree(entree).genre;
     const g = (GENRES_DE_GROUPE.has(genre) ? genre : 'outil') as GenreDeGroupe;
-    const deja = comptes.get(g);
+    const nom = g === 'outil' && entree.outil ? nomAfficheDOutil(entree.outil) || undefined : undefined;
+    const cle = nom ? `outil:${nom}` : g;
+    const deja = comptes.get(cle);
     if (deja) deja.n += 1;
-    else comptes.set(g, { n: 1, premier: rang });
+    else comptes.set(cle, { genre: g, nom, n: 1, premier: rang });
   });
   if (!comptes.size) return null;
   /* Le plus fréquent d'abord ; à égalité, celui qui est arrivé le premier. */
-  const ordre = [...comptes.entries()].sort((a, b) => b[1].n - a[1].n || a[1].premier - b[1].premier);
+  const ordre = [...comptes.values()].sort((a, b) => b.n - a.n || a.premier - b.premier);
   return {
-    libelle: ordre.map(([genre, { n }]) =>
-      n > 1 ? { motif: LIBELLES_DU_GROUPE[genre].plusieurs, valeurs: { v0: n } } : { motif: LIBELLES_DU_GROUPE[genre].un },
-    ),
-    dominant: ordre[0]![0],
+    libelle: ordre.map(({ genre, nom, n }): PhraseDuRecit => {
+      if (nom) {
+        return n > 1
+          ? { motif: LIBELLE_OUTIL_NOMME.plusieurs, valeurs: { v0: nom, v1: n } }
+          : { motif: LIBELLE_OUTIL_NOMME.un, valeurs: { v0: nom } };
+      }
+      return n > 1 ? { motif: LIBELLES_DU_GROUPE[genre].plusieurs, valeurs: { v0: n } } : { motif: LIBELLES_DU_GROUPE[genre].un };
+    }),
+    dominant: ordre[0]!.genre,
   };
 }
 

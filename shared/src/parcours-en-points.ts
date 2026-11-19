@@ -4,6 +4,7 @@ import { COLONNES_AVANT_LE_TRAVAIL, type ColumnKey } from './columns.js';
 import {
   EntreeJournal,
   JALON_COMPREHENSION,
+  texteEntierDuJalon,
   JALON_ECARTEE_DU_LOT,
   JALON_PLAN_DEMANDE,
   JALON_PLAN_PROPOSE,
@@ -1307,6 +1308,20 @@ export function pointsDuParcours(
   carnet: readonly LigneDuCarnet[] = [],
 ): PointDuParcours[] {
   let passages = contenuDesPoints(entrees, carnet);
+  /* LES JALONS COUPÉS PAR L'ANCIEN PLAFOND retrouvent leur texte entier, gardé
+     sur la carte (`texteEntierDuJalon`). */
+  for (const passage of passages) {
+    passage.moments = passage.moments.map((moment) => {
+      const entier =
+        moment.sorte === 'comprehension'
+          ? ctx.parcours?.comprehension?.texte
+          : moment.sorte === 'plan'
+            ? ctx.parcours?.plans?.find((plan) => plan.numero === moment.version)?.texte
+            : undefined;
+      const resultat = entier ? texteEntierDuJalon(moment.entree.resultat, entier) : moment.entree.resultat;
+      return resultat === moment.entree.resultat ? moment : { ...moment, entree: { ...moment.entree, resultat } };
+    });
+  }
   if (ctx.questionsOuvertes === 0) {
     for (const passage of passages) for (const question of passage.questions) question.repondue = true;
   }

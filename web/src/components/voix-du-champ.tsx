@@ -447,43 +447,76 @@ function BulleDuRecapitulatif() {
   );
 }
 
+/** La pastille d'état d'une étape : en cours (rond qui tourne), échouée, finie ou à venir. */
+function PastilleDEtape({ etat }: { etat: ActiviteDuDirect['etat'] }) {
+  return (
+    <span className="mt-[2px] flex h-3 w-3 shrink-0 items-center justify-center">
+      {etat === 'en-cours' ? (
+        <Loader2 className="h-3 w-3 animate-spin text-teinte" />
+      ) : etat === 'echec' ? (
+        <X className="h-3 w-3 text-danger" />
+      ) : etat === 'finie' ? (
+        <Check className="h-3 w-3 text-text" />
+      ) : (
+        <span className="h-2.5 w-2.5 rounded-full border border-faint" />
+      )}
+    </span>
+  );
+}
+
+/** L'étape qui titre le bloc replié : celle en cours, sinon la dernière finie, sinon la première. */
+function etapeDuTitre(etapes: ActiviteDuDirect[]): ActiviteDuDirect | undefined {
+  return etapes.find((e) => e.etat === 'en-cours') ?? [...etapes].reverse().find((e) => e.etat === 'finie' || e.etat === 'echec') ?? etapes[0];
+}
+
 /**
- * « JE VÉRIFIE AVANT DE RÉPONDRE » (carte « Jarvis plus fiable et vérifié », 18/11/2026 — décision de l'utilisateur :
- * « une espèce de todo list qui s'incrémente et se complète à mesure »). Les sources du dossier puis chaque outil du
- * cerveau, avec ce qu'il cherche et où ; sous chaque étape finie, son résultat. Un compteur « n sur m ». Le fond
+ * LES ÉTAPES DE JARVIS (carte « Jarvis plus fiable et vérifié », 18/11/2026), REPLIÉES PAR DÉFAUT (carte « Jarvis :
+ * répondre sans tout raconter », 18/11/2026 — « compacté avec comme label le point qu'il est en train de traiter ») :
+ * une seule ligne, l'étape en cours, son compteur « n sur m » et un chevron ; un clic déplie la liste entière, avec
+ * sous chaque étape finie son résultat. Elle ne paraît que quand Jarvis a réellement cherché ou agi. Le fond
  * `bg-raised` la détache du fil sans aucun trait.
  */
 function ListeDesVerifications({ etapes }: { etapes: ActiviteDuDirect[] }) {
+  const [deplie, setDeplie] = React.useState(false);
   const faites = etapes.filter((e) => e.etat === 'finie' || e.etat === 'echec').length;
+  const titre = etapeDuTitre(etapes);
   return (
-    <div data-bulle="verifications" data-verifications-faites={faites} data-verifications-total={etapes.length} className="pointer-events-auto w-[88%] max-w-full rounded-lg bg-raised px-3 pb-1.5 pt-2 text-[12px]">
-      <div className="mb-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
-        <span className="min-w-0 truncate">{t('Je vérifie avant de répondre')}</span>
-        <span className="shrink-0 tabular-nums" data-verifications-compteur>
+    <div
+      data-bulle="verifications"
+      data-verifications-faites={faites}
+      data-verifications-total={etapes.length}
+      data-verifications-deplie={deplie ? 'oui' : 'non'}
+      className="pointer-events-auto w-[88%] max-w-full rounded-lg bg-raised px-3 py-1.5 text-[12px]"
+    >
+      <button
+        type="button"
+        data-verifications-bascule
+        aria-expanded={deplie}
+        onClick={() => setDeplie((v) => !v)}
+        className="flex w-full items-start gap-2 py-0.5 text-left"
+      >
+        {titre ? <PastilleDEtape etat={titre.etat} /> : null}
+        <span data-verifications-titre className={cn('min-w-0 flex-1 truncate', titre?.etat === 'en-cours' ? 'text-teinte' : 'text-text')}>
+          {titre?.libelle ?? ''}
+        </span>
+        <span className="shrink-0 tabular-nums text-[11.5px] text-muted" data-verifications-compteur>
           {t('{faites} sur {total}', { faites, total: etapes.length })}
         </span>
-      </div>
-      <ul className="space-y-0.5">
-        {etapes.map((etape) => (
-          <li key={etape.id} data-etape-de-verification={etape.etat} className="flex items-start gap-2 py-0.5">
-            <span className="mt-[2px] flex h-3 w-3 shrink-0 items-center justify-center">
-              {etape.etat === 'en-cours' ? (
-                <Loader2 className="h-3 w-3 animate-spin text-teinte" />
-              ) : etape.etat === 'echec' ? (
-                <X className="h-3 w-3 text-danger" />
-              ) : etape.etat === 'finie' ? (
-                <Check className="h-3 w-3 text-text" />
-              ) : (
-                <span className="h-2.5 w-2.5 rounded-full border border-faint" />
-              )}
-            </span>
-            <span className="min-w-0 flex-1 select-text break-words">
-              <span className={etape.etat === 'a-venir' ? 'text-muted' : etape.etat === 'en-cours' ? 'text-teinte' : 'text-text'}>{etape.libelle}</span>
-              {etape.resultat ? <span className="block text-muted">{etape.resultat}</span> : null}
-            </span>
-          </li>
-        ))}
-      </ul>
+        {deplie ? <ChevronUp className="mt-[1px] h-3.5 w-3.5 shrink-0 text-muted" /> : <ChevronDown className="mt-[1px] h-3.5 w-3.5 shrink-0 text-muted" />}
+      </button>
+      {deplie ? (
+        <ul className="mt-1 space-y-0.5" data-verifications-liste>
+          {etapes.map((etape) => (
+            <li key={etape.id} data-etape-de-verification={etape.etat} className="flex items-start gap-2 py-0.5">
+              <PastilleDEtape etat={etape.etat} />
+              <span className="min-w-0 flex-1 select-text break-words">
+                <span className={etape.etat === 'a-venir' ? 'text-muted' : etape.etat === 'en-cours' ? 'text-teinte' : 'text-text'}>{etape.libelle}</span>
+                {etape.resultat ? <span className="block text-muted">{etape.resultat}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
   nomDuCahierExporte,
   titreDeLaCarteDeSuite,
   lireAvancement,
+  refusDeFinDuCahier,
   pausePossible,
   reprisePossible,
   resumeDeLaDemandeDeSuite,
@@ -230,6 +231,11 @@ export async function ecrireLeCahier(agentId: string, args: Record<string, unkno
   if (!lu.ok) return { ok: false, text: lu.raison };
   const document = typeof args.document === 'string' ? args.document : '';
   if (!document.trim()) return { ok: false, text: 'Le document ENTIER est obligatoire : il remplace le fichier.' };
+  // UN CAHIER NE SE TERMINE QUE COMPLET (18/11/2026) : rien « à voir », et les spécificités de chaque type écrites.
+  if (lu.cahier.termineA && !carte.cahierDesCharges.termineA) {
+    const refus = refusDeFinDuCahier(document, !!carte.cahierDesCharges.source);
+    if (refus) return { ok: false, text: `Refusé : ${refus} Rien n'a été enregistré : renvoie le document ENTIER.` };
+  }
 
   const projet = store.getProject(carte.projectId);
   const cible = projet ? safeJoin(projet.path, DOCUMENT_DU_CAHIER) : null;

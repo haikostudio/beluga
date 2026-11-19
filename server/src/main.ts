@@ -513,8 +513,10 @@ async function main(): Promise<void> {
     45_000,
   ).unref?.();
   const rattrapageTimer = setInterval(() => void reprendreLesRattrapages(), 120_000);
-  // Premier passage différé : le démarrage n'attend pas un ménage qui peut toucher des centaines de milliers de lignes.
-  setTimeout(() => void menageQuotidienDesJournaux(), 120_000).unref?.();
+  // Premier passage différé de 15 min, hors de la fenêtre du démarrage (rendu de la mémoire,
+  // vecteurs, rattrapages) : à +2 min, sa lecture à froid figeait le démon ~5 s (18/11/2026).
+  // La boucle horaire le rattrape ensuite : un jour n'est jamais sauté.
+  setTimeout(() => void menageQuotidienDesJournaux(), 15 * 60_000).unref?.();
   const janitorTimer = setInterval(
     () => {
       purgeOldArchives();

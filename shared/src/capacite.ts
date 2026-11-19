@@ -408,13 +408,25 @@ export function porteDesTravauxLourds(
 /** Ce qu'il faut de mémoire disponible pour CHARGER le trieur (~1,1 Go une fois chargé, plus une marge). */
 export const MEMOIRE_POUR_CHARGER_LE_TRIEUR_MO = 1500;
 
+/**
+ * Au-delà de ce remplissage du fichier d'échange, le tri est refusé même si la
+ * mémoire vive semble avoir de la place : le 18/11/2026 à 08:28, l'échange était
+ * à 8191/8191 Mo et le trieur (1 Go) a poussé le démon dans un silence de 63 s.
+ */
+export const ECHANGE_MAX_POUR_LE_TRI_PCT = 90;
+
 export function triDesCompetencesPermis(etat: {
   pression: PressionMemoire;
   /** Le trieur est-il déjà en mémoire (rien à charger) ? */
   trieurCharge: boolean;
   memDispoMo?: number;
+  /** Le remplissage du fichier d'échange, en %. */
+  swapPct?: number;
 }): { permis: boolean; raison?: string } {
   if (etat.pression.suspendre) return { permis: false, raison: 'mémoire pleine' };
+  if (etat.swapPct !== undefined && Number.isFinite(etat.swapPct) && etat.swapPct > ECHANGE_MAX_POUR_LE_TRI_PCT) {
+    return { permis: false, raison: `fichier d’échange plein à ${Math.round(etat.swapPct)} %` };
+  }
   if (!etat.trieurCharge && etat.memDispoMo !== undefined && Number.isFinite(etat.memDispoMo) && etat.memDispoMo < MEMOIRE_POUR_CHARGER_LE_TRIEUR_MO) {
     return { permis: false, raison: `${Math.round(etat.memDispoMo)} Mo disponibles, trop peu pour charger le trieur` };
   }

@@ -27,6 +27,8 @@ const modeleId = process.argv[3];
 const modeleDeTri = process.argv[4];
 const jetonsDuTri = Number(process.argv[5]) || 192;
 const lotDuTri = Number(process.argv[6]) || 8;
+/* Les fils de calcul du trieur (`FILS_DU_TRI`) : sans réglage, l'ONNX prend tous les cœurs. */
+const filsDuTri = Number(process.argv[7]) || 2;
 
 /* Le moteur vit hors du dépôt (aucun type installé) : on n'en décrit que ce qui sert ici. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -77,7 +79,7 @@ function modeleDeTriCharge() {
     const [tokenizer, modeleTri] = await Promise.all([
       m.AutoTokenizer.from_pretrained(modeleDeTri),
       // Sans « arène » de mémoire : l'ONNX ne garde pas le pic du plus gros lot (~100 Mo de moins).
-      m.AutoModelForSequenceClassification.from_pretrained(modeleDeTri, { dtype: 'q8', session_options: { enableCpuMemArena: false } }),
+      m.AutoModelForSequenceClassification.from_pretrained(modeleDeTri, { dtype: 'q8', session_options: { enableCpuMemArena: false, intraOpNumThreads: filsDuTri, interOpNumThreads: 1 } }),
     ]);
     return {
       tokenizer: tokenizer as unknown as (...a: unknown[]) => unknown,

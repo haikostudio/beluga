@@ -182,25 +182,19 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
 /* ------------------------------------------------------------------ */
 
 /** Les deux outils qui ont déjà leur propre « projet » (le projet à gérer). */
-const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier', 'voix_silence']);
+const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier']);
 
 /**
  * LES OUTILS DE LA CONVERSATION VOCALE SEULE (carte « Jarvis plus fiable et vérifié », 18/11/2026) : servis au cerveau
- * de la voix (`voix: true`), à personne d'autre. Le dossier de vérification est préparé par Beluga dès la fin de la
- * phrase ; le silence coupe les étapes dites à voix haute.
+ * de la voix (`voix: true`), à personne d'autre. Le dossier de vérification ne se prépare que quand le cerveau
+ * l'appelle (18/11/2026) : plus de recherche d'office, plus d'étapes dites à voix haute, plus de « voix_silence ».
  */
 const OUTILS_DE_LA_VOIX: ToolDef[] = [
   {
     name: 'voix_dossier',
     description:
-      "LE DOSSIER DE VÉRIFICATION de la phrase que l'utilisateur vient de dire, À APPELER EN PREMIER à chaque demande : Beluga y a réuni, dès la fin de sa phrase, la MÉMOIRE du projet (unités et décisions, avec leur id), les DISCUSSIONS vocales passées (DISC-…), les TÂCHES approchantes de tous les projets (avec leur lien) et l'ACTIVITÉ du moment (tâches au travail, mises en ligne et en production avec leur état réel, PUBLICATIONS EN ATTENTE — à déployer et à mettre en production, mêmes chiffres que les Tableaux de bord —, ce qui attend). Ouvre ensuite ce qu'il désigne, autant que la question l'exige. « demande » (facultatif) : un autre sujet à vérifier que la dernière phrase.",
+      "LE DOSSIER DE VÉRIFICATION de la phrase que l'utilisateur vient de dire, À APPELER SEULEMENT quand la demande l'exige (le passé, une décision, l'état de Beluga, une tâche, une action) — JAMAIS pour un salut, un merci, un avis ou une question générale. Beluga y réunit, en deux secondes au plus, la MÉMOIRE du projet (unités et décisions, avec leur id), les DISCUSSIONS vocales passées (DISC-…), les TÂCHES approchantes de tous les projets (avec leur lien) et l'ACTIVITÉ du moment (tâches au travail, mises en ligne et en production avec leur état réel, PUBLICATIONS EN ATTENTE — à déployer et à mettre en production, mêmes chiffres que les Tableaux de bord —, ce qui attend). Ouvre ensuite ce qu'il désigne, autant que la question l'exige. « demande » (facultatif) : un autre sujet à vérifier que la dernière phrase.",
     inputSchema: { type: 'object', properties: { demande: { type: 'string', description: 'Un autre sujet que la dernière phrase, en quelques mots.' } } },
-  },
-  {
-    name: 'voix_silence',
-    description:
-      "Le SILENCE DEMANDÉ : quand l'utilisateur veut que tu travailles sans lui parler (« fais ça de ton côté », compris au sens), « actif »: true coupe toutes les étapes dites à voix haute jusqu'à la fin de ce travail ; ta réponse finale en est le compte rendu. « actif »: false les rétablit.",
-    inputSchema: { type: 'object', required: ['actif'], properties: { actif: { type: 'boolean' } } },
   },
 ];
 
@@ -408,10 +402,6 @@ export async function executerPourLAssistant(
       case 'voix_dossier': {
         const { dossierPourLeCerveau } = await import('./voix-directe.js');
         return await dossierPourLeCerveau(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);
-      }
-      case 'voix_silence': {
-        const { silenceDeLaVoix } = await import('./voix-directe.js');
-        return silenceDeLaVoix(ctx.agentId, args.actif !== false);
       }
       case 'assistant_messagerie':
         return await messagerie(args, projetVise);

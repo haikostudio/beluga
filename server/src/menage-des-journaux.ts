@@ -20,13 +20,12 @@ import { CONSERVATION_JOURNAUX_MS } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { getDb } from './db.js';
 import { purgerLesCopiesAnciennes } from './fichiers-conserves.js';
-import { allegerUnLotDeJournaux } from './journal-carte.js';
+import { allegerUneTrancheDeJournaux } from './journal-carte.js';
 import { purgerLesTracesAnciennes } from './jugement-rapide.js';
 import { log } from './logger.js';
 
 const RACINE_EXTERNE = '/mnt/sauvegardes';
 const DOSSIER_EXTERNE = path.join(RACINE_EXTERNE, 'beluga-archives-journaux');
-const TAILLE_DE_PAGE = 5000;
 const UNE_JOURNEE = 24 * 60 * 60 * 1000;
 /** La base évolutive du juge ne dépasse jamais ce nombre de motifs par rubrique. */
 export const PLAFOND_DES_MOTIFS = 40;
@@ -51,52 +50,65 @@ const dossierDeLaBase = (): string => path.join(CONFIG.dataDir, 'juge');
 /* L'ARCHIVE                                                           */
 /* ------------------------------------------------------------------ */
 
+/** La largeur d'une tranche de rowid lue d'un coup par l'archive. */
+const TRANCHE_DE_ROWID = 5000;
+
 /**
- * Copie les lignes d'une requête paginée (curseur sur rowid) dans un fichier
- * jsonl.gz écrit sous un nom temporaire puis renommé. Rend le nombre de lignes
- * écrites (0 = aucun fichier créé). Lève si l'écriture échoue.
+ * Copie les lignes d'une table, TRANCHE DE ROWID PAR TRANCHE DE ROWID, dans un
+ * fichier jsonl.gz écrit sous un nom temporaire puis renommé. Rend le nombre de
+ * lignes écrites (0 = aucun fichier créé). Lève si l'écriture échoue.
+ *
+ * `lire(apres, jusqua)` rend les lignes dont le rowid est dans `]apres, jusqua]`.
+ * POURQUOI DES TRANCHES : la requête « rowid > ? … LIMIT 5000 » parcourait la
+ * table ENTIÈRE quand il ne restait presque rien à copier — 5,5 s à froid, d'un
+ * seul tenant, deux minutes après chaque démarrage (gel du 18/11/2026). Une
+ * tranche bornée ne lit que ses pages, et la boucle d'événements reprend la main
+ * entre deux tranches.
  */
 async function archiver(
   dossier: string,
   prefixe: string,
-  lire: (apres: number, limite: number) => { rowid: number }[],
+  borne: number,
+  lire: (apres: number, jusqua: number) => object[],
 ): Promise<number> {
-  let apres = 0;
   let total = 0;
   let sortie: fs.WriteStream | undefined;
   let gz: zlib.Gzip | undefined;
   let fini: Promise<void> | undefined;
   const tmp = path.join(dossier, `${prefixe}-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl.gz.tmp`);
   try {
-    for (;;) {
-      const page = lire(apres, TAILLE_DE_PAGE);
-      if (page.length === 0) break;
-      if (!gz) {
-        fs.mkdirSync(dossier, { recursive: true });
-        sortie = fs.createWriteStream(tmp);
-        gz = zlib.createGzip();
-        gz.pipe(sortie);
-        fini = once(sortie, 'close').then(() => undefined);
+    for (let apres = 0; apres < borne; apres += TRANCHE_DE_ROWID) {
+      const page = lire(apres, Math.min(borne, apres + TRANCHE_DE_ROWID));
+      if (page.length > 0) {
+        if (!gz) {
+          await fs.promises.mkdir(dossier, { recursive: true });
+          sortie = fs.createWriteStream(tmp);
+          gz = zlib.createGzip();
+          gz.pipe(sortie);
+          fini = once(sortie, 'close').then(() => undefined);
+        }
+        const texte = page.map((l) => JSON.stringify(l)).join('\n') + '\n';
+        if (!gz.write(texte)) await once(gz, 'drain');
+        total += page.length;
       }
-      const texte = page.map((l) => JSON.stringify(l)).join('\n') + '\n';
-      if (!gz.write(texte)) await once(gz, 'drain');
-      apres = page[page.length - 1].rowid;
-      total += page.length;
+      await new Promise((r) => setImmediate(r));
     }
     if (!gz) return 0;
     gz.end();
     await fini;
-    if (fs.statSync(tmp).size <= 0) throw new Error('archive vide');
-    fs.renameSync(tmp, tmp.replace(/\.tmp$/, ''));
+    if ((await fs.promises.stat(tmp)).size <= 0) throw new Error('archive vide');
+    await fs.promises.rename(tmp, tmp.replace(/\.tmp$/, ''));
     return total;
   } catch (err) {
-    try {
-      fs.rmSync(tmp, { force: true });
-    } catch {
-      /* rien */
-    }
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
     throw err;
   }
+}
+
+/** Le plus grand rowid d'une ligne d'avant `avant` (index sur `at`) : au-delà, rien à copier. */
+function borneDesAnciennes(table: 'card_journal' | 'jugement_traces', avant: number): number {
+  const r = getDb().prepare(`SELECT max(rowid) AS m FROM ${table} WHERE at < ?`).get(avant) as { m: number | null } | undefined;
+  return Number(r?.m ?? 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -274,20 +286,20 @@ export async function menageDesJournaux(maintenant = Date.now()): Promise<BilanD
   const db = getDb;
   try {
     const jour = new Date(maintenant).toISOString().slice(0, 10);
-    bilan.archiveesJournal = await archiver(dossier, `journal-${jour}`, (apres, limite) =>
+    bilan.archiveesJournal = await archiver(dossier, `journal-${jour}`, borneDesAnciennes('card_journal', avant), (apres, jusqua) =>
       db()
         .prepare(
           `SELECT rowid AS rowid, id, card_id, rang, at, phase, nature, outil, params, resultat
            FROM card_journal
-           WHERE rowid > ? AND at < ? AND ((resultat IS NOT NULL AND resultat != '') OR params IS NOT NULL)
-           ORDER BY rowid LIMIT ?`,
+           WHERE rowid > ? AND rowid <= ? AND at < ? AND ((resultat IS NOT NULL AND resultat != '') OR params IS NOT NULL)
+           ORDER BY rowid`,
         )
-        .all(apres, avant, limite) as { rowid: number }[],
+        .all(apres, jusqua, avant) as object[],
     );
-    bilan.archiveesTraces = await archiver(dossier, `traces-juge-${jour}`, (apres, limite) =>
+    bilan.archiveesTraces = await archiver(dossier, `traces-juge-${jour}`, borneDesAnciennes('jugement_traces', avant), (apres, jusqua) =>
       db()
-        .prepare('SELECT rowid AS rowid, * FROM jugement_traces WHERE rowid > ? AND at < ? ORDER BY rowid LIMIT ?')
-        .all(apres, avant, limite) as { rowid: number }[],
+        .prepare('SELECT rowid AS rowid, * FROM jugement_traces WHERE rowid > ? AND rowid <= ? AND at < ? ORDER BY rowid')
+        .all(apres, jusqua, avant) as object[],
     );
   } catch (err: any) {
     bilan.ignore = `copie sur le disque externe impossible (${err?.message ?? err}) : rien n’est vidé`;
@@ -304,10 +316,9 @@ export async function menageDesJournaux(maintenant = Date.now()): Promise<BilanD
   }
 
   try {
-    for (;;) {
-      const n = allegerUnLotDeJournaux(avant, TAILLE_DE_PAGE);
-      bilan.allegees += n;
-      if (n < TAILLE_DE_PAGE) break;
+    const borne = borneDesAnciennes('card_journal', avant);
+    for (let apres = 0; apres < borne; apres += TRANCHE_DE_ROWID) {
+      bilan.allegees += allegerUneTrancheDeJournaux(avant, apres, Math.min(borne, apres + TRANCHE_DE_ROWID));
       await new Promise((r) => setImmediate(r)); // laisse la base aux autres
     }
   } catch (err: any) {

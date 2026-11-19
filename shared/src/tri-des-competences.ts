@@ -33,6 +33,12 @@ export const JETONS_DU_TRI = 192;
  * et ~400 Mo de mémoire vive en moins qu'en un seul lot (mesure du 14/11/2026).
  */
 export const LOT_DU_TRI = 8;
+/**
+ * Les fils de calcul du trieur. Sans réglage, le moteur prend tous les cœurs :
+ * 157 % de processeur le 18/11/2026, au détriment du démon sur une machine de
+ * 4 cœurs. Plus lent, un tri qui dépasse son délai garde l'ordre d'avant.
+ */
+export const FILS_DU_TRI = 2;
 
 /**
  * LES SEUILS DU CADRAGE (mesure du 14/11/2026, 24 demandes avec compétence, 5 sans).

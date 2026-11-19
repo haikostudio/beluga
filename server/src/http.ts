@@ -1942,6 +1942,34 @@ export function createHttpServer(): http.Server {
       }
 
       /*
+       * LE PLAN D'UNE CARTE, PAR VERSION, À EMPORTER depuis l'entête de son
+       * volet : même mise en page que le cahier des charges. Sans plan : 404.
+       */
+      if (route === '/api/cartes/plan') {
+        const format = url.searchParams.get('format') === 'md' ? 'md' : 'pdf';
+        const carte = store.getCard(String(url.searchParams.get('carte') ?? ''));
+        if (!carte) return json(res, 404, { error: 'Carte introuvable.' });
+        if (estCollaborateur(compte.role) && !peutVoirProjet(compte, carte.projectId)) {
+          return json(res, 403, { error: REFUS_HORS_PORTEE });
+        }
+        const numero = Number(url.searchParams.get('version') ?? '');
+        const { exporterLePlan } = await import('./export-du-plan.js');
+        const r = await exporterLePlan(carte.id, numero, format).catch((err) => {
+          log.error('export du plan impossible', err);
+          return undefined;
+        });
+        if (r === undefined) return json(res, 500, { error: 'Export du plan impossible.' });
+        if (!r) return json(res, 404, { error: 'Cette version du plan n’existe pas.' });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': r.contenu.length,
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+        });
+        return res.end(r.contenu);
+      }
+
+      /*
        * LE RELAIS, VU DE L'ÉCRAN (administrateurs seulement : ces routes ne sont
        * ouvertes à personne d'autre dans `droits-commandes.ts`). L'état et les
        * tickets de CETTE installation ; sur la machine qui reçoit, les chiffres

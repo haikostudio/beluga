@@ -45,6 +45,20 @@ export const DUREE_MINIMALE_DE_RAFALE_MS = 5_000;
  */
 export const MARGE_AVANT_ARRET_VOULU_MS = 30_000;
 export const MARGE_APRES_ARRET_VOULU_MS = 3 * 60_000;
+/**
+ * UNE RAFALE VUE PAR LE NAVIGATEUR NE COMPTE QUE SI LE SERVEUR A AUSSI FLANCHÉ
+ * (décision de l'utilisateur, 18/11/2026) : un figement du démon ou un silence
+ * de la sonde à moins de cette marge de la rafale. Le 18/11 à 19:55, un iPhone
+ * sur réseau mobile a perdu son canal (1006, ECONNRESET) sans aucun gel du
+ * démon : c'était le réseau du téléphone, pas le serveur.
+ */
+export const MARGE_TRACE_SERVEUR_MS = 30_000;
+/**
+ * Le figement du démon qui vaut trace serveur. Les gels de 1 à 2 s sont le
+ * bruit de fond (plusieurs centaines par jour sous pression mémoire) : les
+ * prendre ferait compter toutes les rafales.
+ */
+export const FIGEMENT_TRACE_SERVEUR_S = 3;
 
 /** L'étiquette posée sur la carte d'enquête. */
 export const LABEL_DECROCHAGE_SERVEUR = 'décrochage serveur';
@@ -98,6 +112,20 @@ export function arretsVoulusDuJournalDuDemon(texte: string): number[] {
   for (const m of String(texte ?? '').matchAll(motif)) {
     const t = Date.parse(m[1]);
     if (Number.isFinite(t)) instants.push(t);
+  }
+  return instants;
+}
+
+/**
+ * LES FIGEMENTS DU DÉMON LUS DANS `service.log` : « [ISO] WARN le démon s'est
+ * figé 6.2 s (…) ». Rend l'instant de chaque figement d'au moins `seuilS`.
+ */
+export function figementsDuJournalDuDemon(texte: string, seuilS = FIGEMENT_TRACE_SERVEUR_S): number[] {
+  const instants: number[] = [];
+  const motif = /^\[(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\][^\n]*le démon s[’']est figé ([\d.]+) s/gm;
+  for (const m of String(texte ?? '').matchAll(motif)) {
+    const t = Date.parse(m[1]);
+    if (Number.isFinite(t) && Number(m[2]) >= seuilS) instants.push(t);
   }
   return instants;
 }
@@ -221,6 +249,13 @@ export function incidentsDeDecrochage(entree: {
   coupures: readonly CoupureDuNavigateur[];
   /** Arrêts voulus lus ailleurs (le journal du démon), en plus de ceux du journal. */
   arretsVoulus?: readonly number[];
+  /**
+   * Les instants où le SERVEUR a flanché (figements du démon ≥ 3 s). Fourni,
+   * une rafale du navigateur ne compte que si l'un d'eux — ou un silence, une
+   * relance du journal — tombe à moins de `MARGE_TRACE_SERVEUR_MS` d'elle.
+   * Absent : aucun filtre (anciens appels).
+   */
+  tracesDuServeur?: readonly number[];
   maintenant: number;
   fenetreMs?: number;
 }): IncidentDeDecrochage[] {
@@ -254,9 +289,18 @@ export function incidentsDeDecrochage(entree: {
     if (incidents.some((i) => c.instant >= i.debut - ECART_SILENCES_MEME_INCIDENT_MS && c.instant <= i.fin + ECART_SILENCES_MEME_INCIDENT_MS)) return false;
     return true;
   });
+  const traces = entree.tracesDuServeur
+    ? [
+        ...entree.tracesDuServeur,
+        ...journal.filter((l) => l.genre === 'silence' || l.genre === 'relance-surveillant').map((l) => l.instant),
+      ]
+    : null;
   for (const rafale of grouper(coupures, ECART_COUPURES_MEME_RAFALE_MS)) {
     if (rafale.length < COUPURES_MINIMUM_PAR_RAFALE) continue;
     if (rafale[rafale.length - 1].instant - rafale[0].instant < DUREE_MINIMALE_DE_RAFALE_MS) continue;
+    const debut = rafale[0].instant - MARGE_TRACE_SERVEUR_MS;
+    const fin = rafale[rafale.length - 1].instant + MARGE_TRACE_SERVEUR_MS;
+    if (traces && !traces.some((t) => t >= debut && t <= fin)) continue;
     incidents.push({
       genre: 'coupures-navigateur',
       debut: rafale[0].instant,

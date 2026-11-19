@@ -366,3 +366,28 @@ export function planEnTexteSimple(texte: string): string | null {
   if (range.queue.trim()) blocs.push(range.queue.trim());
   return blocs.join('\n\n');
 }
+
+/**
+ * LE PLAN À EMPORTER (copier, télécharger depuis son volet, 18/11/2026) : le
+ * même markdown que l'écran affiche — gabarit remis d'aplomb quand il l'est,
+ * texte brut sinon.
+ */
+export function planAEmporter(texte: string): string {
+  /* UNE ILLUSTRATION DU PLAN (`![libellé](piece:…)`) n'a de sens que dans
+     l'application : hors d'elle, le lien vers la pièce ne mène nulle part. Elle
+     part comme sa légende, en italique. */
+  return (planEnTexteSimple(texte) ?? texte)
+    .split('\n')
+    .map((ligne) => {
+      const illustration = /^\s*!\[([^\]]*)\]\(piece:[A-Za-z0-9-]+\)\s*$/.exec(ligne);
+      if (!illustration) return ligne;
+      return illustration[1]!.trim() ? `*Illustration : ${illustration[1]!.trim()}*` : '';
+    })
+    .join('\n');
+}
+
+/** Le nom du fichier exporté : « Plan v2 — <carte>.pdf » ou « .md ». */
+export function nomDuPlanExporte(numero: number, titreDeLaCarte: string, format: 'pdf' | 'md'): string {
+  const propre = String(titreDeLaCarte ?? '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim() || 'carte';
+  return `Plan v${numero} — ${propre}.${format}`;
+}

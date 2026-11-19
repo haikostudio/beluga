@@ -383,6 +383,7 @@ import {
   nomDeCompetenceDeLUnite,
   TEXTE_CARTE_EN_PUBLICATION,
   ordreDeMoteursComplet,
+  CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF,
 } from '@beluga/shared';
 import { createHash } from 'node:crypto';
 import { SERVICE_DU_DIRECTEUR, estPeriodeAudience, PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee, ligneDeFermetureDuCanal } from '@beluga/shared';
@@ -1848,9 +1849,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'project.new': {
-      /* Une source à cloner coche d'office le cahier : c'est lui qui l'analyse. */
+      /* UN PROJET PARTI DE RIEN PASSE TOUJOURS PAR SON CAHIER DES CHARGES (décision du 18/11/2026), quelle que soit
+         la valeur envoyée ; une source à cloner aussi, c'est lui qui l'analyse. */
       const source = lireSourceFournie(cmd.source);
-      const avecCahier = !!(cmd.cahierDesCharges || source);
+      const avecCahier = CAHIER_OBLIGATOIRE_POUR_UN_PROJET_NEUF || !!(cmd.cahierDesCharges || source);
       const suivre = suiviDuMontage(cmd.suivi, compte.id);
       const { project, etapes } = await createProjectFolder({
         name: cmd.name,
