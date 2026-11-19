@@ -127,6 +127,7 @@ import { modifierLaListe, usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
 import { ClocheNotifications } from '@/components/notifications';
 import { useApp } from '@/lib/use-app';
+import { useChoixDeProjetAvecAttente } from '@/lib/choix-de-projet';
 import { useGlissementDeCarte } from '@/lib/deplacement-de-projet';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -2671,6 +2672,9 @@ function ProjectRow({
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
   const secoue = useSecousse({ attention, rendus }, active);
+  /* LA ROUE DU PROJET QUI SE CHARGE (19/11/2026) : la liste ne se referme qu'une fois ses cartes arrivées. */
+  const { enChargement, choisir } = useChoixDeProjetAvecAttente();
+  const seCharge = enChargement === project.id;
   void avancement;
   void groupColor;
   void emboite;
@@ -2727,11 +2731,13 @@ function ProjectRow({
             onChoose?.();
             return;
           }
-          client.setActiveProject(project.id);
           // Choisir, c'est aussi refermer : même quand c'est déjà le projet
-          // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
-          onChoose?.();
-          onEntrer?.();
+          // affiché, le panneau ne doit pas rester ouvert sur un choix fait —
+          // mais seulement une fois le projet prêt à se montrer.
+          choisir(project.id, () => {
+            onChoose?.();
+            onEntrer?.();
+          });
         }}
         title={bande ? project.name : undefined}
         className={cn('flex h-[43px] sm:h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
@@ -2767,6 +2773,11 @@ function ProjectRow({
         ) : null
       ) : (
         <div className="flex shrink-0 items-center">
+          {seCharge ? (
+            <span className="flex h-7 w-7 items-center justify-center" data-projet-en-chargement={project.id}>
+              <Loader2 className="h-4 w-4 animate-spin text-faint motion-reduce:animate-none" aria-label="Chargement du projet" />
+            </span>
+          ) : null}
           {repereVisible({ attention }) ? (
             <RepereLigne icone={icone} signal={{ attention }} onDecision={() => allerALaDecision(project.id, onChoose)} />
           ) : null}

@@ -18,12 +18,14 @@ import {
   promptInitialisationProduction,
   promptSuiteInitialisation,
   type ProcessusDeProduction,
+  aUnProcessus,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { CONFIG } from './config.js';
 import { brancheDeLEtape } from './deploy.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
+import { getMeta, setMeta } from './db.js';
 import { agentsActifs, createAgent, sendPrompt } from './runtime.js';
 import { attenteDeLAgent } from './attente-question.js';
 
@@ -341,6 +343,12 @@ export function enregistrerProcessus(
       /* Le processus écrit remplace l'ancien réglage : la marque « hérité » n'a plus lieu d'être. */
       ...(cible === 'dev' ? { herite: undefined } : {}),
     },
+    /*
+     * L'INITIALISATION ALLUME LA MISE EN PRODUCTION (décision de l'utilisateur, 19/11/2026) : écrire sa procédure,
+     * c'est la permettre. L'interrupteur reste éteint par défaut pour un projet sans procédure, et l'allumer ne lance
+     * rien : la mise en production reste un geste de l'utilisateur.
+     */
+    ...(cible === 'production' ? { miseEnProductionActive: true } : {}),
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
   /* Une adresse publique écrite par l'agent est autorisée au suivi, comme une saisie (sans lecture ni carte). */
@@ -493,4 +501,27 @@ async function mener(depart: EtatDeProcedure, prompt: string): Promise<void> {
     return;
   }
   poser({ ...fini, raison: issue.raison });
+}
+
+/** Le marqueur du rattrapage unique de `rallumerLaProductionDesProjetsInitialises`. */
+const MARQUEUR_PRODUCTION_ACTIVE_SI_PROCESSUS = 'migration.productionActiveSiProcessus';
+
+/**
+ * LE RATTRAPAGE UNIQUE DES PROJETS DÉJÀ INITIALISÉS (19/11/2026) : avant la règle, une initialisation de la mise en
+ * production écrivait la procédure sans allumer l'option, et le bouton restait gris (CopyFlow). Tout projet qui a une
+ * procédure de mise en production et l'option éteinte est rallumé UNE fois, gardé par un marqueur : un projet éteint
+ * exprès ensuite n'est plus jamais touché. Rend le nombre de projets rallumés.
+ */
+export function rallumerLaProductionDesProjetsInitialises(): number {
+  if (getMeta(MARQUEUR_PRODUCTION_ACTIVE_SI_PROCESSUS)) return 0;
+  let rallumes = 0;
+  for (const projet of store.listProjects()) {
+    if (!aUnProcessus(projet) || projet.miseEnProductionActive === true) continue;
+    const enregistre = store.saveProject({ ...projet, miseEnProductionActive: true });
+    bus.emit({ type: 'project.upsert', project: enregistre });
+    log.info(`mise en production rallumée pour « ${projet.name} » : sa procédure est écrite (rattrapage unique du 19/11/2026)`);
+    rallumes += 1;
+  }
+  setMeta(MARQUEUR_PRODUCTION_ACTIVE_SI_PROCESSUS, String(Date.now()));
+  return rallumes;
 }

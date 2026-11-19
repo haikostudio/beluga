@@ -62,6 +62,9 @@ import {
   voixDuDirectRetenue,
   voixPermises,
   normaliserParole,
+  pointDAvancement,
+  type EtapeDuCerveau,
+  type NouvellesDites,
   INTITULE_DE_LA_VOIX,
   Message,
   type Agent,
@@ -226,7 +229,26 @@ interface Session {
   raison?: string;
   /** La dernière phrase de l'utilisateur, et son dossier s'il a été demandé (`ouvrirLaPhrase`, `voix_dossier`). */
   phrase?: PhraseVerifiee;
+  /** Le travail du cerveau en cours, et l'horloge de ses nouvelles (`donnerDesNouvelles`, 19/11/2026). */
+  travail?: TravailDuCerveau;
+  /** Un point d'avancement vient d'être passé : la prochaine phrase de la voix est ce point, pas la réponse. */
+  pointEnAttente?: boolean;
 }
+
+/**
+ * LE TRAVAIL DU CERVEAU EN COURS (décision de l'utilisateur, 19/11/2026) : ses étapes RÉELLES (appels d'outils) et ce
+ * qui a déjà été dit. Après 15 s sans parole de la voix, un point d'avancement part à la voix (`pointDAvancement`),
+ * puis au plus toutes les 30 s s'il y a du nouveau. Tout s'arrête à la fin du tour du cerveau, à une nouvelle phrase
+ * de l'utilisateur ou à la fermeture.
+ */
+interface TravailDuCerveau {
+  etapes: Map<string, EtapeDuCerveau>;
+  dites: NouvellesDites;
+  minuterie: NodeJS.Timeout;
+}
+
+/** Le pas de l'horloge des nouvelles. */
+const TIC_DES_NOUVELLES_MS = 1000;
 
 /** Une phrase vérifiée : son identifiant (la liste cochée de l'écran), son texte et la recherche en vol. */
 interface PhraseVerifiee {
@@ -679,17 +701,23 @@ export async function saluerLeDirect(): Promise<{ ok: boolean; salut?: string }>
 
 /**
  * LE DOSSIER DE VÉRIFICATION (carte « Jarvis plus fiable et vérifié », 18/11/2026). Quand le cerveau appelle
- * « voix_dossier » (jamais d'office : décision du 18/11/2026), Beluga lance, en parallèle et sous `DELAI_DE_LA_RECHERCHE_MS`, quatre recherches LOCALES : la
+ * « voix_dossier » (jamais d'office : décision du 18/11/2026), Beluga lance, en parallèle, quatre recherches LOCALES : la
  * mémoire (unités du projet et du global), les discussions vocales, les tâches de tous les projets et l'activité du
  * moment (tâches au travail, mises en ligne et en production, ce qui attend). Le cerveau le lit par « voix_dossier »
  * avant de répondre. Jamais d'exception : une source qui tarde est dite « sans réponse à temps ».
  * Elle ne partait avant que pour une phrase tournée vers le passé : la mémoire n'était ouverte qu'une fois sur 91.
+ *
+ * LE DOSSIER ATTEND LE RETOUR COMPLET (décision de l'utilisateur, 19/11/2026, « capital ») : plus de délai de 2 s,
+ * qui laissait la mémoire « sans réponse » une fois sur trois (dossier prêt en 1,8 à 3,4 s). Seul reste un PLAFOND
+ * DE SÉCURITÉ contre une vraie panne ; la recherche par le sens a 15 s (`DELAI_DU_SENS_POUR_LA_VOIX_MS`).
  */
-export const DELAI_DE_LA_RECHERCHE_MS = 2000;
+export const PLAFOND_DE_SECURITE_DU_DOSSIER_MS = 30_000;
+/** La recherche par le sens de la mémoire, pour la voix : au-delà, elle retombe sur les mots seuls. */
+export const DELAI_DU_SENS_POUR_LA_VOIX_MS = 15_000;
 
 const EN_RETARD: unique symbol = Symbol('en retard');
 
-async function avantLeDelai<T>(travail: Promise<T>, delaiMs = DELAI_DE_LA_RECHERCHE_MS): Promise<T | typeof EN_RETARD> {
+async function avantLeDelai<T>(travail: Promise<T>, delaiMs = PLAFOND_DE_SECURITE_DU_DOSSIER_MS): Promise<T | typeof EN_RETARD> {
   let minuterie: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
@@ -716,7 +744,7 @@ export async function chercherPourLaVoix(demande: string, o: { projectId?: strin
     ),
     avantLeDelai(
       import('./connaissances.js')
-        .then(({ chercherUnitesMelees }) => chercherUnitesMelees(demande, o.projectId ? { projectId: o.projectId, limite: 5 } : { tous: true, limite: 5 }))
+        .then(({ chercherUnitesMelees }) => chercherUnitesMelees(demande, { ...(o.projectId ? { projectId: o.projectId } : { tous: true }), limite: 5, delaiDuSensMs: DELAI_DU_SENS_POUR_LA_VOIX_MS }))
         .then((liste) => liste.slice(0, 5).map((t) => `- ${t.unite.id} — ${t.unite.titre} : ${String(t.unite.resume ?? '').slice(0, 240)}`)),
     ),
     avantLeDelai(import('./assistant-global.js').then(({ cartesApprochantes }) => cartesApprochantes(demande, 4))),
@@ -755,7 +783,7 @@ function ouvrirLaPhrase(courante: Session, texte: string): void {
   courante.phrase = { id: `verif-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`, texte, debut: Date.now(), recoupee: false };
 }
 
-/** Le dossier d'une phrase, lancé à la demande du cerveau : quatre sources sous `DELAI_DE_LA_RECHERCHE_MS`. */
+/** Le dossier d'une phrase, lancé à la demande du cerveau : quatre sources, attendues jusqu'au bout (plafond de sécurité seul). */
 function lancerLeDossier(courante: Session, phrase: PhraseVerifiee, recherche: string): Promise<TrouveDuDossier> {
   const id = phrase.id;
   const emettre = (cle: string, libelle: string, etat: 'en-cours' | 'finie' | 'echec' | 'a-venir', resultat?: string) =>
@@ -1072,6 +1100,7 @@ async function redigerLaSynthese(courante: Session): Promise<string> {
 function clore(courante: Session): void {
   courante.arret = true;
   finirLaPhrase(courante);
+  finirLeTravail(courante);
   if (!toursEnGrace.has(courante.tour)) toursEnGrace.set(courante.tour, { agentId: courante.agentId, jusqua: Date.now() + GRACE_DU_TOUR_VOCAL_MS });
   courante.serveur.fermer();
   // Un tour à moitié dit reste dans le fil : on garde ce qui a été entendu.
@@ -1111,6 +1140,44 @@ function nomDuProjet(id: string): string {
   return store.getProject(id)?.name ?? id;
 }
 
+function commencerLeTravail(courante: Session): TravailDuCerveau {
+  if (courante.travail) return courante.travail;
+  const minuterie = setInterval(() => donnerDesNouvelles(courante), TIC_DES_NOUVELLES_MS);
+  minuterie.unref();
+  courante.travail = { etapes: new Map(), dites: { derniereParoleLe: Date.now(), dernierPointLe: null }, minuterie };
+  return courante.travail;
+}
+
+function finirLeTravail(courante: Session): void {
+  if (!courante.travail) return;
+  clearInterval(courante.travail.minuterie);
+  courante.travail = undefined;
+}
+
+/**
+ * UN POINT D'AVANCEMENT, s'il est temps et s'il y a quelque chose d'utile à dire. Jamais par-dessus une parole : ni
+ * l'utilisateur ni la voix ne doivent être en train de parler. Le texte part à la voix en rôle developer, comme le
+ * salut (`thread/realtime/appendText`), qui le dit en une phrase.
+ */
+function donnerDesNouvelles(courante: Session): void {
+  const travail = courante.travail;
+  if (!travail) return;
+  if (courante.arret || session !== courante) {
+    finirLeTravail(courante);
+    return;
+  }
+  if (courante.enCours.user.trim() || courante.enCours.assistant.trim()) return;
+  const maintenant = Date.now();
+  const texte = pointDAvancement([...travail.etapes.values()], travail.dites, maintenant);
+  if (!texte) return;
+  travail.dites.dernierPointLe = maintenant;
+  courante.pointEnAttente = true;
+  courante.serveur
+    .appeler('thread/realtime/appendText', { threadId: courante.threadId, text: texte, role: 'developer' }, 5000)
+    .then(() => log.info(`direct vocal : point d’avancement passé à la voix après ${Math.round((maintenant - travail.dites.derniereParoleLe) / 1000)} s de silence`))
+    .catch((err) => log.warn(`direct vocal : le point d’avancement n’a pas pu partir — ${(err as Error).message}`));
+}
+
 /** Ce que Codex dit pendant la session : les phrases, les appels d'outils, la fin. */
 function traiterLaNotification(courante: Session, n: Notification): void {
   if (session !== courante) return;
@@ -1119,6 +1186,8 @@ function traiterLaNotification(courante: Session, n: Notification): void {
     case 'thread/realtime/transcript/delta': {
       const role = p.role === 'user' ? 'user' : 'assistant';
       courante.enCours[role] += String(p.delta ?? '');
+      // La voix parle : l'horloge des nouvelles repart de zéro.
+      if (role === 'assistant' && courante.travail) courante.travail.dites.derniereParoleLe = Date.now();
       // L'appel joué par l'écran ne s'affiche pas pendant qu'il se transcrit.
       if (role === 'user' && courante.appelEnAttente) return;
       bus.emit({ type: 'voix.direct.tour', role, texte: courante.enCours[role].trim(), final: false, projets: [] });
@@ -1142,8 +1211,19 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       discussions.ajouterTour(courante.discussion, role, texte, projets);
       courante.transcription.push({ role, texte });
       // La phrase devient celle des étapes à venir ; RIEN n'est cherché tant que le cerveau ne le demande pas.
-      if (role === 'user') ouvrirLaPhrase(courante, texte);
-      bus.emit({ type: 'voix.direct.tour', role, texte, final: true, projets: projets.map(nomDuProjet), ...(sources ? { sources } : {}) });
+      if (role === 'user') {
+        ouvrirLaPhrase(courante, texte);
+        // Une nouvelle phrase de l'utilisateur : les nouvelles du travail précédent s'arrêtent.
+        finirLeTravail(courante);
+        courante.pointEnAttente = false;
+      }
+      // Le point d'avancement dit par la voix n'est pas la réponse : l'écran attend toujours celle-ci.
+      const avancement = role === 'assistant' && !!courante.pointEnAttente;
+      if (role === 'assistant') {
+        courante.pointEnAttente = false;
+        if (courante.travail) courante.travail.dites.derniereParoleLe = Date.now();
+      }
+      bus.emit({ type: 'voix.direct.tour', role, texte, final: true, projets: projets.map(nomDuProjet), ...(sources ? { sources } : {}), ...(avancement ? { avancement: true } : {}) });
       return;
     }
     /* CE QUE JARVIS FAIT, EN DIRECT (16/11/2026) : chaque appel d'outil pose sa ligne vivante dans le fil du volet. */
@@ -1153,6 +1233,8 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       const args = (item.arguments && typeof item.arguments === 'object' ? item.arguments : {}) as Record<string, any>;
       const outil = String(item.tool ?? '');
       const libelle = libelleDeLActivite(outil, args);
+      const etape = libelle ?? (outil === 'voix_dossier' ? 'Je rassemble ce que Beluga sait sur la question' : null);
+      if (etape) commencerLeTravail(courante).etapes.set(String(item.id), { libelle: etape, etat: 'en-cours' });
       if (libelle) {
         bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle, etat: 'en-cours', ...phraseDeLEtape(courante), ...(outilQuiAgit(outil, args) ? { agit: true } : {}) });
       }
@@ -1170,6 +1252,13 @@ function traiterLaNotification(courante: Session, n: Notification): void {
         const texteRendu = texteDuResultatMcp(item.result) ?? '';
         const resultat = echec ? texteRendu.replace(/\s+/g, ' ').trim().slice(0, 140) || null : resultatDeLOutil(outil, args, texteRendu);
         bus.emit({ type: 'voix.direct.activite', id: String(item.id), libelle: libelleFini, etat: echec ? 'echec' : 'finie', ...phraseDeLEtape(courante), ...(resultat ? { resultat } : {}) });
+      }
+      const etapeFinie = item.id ? courante.travail?.etapes.get(String(item.id)) : undefined;
+      if (etapeFinie) {
+        const echecEtape = !!item.error || item.status === 'failed' || item.result?.isError === true;
+        etapeFinie.etat = echecEtape ? 'echec' : 'finie';
+        etapeFinie.finieLe = Date.now();
+        if (!echecEtape && libelleFini) etapeFinie.resultat = resultatDeLOutil(String(item.tool ?? ''), args, texteDuResultatMcp(item.result) ?? '');
       }
       const projets = projetsDesArguments(args, projetsJoignables());
       courante.projetsEnAttente = reunirLesMarques(courante.projetsEnAttente, projets);
@@ -1198,8 +1287,14 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       return;
     }
     /* LA FIN DU TRAVAIL DU CERVEAU : la liste se referme (« Je recoupe » coché). */
+    case 'turn/started': {
+      commencerLeTravail(courante);
+      return;
+    }
     case 'turn/completed': {
       finirLaPhrase(courante);
+      finirLeTravail(courante);
+      courante.pointEnAttente = false;
       return;
     }
     case 'thread/realtime/error': {

@@ -318,7 +318,7 @@ export function BullesDuDirect({
     const observateur = new ResizeObserver(mesurer);
     observateur.observe(conversation);
     return () => observateur.disconnect();
-  }, [bulles.length > 0 || !!recapitulatif]);
+  }, [bulles.length > 0 || !!recapitulatif, sansVoile]);
 
   // La dernière bulle reste en vue ; le fondu ne s'allume que quand la pile est assez haute pour avoir un « haut ».
   React.useLayoutEffect(() => {
@@ -335,12 +335,14 @@ export function BullesDuDirect({
    * LES BULLES DÉCOLLÉES DU BORD DE L'ÉCRAN (décision de l'utilisateur, 18/11/2026, captures #4731 et #51aef) : dans la
    * FEUILLE de l'assistant sur téléphone, la pile a toute la largeur de l'écran et les bulles touchaient ses bords. Elle
    * y prend le retrait du TEXTE du fil (mesuré), jamais moins de 16 px : Jarvis s'aligne sur son bord gauche, vous sur
-   * son bord droit. Le volet sur ordinateur et la page d'une carte gardent leur pile sans retrait.
+   * son bord droit. Même règle dans le VOLET OUVERT sur ordinateur (décision du 19/11/2026, maquette #3ce3) : les deux
+   * portent `data-volet-de-jarvis`. La petite bulle du volet fermé (`sansVoile`) et la page d'une carte gardent leur
+   * pile sans retrait, alignée au bord.
    */
   const [retrait, setRetrait] = React.useState(0);
   React.useLayoutEffect(() => {
     const enveloppe = enveloppeRef.current;
-    const feuille = enveloppe?.closest<HTMLElement>('[data-assistant-ancre="feuille"]') ?? null;
+    const feuille = sansVoile ? null : (enveloppe?.closest<HTMLElement>('[data-volet-de-jarvis]') ?? null);
     if (!enveloppe || !feuille) return setRetrait(0);
     const mesurer = () => {
       const fil = feuille.querySelector<HTMLElement>('[data-fil="conversation"]');
@@ -406,7 +408,7 @@ export function BullesDuDirect({
           colleEnBas.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
         /* AUCUN RETRAIT SUR LES CÔTÉS (17/11/2026) : la pile a la largeur du composant qu'elle surmonte ; les bulles de
-           Jarvis touchent son bord gauche, les vôtres son bord droit — sauf dans la feuille du téléphone (`retrait`). */
+           Jarvis touchent son bord gauche, les vôtres son bord droit — sauf dans le volet ouvert et la feuille du téléphone (`retrait`). */
         className="flex flex-col gap-1.5 px-0 pb-1.5 pt-6"
         data-retrait-des-bulles={retrait || undefined}
         style={{ maxHeight: hauteurMax ?? undefined, ...(retrait ? { paddingLeft: retrait, paddingRight: retrait } : {}) }}

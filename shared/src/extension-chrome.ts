@@ -17,7 +17,28 @@
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
 
 /** La version de l'extension SERVIE par ce démon. Une extension reliée plus ancienne voit « nouvelle version ». */
-export const VERSION_EXTENSION_CHROME = '1.0.9';
+export const VERSION_EXTENSION_CHROME = '1.0.10';
+
+/**
+ * LA PLUS ANCIENNE EXTENSION QUI SAIT OUVRIR UNE FENÊTRE PRIVÉE RÉDUITE (`fenetre: 'privee-reduite'`, 18/11/2026). Les
+ * plus anciennes ignorent la demande et ouvrent dans la fenêtre de travail, sur les comptes de la personne (audit GEO du
+ * 19/11/2026 : 0 réponse sur 30, comptes personnels) : une carte en fenêtre privée ne les prend jamais.
+ */
+export const VERSION_MIN_FENETRE_PRIVEE = '1.0.9';
+
+/** « 1.0.10 » ≥ « 1.0.9 » ? Comparaison chiffre par chiffre ; une version inconnue est trop ancienne. */
+export function versionAuMoins(version: string | null | undefined, minimum: string): boolean {
+  const lire = (v: string) => v.trim().split('.').map((n) => Number.parseInt(n, 10));
+  if (!version || !/^\d+(\.\d+)*$/.test(version.trim())) return false;
+  const a = lire(version);
+  const b = lire(minimum);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
 
 /** La voie WebSocket de l'extension — authentifiée par la clé de l'appareil, JAMAIS par le témoin de session. */
 export const ROUTE_WS_CHROME = '/ws/chrome';

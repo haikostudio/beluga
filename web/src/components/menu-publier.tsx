@@ -46,7 +46,7 @@ import {
   useSuiviDePublication,
 } from '@/components/suivi-de-publication';
 import { LienInterne, naviguerVers } from '@/components/ui/lien-interne';
-import { ouvrirLeDepannage } from '@/components/mises-en-ligne';
+import { BoutonRelancerLaPublication, ouvrirLeDepannage } from '@/components/mises-en-ligne';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
@@ -472,17 +472,22 @@ function EncadreDeBlocage({ run, onFini }: { run: DeployRun; onFini: () => void 
               : t('Rien n’a changé en ligne, la tâche reste à déployer.')}{' '}
           {enCours ? t('Un agent la dépanne : elle reprendra d’elle-même à la fin de son travail.') : null}
         </p>
-        <button
-          type="button"
-          onClick={() => {
-            onFini();
-            void ouvrirLeDepannage(run);
-          }}
-          className="mt-2 flex h-8 w-full items-center justify-center rounded-[9px] bg-teinte-plein text-[13px] font-medium text-sur-couleur transition-opacity hover:opacity-90"
-          data-ouvrir-le-depannage={run.id}
-        >
-          {t('Ouvrir le dépannage')}
-        </button>
+        {/* DEUX GESTES, TOUJOURS (19/11/2026) : relancer tout de suite — le dépannage en cours s'arrête d'abord —, ou
+            ouvrir le dépannage pour voir ce qu'il fait. Même hauteur, côte à côte. */}
+        <div className="mt-2 flex items-center gap-1.5">
+          <BoutonRelancerLaPublication run={run} />
+          <button
+            type="button"
+            onClick={() => {
+              onFini();
+              void ouvrirLeDepannage(run);
+            }}
+            className="flex h-8 min-w-0 flex-1 items-center justify-center rounded-[9px] bg-surface px-3 text-[13px] font-medium text-text transition-colors hover:bg-fond-survol"
+            data-ouvrir-le-depannage={run.id}
+          >
+            <span className="truncate">{t('Ouvrir le dépannage')}</span>
+          </button>
+        </div>
       </div>
       <div className="mx-2 mt-2 h-px shrink-0 bg-border" />
     </div>

@@ -12,6 +12,8 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { client } from '@/lib/client';
+import { ImageIcon } from '@/components/ui/icones';
+import { t } from '@/lib/langue';
 
 /** Largeur et hauteur maximales d'une vignette du fil, en pixels CSS. */
 const LARGEUR_MAX_DE_VIGNETTE = 320;
@@ -117,10 +119,15 @@ export function ImageDeVignette({
   largeurMax?: number;
 }) {
   const [chargee, setChargee] = React.useState(false);
+  /* UNE IMAGE QUI NE VIENT PAS LE DIT (19/11/2026, capture #979ef) : plus de silhouette qui pulse pour toujours ni de
+     carré cassé, une mention discrète à la place. */
+  const [manquante, setManquante] = React.useState(false);
+  React.useEffect(() => setManquante(false), [src]);
   const poser = (image: HTMLImageElement) => {
     poserLaLargeurDeVignette(image, largeurMax, hauteurMax);
     setChargee(true);
   };
+  if (manquante) return <ImageIndisponible libelle={alt} />;
   return (
     <span className={cn('relative block', !chargee && 'h-40 w-60 max-w-full')} data-chargee={chargee ? '1' : '0'}>
       {!chargee ? <span aria-hidden data-silhouette-image className="absolute inset-0 animate-silhouette rounded bg-faint/25" /> : null}
@@ -130,12 +137,30 @@ export function ImageDeVignette({
         loading="lazy"
         decoding="async"
         onLoad={(event) => poser(event.currentTarget)}
+        onError={() => setManquante(true)}
         ref={(image) => {
           if (image?.complete && image.naturalWidth && !chargee) poser(image);
         }}
         style={{ maxHeight: hauteurMax }}
         className={cn('block h-auto max-w-full rounded object-contain transition-opacity duration-200', chargee ? 'opacity-100' : 'absolute inset-0 h-full w-full opacity-0')}
       />
+    </span>
+  );
+}
+
+/** LA PLACE D'UNE IMAGE INTROUVABLE : une icône et « Image indisponible », dans le gris des vignettes. */
+export function ImageIndisponible({ libelle, compacte = false }: { libelle?: string; compacte?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex max-w-full items-center gap-1.5 rounded bg-raised text-faint',
+        compacte ? 'h-16 px-2 text-[11.5px]' : 'px-3 py-2.5 text-[12.5px]',
+      )}
+      title={libelle || undefined}
+      data-image-indisponible=""
+    >
+      <ImageIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{t('Image indisponible')}</span>
     </span>
   );
 }

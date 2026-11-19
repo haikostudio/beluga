@@ -108,6 +108,7 @@ import {
 import { IndicateurActivite } from '@/components/indicateur-activite';
 import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
+import { EntreeDuDepart, FeuilleDuDepart, departModifiable } from '@/components/depart-de-la-carte';
 import { useActionAuDessusDuChamp, useZoneVocale } from '@/components/voix-du-champ';
 import { CLASSE_LARGEUR_DE_LA_REPONSE, MessageView } from '@/components/message-view';
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
@@ -2947,9 +2948,13 @@ function MenuDesReglagesDeLaCarte({
 }) {
   const state = useApp();
   const [ouvert, setOuvert] = React.useState(false);
+  /* LE VOLET « DÉPART DE LA TÂCHE » vit HORS du menu : celui-ci se referme quand il s'ouvre. */
+  const [departOuvert, setDepartOuvert] = React.useState(false);
+  const avecDepart = departModifiable(card);
   const titre = titreDesReglages(vu);
 
   return (
+    <>
     <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
       <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
         {declencheur}
@@ -2972,6 +2977,7 @@ function MenuDesReglagesDeLaCarte({
               onSelect={choixDeLaCarte(card, state.engines)}
               comptes={state.quotas}
             />
+            {avecDepart ? <EntreeDuDepart card={card} onOuvrir={() => setDepartOuvert(true)} /> : null}
             <InterrupteurAuto card={card} />
           </div>
         ) : (
@@ -2981,11 +2987,14 @@ function MenuDesReglagesDeLaCarte({
               <Lock className="h-3 w-3 shrink-0 text-faint" aria-hidden />
             </div>
             <ReglagesLusDeLaCarte card={card} vu={vu} libelles={libelles} />
+            {avecDepart ? <EntreeDuDepart card={card} onOuvrir={() => setDepartOuvert(true)} /> : null}
             <InterrupteurAuto card={card} />
           </div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    {avecDepart ? <FeuilleDuDepart card={card} open={departOuvert} onClose={() => setDepartOuvert(false)} /> : null}
+    </>
   );
 }
 

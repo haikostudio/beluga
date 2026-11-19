@@ -1177,11 +1177,16 @@ async function executer(geste, args) {
   switch (geste) {
     case 'preparer': {
       espace.titres[agentId] = { titre: String(args.titre ?? 'Agent'), couleur: String(args.couleur ?? 'purple') };
+      /* Une fenêtre demandée que l'extension ne sait pas ouvrir est REFUSÉE (1.0.10) : jamais de repli sur la fenêtre de
+         travail. La fenêtre privée ouverte est rendue au démon, qui vérifie qu'elle l'est vraiment. */
+      if (args.fenetre !== undefined && args.fenetre !== 'privee-reduite') throw new Error(`Fenêtre « ${args.fenetre} » inconnue de cette extension : rien n'a été ouvert.`);
       if (args.fenetre === 'privee-reduite') {
         espace.privees[agentId] = true;
-        await fenetrePriveeDeLAgent(espace, agentId);
+        const id = await fenetrePriveeDeLAgent(espace, agentId);
+        const w = await chrome.windows.get(id);
+        if (!w.incognito) throw new Error(`${REFUS_NAVIGATION_PRIVEE} : la fenêtre ouverte n'est pas privée, rien n'a été fait.`);
         await ecrire(espace);
-        return {};
+        return { fenetre: id, incognito: true };
       }
       if (espace.privees[agentId]) {
         /* La même carte repart en fenêtre ordinaire : sa fenêtre privée n'est plus la sienne. */

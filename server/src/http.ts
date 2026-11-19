@@ -1733,9 +1733,11 @@ export function createHttpServer(): http.Server {
       }
 
       if (route === '/api/attachment') {
-        const id = url.searchParams.get('id') ?? '';
-        const attachment = store.getAttachment(id);
+        const demande = url.searchParams.get('id') ?? '';
+        /* Un chemin de fichier cité à la place de l'identifiant mène à la pièce rangée depuis ce fichier. */
+        const attachment = store.getAttachment(demande) ?? store.pieceDuChemin(demande);
         if (!attachment) return json(res, 404, { error: 'pièce jointe introuvable' });
+        const id = attachment.id;
         /*
          * UN CLIENT NE TÉLÉCHARGE QUE CE QU'IL A LE DROIT DE LIRE. Le fichier
          * doit appartenir à l'une de SES demandes, ou à SON fil : deviner un

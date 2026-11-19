@@ -22,6 +22,7 @@ import {
 import { BarreProgression } from '@/components/barre-progression';
 import { BadgeDEtatDAgent, DateDeLAgent, IconeDeLAgent } from '@/components/liste-des-agents';
 import { client } from '@/lib/client';
+import { Loader2, RotateCcw } from '@/components/ui/icones';
 import { naviguerVers } from '@/components/ui/lien-interne';
 import { EVENEMENT_OUVRIR_PUBLIER } from '@/lib/evenements-publier';
 import { ouvrirUnAgent } from '@/lib/ouvrir-un-agent';
@@ -66,6 +67,40 @@ export async function ouvrirLeDepannage(run: DeployRun): Promise<void> {
   }
   const rendu = await client.geste<{ agentId: string }>({ type: 'deploy.depanner', runId: run.id }, t('Dépanner'));
   if (rendu?.agentId) ouvrir(rendu.agentId);
+}
+
+/**
+ * « RELANCER » UNE PUBLICATION BLOQUÉE (19/11/2026) — le même bouton dans le menu « Publier » et dans la conversation
+ * du dépanneur. Toujours offert sur la dernière publication tombée : le démon arrête d'abord un dépannage en cours,
+ * puis reprend la MÊME publication à l'étape tombée (`deploy.relancer`). La roue tourne dès le clic.
+ */
+export function BoutonRelancerLaPublication({ run, className, onFait }: { run: DeployRun; className?: string; onFait?: () => void }) {
+  const [envoi, setEnvoi] = React.useState(false);
+  const relancer = async () => {
+    if (envoi) return;
+    setEnvoi(true);
+    try {
+      const rendu = await client.geste({ type: 'deploy.relancer', runId: run.id }, t('Relancer'), 60000);
+      if (rendu) onFait?.();
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      disabled={envoi}
+      onClick={() => void relancer()}
+      className={cn(
+        'flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-[9px] bg-teinte-plein px-3 text-[13px] font-medium text-sur-couleur transition-opacity hover:opacity-90 disabled:opacity-60',
+        className,
+      )}
+      data-relancer-la-publication={run.id}
+    >
+      {envoi ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5 shrink-0" />}
+      <span className="truncate">{t('Relancer')}</span>
+    </button>
+  );
 }
 
 /** Ouvrir un projet, puis son menu « Publier » — sans rien lancer (ses deux listes : à déployer, puis à produire). */

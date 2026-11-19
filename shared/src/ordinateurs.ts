@@ -220,6 +220,43 @@ export function choisirLOrdinateur(
   return { genre: 'injoignable', ordinateur, texte: texteInjoignable(ordinateur.nom, !!ordinateur.programme) };
 }
 
+export type ChoixPourFenetrePrivee =
+  | { genre: 'pret'; ordinateur: Ordinateur; navigateur: NavigateurDOrdinateur }
+  | { genre: 'a-mettre-a-jour'; texte: string; aMettreAJour: string }
+  | { genre: 'aucun'; texte: string };
+
+/**
+ * LE NAVIGATEUR D'UNE CARTE EN FENÊTRE PRIVÉE (audit GEO, décision de l'utilisateur du 19/11/2026) : l'agent le choisit
+ * SEUL parmi les Chrome ALLUMÉS dont l'extension sait ouvrir une fenêtre privée (`versionMinimale`), en priorité celui
+ * de l'ordinateur du dernier passage réussi, sinon le plus récemment vu. Aucun : rien ne s'ouvre, et la phrase dit
+ * quoi mettre à jour et sur quel ordinateur — jamais de repli sur la fenêtre de travail.
+ */
+export function choisirPourFenetrePrivee(
+  ordinateurs: readonly Ordinateur[],
+  versionMinimale: string,
+  aJour: (version: string | null) => boolean,
+  dernierOrdinateur?: string | null,
+): ChoixPourFenetrePrivee {
+  const allumes = ordinateurs.flatMap((o) => o.navigateurs.filter((n) => n.genre === 'chrome' && n.enLigne).map((n) => ({ ordinateur: o, navigateur: n })));
+  const capables = allumes
+    .filter((c) => aJour(c.navigateur.version))
+    .sort((a, b) => Number(b.ordinateur.id === dernierOrdinateur) - Number(a.ordinateur.id === dernierOrdinateur) || (b.navigateur.vuLe ?? 0) - (a.navigateur.vuLe ?? 0));
+  const elu = capables[0];
+  if (elu) return { genre: 'pret', ...elu };
+  if (allumes.length) {
+    const aMettreAJour = allumes.map((c) => `« ${c.ordinateur.nom} » (version ${c.navigateur.version ?? 'inconnue'})`).join(', ');
+    return {
+      genre: 'a-mettre-a-jour',
+      aMettreAJour,
+      texte: `L’extension Beluga de ${aMettreAJour} est trop ancienne pour ouvrir une fenêtre privée : rien n’a été ouvert. La personne doit la mettre à jour (version ${versionMinimale} au moins, Réglages › Extension) et cocher « Autoriser en navigation privée » dans chrome://extensions › Beluga. Arrête la séance et dis-le dans ton compte rendu.`,
+    };
+  }
+  return {
+    genre: 'aucun',
+    texte: 'Aucun Chrome relié n’est allumé en ce moment : rien n’a été ouvert. Arrête la séance ; le passage repartira quand l’ordinateur sera rallumé.',
+  };
+}
+
 /** La phrase dite quand l'ordinateur ne répond pas : claire, sans bascule sur un autre. */
 export function texteInjoignable(nom: string, avecProgramme: boolean): string {
   return avecProgramme

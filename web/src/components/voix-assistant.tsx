@@ -379,7 +379,9 @@ export function VoixAssistant() {
         }
         return;
       }
-      const dernier = filRefVeille.current[filRefVeille.current.length - 1];
+      // La dernière PAROLE compte : les lignes d'étapes du cerveau et ses points d'avancement (19/11/2026) ne sont pas la
+      // réponse — tant qu'elle n'est pas dite, c'est l'attente longue (`ATTENTE_DE_REPONSE_MAX_MS`), pas les 30 s.
+      const dernier = [...filRefVeille.current].reverse().find((t) => t.texte && !t.avancement && !t.activite && !t.verifications && !t.tache && !t.action);
       const reponseAttendue = !!dernier && ((dernier.role === 'user' && dernier.final) || (dernier.role === 'assistant' && !dernier.final));
       if (retourEnVeilleDu(maintenant, activiteRef.current, reponseAttendue)) {
         poserLaRaisonDeFermeture('30 s de silence');

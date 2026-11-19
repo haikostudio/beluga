@@ -49,7 +49,7 @@ export function verdictDeLaCommande(type: string, donnees: Record<string, unknow
   if (!nom) return { ok: false, raison: 'Commande sans « type ».' };
   const fermee = FERMEES.find((f) => f.motif.test(nom));
   if (fermee) return { ok: false, raison: `« ${nom} » n’est pas jouable par Jarvis : ${fermee.raison}.` };
-  if ((nom === 'deploy.start' || nom === 'deploy.retry') && donnees.cible === 'production') return { ok: true, aConfirmer: 'une mise en production' };
+  if ((nom === 'deploy.start' || nom === 'deploy.retry' || nom === 'deploy.relancer') && donnees.cible === 'production') return { ok: true, aConfirmer: 'une mise en production' };
   const grave = A_CONFIRMER.find((c) => c.motif.test(nom));
   return grave ? { ok: true, aConfirmer: grave.nature } : { ok: true };
 }

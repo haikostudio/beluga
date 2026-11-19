@@ -30,7 +30,7 @@ import {
   Building2,
   Search,
 } from '@/components/ui/icones';
-import { projetsQuiCorrespondent, type Project } from '@beluga/shared';
+import { ordonnerParDerniereActivite, projetsQuiCorrespondent, type Project } from '@beluga/shared';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { useSuiteDuFilFournie } from '@/components/entete-de-zone';
 import { useServicesOuverts } from '@/components/services';
@@ -59,13 +59,21 @@ import { cn } from '@/lib/utils';
 
 export type CibleDeCreation = { projectId: string } | { entreprise: string };
 
-/** Les projets que l'on peut viser : ni archivés, ni simples supports de marque, par rang. */
+/**
+ * Les projets que l'on peut viser : ni archivés, ni simples supports de marque, du plus récemment actif au plus
+ * ancien (la colonne de gauche garde son ordre manuel). L'ordre est FIGÉ à l'ouverture du menu : une carte qui
+ * bouge pendant qu'on choisit ne fait pas sauter la liste sous le doigt.
+ */
 function useProjetsAViser(): Pick<Project, 'id' | 'name' | 'favicon'>[] {
   const projets = useApp().projects;
-  return React.useMemo(
-    () => projets.filter((p) => !p.archived && !p.marqueSansDepot).sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000)),
-    [projets],
-  );
+  const ordreFige = React.useRef<string[] | null>(null);
+  return React.useMemo(() => {
+    const vises = projets.filter((p) => !p.archived && !p.marqueSansDepot);
+    if (!ordreFige.current && vises.length) ordreFige.current = ordonnerParDerniereActivite(vises).map((p) => p.id);
+    const ordre = ordreFige.current ?? [];
+    const place = (id: string) => (ordre.includes(id) ? ordre.indexOf(id) : ordre.length);
+    return [...vises].sort((a, b) => place(a.id) - place(b.id));
+  }, [projets]);
 }
 
 /**
@@ -275,7 +283,7 @@ export const CLES_SERVICES_DU_MENU: ServiceDuMenu[] = [
   { cle: 'backups', Icone: HardDriveDownload, cleLibelle: 'Backup', groupe: 'suivre' },
   { cle: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance', groupe: 'suivre' },
   { cle: 'securite', Icone: ShieldCheck, cleLibelle: 'Sécurité', groupe: 'suivre' },
-  { cle: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes', groupe: 'suivre' },
+  { cle: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches planifiées', groupe: 'suivre' },
 ];
 
 /* ------------------------------------------------------------------ */

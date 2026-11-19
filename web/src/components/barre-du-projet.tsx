@@ -8,7 +8,7 @@
  * pour garder montés les écrans déjà vus.
  */
 import * as React from 'react';
-import { type OngletDuProjet, type Project } from '@beluga/shared';
+import { ordonnerParDerniereActivite, type OngletDuProjet, type Project } from '@beluga/shared';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { CLES_DES_SERVICES } from '@/components/services';
 import { Button } from '@/components/ui';
@@ -103,9 +103,7 @@ export function FilDuProjet({
   const tous = useApp().projects;
   const voisins = React.useMemo(
     () =>
-      tous
-        .filter((p) => !p.archived && !p.marqueSansDepot)
-        .sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000))
+      ordonnerParDerniereActivite(tous.filter((p) => !p.archived && !p.marqueSansDepot))
         .map((p) => ({ valeur: p.id, libelle: p.name, icone: <PastilleProjet project={p} taille={16} /> })),
     [tous],
   );

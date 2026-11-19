@@ -348,16 +348,25 @@ const IMPORTANCE_LA_PLUS_HAUTE = (a: Importance, b: Importance): Importance => (
  * cotes (« l'heure » comme « qu'un ») pour ne pas separer a tort deux titres
  * qui disent la meme chose avec des tournures differentes.
  */
-function marqueursDuTitre(titre: string): string {
-  return (
-    titre
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .match(/(?<![\x27\u2019])\b(\d+|[a-z])\b(?![\x27\u2019])/g) ?? []
-  )
-    .sort()
-    .join(' ');
+function marqueursDuTitre(titre: string): string[] {
+  const trouves = titre
+    // « à » est un petit mot : repéré AVANT la suppression des accents, qui le confondrait avec « a ».
+    .replace(/(?<![\p{L}\p{N}\x27\u2019])[àÀ](?![\p{L}\p{N}\x27\u2019])/gu, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .match(/(?<![\x27\u2019])\b(\d+|[A-Za-z])\b(?![\x27\u2019])/g) ?? [];
+  // « a », « y », « o » écrits en minuscule sont des mots français, pas des identifiants ; les majuscules (carte A) restent.
+  const utiles = trouves.filter((m) => !/^[ayo]$/.test(m)).map((m) => m.toLowerCase());
+  return [...new Set(utiles)].sort();
+}
+
+/**
+ * Deux titres ne se séparent que sur un CONFLIT : chacun porte un marqueur que l'autre n'a pas
+ * (« port 7000 » / « port 7070 »). Un côté sans marqueur, ou un ensemble inclus dans l'autre, n'en est pas un.
+ */
+function marqueursEnConflit(a: string[], b: string[]): boolean {
+  if (!a.length || !b.length) return false;
+  return a.some((m) => !b.includes(m)) && b.some((m) => !a.includes(m));
 }
 
 /**
@@ -379,7 +388,7 @@ function doublonDe(portee: string, p: PropositionPropre, procheParLeSens?: strin
   // Un texte très proche ne suffit pas quand les titres portent des marqueurs différents (« carte A » / « carte B », « port 7000 » / « port 7070 »).
   const marqueurs = marqueursDuTitre(p.titre);
   for (const c of candidats) {
-    if (marqueursDuTitre(c.titre) !== marqueurs) continue;
+    if (marqueursEnConflit(marqueursDuTitre(c.titre), marqueurs)) continue;
     if (ressemblanceDeTextes(c.titre, p.titre) >= SEUIL_DOUBLON_TEXTE && ressemblanceDeTextes(c.resume, p.resume) >= 0.6) return versUnite(c);
   }
   if (procheParLeSens) {
@@ -739,7 +748,7 @@ async function procheDuMemeSujet(portee: string, sujet: string, p: { titre: stri
   // Le même garde-fou que `doublonDe` : un port 7000 et un port 7070, ou une
   // carte A et une carte B, ne sont proches ni par le texte ni par le sens.
   const marqueurs = marqueursDuTitre(p.titre);
-  const memeMarqueurs = candidats.filter((c) => marqueursDuTitre(c.titre) === marqueurs);
+  const memeMarqueurs = candidats.filter((c) => !marqueursEnConflit(marqueursDuTitre(c.titre), marqueurs));
   if (!memeMarqueurs.length) return undefined;
 
   const parLeTexte = memeMarqueurs.find((c) => ressemblanceDeTextes(c.titre, p.titre) >= SEUIL_DOUBLON_SUJET);
@@ -1249,6 +1258,11 @@ export interface OptionsDeRecherche {
   sujet?: string;
   deprecies?: boolean;
   limite?: number;
+  /**
+   * Combien de temps la recherche par le SENS peut attendre le vectoriseur avant de retomber sur les mots seuls
+   * (6 s par défaut). La voix passe 15 s : Jarvis attend le retour complet de la mémoire (décision du 19/11/2026).
+   */
+  delaiDuSensMs?: number;
 }
 
 function porteesVisees(o: OptionsDeRecherche): string[] | null {
@@ -1397,7 +1411,7 @@ export async function chercherUnitesMelees(texte: string, o: OptionsDeRecherche 
   const memoire = vectoriseurDisponible() ? vecteursDesUnites() : [];
   if (memoire.length) {
     try {
-      const [demande] = await vectoriser([demandeAVectoriser(texte)], 6_000);
+      const [demande] = await vectoriser([demandeAVectoriser(texte)], o.delaiDuSensMs ?? 6_000);
       const portees = porteesVisees(o);
       const candidats = memoire
         .filter((v) => (!portees || portees.includes(v.portee)) && (o.deprecies || v.statut === 'active'))

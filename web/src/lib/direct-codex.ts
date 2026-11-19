@@ -80,6 +80,8 @@ export interface TourDuDirect {
   final: boolean;
   projets: string[];
   sources?: number;
+  /** Un point d'avancement dit pendant le travail du cerveau (19/11/2026) : la réponse est toujours attendue. */
+  avancement?: boolean;
   tache?: TacheDuDirect;
   action?: ActionDuDirect;
   activite?: ActiviteDuDirect;
@@ -226,6 +228,7 @@ export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => 
       final: !!evenement.final,
       projets: Array.isArray(evenement.projets) ? evenement.projets : [],
       ...(typeof evenement.sources === 'number' ? { sources: evenement.sources } : {}),
+      ...(evenement.avancement ? { avancement: true } : {}),
     };
     if (!tour.texte) return fil;
     if (i >= 0) suite[i] = tour;

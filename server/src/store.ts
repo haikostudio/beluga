@@ -133,19 +133,34 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 /* Projets                                                             */
 /* ------------------------------------------------------------------ */
 
+/** La dernière modification de carte de chaque projet (ms), en une seule lecture. */
+function activitesDesProjets(): Map<string, number> {
+  const lignes = getDb()
+    .prepare('SELECT project_id AS id, MAX(updated_at) AS quand FROM cards GROUP BY project_id')
+    .all() as { id: string; quand: number | null }[];
+  return new Map(lignes.filter((l) => typeof l.quand === 'number').map((l) => [l.id, l.quand as number]));
+}
+
 export function listProjects(includeArchived = false): Project[] {
   const rows = getDb()
     .prepare(`SELECT data FROM projects ${includeArchived ? '' : 'WHERE archived = 0'}`)
     .all() as { data: string }[];
+  const activites = activitesDesProjets();
   // L'ordre est celui choisi à la main ; à rang égal, par nom.
   return rows
     .map((r) => Project.parse(JSON.parse(r.data)))
+    .map((p) => ({ ...p, derniereActivite: activites.get(p.id) }))
     .sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000) || a.name.localeCompare(b.name));
 }
 
 export function getProject(id: string): Project | null {
   const row = getDb().prepare('SELECT data FROM projects WHERE id = ?').get(id) as { data: string } | undefined;
-  return row ? Project.parse(JSON.parse(row.data)) : null;
+  if (!row) return null;
+  const projet = Project.parse(JSON.parse(row.data));
+  const quand = getDb().prepare('SELECT MAX(updated_at) AS quand FROM cards WHERE project_id = ?').get(id) as
+    | { quand: number | null }
+    | undefined;
+  return typeof quand?.quand === 'number' ? { ...projet, derniereActivite: quand.quand } : projet;
 }
 
 export function getProjectByPath(p: string): Project | null {
@@ -154,7 +169,8 @@ export function getProjectByPath(p: string): Project | null {
 }
 
 export function saveProject(project: Project): Project {
-  const value = Project.parse({ ...project, updatedAt: now() });
+  const { derniereActivite: _derivee, ...sansDerive } = project;
+  const value = Project.parse({ ...sansDerive, updatedAt: now() });
   getDb()
     .prepare(
       `INSERT INTO projects (id, name, path, archived, data, created_at, updated_at)
@@ -3917,6 +3933,42 @@ export function findAttachmentBySha(projectId: string, sha: string): Attachment 
 export function getAttachment(id: string): Attachment | null {
   const row = getDb().prepare('SELECT data FROM attachments WHERE id = ?').get(id) as { data: string } | undefined;
   return row ? Attachment.parse(JSON.parse(row.data)) : null;
+}
+
+/**
+ * LES CARTES PROGRAMMÉES (page « Tâches planifiées », 19/11/2026) : celles qui portent une date de départ et
+ * attendent encore dans « Planifié » ou « À faire ». Lecture filtrée en base par la colonne (index
+ * `idx_cards_derniere_action`) : les cartes rangées ne sont jamais relues.
+ */
+export function cartesProgrammees(): { id: string; projectId: string; title: string; departPrevu: number }[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, project_id AS projectId, title, json_extract(data, '$.scheduling.departPrevu') AS departPrevu
+         FROM cards
+        WHERE column_key IN ('planned', 'todo')
+          AND json_extract(data, '$.scheduling.departPrevu') IS NOT NULL`,
+    )
+    .all() as { id: string; projectId: string; title: string; departPrevu: number }[];
+  return rows.filter((r) => Number.isFinite(r.departPrevu) && r.departPrevu > 0).sort((a, b) => a.departPrevu - b.departPrevu);
+}
+
+/**
+ * UNE IMAGE CITÉE PAR SON CHEMIN DE FICHIER (19/11/2026, capture #979ef). Un agent écrit parfois
+ * `![…](piece:/tmp/captures-743/x.png)` : le chemin de sa capture, pas l'identifiant de la pièce. Or cette capture a
+ * été rangée pendant le tour (`captures-auto.ts`, `joindreUnFichier`) et sa pièce garde le chemin d'origine
+ * (`chemins`). On la retrouve ainsi — la plus récente, celle du projet indiqué d'abord — et l'image s'affiche, comptes
+ * rendus déjà écrits compris, sans rien réécrire. Seul un chemin ABSOLU est cherché.
+ */
+export function pieceDuChemin(chemin: string, projectId?: string): Attachment | null {
+  if (!chemin.startsWith('/') || chemin.length > 1024) return null;
+  const motif = `%${JSON.stringify(chemin).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const rows = getDb()
+    .prepare(`SELECT data FROM attachments WHERE data LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 20`)
+    .all(motif) as { data: string }[];
+  const pieces = rows
+    .map((row) => Attachment.parse(JSON.parse(row.data)))
+    .filter((piece) => piece.chemins?.includes(chemin));
+  return pieces.find((piece) => piece.projectId === projectId) ?? pieces[0] ?? null;
 }
 
 /**

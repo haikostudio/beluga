@@ -7,6 +7,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { FeuilleDuDepart, departModifiable, valeurDuDepart } from '@/components/depart-de-la-carte';
 
 /**
  * LA CARTE DE CONFIGURATION D'UNE TÂCHE NEUVE — le PREMIER geste du flux.
@@ -33,6 +34,7 @@ export function CarteDeConfiguration({
 }) {
   const state = useApp();
   const choisir = choixDeLaCarte(card, state.engines);
+  const [departOuvert, setDepartOuvert] = React.useState(false);
 
   /* La ligne « Compte » ne paraît que si plusieurs comptes du moteur retenu
      se disputent vraiment le travail — sinon le choix automatique suffit. */
@@ -66,7 +68,12 @@ export function CarteDeConfiguration({
         {ligne('modele', t('Modèle'), libelles.modele)}
         {ligne('reflexion', t('Réflexion'), libelles.reflexion)}
         {comptes.length > 1 ? ligne('compte', t('Compte'), compte?.label ?? t('Automatique')) : null}
+        {/* LE DÉPART (19/11/2026) : dès le lancement, ou à une date choisie dans le calendrier. */}
+        {departModifiable(card) ? (
+          <LigneDeConfiguration nom={t('Départ')} valeur={valeurDuDepart(card)} onClick={() => setDepartOuvert(true)} />
+        ) : null}
       </div>
+      {departModifiable(card) ? <FeuilleDuDepart card={card} open={departOuvert} onClose={() => setDepartOuvert(false)} /> : null}
     </div>
   );
 }

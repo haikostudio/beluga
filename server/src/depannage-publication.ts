@@ -21,6 +21,7 @@ import {
   DeployRun,
   Message,
   demandeDeDepannage,
+  agentRetientLaPublication,
   depanneurVivant,
   moteurDuTriAutomatique,
   publicationADepanner,
@@ -32,7 +33,8 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
-import { createAgent, sendPrompt } from './runtime.js';
+import { arreterLAgent, createAgent, sendPrompt } from './runtime.js';
+import { viderLaFileEnRendant } from './file-rendue.js';
 import { STEP_LABELS, brancheDeLEtape, dernieresLignes, reprendreLaPublication } from './deploy.js';
 
 /** Combien de temps la veille d'un dépanneur attend la fin de son travail (question comprise). */
@@ -152,6 +154,11 @@ export async function depannerLaPublication(
 
 /** Les dépanneurs déjà veillés : une seule veille par agent. */
 const veilles = new Set<string>();
+/**
+ * LES VEILLES COUPÉES PAR UN « RELANCER » : la relance reprend elle-même la publication ; la veille du dépanneur
+ * arrêté ne doit pas la reprendre une seconde fois (deux `startDeploy` sur la même ligne).
+ */
+const veillesCoupees = new Set<string>();
 
 /**
  * LA VEILLE D'UN DÉPANNEUR (17/11/2026 : « une fois le débogage terminé, il doit relancer l'étape ») : à la fin de son
@@ -170,6 +177,7 @@ export function veillerSurLeDepanneur(agentId: string, runId: string, outils: { 
     while (Date.now() - debut < ATTENTE_MAX_RELANCE_MS) {
       // Une veille ne retient jamais le démon (ni un test) en vie : son minuteur est détaché.
       await new Promise((resolve) => setTimeout(resolve, pas).unref());
+      if (veillesCoupees.has(agentId)) return;
       const run = store.getDeploy(runId);
       const agent = store.getAgent(agentId);
       const aDepanner = !!run && run.depannage?.agentId === agentId && publicationADepanner(run, store.latestDeploy(run.projectId));
@@ -201,7 +209,16 @@ export function veillerSurLeDepanneur(agentId: string, runId: string, outils: { 
   };
   return suivre()
     .catch((err) => log.warn(`veille du dépanneur ${agentId} : ${err?.message ?? err}`))
-    .finally(() => veilles.delete(agentId));
+    .finally(() => {
+      veilles.delete(agentId);
+      veillesCoupees.delete(agentId);
+      /* UNE VEILLE QUI S'ARRÊTE SANS AVOIR REPRIS NE LAISSE PAS LA LIGNE PROMETTRE UNE REPRISE : la publication, encore
+         tombée, attend désormais le clic (19/11/2026, mise en production restée 39 min « elle reprendra d'elle-même »). */
+      const run = store.getDeploy(runId);
+      if (run && run.depannage?.agentId === agentId && !run.depannage.enAttenteDeVous && publicationADepanner(run, store.latestDeploy(run.projectId))) {
+        enregistrer({ ...run, depannage: { ...run.depannage, enAttenteDeVous: true } });
+      }
+    });
 }
 
 /**
@@ -233,3 +250,76 @@ export function demanderLaRelance(agentId: string): { ok: boolean; texte: string
   };
 }
 
+
+/** Combien de temps « Relancer » attend que le dépanneur arrêté ait lâché le dossier du projet. */
+const ATTENTE_ARRET_DU_DEPANNEUR_MS = 20_000;
+
+/**
+ * « RELANCER » UNE PUBLICATION BLOQUÉE (19/11/2026, capture #9fdac : dépannage ouvert, plus aucun moyen de relancer).
+ * Toujours possible sur la dernière publication tombée du projet :
+ *
+ *   1. la veille du dépanneur est coupée — c'est cette relance qui reprend, jamais les deux ;
+ *   2. un dépanneur au travail est arrêté comme par le bouton « Arrêter » (file vidée AVANT de couper), et on attend
+ *      qu'il ne retienne plus le dossier : sinon `startDeploy` refuserait (« un agent travaille encore ») ;
+ *   3. la MÊME publication reprend (`reprendreLaPublication`), à l'étape tombée.
+ *
+ * Le clic de l'utilisateur est le geste de publier : rien ne repart sans lui.
+ */
+export async function relancerLaPublicationBloquee(
+  runId: string,
+  outils: { attente?: number; pas?: number } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  const run = store.getDeploy(runId);
+  if (!run) return { ok: false, error: 'publication introuvable' };
+  if (!publicationADepanner(run, store.latestDeploy(run.projectId))) {
+    return {
+      ok: false,
+      error: run.state === 'running' ? 'La publication est déjà repartie.' : 'Seule la dernière publication tombée du projet se relance.',
+    };
+  }
+  const agentId = run.depannage?.agentId;
+  if (agentId) {
+    veillesCoupees.add(agentId);
+    const agent = store.getAgent(agentId);
+    if (agent && depanneurVivant(agent)) {
+      viderLaFileEnRendant(agentId, 'Publication relancée à la main : le dépannage s’arrête.');
+      arreterLAgent(agentId);
+      const limite = Date.now() + (outils.attente ?? ATTENTE_ARRET_DU_DEPANNEUR_MS);
+      while (Date.now() < limite) {
+        const frais = store.getAgent(agentId);
+        if (!frais || !agentRetientLaPublication(frais)) break;
+        await new Promise((resolve) => setTimeout(resolve, outils.pas ?? 250).unref());
+      }
+    }
+    /* La veille, si elle tourne, voit la marque et s'efface ; sinon la marque ne doit pas survivre à cette relance. */
+    if (!veilles.has(agentId)) veillesCoupees.delete(agentId);
+  }
+  const issue = await reprendreLaPublication(runId).catch((err) => ({ ok: false, error: err?.message ?? String(err) }));
+  if (issue.ok) {
+    log.info(`publication ${runId} relancée à la main${agentId ? ` (dépanneur ${agentId} arrêté)` : ''}`);
+    if (agentId) direDansLeFil(agentId, 'Publication relancée à la main : elle reprend à l’étape qui était tombée.');
+  }
+  return issue;
+}
+
+/**
+ * LES VEILLES DE DÉPANNAGE SURVIVENT AU REDÉMARRAGE DU DÉMON (19/11/2026). Elles vivaient en mémoire seulement : une
+ * mise en ligne de Beluga pendant un dépannage les effaçait, et la publication restait rouge pour toujours sous la
+ * phrase « elle reprendra d'elle-même ». Au démarrage, la dernière publication tombée de chaque projet qui a un
+ * dépanneur retrouve sa veille si le dépannage est récent ; plus ancien, elle attend le clic (`enAttenteDeVous`).
+ */
+export function reprendreLesVeillesDeDepannage(maintenant = Date.now()): number {
+  let reprises = 0;
+  for (const projet of store.listProjects(true)) {
+    const run = store.latestDeploy(projet.id);
+    const lien = run?.depannage;
+    if (!run || !lien?.agentId || lien.enAttenteDeVous || !publicationADepanner(run, run)) continue;
+    if (maintenant - (lien.at ?? 0) < ATTENTE_MAX_RELANCE_MS) {
+      void veillerSurLeDepanneur(lien.agentId, run.id);
+      reprises += 1;
+    } else {
+      enregistrer({ ...run, depannage: { ...lien, enAttenteDeVous: true } });
+    }
+  }
+  return reprises;
+}

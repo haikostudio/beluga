@@ -325,7 +325,7 @@ import {
   lireEspace as lireEspaceMarketing,
 } from './marketing.js';
 import { estAgentAttitre } from './agent-attitre.js';
-import { depannerLaPublication } from './depannage-publication.js';
+import { depannerLaPublication, relancerLaPublicationBloquee } from './depannage-publication.js';
 import {
   enregistrerSite,
   listerPoints,
@@ -2169,6 +2169,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return resumeDesServices();
     }
 
+    case 'cartes.programmees':
+      return { cartes: store.cartesProgrammees() };
+
     case 'veilles.lister': {
       const { listerLesVeilles } = await import('./veille-de-carte.js');
       return { veilles: listerLesVeilles() };
@@ -3661,6 +3664,13 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'deploy.depanner':
       // « Résoudre le problème » : l'agent qui répare puis relance (idempotent).
       return depannerLaPublication(cmd.runId);
+
+    case 'deploy.relancer': {
+      // « Relancer » : arrête le dépanneur s'il tourne, puis reprend la même publication.
+      const issue = await relancerLaPublicationBloquee(cmd.runId);
+      if (!issue.ok) throw new Error(issue.error ?? 'relance impossible');
+      return issue;
+    }
 
     case 'deploy.reconcilier': {
       // Geste humain : même fonction que le rattrapage automatique.

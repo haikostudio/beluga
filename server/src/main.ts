@@ -258,6 +258,14 @@ async function main(): Promise<void> {
       err?.stack ?? err?.message ?? err,
     );
   }
+  // Les veilles des dépanneurs de publication vivaient en mémoire : un redémarrage les effaçait et la publication
+  // tombée ne reprenait jamais. On les recrée (`reprendreLesVeillesDeDepannage`).
+  void import('./depannage-publication.js')
+    .then(({ reprendreLesVeillesDeDepannage }) => {
+      const reprises = reprendreLesVeillesDeDepannage();
+      if (reprises) log.info(`${reprises} veille(s) de dépannage de publication reprise(s) au démarrage`);
+    })
+    .catch((err) => log.warn(`veilles de dépannage non reprises : ${err?.message ?? err}`));
   cleanupMcpConfigs();
   purgeOldArchives();
   purgeOldAudio();
@@ -314,6 +322,13 @@ async function main(): Promise<void> {
    */
   setTimeout(() => {
     void rattraperLesAdressesDeControle().catch((err) => log.warn('rattrapage des adresses de contrôle incomplet', err));
+  }, 10_000).unref?.();
+
+  /* LA MISE EN PRODUCTION DES PROJETS DÉJÀ INITIALISÉS, rallumée une fois (`procedure-publication.ts`, 19/11/2026). */
+  setTimeout(() => {
+    void import('./procedure-publication.js')
+      .then((m) => m.rallumerLaProductionDesProjetsInitialises())
+      .catch((err) => log.warn('rattrapage de la mise en production des projets initialisés incomplet', err));
   }, 10_000).unref?.();
 
   /*

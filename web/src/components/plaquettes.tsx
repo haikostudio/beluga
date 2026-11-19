@@ -13,6 +13,7 @@ import {
   type FilDeCommentaires,
   type FormatDePlaquette,
   type MarqueDePlaquette,
+  ordonnerParDerniereActivite,
   minusculesSansAccents,
   estUnMessageDuDemonDeCharte,
   parcoursDeLaCharte,
@@ -525,7 +526,7 @@ function CarteDeDocument({ plaquette: p, projet, choisie, onOuvrir }: { plaquett
 function ChoixDeLaMarque({ ouvert, valeur, onFermer, onChoisi }: { ouvert: boolean; valeur: string; onFermer: () => void; onChoisi: () => void }) {
   const state = useApp();
   const [occupe, setOccupe] = React.useState(false);
-  const projets = state.projects.filter((p) => !p.archived);
+  const projets = ordonnerParDerniereActivite(state.projects.filter((p) => !p.archived));
   return (
     <Dialog open={ouvert} onOpenChange={(o) => !o && onFermer()}>
       <DialogContent adresse="saisie" className="sm:w-[min(440px,100%)]">

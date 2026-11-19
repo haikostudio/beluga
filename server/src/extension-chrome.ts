@@ -370,6 +370,22 @@ export function unChromeEstEnLigne(): boolean {
   return [...connexions.keys()].some((id) => chromeEnLigne(id));
 }
 
+/**
+ * LES CHROME ALLUMÉS DONT L'EXTENSION EST TROP ANCIENNE pour une fenêtre privée (audit GEO, 19/11/2026) : leur nom et
+ * leur version, pour dire quoi mettre à jour. Vide quand au moins un Chrome allumé est à jour (`aJour`).
+ */
+export function chromesAllumesTropAnciens(aJour: (version: string | null) => boolean): { aJour: boolean; tropAnciens: string[] } {
+  const allumes = [...connexions.values()].filter((c) => chromeEnLigne(c.appareilId));
+  if (allumes.some((c) => aJour(c.version))) return { aJour: true, tropAnciens: [] };
+  const noms = new Map<string, string>();
+  try {
+    for (const l of getDb().prepare('SELECT id, nom FROM chrome_appareils WHERE revoque_le IS NULL').all() as { id: string; nom: string }[]) noms.set(l.id, l.nom);
+  } catch {
+    /* sans base lisible, on dit seulement la version */
+  }
+  return { aJour: false, tropAnciens: allumes.map((c) => `« ${noms.get(c.appareilId) ?? 'Chrome'} » (version ${c.version ?? 'inconnue'})`) };
+}
+
 function envoyer(c: Connexion, message: unknown): void {
   if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(message));
 }

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
-import { ExternalLink, Loader2, RefreshCw, Repeat, X } from '@/components/ui/icones';
+import { CalendarClock, ExternalLink, Loader2, RefreshCw, Repeat, X } from '@/components/ui/icones';
 import {
   construireFragment,
   veilleActive,
@@ -9,7 +9,8 @@ import {
   type EtatVeille,
   type VeilleListee,
 } from '@beluga/shared';
-import { Button, ConfirmDialog, DialogTitle, Drawer, EnteteDeFeuille, TitreDePage, ZoneDefilement } from '@/components/ui';
+import { Button, CLASSE_GROUPE_DE_LIGNES, CLASSE_LIGNE_DE_GROUPE, ConfirmDialog, DialogTitle, Drawer, EnteteDeFeuille, TitreDePage, ZoneDefilement } from '@/components/ui';
+import { dateDeDepartLisible } from '@/components/depart-de-la-carte';
 import { Tableau } from '@/components/ui/tableau';
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { colonneProjet } from '@/components/ui/colonne-projet';
@@ -111,6 +112,91 @@ function useVeilles(open: boolean): VeilleListee[] | null {
   return veilles;
 }
 
+/** Une carte qui attend sa date de départ (`cartes.programmees`). */
+interface CarteProgrammee {
+  id: string;
+  projectId: string;
+  title: string;
+  departPrevu: number;
+}
+
+/** Les départs programmés, lus au démon à l'ouverture ; `relire` après une annulation. */
+function useCartesProgrammees(open: boolean): { cartes: CarteProgrammee[] | null; relire: () => void } {
+  const [cartes, setCartes] = React.useState<CarteProgrammee[] | null>(null);
+  const [tour, setTour] = React.useState(0);
+  React.useEffect(() => {
+    if (!open) return;
+    let vivant = true;
+    client
+      .call<{ cartes: CarteProgrammee[] }>({ type: 'cartes.programmees' })
+      .then((r) => vivant && setCartes(r.cartes ?? []))
+      .catch(() => vivant && setCartes((c) => c ?? []));
+    return () => {
+      vivant = false;
+    };
+  }, [open, tour]);
+  return { cartes, relire: () => setTour((n) => n + 1) };
+}
+
+/**
+ * « DÉPARTS PROGRAMMÉS » (page « Tâches planifiées », 19/11/2026) : les cartes qui partiront seules à leur date,
+ * choisie dans leur configuration (ligne « Départ »). Chaque ligne : le titre, le projet, la date ; elle ouvre la
+ * carte, et « Annuler le départ » retire la date (`card.schedule` sans date) — la carte attend alors son « Lancer ».
+ */
+function DepartsProgrammes({
+  cartes,
+  nomDuProjet,
+  relire,
+}: {
+  cartes: CarteProgrammee[];
+  nomDuProjet: (id: string) => string;
+  relire: () => void;
+}) {
+  const [annulation, setAnnulation] = React.useState<string | null>(null);
+  /* Sur téléphone le bouton dit « Annuler » : le titre de la carte garde la place. */
+  const telephone = useTelephone();
+  const annuler = async (id: string) => {
+    setAnnulation(id);
+    try {
+      await client.call({ type: 'card.schedule', id });
+      relire();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Réglage impossible'));
+    } finally {
+      setAnnulation(null);
+    }
+  };
+  return (
+    <section className="mb-5" data-departs-programmes={cartes.length}>
+      <h2 className="mb-1.5 px-1 text-[12.5px] uppercase tracking-wide text-faint">{t('Départs programmés')}</h2>
+      <div className={CLASSE_GROUPE_DE_LIGNES}>
+        {cartes.map((c) => (
+          <div key={c.id} className={cn(CLASSE_LIGNE_DE_GROUPE, 'flex min-w-0 items-center gap-3 py-2.5')} data-depart-programme={c.id}>
+            <CalendarClock className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+            <button type="button" className="flex min-w-0 flex-1 flex-col text-left" onClick={() => ouvrirLaCarte(c.projectId, c.id)} title={t('Ouvrir la carte')}>
+              <span className="truncate text-[14px] font-medium text-text">{c.title}</span>
+              <span className="truncate text-[12.5px] text-faint">
+                {dateDeDepartLisible(c.departPrevu)} · {nomDuProjet(c.projectId)}
+              </span>
+            </button>
+            <Button
+              variant="subtle"
+              size="sm"
+              className="shrink-0"
+              disabled={annulation === c.id}
+              onClick={() => void annuler(c.id)}
+              data-annuler-depart={c.id}
+            >
+              {annulation === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {telephone ? t('Annuler') : t('Annuler le départ')}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** Ouvre la carte d'une veille dans son projet, par l'adresse : la carte n'a pas besoin d'être déjà chargée. */
 function ouvrirLaCarte(projectId: string, cardId: string): void {
   window.history.pushState(null, '', `#${construireFragment({ vue: 'projet', projectId, cardId })}`);
@@ -136,6 +222,7 @@ export function TachesRecurrentes({
 }) {
   const state = useApp();
   const veilles = useVeilles(open);
+  const { cartes: programmees, relire: relireLesProgrammees } = useCartesProgrammees(open);
 
   /* DANS L'ONGLET D'UN PROJET (refonte du 13/11/2026) : ce projet, et lui seul. */
   const projetDuService = useProjetDuService();
@@ -157,6 +244,8 @@ export function TachesRecurrentes({
     () => (veilles ?? []).filter((v) => !projetDuService || v.projectId === projetDuService.id),
     [veilles, projetDuService?.id],
   );
+  const departs = (programmees ?? []).filter((c) => !projetDuService || c.projectId === projetDuService.id);
+  const blocDesDeparts = departs.length ? <DepartsProgrammes cartes={departs} nomDuProjet={nomDuProjet} relire={relireLesProgrammees} /> : null;
   const ouvrir = (v: VeilleListee) => onVise(cleDuProjet(v.projectId), v.id);
   const [recherche, setRecherche] = React.useState('');
   const [vueDeLaListe, setVueDeLaListe] = useVueDeLaListe('taches-recurrentes.vueDeLaListe');
@@ -229,7 +318,7 @@ export function TachesRecurrentes({
     </ApercuAuSurvol>
   );
 
-  if (projetDuService && veilles !== null && !lignes.length) {
+  if (projetDuService && veilles !== null && programmees !== null && !lignes.length && !departs.length) {
     return (
       <Drawer open={open} onClose={onClose} enPage={enPage}>
         <EtatVideDuProjet
@@ -244,7 +333,7 @@ export function TachesRecurrentes({
 
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
-      <TitreDePage className="max-sm:sr-only">{t('Tâches récurrentes')}</TitreDePage>
+      <TitreDePage className="max-sm:sr-only">{t('Tâches planifiées')}</TitreDePage>
       {lignes.length ? (
         <>
           <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher une tâche…')} data-recurrentes-recherche />
@@ -254,6 +343,10 @@ export function TachesRecurrentes({
         </>
       ) : null}
       <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
+        {blocDesDeparts}
+        {blocDesDeparts && veilles !== null ? (
+          <h2 className="mb-1.5 px-1 text-[12.5px] uppercase tracking-wide text-faint">{t('Tâches récurrentes')}</h2>
+        ) : null}
         {veilles === null ? (
           <SilhouetteTachesRecurrentes />
         ) : !lignes.length ? (

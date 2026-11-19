@@ -257,7 +257,7 @@ export function aUnProcessus(projet: { miseEnProduction?: { processus?: Processu
 
 /** La phrase dite quand la mise en production d'un projet est éteinte. */
 export const PRODUCTION_DESACTIVEE =
-  'La mise en production est désactivée pour ce projet : allumez son interrupteur, en haut du tiroir « Mise en production » ou dans les réglages du projet, pour la permettre.';
+  'La mise en production est désactivée pour ce projet : allumez-la dans ses réglages, rubrique « Mise en production ». L’initialiser depuis le menu « Publier » l’allume aussi.';
 
 /**
  * L'INTERRUPTEUR DE MISE EN PRODUCTION (`miseEnProductionActive`), éteint par

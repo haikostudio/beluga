@@ -356,7 +356,7 @@ const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, str
   communication2: 'Communication',
   studio: 'Studio',
   medias: 'Médias',
-  'taches-recurrentes': 'Tâches récurrentes',
+  'taches-recurrentes': 'Tâches planifiées',
   plaquettes: 'Charte graphique',
 };
 
@@ -2237,7 +2237,7 @@ export function App() {
                 </PanneauALaDemande>
               </Filet>
             ) : fenetreDeFonctionnement === 'taches-recurrentes' ? (
-              <Filet zone="Tâches récurrentes">
+              <Filet zone="Tâches planifiées">
                 <PanneauALaDemande monte attente={<SilhouetteTableauDeService zone="taches-recurrentes" />}>
                   <TachesRecurrentes
                     open

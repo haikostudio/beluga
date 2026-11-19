@@ -225,6 +225,12 @@ export const Project = z.object({
   name: z.string(),
   path: z.string(),
   /**
+   * DERNIÈRE ACTIVITÉ (ms) : la dernière carte du projet qui a bougé. DÉRIVÉ par le serveur à la lecture
+   * (jamais écrit en base) : le client ne charge pas toutes les cartes, il ne peut pas le déduire. Sert au tri
+   * des listes de CHOIX de projet ; la colonne de gauche garde son ordre manuel.
+   */
+  derniereActivite: z.number().optional(),
+  /**
    * LE SUPPORT D'UNE MARQUE SANS DÉPÔT (une entreprise donnée par son adresse, une simple idée :
    * `server/src/communication.ts`). Il reste « mis de côté » : il ne paraît dans aucune liste de
    * projets, ne fait naître aucune carte de code, et ne sert qu'à ranger fiche, contenus et médias

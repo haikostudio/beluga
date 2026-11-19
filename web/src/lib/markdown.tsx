@@ -45,7 +45,7 @@ import { t } from '@/lib/langue';
 import { ContexteTextesEnvoyes, useIdeeEnvoyee, useLignesDansLeChamp } from '@/lib/texte-du-champ';
 import { client } from '@/lib/client';
 import { ouvrirUnMedia } from '@/lib/ouvrir-un-media';
-import { ImageDeVignette, noterLaLegende, ReferenceSousLeMedia, useReferenceDeLaPiece } from '@/components/cadre-de-media';
+import { ImageDeVignette, ImageIndisponible, noterLaLegende, ReferenceSousLeMedia, useReferenceDeLaPiece } from '@/components/cadre-de-media';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -950,6 +950,8 @@ export function BoutonOuvrirLeStudio({ adresse, children }: { adresse: string; c
 function ImageEnLigne({ piece, libelle }: { piece: string; libelle: string }) {
   const ouvrir = React.useContext(ContexteOuvrirUneImageDuTexte);
   const adresse = `/api/attachment?id=${encodeURIComponent(piece)}`;
+  const [manquante, setManquante] = React.useState(false);
+  if (manquante) return <ImageIndisponible libelle={libelle} compacte />;
   return (
     <button
       type="button"
@@ -958,7 +960,7 @@ function ImageEnLigne({ piece, libelle }: { piece: string; libelle: string }) {
       title={libelle || t('Ouvrir en grand')}
       className="mx-0.5 inline-block overflow-hidden rounded bg-raised p-0.5 align-middle"
     >
-      <img src={adresse} alt={libelle} loading="lazy" className="h-16 max-w-[160px] rounded object-contain" />
+      <img src={adresse} alt={libelle} loading="lazy" onError={() => setManquante(true)} className="h-16 max-w-[160px] rounded object-contain" />
     </button>
   );
 }

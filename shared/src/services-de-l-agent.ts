@@ -55,7 +55,7 @@ export const LIBELLE_DU_SERVICE_DE_L_AGENT: Readonly<Record<ServiceDeLAgent, str
   backups: 'Backup',
   statistiques: 'Statistiques',
   medias: 'Médias',
-  recurrentes: 'Tâches récurrentes',
+  recurrentes: 'Tâches planifiées',
   reseaux: 'Réseaux sociaux',
   studio: 'Studio',
   coffre: 'Coffre-fort',
@@ -126,7 +126,7 @@ const CE_QUE_FAIT: Readonly<Record<ServiceDeLAgent, { lire: string; agir: string
   backups: { lire: 'lire les sauvegardes et leurs points', agir: 'lancer une sauvegarde' },
   statistiques: { lire: 'lire les visites (outil « statistiques »)', agir: 'régler le suivi des visites' },
   medias: { lire: 'lister les images, vidéos et sons déjà fabriqués', agir: 'les réutiliser' },
-  recurrentes: { lire: 'lire les tâches récurrentes (veilles) et leur dernier contrôle', agir: 'en poser une sur ta carte (« veille_poser »)' },
+  recurrentes: { lire: 'lire les tâches planifiées : départs programmés des cartes et tâches récurrentes (veilles), avec leur dernier contrôle', agir: 'en poser une sur ta carte (« veille_poser »)' },
   reseaux: {
     lire: 'lire les comptes reliés et les publications',
     agir: 'proposer une publication datée (texte, vidéo du Studio) : un bouton « Programmer » que l’utilisateur seul clique',

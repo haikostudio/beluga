@@ -40,7 +40,7 @@ export const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Ke
   { cle: 'backups', repere: 'backups', Icone: HardDriveDownload, cleLibelle: 'Backup' },
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
   { cle: 'securite', repere: 'securite', Icone: ShieldCheck, cleLibelle: 'Sécurité' },
-  { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes' },
+  { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches planifiées' },
   { cle: 'plaquettes', repere: 'plaquettes', Icone: Palette, cleLibelle: 'Charte graphique' },
   /* LES NOUVEAUX OUTILS PRENNENT LA PLACE DES ANCIENS (décision de l'utilisateur, 10/11/2026) : l'ancien
      Communication (vue `communication`) et l'ancien Marketing (vue `strategie`) sont SUPPRIMÉS le 11/11/2026 : leurs

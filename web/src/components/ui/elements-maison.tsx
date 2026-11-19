@@ -349,11 +349,6 @@ export function ChoixDeDate({
   const borneMax = texteEnDate(max);
   const horsBornes = (d: Date) => (borneMin && d < borneMin) || (borneMax && d > borneMax);
 
-  /* La grille : six semaines, lundi en tête. */
-  const premierJour = (mois.getDay() + 6) % 7;
-  const jours: Date[] = Array.from({ length: 42 }, (_, i) => new Date(mois.getFullYear(), mois.getMonth(), i - premierJour + 1));
-  const nomsDesJours = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(locale, { weekday: 'narrow' }));
-  const aujourdHui = dateEnTexte(new Date());
   const choisir = (d: Date) => {
     onChange(dateEnTexte(d));
     setOuvert(false);
@@ -394,61 +389,7 @@ export function ChoixDeDate({
             data-calendrier-saisie=""
             className="mb-1.5 h-9 w-full rounded-md bg-raised px-2.5 text-[13.5px] tabular-nums text-text outline-none placeholder:text-faint focus-visible:ring-1 focus-visible:ring-faint"
           />
-          <div className="flex items-center gap-1 pb-1.5">
-            <button
-              type="button"
-              aria-label="Mois précédent"
-              data-calendrier-precedent=""
-              onClick={() => setMois(new Date(mois.getFullYear(), mois.getMonth() - 1, 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="flex-1 text-center text-[13.5px] font-medium capitalize text-text" data-calendrier-mois="">
-              {mois.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}
-            </span>
-            <button
-              type="button"
-              aria-label="Mois suivant"
-              data-calendrier-suivant=""
-              onClick={() => setMois(new Date(mois.getFullYear(), mois.getMonth() + 1, 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center" role="grid">
-            {nomsDesJours.map((n, i) => (
-              <span key={i} className="pb-1 text-[11.5px] uppercase text-faint">
-                {n}
-              </span>
-            ))}
-            {jours.map((d) => {
-              const texte = dateEnTexte(d);
-              const duMois = d.getMonth() === mois.getMonth();
-              const estChoisie = texte === valeur;
-              const interdit = !!horsBornes(d);
-              return (
-                <button
-                  key={texte}
-                  type="button"
-                  role="gridcell"
-                  aria-selected={estChoisie}
-                  disabled={interdit}
-                  data-calendrier-jour={texte}
-                  onClick={() => choisir(d)}
-                  className={cn(
-                    'flex h-9 items-center justify-center rounded-md text-[13px] tabular-nums transition-colors disabled:cursor-default disabled:opacity-30',
-                    estChoisie ? 'bg-teinte-plein font-semibold text-sur-couleur' : 'hover:bg-raised',
-                    !estChoisie && (duMois ? 'text-text' : 'text-faint'),
-                    !estChoisie && texte === aujourdHui && 'font-semibold underline decoration-faint underline-offset-4',
-                  )}
-                >
-                  {d.getDate()}
-                </button>
-              );
-            })}
-          </div>
+          <GrilleDuMois mois={mois} setMois={setMois} valeur={valeur} horsBornes={horsBornes} onChoisir={choisir} />
           <div className="flex items-center justify-between pt-1.5">
             <button type="button" onClick={() => choisir(new Date())} className="rounded-md px-2 py-1.5 text-[13px] text-muted hover:bg-raised hover:text-text" data-calendrier-aujourdhui="">
               {t('Aujourd’hui')}
@@ -470,6 +411,91 @@ export function ChoixDeDate({
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
+  );
+}
+
+/**
+ * LE MOIS D'UN CALENDRIER MAISON : flèches mois précédent / suivant, puis six semaines lundi en tête. Partagé par le
+ * choix de date en bulle (`ChoixDeDate`) et le volet « Départ de la tâche » (`depart-de-la-carte.tsx`).
+ */
+export function GrilleDuMois({
+  mois,
+  setMois,
+  valeur,
+  horsBornes,
+  onChoisir,
+}: {
+  mois: Date;
+  setMois: (mois: Date) => void;
+  /** Le jour choisi, « AAAA-MM-JJ ». */
+  valeur: string;
+  horsBornes: (jour: Date) => unknown;
+  onChoisir: (jour: Date) => void;
+}) {
+  const locale = useLocale();
+  const choisir = onChoisir;
+  const premierJour = (mois.getDay() + 6) % 7;
+  const jours: Date[] = Array.from({ length: 42 }, (_, i) => new Date(mois.getFullYear(), mois.getMonth(), i - premierJour + 1));
+  const nomsDesJours = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(locale, { weekday: 'narrow' }));
+  const aujourdHui = dateEnTexte(new Date());
+  return (
+    <>
+    <div className="flex items-center gap-1 pb-1.5">
+      <button
+        type="button"
+        aria-label="Mois précédent"
+        data-calendrier-precedent=""
+        onClick={() => setMois(new Date(mois.getFullYear(), mois.getMonth() - 1, 1))}
+        className="flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <span className="flex-1 text-center text-[13.5px] font-medium capitalize text-text" data-calendrier-mois="">
+        {mois.toLocaleDateString(locale, { month: 'long', year: 'numeric' })}
+      </span>
+      <button
+        type="button"
+        aria-label="Mois suivant"
+        data-calendrier-suivant=""
+        onClick={() => setMois(new Date(mois.getFullYear(), mois.getMonth() + 1, 1))}
+        className="flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
+    <div className="grid grid-cols-7 gap-0.5 text-center" role="grid">
+      {nomsDesJours.map((n, i) => (
+        <span key={i} className="pb-1 text-[11.5px] uppercase text-faint">
+          {n}
+        </span>
+      ))}
+      {jours.map((d) => {
+        const texte = dateEnTexte(d);
+        const duMois = d.getMonth() === mois.getMonth();
+        const estChoisie = texte === valeur;
+        const interdit = !!horsBornes(d);
+        return (
+          <button
+            key={texte}
+            type="button"
+            role="gridcell"
+            aria-selected={estChoisie}
+            disabled={interdit}
+            data-calendrier-jour={texte}
+            onClick={() => choisir(d)}
+            className={cn(
+              'flex h-9 items-center justify-center rounded-md text-[13px] tabular-nums transition-colors disabled:cursor-default disabled:opacity-30',
+              estChoisie ? 'bg-teinte-plein font-semibold text-sur-couleur' : 'hover:bg-raised',
+              !estChoisie && (duMois ? 'text-text' : 'text-faint'),
+              !estChoisie && texte === aujourdHui && 'font-semibold underline decoration-faint underline-offset-4',
+            )}
+          >
+            {d.getDate()}
+          </button>
+        );
+      })}
+    </div>
+    </>
   );
 }
 

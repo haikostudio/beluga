@@ -7,6 +7,7 @@ import {
   texteDuPointPourLeChamp,
   type Agent,
   type ConstatSecurite,
+  ordonnerParDerniereActivite,
   type GraviteSecurite,
   type PointSuivi,
   type ProjetSuiviSecurite,
@@ -194,7 +195,7 @@ export function Securite({
   };
 
   const suivis = new Set((projets ?? []).map((p) => p.projectId));
-  const ajoutables = state.projects.filter((p) => !p.archived && !suivis.has(p.id));
+  const ajoutables = ordonnerParDerniereActivite(state.projects.filter((p) => !p.archived && !suivis.has(p.id)));
 
   const ajouter = async (projectId: string) => {
     setAjout(true);

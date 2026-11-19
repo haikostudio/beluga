@@ -102,6 +102,7 @@ import {
   motifLisible,
 } from '@/components/tiroir-deploiement';
 import { BulleInfo, Button, Drawer, EnteteDeFeuille, ZoneDefilement } from '@/components/ui';
+import { BoutonRelancerLaPublication } from '@/components/mises-en-ligne';
 import { client } from '@/lib/client';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { useApp } from '@/lib/use-app';
@@ -900,6 +901,13 @@ export function CorpsDuVolet({
                 />
               ) : null}
             </div>
+            {/* LA RELANCE, AUSSI DEPUIS LE DÉPANNEUR (19/11/2026) : le dépannage s'arrête, la publication reprend. */}
+            {agentOuvert === depanneurId && run && aDepanner ? (
+              <div className="flex shrink-0 items-center gap-2 px-4 pb-2" data-relance-du-depanneur>
+                <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-muted">{t('Publication bloquée : la relancer arrête ce dépannage.')}</p>
+                <BoutonRelancerLaPublication run={run} className="flex-none" onFait={() => setAgentOuvert(null)} />
+              </div>
+            ) : null}
             {/* L'AGENT DE DÉPANNAGE, SUR PLACE lui aussi : ce qu'il fait, sa question, un champ — pas de fil complet. */}
             <div className="flex min-h-0 flex-1 flex-col justify-end px-4 pb-4" data-depannage-en-ligne={agentOuvert}>
               <AgentEnLigne agentId={agentOuvert} projectId={run?.projectId ?? ''} enAttente={t('L’agent cherche la cause…')} repere="depannage" />

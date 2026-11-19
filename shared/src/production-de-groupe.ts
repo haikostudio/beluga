@@ -31,7 +31,7 @@ export const MEMBRE_SANS_PROCESSUS =
  * y enverrait chercher un bouton qui n'existe pas.
  */
 export const MEMBRE_DESACTIVE =
-  'La mise en production est désactivée pour ce projet : allumez son interrupteur dans ses réglages pour la permettre.';
+  'La mise en production est désactivée pour ce projet : allumez-la dans ses réglages, rubrique « Mise en production ».';
 
 /**
  * LA PUBLICATION QUE RACONTE LA LIGNE D'UN MEMBRE : sa dernière mise en

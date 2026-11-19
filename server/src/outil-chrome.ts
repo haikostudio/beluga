@@ -288,8 +288,9 @@ function enFenetrePrivee(cardId: string | null | undefined): boolean {
 async function preparer(c: Contexte): Promise<void> {
   const prive = enFenetrePrivee(c.ctx.cardId);
   const confie = prive ? null : ongletConfie(c.ctx.agentId, c.ctx.cardId);
+  let reponse: { incognito?: boolean } | undefined;
   try {
-    await demanderAuChrome(c.session.appareilId, 'preparer', {
+    reponse = await demanderAuChrome<{ incognito?: boolean } | undefined>(c.session.appareilId, 'preparer', {
       agentId: c.ctx.agentId,
       titre: c.session.titre,
       couleur: c.session.couleur,
@@ -303,6 +304,10 @@ async function preparer(c: Contexte): Promise<void> {
       );
     }
     throw err;
+  }
+  /* Une extension qui DIT sa fenêtre (1.0.10 et suivantes) et la dit ordinaire : rien ne continue (19/11/2026). */
+  if (prive && reponse && typeof reponse.incognito === 'boolean' && !reponse.incognito) {
+    throw new Error("la fenêtre ouverte par l'extension n'est pas privée : rien n'a été fait. Arrête la séance et dis-le dans ton compte rendu.");
   }
 }
 

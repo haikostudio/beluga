@@ -463,6 +463,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.veille.reparer'), cardId: z.string() }),
   /* Le service « Tâches récurrentes » : toutes les veilles, actives et terminées (`VeilleListee`). */
   z.object({ type: z.literal('veilles.lister') }),
+  /* Les cartes qui attendent leur date de départ (`scheduling.departPrevu`), pour la page « Tâches planifiées ». */
+  z.object({ type: z.literal('cartes.programmees') }),
   /* La fenêtre « Services » : un chiffre par carte, lu en un seul message (`server/src/resume-des-services.ts`). */
   z.object({ type: z.literal('services.resume') }),
   /**
@@ -826,6 +828,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * vivant sur ce run est rendu tel quel, jamais doublé.
    */
   z.object({ type: z.literal('deploy.depanner'), runId: z.string() }),
+  /**
+   * « RELANCER » UNE PUBLICATION BLOQUÉE (19/11/2026) : toujours possible, même dépannage ouvert. Le dépanneur qui
+   * tourne est arrêté d'abord (file vidée, veille coupée), puis la MÊME publication reprend à l'étape tombée. Le clic
+   * est le geste de publier : jamais une relance silencieuse de plus.
+   */
+  z.object({ type: z.literal('deploy.relancer'), runId: z.string() }),
   /** Le bouton « Réconcilier » d'une carte écartée : relance son agent, comme la fin de publication. */
   z.object({ type: z.literal('deploy.reconcilier'), runId: z.string(), cardId: z.string() }),
   /**
@@ -2786,6 +2794,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
     sources: z.number().optional(),
     /** Une étape que Beluga a fait dire à la voix : la liste cochée la montre déjà, aucune bulle (18/11/2026). */
     annonce: z.boolean().optional(),
+    /**
+     * Un POINT D'AVANCEMENT dit par la voix pendant que le cerveau travaille encore (19/11/2026) : ce n'est pas la
+     * réponse, l'écran continue de l'attendre (la mise en veille sur silence ne part pas).
+     */
+    avancement: z.boolean().optional(),
   }),
   /**
    * UN GESTE DE JARVIS À JOUER, pour le SEUL navigateur `client` qui tient la conversation vocale : il le joue avec
