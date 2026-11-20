@@ -15,6 +15,7 @@ import { useTelephone } from '@/lib/telephone';
 import { EVENEMENT_MESURE_DU_CLAVIER } from '@/lib/ecriture-au-clavier';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
+import { CarrouselDuChoix } from '@/components/carrousel-du-choix';
 import { ImageDePiece, PastilleDeFichier } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -121,6 +122,8 @@ export interface OptionDeQuestion {
   description?: string;
   /** Une pièce jointe image qui illustre le choix : la zone devient un choix en images. */
   image?: string;
+  /** Plusieurs images qui composent CE choix (deux au moins) : feuilletées dans un carrousel sur sa tuile. */
+  images?: string[];
   /** Une pièce jointe son ou vidéo que le choix fait écouter : un bouton lecture à droite. */
   media?: string;
   /** Les teintes « #rrggbb » d'un choix de couleurs, en points devant le libellé. */
@@ -1148,7 +1151,10 @@ function ChoixEnImages({
     [options, reperes],
   );
   const [ouverte, setOuverte] = React.useState<Attachment | null>(null);
-  const optionDe = (piece: Attachment | null | undefined) => (piece ? options.find((o) => o.image === piece.id) : undefined);
+  /* L'APERÇU D'UN CHOIX À PLUSIEURS IMAGES NE FEUILLETTE QUE LES SIENNES ; null = une image par choix. */
+  const [galerieDuChoix, setGalerieDuChoix] = React.useState<Attachment[] | null>(null);
+  const optionDe = (piece: Attachment | null | undefined) =>
+    piece ? options.find((o) => o.image === piece.id || !!o.images?.includes(piece.id)) : undefined;
   /** La coche d'une option, en grand dans l'aperçu : même geste, même dessin. */
   const coche = (option: OptionDeQuestion, taille: 'vignette' | 'apercu') => {
     const rang = choisis.indexOf(option.id) + 1;
@@ -1182,6 +1188,7 @@ function ChoixEnImages({
           <div
             key={option.id}
             data-option-image={option.image}
+            data-option-images={repere?.pieces?.length}
             data-option-lettre={repere?.lettre ?? undefined}
             data-option-retenue={actif ? '' : undefined}
             data-option-rang={actif && plusieurs ? rang : undefined}
@@ -1190,9 +1197,33 @@ function ChoixEnImages({
               actif ? 'bg-teinte-fond text-teinte' : 'bg-surface text-muted',
             )}
           >
+            {repere?.pieces ? (
+              <CarrouselDuChoix
+                images={repere.pieces.map((p) => p.id)}
+                alt={option.label}
+                actif={actif}
+                onOuvrir={(r) => {
+                  setGalerieDuChoix(repere.pieces!);
+                  setOuverte(repere.pieces![r] ?? null);
+                }}
+              >
+                {repere.lettre ? (
+                  <span
+                    className="pointer-events-none absolute left-1.5 top-1.5 flex min-w-[1.6em] items-center justify-center rounded-md bg-surface/90 px-1 text-[16px] font-semibold leading-6 text-text"
+                    data-option-lettre-visible
+                  >
+                    {repere.lettre}
+                  </span>
+                ) : null}
+              </CarrouselDuChoix>
+            ) : (
             <button
               type="button"
-              onClick={() => (repere?.piece ? setOuverte(repere.piece) : onBasculer(option.id))}
+              onClick={() => {
+                setGalerieDuChoix(null);
+                if (repere?.piece) setOuverte(repere.piece);
+                else onBasculer(option.id);
+              }}
               title={t('Ouvrir en grand')}
               data-option-apercu={option.id}
               className={cn(
@@ -1210,6 +1241,7 @@ function ChoixEnImages({
                 </span>
               ) : null}
             </button>
+            )}
             <button
               type="button"
               role={plusieurs ? 'checkbox' : 'radio'}
@@ -1250,9 +1282,12 @@ function ChoixEnImages({
       })}
       <AttachmentPreview
         item={ouverte}
-        onClose={() => setOuverte(null)}
+        onClose={() => {
+          setOuverte(null);
+          setGalerieDuChoix(null);
+        }}
         onNaviguer={setOuverte}
-        galerie={galerie}
+        galerie={galerieDuChoix ?? galerie}
         adresse="apercu-du-choix"
         repereDe={(piece) => {
           const r = reperes.get(optionDe(piece)?.id ?? '');
@@ -1308,6 +1343,8 @@ interface RepereDUnChoixEnImage {
   lettre?: string;
   alias?: string | null;
   piece?: Attachment;
+  /** Les pièces d'un choix à plusieurs images (deux au moins), dans l'ordre. */
+  pieces?: Attachment[];
 }
 
 /**
@@ -1339,7 +1376,9 @@ function useReperesDesChoixEnImages(
     for (const o of options) {
       if (!o.image) continue;
       const piece = pieceDe(o.image);
-      reperes.set(o.id, { lettre: lettres.get(o.id), alias: piece?.alias ?? null, piece });
+      /* UN CHOIX À PLUSIEURS IMAGES : toutes ses pièces, dans l'ordre, pour son carrousel et son aperçu. */
+      const pieces = (o.images ?? []).map(pieceDe).filter((p): p is Attachment => !!p);
+      reperes.set(o.id, { lettre: lettres.get(o.id), alias: piece?.alias ?? null, piece, ...(pieces.length > 1 ? { pieces } : {}) });
     }
     return reperes;
   }, [avecImage, options, connues, blocs]);

@@ -210,6 +210,13 @@ async function main(): Promise<void> {
   poserLesVerrousDeLaMachine();
   await verrouillerLesDistants(CONFIG.selfPath);
   await ensureSelfProject();
+  // Un archivage ou désarchivage coupé par ce redémarrage passe en échec, sans rien effacer.
+  try {
+    const { reprendreAuDemarrage } = await import('./archivage-projet.js');
+    reprendreAuDemarrage();
+  } catch (err) {
+    log.warn('reprise des archivages de projets', err);
+  }
   // Sur l'offre hébergée, un projet de l'outil déjà inscrit se range (rien n'est supprimé).
   rangerLeProjetDeLOutilSiHebergee();
   // Le dépôt public se lit, il ne reçoit jamais d'envoi depuis ce projet.

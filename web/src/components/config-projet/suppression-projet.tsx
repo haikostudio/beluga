@@ -109,7 +109,7 @@ export function SuppressionDefinitive({ ctx }: { ctx: ContexteConfig }) {
           {!project.archived ? (
             <div className="mt-1 rounded-md bg-raised px-3 py-2.5">
               <p className="text-[13.5px] text-text">
-                {t('Mettre de côté suffit souvent : le projet quitte la colonne de gauche sans rien perdre, et revient d’un clic.')}
+                {t('Archiver suffit souvent : les fichiers partent sur le disque externe sans rien perdre, et le projet revient d’un clic.')}
               </p>
               <Button
                 variant="default"
@@ -122,7 +122,7 @@ export function SuppressionDefinitive({ ctx }: { ctx: ContexteConfig }) {
                 }}
               >
                 <Archive className="h-3 w-3" />
-                {t('Mettre de côté')}
+                {t('Archiver…')}
               </Button>
             </div>
           ) : null}

@@ -122,6 +122,7 @@ import {
   type LectureParDate,
   type PorteeDeLecture,
   type SoldeDeServiceIa,
+  projetFigeParLArchive,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -204,7 +205,12 @@ export const CLE_ETAT_EN_ROUTE = {
   archive: 'enRouteArchive',
 } as const satisfies Record<OngletEnRoute, string>;
 
+/** L'avancement d'un archivage ou désarchivage, tel que le démon le pousse (`project.archivage`). */
+export type TransfertDArchive = Omit<Extract<ServerEvent, { type: 'project.archivage' }>, 'type'>;
+
 export interface AppState {
+  /** LES TRANSFERTS VERS / DEPUIS LE DISQUE EXTERNE, par projet (`server/src/archivage-projet.ts`). */
+  archivages: Record<string, TransfertDArchive>;
   connected: boolean;
   connecting: boolean;
   /**
@@ -529,6 +535,7 @@ function quotasSepares(releves: AccountQuota[]): { quotas: AccountQuota[]; quota
 }
 
 const initialState: AppState = {
+  archivages: {},
   connected: false,
   connecting: true,
   canal: 'reconnexion',
@@ -2243,6 +2250,13 @@ class Client {
         window.dispatchEvent(new CustomEvent(EVENEMENT_MONTAGE, { detail: event }));
         break;
 
+      // L'archivage d'un projet avance : la fenêtre de progression et le badge de la ligne le lisent.
+      case 'project.archivage': {
+        const { type: _type, ...transfert } = event;
+        this.set((state) => ({ archivages: { ...state.archivages, [event.projectId]: transfert } }));
+        break;
+      }
+
       case 'prefs':
         // Un réglage envoyé d'ici et pas encore confirmé ne recule pas. Un événement
         // `partiel` ne porte que les clés qui changent : il se fusionne dans le bloc
@@ -3425,7 +3439,8 @@ class Client {
    */
   /** Le projet affiché a disparu (archivé, supprimé) : repli sur le premier. */
   private replierSiProjetIndisponible(): void {
-    const encore = this.state.projects.some((p) => p.id === this.state.activeProjectId && !p.archived);
+    /* UN PROJET ARCHIVÉ SE LIT ENCORE : on reste dessus. On ne quitte qu'un projet disparu. */
+    const encore = this.state.projects.some((p) => p.id === this.state.activeProjectId);
     if (encore) return;
     const choix = choisirProjetAOuvrir(this.state.projects, this.state.prefs[CLE_PROJET_ACTIF], null);
     if (choix.id === this.state.activeProjectId) return;
@@ -3486,7 +3501,17 @@ class Client {
    * L'erreur reste RENDUE à l'appelant : le bouton doit revenir à son état de
    * repos, jamais afficher une coche sur un lancement qui n'a pas abouti.
    */
+  /** UN PROJET ARCHIVÉ NE LANCE RIEN : le refus se dit avant même la requête (le démon refuse de même). */
+  private refuserSiProjetArchive(cardId: string): void {
+    const projetDeLaCarte = this.state.projects.find((p) => p.id === this.state.cards[cardId]?.projectId);
+    if (!projetFigeParLArchive(projetDeLaCarte)) return;
+    const raison = t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.');
+    this.pushToast('warning', raison, cardId);
+    throw new Error(raison);
+  }
+
   async demanderLeLancement(cardId: string): Promise<void> {
+    this.refuserSiProjetArchive(cardId);
     // Une préparation qui dure n'est PAS un incident : au lieu de
     // l'avertissement commun aux boutons lents (« … prend plus de temps que
     // prévu »), que l'ouverture d'une copie de travail dépasse toujours sur un

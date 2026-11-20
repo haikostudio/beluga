@@ -76,6 +76,7 @@ import {
   type AgentQuestion,
   type GesteDuMedia,
   typesDeMediaDeLaRealisation,
+  projetFigeParLArchive,
 } from '@beluga/shared';
 import { BulleInfo, Button, CLASSE_BLOC_DU_PIED, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement, ChoixDateEtHeure } from '@/components/ui';
 import { CarouselQuestions, EmplacementDeLaPagination } from '@/components/carousel-questions';
@@ -1118,7 +1119,9 @@ function GestesDuChapitre({
   /* LE MODÈLE QUI PARTIRA SE LIT SUR LE BOUTON DE VALIDATION : celui de la
      configuration de la carte, modifiable jusqu'à ce clic. Sans modèle posé,
      le palier du cadrage (`NIVEAU_DU_PLAN`). */
-  const moteurs = useApp().engines;
+  const etatDeLApp = useApp();
+  const moteurs = etatDeLApp.engines;
+  const projetArchive = projetFigeParLArchive(etatDeLApp.projects.find((p) => p.id === carte.projectId));
   // Un modèle retiré par la mise à jour du moteur part sous sa version
   // actuelle de la même famille (`modeleActuel`) : c'est elle qu'on nomme.
   const moteurDeLaCarte = moteurs.find((m) => m.id === carte.run?.engine);
@@ -1199,7 +1202,10 @@ function GestesDuChapitre({
   const duChapitre = (principal && principal.geste !== 'aucun' ? gestes : []).map((geste) =>
     geste.geste === 'arreter' && geste.possible && !arret.possible
       ? { ...geste, possible: false, raison: arret.raison }
-      : geste,
+      : /* UN PROJET ARCHIVÉ NE LANCE RIEN : « Lancer » s'éteint et dit pourquoi (`shared/src/archivage-projet.ts`). */
+        projetArchive && geste.possible && (geste.geste === 'lancer' || geste.geste === 'reprendre' || geste.geste === 'valider-et-lancer')
+        ? { ...geste, possible: false, raison: t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.') }
+        : geste,
   );
   /* PLUS AUCUN BOUTON : une carte mise en ligne n'a plus de rangée du tout,
      son résumé d'agent se lit sous « Déploiement ». Ailleurs, l'icône des

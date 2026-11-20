@@ -106,6 +106,8 @@ export interface GalerieDesCaptures {
   cheminDePiece: (piece: Attachment) => string | null;
   /** L'identifiant de la pièce jointe qu'un chemin désigne, sinon null (son menu « … »). */
   pieceDuChemin: (chemin: string) => string | null;
+  /** Ouvre l'image d'un chemin en ne feuilletant QUE les chemins de son paquet ; false si la galerie ne la connaît pas. */
+  ouvrirDansLePaquet: (chemin: string, chemins: readonly string[]) => boolean;
   fermer: () => void;
   naviguer: (p: Attachment) => void;
 }
@@ -130,6 +132,9 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
   );
   const [perdues, setPerdues] = React.useState<Set<string>>(new Set());
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  /* L'APERÇU D'UN PAQUET NE FEUILLETTE QUE LUI (carte « Images groupées dans le fil ») : les chemins du paquet ouvert,
+     sinon null — toute la carte. */
+  const [paquet, setPaquet] = React.useState<readonly string[] | null>(null);
   const captures = React.useMemo(
     () => capturesDuFlux(steps, jointes).filter((c) => !perdues.has(c.cle)),
     [steps, jointes, perdues],
@@ -155,7 +160,10 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
         : { id: c.cle, projectId: projectId ?? '', name: c.libelle, mime: 'image/png', size: 0, sha: '', createdAt: c.quand },
     [jointes, projectId],
   );
-  const galerie = React.useMemo(() => captures.map(piece).filter(Boolean) as Attachment[], [captures, piece]);
+  const galerie = React.useMemo(() => {
+    const dansLeFil = paquet ? paquet.map((chemin) => captureDuChemin(captures, chemin)).filter((c): c is CaptureDuFlux => !!c) : captures;
+    return dansLeFil.map(piece).filter(Boolean) as Attachment[];
+  }, [captures, piece, paquet]);
   const captureDePiece = React.useCallback(
     (p: Attachment) => captures.find((c) => c.cle === p.id || (c.genre === 'jointe' && c.id === p.id)),
     [captures],
@@ -200,7 +208,9 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
   const ouvrir = React.useCallback(
     (c: CaptureDuFlux) => {
       const ouverte = piece(c);
-      if (ouverte) montrer(c, ouverte);
+      if (!ouverte) return;
+      setPaquet(null);
+      montrer(c, ouverte);
     },
     [piece, montrer],
   );
@@ -209,6 +219,22 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
       const c = captureDuChemin(captures, chemin);
       const ouverte = c ? piece(c) : undefined;
       if (!ouverte) return false;
+      setPaquet(null);
+      montrer(c, ouverte);
+      return true;
+    },
+    [captures, piece, montrer],
+  );
+  const ouvrirDansLePaquet = React.useCallback(
+    (chemin: string, chemins: readonly string[]) => {
+      /* LA GALERIE DE LA CARTE NE SERT QUE SI ELLE CONNAÎT TOUT LE PAQUET, chacune de ses images une seule fois ;
+         sinon le paquet ouvre sa propre visionneuse, qui les montre toutes. */
+      const trouvees = chemins.map((x) => captureDuChemin(captures, x));
+      if (trouvees.some((x) => !x) || new Set(trouvees.map((x) => x!.cle)).size !== chemins.length) return false;
+      const c = captureDuChemin(captures, chemin);
+      const ouverte = c ? piece(c) : undefined;
+      if (!ouverte) return false;
+      setPaquet(chemins);
       montrer(c, ouverte);
       return true;
     },
@@ -216,7 +242,10 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
   );
   const naviguer = React.useCallback((p: Attachment) => montrer(captureDePiece(p), p), [captureDePiece, montrer]);
   const perdre = React.useCallback((c: CaptureDuFlux) => setPerdues((courant) => new Set(courant).add(c.cle)), []);
-  const fermer = React.useCallback(() => setApercu(null), []);
+  const fermer = React.useCallback(() => {
+    setApercu(null);
+    setPaquet(null);
+  }, []);
   /* LE REPÈRE COURT, LE MÊME QUE SOUS LA BARRE D'ÉCRITURE (#ce5d). */
   const repereParChemin = React.useCallback((chemin: string) => repereDuChemin(chemin, connues), [connues]);
   const pieceParChemin = React.useCallback((chemin: string) => pieceDuChemin(chemin, connues)?.id ?? null, [connues]);
@@ -261,6 +290,7 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
     pieceDejaVue,
     ouvrir,
     ouvrirLeChemin,
+    ouvrirDansLePaquet,
     fermer,
     naviguer,
   };
@@ -282,6 +312,8 @@ const CLE_BANDE_REPLIEE_DEPUIS = 'captures.replieeDepuis';
 
 /** Ouvre en grand, dans la galerie de la carte, l'image d'un chemin vu dans le fil. Absent hors d'un flux de carte. */
 export const OuvrirUneCapture = React.createContext<((chemin: string) => boolean) | null>(null);
+/** Ouvre en grand l'image d'un chemin en ne feuilletant que son paquet (carte « Images groupées dans le fil »). */
+export const OuvrirDansUnPaquet = React.createContext<((chemin: string, chemins: readonly string[]) => boolean) | null>(null);
 /** Le repère court (« #1a0c ») de l'image d'un chemin vu dans le fil, quand c'est une pièce jointe (#ce5d). */
 export const RepereDUneCapture = React.createContext<((chemin: string) => string | null) | null>(null);
 /** La pièce jointe de l'image d'un chemin vu dans le fil, quand elle en est une : son menu « … » la retravaille. */

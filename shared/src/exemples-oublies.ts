@@ -36,12 +36,14 @@ export type VerdictDuLot =
 /** Les pièces du lot reprises — ou non — par les options d'une question (champ « image » ou « media »). */
 export function verdictDuLot(
   lot: readonly PieceDUnLotDExemples[],
-  options: readonly { image?: string | null; media?: string | null }[],
+  options: readonly { image?: string | null; images?: readonly string[] | null; media?: string | null }[],
 ): VerdictDuLot {
   if (!lot.length) return { etat: 'sans-rapport' };
   const reprises = new Set<string>();
   for (const o of options) {
     if (o.image) reprises.add(o.image);
+    /* UN CHOIX PEUT PORTER PLUSIEURS IMAGES (carte « Images groupées dans le fil ») : chacune compte comme reprise. */
+    for (const id of o.images ?? []) reprises.add(id);
     if (o.media) reprises.add(o.media);
   }
   const oublies = lot.filter((p) => !reprises.has(p.id));

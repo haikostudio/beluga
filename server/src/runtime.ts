@@ -1,3 +1,4 @@
+import { TEXTE_PROJET_ARCHIVE, projetFigeParLArchive } from '@beluga/shared';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -1609,6 +1610,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * relancerait l'agent sur la branche qu'on est en train de pousser. Les
    * demandes silencieuses du démon et le conducteur de publication passent.
    */
+  /* UN PROJET ARCHIVÉ (ou en plein transfert) NE LANCE RIEN : son dossier est sur le disque externe. */
+  if (projetFigeParLArchive(store.getProject(agent.projectId))) {
+    log.warn(`agent ${agentId} : demande refusée, projet archivé`);
+    if (!options.silent) bus.toast('warning', TEXTE_PROJET_ARCHIVE);
+    return;
+  }
+
   const refus = options.silent ? null : refusDUnEnvoiHumain(agent);
   if (refus === TEXTE_CARTE_EN_PUBLICATION) {
     bus.toast('warning', TEXTE_CARTE_EN_PUBLICATION);

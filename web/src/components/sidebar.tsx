@@ -2,6 +2,7 @@ import { LienInterne } from '@/components/ui/lien-interne';
 import * as React from 'react';
 import {
   Menu,
+  Archive,
   ArchiveRestore,
   FolderOpen,
   ChevronLeft,
@@ -67,7 +68,7 @@ import {
   compterEnPanne,
   texteDuCompteur,
 } from '@beluga/shared';
-import { construireFragment, idDuGroupeLocal } from '@beluga/shared';
+import { avancementDuTransfert, construireFragment, idDuGroupeLocal } from '@beluga/shared';
 import {
   RAISON_SANS_REPONSE,
   bilanDuMontageRate,
@@ -121,7 +122,8 @@ import { PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
 import { bulleDuTerminal } from '@/components/pastille-terminal';
 import { ouvrirLeTerminal, useEtatDuTerminal } from '@/lib/ouvrir-terminal';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
-import { client, EVENEMENT_MONTAGE } from '@/lib/client';
+import { client, EVENEMENT_MONTAGE, type TransfertDArchive } from '@/lib/client';
+import { ouvrirLArchivage } from '@/lib/archivage-projet';
 import { usePointerDrag } from '@/lib/dnd';
 import { modifierLaListe, usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
@@ -240,8 +242,6 @@ export function Sidebar({
     window.addEventListener('beluga:ajouter-projet', ouvrir);
     return () => window.removeEventListener('beluga:ajouter-projet', ouvrir);
   }, [onChoose]);
-  const [showArchived, setShowArchived] = React.useState(false);
-  const [archived, setArchived] = React.useState<Project[]>([]);
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   /* CES TROIS LISTES SE MODIFIENT PAR `modifierLaListe` (demande du 01/11/2026 : « mémoriser les projets
      ouverts ou fermés ») : depuis la dernière valeur connue, jamais avant l'arrivée des réglages du serveur.
@@ -444,7 +444,9 @@ export function Sidebar({
    * reste ancré sous le libellé « Projets ». Cela ne l'empêche pas de RECEVOIR
    * une carte : le dépôt suit la règle commune.
    */
-  const tousActifs = state.projects.filter((p) => !p.archived && !p.isSelf);
+  /* UN PROJET ARCHIVÉ GARDE SA PLACE (carte du 20/11/2026) : nom en gris et badge « Archivé », plus de dossier
+     replié « Mis de côté ». Seuls les supports de marque sans dépôt restent hors de la colonne. */
+  const tousActifs = state.projects.filter((p) => !p.isSelf && !p.marqueSansDepot);
   /*
    * LES MEMBRES D'UN PROJET RÉUNI NE SE RANGENT PLUS EUX-MÊMES : ils vivent
    * dans le SOUS-GROUPE de leur regroupement, qui prend leur place dans la
@@ -518,7 +520,7 @@ export function Sidebar({
             texteCherche,
             groups,
             state.projects
-              .filter((p) => !p.archived)
+              .filter((p) => !p.marqueSansDepot)
               .map((p) => ({
                 id: p.id,
                 name: p.name,
@@ -584,14 +586,6 @@ export function Sidebar({
       })
     : entries;
   const espaceDevAffiche = !!espaceDev && (!filtre || filtre.projets.has(espaceDev.id));
-
-  React.useEffect(() => {
-    if (!showArchived) return;
-    client
-      .call<{ projects: Project[] }>({ type: 'project.list', includeArchived: true })
-      .then((data) => setArchived((data.projects ?? []).filter((p) => p.archived)))
-      .catch(() => setArchived([]));
-  }, [showArchived, state.projects]);
 
   const appliquer = React.useCallback(
     async (item: { id: string; kind: string }, cible: { id: string; kind: string; position: string } | null) => {
@@ -849,8 +843,9 @@ export function Sidebar({
         rowProps={rowProps(p.id, 'project')}
         poigneeProps={poigneeProps(p.id, 'project', p.name)}
         onSettings={() => ouvrirConfigProjet(p.id)}
+        transfert={state.archivages[p.id]}
         onNouvelAgent={
-          onNouvelAgent
+          onNouvelAgent && !p.archived
             ? () => {
                 onNouvelAgent(p.id);
                 onChoose?.();
@@ -1766,39 +1761,7 @@ export function Sidebar({
             </>
           )}
 
-          {/* « MIS DE CÔTÉ » : un dernier dossier, replié, tout en bas de la
-              liste. Caché tant que la colonne reste réduite. */}
-          {!bandeSeule && !filtre ? (
-            <>
-              <button onClick={() => setShowArchived((value) => !value)} className={cn(classeSection, 'mt-3')}>
-                <span className="min-w-0 truncate">{t('Mis de côté')}</span>
-                <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', showArchived && 'rotate-90')} />
-              </button>
-
-              {showArchived ? (
-                archived.length ? (
-                  archived.map((project) => (
-                    <div
-                      key={project.id}
-                      className="group flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[14px] text-faint hover:bg-raised"
-                    >
-                      <Folder className="h-4 w-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                      <button
-                        onClick={() => client.call({ type: 'project.archive', id: project.id, archived: false })}
-                        className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
-                        title={t('Remettre en service')}
-                      >
-                        <ArchiveRestore className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <p className="px-2.5 py-2 text-[13px] text-faint">{t('Aucun projet mis de côté.')}</p>
-                )
-              ) : null}
-            </>
-          ) : null}
+          {/* « MIS DE CÔTÉ » A DISPARU (carte du 20/11/2026) : un projet archivé reste à sa place, avec son badge. */}
         </ZoneDefilement>
 
         {/* LES SERVICES ONT QUITTÉ LE BAS DE LA COLONNE (15/11/2026) : ils vivent dans la tête, juste sous « Tableaux de
@@ -2583,6 +2546,99 @@ const CLASSE_ENVELOPPE_D_OUTILS =
 const CLASSE_ENVELOPPE_D_OUTILS_DE_DOSSIER =
   'grid shrink-0 grid-cols-[1fr] transition-[grid-template-columns] duration-150 ease-out motion-reduce:transition-none survol:grid-cols-[0fr] survol:focus-within:grid-cols-[1fr] survol:group-hover/g:grid-cols-[1fr]';
 
+/** Ce que dit le badge d'un projet : « Archivé », ou l'avancement d'un transfert en cours. */
+function etatDuBadgeDArchive(
+  project: Project,
+  transfert?: TransfertDArchive,
+): { cle: 'archive' | 'archivage' | 'desarchivage'; libelle: string; enCours: boolean } | null {
+  if (transfert && !transfert.fini) {
+    const { pourcent } = avancementDuTransfert({ octets: transfert.octets, total: transfert.total, depuisMs: Date.now() - transfert.debutA });
+    return transfert.sens === 'archiver'
+      ? { cle: 'archivage', libelle: t('Archivage {p} %', { p: pourcent }), enCours: true }
+      : { cle: 'desarchivage', libelle: t('Désarchivage {p} %', { p: pourcent }), enCours: true };
+  }
+  return project.archived ? { cle: 'archive', libelle: t('Archivé'), enCours: false } : null;
+}
+
+/**
+ * LE MENU D'UNE LIGNE DE PROJET : le « ⋮ » en est le bouton, le clic droit et l'appui long l'ouvrent aussi (état
+ * tenu par la ligne). `data-reglages-projet` reste sur le « ⋮ » : c'est toujours l'outil des réglages de la ligne,
+ * à un cran de plus (`data-menu-reglages-projet`).
+ */
+function MenuDeLaLigneDeProjet({
+  project,
+  transfert,
+  ouvert,
+  changer,
+  ouvertA,
+  onSettings,
+  cache,
+}: {
+  project: Project;
+  transfert?: TransfertDArchive;
+  ouvert: boolean;
+  changer: (ouvert: boolean) => void;
+  ouvertA: React.MutableRefObject<number>;
+  onSettings: () => void;
+  cache: boolean;
+}) {
+  /* Le relâchement du geste qui a ouvert le menu ne choisit aucune entrée. */
+  const garde = (event: React.PointerEvent) => {
+    if (Date.now() - ouvertA.current < 500) event.preventDefault();
+  };
+  const enCours = !!transfert && !transfert.fini;
+  return (
+    <DropdownMenu open={ouvert} onOpenChange={changer}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          onPointerDown={(event) => event.stopPropagation()}
+          data-reglages-projet={project.id}
+          data-menu-projet={project.id}
+          className={cn(CLASSE_OUTIL_DE_LIGNE, 'data-[state=open]:bg-fond-survol data-[state=open]:text-text', cache && 'hidden')}
+          title={t('Options du projet')}
+          aria-label="Options du projet"
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        titre={project.name}
+        className="sm:w-[232px]"
+        data-menu-projet-panneau={project.id}
+        onInteractOutside={(event) => {
+          const source = (event.detail as { originalEvent?: Event }).originalEvent;
+          const boutonDroit = (source && 'button' in source && (source as MouseEvent).button === 2) || source?.type === 'contextmenu';
+          if (boutonDroit || Date.now() - ouvertA.current < 600) event.preventDefault();
+        }}
+      >
+        <DropdownMenuItem data-menu-reglages-projet={project.id} onPointerUp={garde} onSelect={onSettings} className="gap-2.5">
+          <Settings2 className="h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1 truncate">{t('Réglages du projet')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {enCours ? (
+          <DropdownMenuItem data-menu-avancement-archive={project.id} onPointerUp={garde} onSelect={() => ouvrirLArchivage(project.id, transfert!.sens)} className="gap-2.5">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted motion-reduce:animate-none" />
+            <span className="min-w-0 flex-1 truncate">{transfert!.sens === 'archiver' ? t('Archivage en cours…') : t('Désarchivage en cours…')}</span>
+          </DropdownMenuItem>
+        ) : project.archived ? (
+          <DropdownMenuItem data-menu-desarchiver={project.id} onPointerUp={garde} onSelect={() => ouvrirLArchivage(project.id, 'desarchiver')} className="gap-2.5">
+            <ArchiveRestore className="h-4 w-4 shrink-0 text-muted" />
+            <span className="min-w-0 flex-1 truncate">{t('Désarchiver')}</span>
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem data-menu-archiver={project.id} onPointerUp={garde} onSelect={() => ouvrirLArchivage(project.id, 'archiver')} className="gap-2.5">
+            <Archive className="h-4 w-4 shrink-0 text-muted" />
+            <span className="min-w-0 flex-1 truncate">{t('Archiver')}</span>
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ProjectRow({
   project,
   active,
@@ -2610,7 +2666,10 @@ function ProjectRow({
   repere = true,
   onNouvelAgent,
   onEntrer,
+  transfert,
 }: {
+  /** L'archivage ou le désarchivage de ce projet, s'il y en a un (`project.archivage`). */
+  transfert?: TransfertDArchive;
   /** Le nom cliqué (pas le badge « rendu ») : une entrée explicite dans le projet, qui relance la reprise. */
   onEntrer?: () => void;
   /** LE « + » DU SURVOL, à gauche du « ⋮ » : un nouvel agent dans ce projet (ou ce projet réuni). */
@@ -2678,10 +2737,72 @@ function ProjectRow({
   void avancement;
   void groupColor;
   void emboite;
+  /*
+   * LE MENU DE LA LIGNE (archiver un projet, carte du 20/11/2026) : le « ⋮ » du survol, le CLIC DROIT et, au doigt,
+   * l'APPUI LONG ouvrent le même menu — « Réglages du projet », puis « Archiver » ou « Désarchiver ». Le relâchement du
+   * clic droit qui l'ouvre ne choisit jamais une entrée (compétence « clic-droit-radix-qui-choisit-une-ligne »).
+   */
+  const [menuOuvert, setMenuOuvert] = React.useState(false);
+  const ouvertA = React.useRef(0);
+  const changerMenu = (ouvert: boolean) => {
+    if (ouvert) ouvertA.current = Date.now();
+    else appuiAbouti.current = false;
+    setMenuOuvert(ouvert);
+  };
+  const appui = React.useRef<{ x: number; y: number; minuterie: number } | null>(null);
+  const appuiAbouti = React.useRef(false);
+  const lacherAppui = () => {
+    if (appui.current) window.clearTimeout(appui.current.minuterie);
+    appui.current = null;
+  };
+  const etatDArchive = etatDuBadgeDArchive(project, transfert);
+  const dansLaLigne = (event: React.SyntheticEvent) => (event.currentTarget as HTMLElement).contains(event.target as Node);
   return (
     <div
       {...rowProps}
       style={style}
+      data-projet-archive={project.archived || undefined}
+      /* Le menu est posé dans un portail : ses événements REMONTENT l'arbre React jusqu'ici. On ne réagit qu'à ce
+         qui touche vraiment la ligne (`dansLaLigne`), sinon un toucher dans le menu relancerait l'appui long. */
+      onContextMenu={(event) => {
+        if (bande || !dansLaLigne(event)) return;
+        event.preventDefault();
+        const avaler = (relache: PointerEvent) => {
+          if (relache.button === 2) relache.stopPropagation();
+        };
+        document.addEventListener('pointerup', avaler, { capture: true, once: true });
+        changerMenu(true);
+      }}
+      onPointerDown={(event) => {
+        if (event.pointerType === 'mouse' || bande || !dansLaLigne(event)) return;
+        if ((event.target as HTMLElement).closest('[data-poignee-projet]')) return;
+        appuiAbouti.current = false;
+        lacherAppui();
+        const { clientX: x, clientY: y } = event;
+        appui.current = {
+          x,
+          y,
+          minuterie: window.setTimeout(() => {
+            appui.current = null;
+            appuiAbouti.current = true;
+            navigator.vibrate?.(8);
+            changerMenu(true);
+          }, 480),
+        };
+      }}
+      onPointerMove={(event) => {
+        const depart = appui.current;
+        if (depart && Math.hypot(event.clientX - depart.x, event.clientY - depart.y) > 8) lacherAppui();
+      }}
+      onPointerUp={lacherAppui}
+      onPointerCancel={lacherAppui}
+      onClickCapture={(event) => {
+        // Le relâché d'un appui long n'ouvre pas le projet : il a ouvert le menu.
+        if (!appuiAbouti.current || !dansLaLigne(event)) return;
+        appuiAbouti.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       data-projet-attention={attention || undefined}
       data-projet-rendus={rendus || undefined}
       /* La ligne du projet OUVERT : son nom s'écrit en violet (`text-teinte`). */
@@ -2724,6 +2845,12 @@ function ProjectRow({
         adresse={construireFragment({ vue: 'projet', projectId: project.id })}
         draggable={false}
         onClick={(event) => {
+          /* Le badge d'un transfert en cours rouvre sa fenêtre de progression. */
+          if (transfert && !transfert.fini && (event.target as HTMLElement).closest('[data-badge-archive]')) {
+            event.preventDefault();
+            ouvrirLArchivage(project.id, transfert.sens);
+            return;
+          }
           if (rendus && clicSurLeBadgeRendu(event)) {
             // Un projet réuni REPLIÉ compte aussi les rendus de ses membres.
             const membres = sousGroupe && !sousGroupe.ouvert ? sousGroupe.membres.map((m) => m.id) : [];
@@ -2758,7 +2885,20 @@ function ProjectRow({
         </span>
         {/* LE NOM RESTE LISIBLE AUX OUTILS D'ASSISTANCE même rétréci : il passe
             en `sr-only`, il ne disparaît pas du document. */}
-        <span className={cn('min-w-0 flex-1 truncate', bande && 'sr-only')}>{project.name}</span>
+        <span className={cn('min-w-0 truncate', !etatDArchive && 'flex-1', project.archived && !active && 'text-faint', bande && 'sr-only')}>{project.name}</span>
+        {/* LE BADGE « ARCHIVÉ », à côté du nom ; pendant un transfert, son pourcentage (un clic rouvre la fenêtre). */}
+        {etatDArchive && !bande ? (
+          <>
+            <span
+              data-badge-archive={etatDArchive.cle}
+              className="shrink-0 rounded-full bg-raised px-1.5 text-[11px] leading-[18px] text-muted"
+              title={etatDArchive.enCours ? t('Voir l’avancement') : undefined}
+            >
+              {etatDArchive.libelle}
+            </span>
+            <span className="flex-1" aria-hidden />
+          </>
+        ) : null}
       </LienInterne>
       {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
           geste, et un bouton n'en contient pas un autre. */}
@@ -2798,15 +2938,15 @@ function ProjectRow({
                   <Plus className="h-4 w-4" />
                 </button>
               ) : null}
-              <button
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={onSettings}
-                data-reglages-projet={project.id}
-                className={cn(CLASSE_OUTIL_DE_LIGNE, outilsCaches && 'hidden')}
-                title={t('Réglages du projet')}
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </button>
+              <MenuDeLaLigneDeProjet
+                project={project}
+                transfert={transfert}
+                ouvert={menuOuvert}
+                changer={changerMenu}
+                ouvertA={ouvertA}
+                onSettings={onSettings}
+                cache={outilsCaches}
+              />
             </span>
           </span>
           {taches && !sousGroupe ? <FlecheDesTaches projectId={project.id} ouvert={taches.ouvert} basculer={taches.basculer} /> : null}

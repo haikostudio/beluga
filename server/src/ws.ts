@@ -1,3 +1,4 @@
+import { TEXTE_PROJET_ARCHIVE, projetFigeParLArchive } from '@beluga/shared';
 import http from 'node:http';
 import { chercherDesFichiers, lireLaCorbeille, lireLeDossier, mettreALaCorbeille, projetsRanges, rangerLesFichiers, renommerUnFichier, restaurerUnFichier } from './fichiers-ranges.js';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -669,7 +670,9 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       log.warn('compteurs de la Messagerie illisibles', err);
     }
     // Un collaborateur n'ouvre jamais, au départ, un projet qui n'est pas dans sa portée.
-    const projets = store.listProjects().filter((projet) => peutVoirProjet(compte, projet.id));
+    /* LES PROJETS ARCHIVÉS PARTENT AUSSI : ils gardent leur place dans la colonne, avec leur badge
+       (`shared/src/archivage-projet.ts`). Les sélecteurs de projet les écartent eux-mêmes (`!archived`). */
+    const projets = store.listProjects(true).filter((projet) => !projet.marqueSansDepot && peutVoirProjet(compte, projet.id));
     const prefs = store.readPreferences();
     // Le même choix que fera le navigateur : ses cartes partent donc SANS
     // attendre qu'il les demande — un aller-retour de moins avant le tableau.
@@ -708,6 +711,12 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     if (projetOuvert) send(instantaneDuProjet(projetOuvert));
     /* Les médias en fabrication : leurs blocs d'attente reparaissent au rechargement. */
     send({ type: 'medias.fabrication', items: mediasEnFabrication() });
+    /* UN ÉCRAN QUI SE RECONNECTE EN PLEIN ARCHIVAGE retrouve le badge et la fenêtre où il les avait laissés. */
+    void import('./archivage-projet.js')
+      .then(({ transfertsConnus }) => {
+        for (const transfert of transfertsConnus()) if (peutVoirProjet(compte, transfert.projectId)) send({ type: 'project.archivage', ...transfert });
+      })
+      .catch(() => {});
     /* Le compte des veilles qui courent : la tuile « Tâches récurrentes » le montre. */
     void import('./veille-de-carte.js')
       .then(({ compterLesVeillesActives }) => send({ type: 'veilles.compte', actives: compterLesVeillesActives(), a: Date.now() }))
@@ -1499,6 +1508,20 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { project: updated };
     }
 
+    /* ARCHIVER UN PROJET SUR LE DISQUE EXTERNE (`server/src/archivage-projet.ts`). */
+    case 'project.archivage.estimer': {
+      const { estimer } = await import('./archivage-projet.js');
+      return estimer(cmd.id, cmd.sens);
+    }
+    case 'project.archiver': {
+      const { archiver } = await import('./archivage-projet.js');
+      return archiver(cmd.id);
+    }
+    case 'project.desarchiver': {
+      const { desarchiver } = await import('./archivage-projet.js');
+      return desarchiver(cmd.id);
+    }
+
     case 'project.create': {
       const project = registerProject({
         name: cmd.name,
@@ -2148,6 +2171,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'card.start': {
+      if (projetFigeParLArchive(store.getProject(store.getCard(cmd.id)?.projectId ?? ''))) throw new Error(TEXTE_PROJET_ARCHIVE);
       const result = await startCard(cmd.id);
       if (!result.ok) throw new Error(result.error ?? 'démarrage impossible');
       /* La carte est partie : elle n'attend plus son lancement. */
@@ -2574,6 +2598,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // L'agent existe-t-il ? Ce contrôle-là doit répondre tout de suite.
       const agent = store.getAgent(cmd.agentId);
       if (!agent) throw new Error('agent introuvable');
+      /* UN PROJET ARCHIVÉ SE LIT, IL NE LANCE RIEN (`shared/src/archivage-projet.ts`). */
+      if (projetFigeParLArchive(store.getProject(agent.projectId))) throw new Error(TEXTE_PROJET_ARCHIVE);
       /* UNE CARTE EN COURS DE PUBLICATION NE REÇOIT PLUS DE MESSAGE
          (`shared/src/verrou-publication.ts`) : refusé AVANT tout routage, et
          avant qu'un message humain ne la ressorte de « À déployer ». Le fil du

@@ -426,6 +426,27 @@ export const Project = z.object({
    */
   regroupementId: z.string().optional(),
   archived: z.boolean().default(false),
+  /**
+   * L'ARCHIVE SUR LE DISQUE EXTERNE (`shared/src/archivage-projet.ts`) : où
+   * elle est, ce qu'elle pèse, et l'état du dernier transfert. Absente pour
+   * un projet jamais archivé — ou mis de côté avant que l'archive n'existe
+   * (son dossier n'est alors plus là : le désarchiver retire le badge).
+   */
+  archive: z
+    .object({
+      etat: z.enum(['archivage', 'archive', 'desarchivage', 'echec']),
+      /** Le sens du dernier transfert (utile pour dire ce qui a échoué). */
+      sens: z.enum(['archiver', 'desarchiver']).optional(),
+      chemin: z.string().optional(),
+      octetsSource: z.number().optional(),
+      octetsArchive: z.number().optional(),
+      entrees: z.number().optional(),
+      /** Les versions de travail arrêtées à l'archivage, à relancer au retour. */
+      services: z.array(z.object({ unite: z.string(), active: z.boolean(), activee: z.boolean() })).optional(),
+      erreur: z.string().optional(),
+      at: z.number(),
+    })
+    .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -1895,6 +1916,12 @@ export const AgentQuestion = z.object({
         label: z.string(),
         description: z.string().optional(),
         image: z.string().optional(),
+        /**
+         * PLUSIEURS IMAGES QUI COMPOSENT CE CHOIX (carte « Images groupées dans le fil », 19/11/2026) : feuilletées
+         * dans un petit carrousel sur la tuile. `image` vaut toujours la première — tout ce qui lit `image` (lettres,
+         * tableau d'ambiance, réponse) continue de marcher, et une ancienne question sans `images` s'affiche à l'identique.
+         */
+        images: z.array(z.string()).optional(),
         media: z.string().optional(),
         couleurs: z.array(z.string()).optional(),
         lettre: z.string().optional(),

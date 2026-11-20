@@ -50,7 +50,8 @@ function suiteDuFil(media: MediaDuLien): MediaDuLien[] {
     const m = mediaDeLElement(el);
     return m && cleDuMedia(m) === cle;
   });
-  const fil = source?.closest('[data-fil], [data-fil-sans-carte]');
+  /* UN MÉDIA D'UN PAQUET NE FEUILLETTE QUE SON PAQUET (carte « Images groupées dans le fil ») ; sinon tout le fil. */
+  const fil = source?.closest('[data-paquet-images]') ?? source?.closest('[data-fil], [data-fil-sans-carte]');
   if (!fil) return [media];
   const suite: MediaDuLien[] = [];
   const vus = new Set<string>();

@@ -66,6 +66,7 @@ import {
   BROUILLON_EDITION_TEMPORISE_MS,
   nettoyerTexteColle,
   texteColleADesDebris,
+  projetFigeParLArchive,
 } from '@beluga/shared';
 import { EVENEMENT_FILE_RENDUE, type DetailFileRendue, useArretAgent, useChampMonte } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -331,6 +332,8 @@ export function Composer({
     !!agent &&
     agent.role !== 'deploy' &&
     carteEnPublication(state.deploys[agent.projectId], agent.cardId ?? cardId);
+  /* UN PROJET ARCHIVÉ SE LIT, IL NE LANCE RIEN (`shared/src/archivage-projet.ts`) : le champ le dit, le serveur refuse. */
+  const projetArchive = projetFigeParLArchive(state.projects.find((p) => p.id === (agent?.projectId ?? projectId)));
   /* UNE CARTE DÉJÀ EN LIGNE NE SE MODIFIE PAS SUR PLACE : un message qu'on y
      écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`) — mais
      seulement sur ACCORD : l'envoi garde le texte et demande « Ouvrir une
@@ -1779,6 +1782,10 @@ export function Composer({
       client.pushToast('warning', t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.'));
       return;
     }
+    if (projetArchive && !edition) {
+      client.pushToast('warning', t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.'));
+      return;
+    }
     /* AUCUNE CARTE SANS CLIC (MEM-0354) : sous une carte déjà en ligne, l'envoi
        ne part pas, le texte reste dans le champ, et la barre demande l'accord. */
     if (ouvreUneNouvelleCarte && !asProposal && !accord) {
@@ -2399,15 +2406,17 @@ export function Composer({
             curseurAPoser.current = position;
             if (jointes.length) setAttachments((current) => ajouterJointesCollees(current, jointes));
           }}
-          disabled={enPublication && !edition}
+          disabled={(enPublication || projetArchive) && !edition}
           /* PENDANT UNE COUPURE LE CHAMP SE VERROUILLE, sans rien effacer : en
              lecture seule (et non désactivé), le texte, la sélection et le
              curseur restent, et il se rouvre seul au retour du lien. */
           readOnly={ecritureGelee}
-          data-ecriture-bloquee={enPublication && !edition ? 'publication' : ecritureGelee ? 'lien' : undefined}
+          data-ecriture-bloquee={projetArchive && !edition ? 'archive' : enPublication && !edition ? 'publication' : ecritureGelee ? 'lien' : undefined}
           placeholder={
             edition
               ? t('Modifiez le message en attente…')
+              : projetArchive
+                ? t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.')
               : enPublication
                 ? t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.')
               : ouvreUneNouvelleCarte
@@ -2623,10 +2632,16 @@ export function Composer({
                 title={
                   /* Le bouton éteint DIT pourquoi : un envoi refusé sans un mot
                      se lit comme une panne de l'application. */
-                  canal.gele && !edition ? canal.raison : edition ? t('Enregistrer la modification') : t('Envoyer')
+                  canal.gele && !edition
+                    ? canal.raison
+                    : projetArchive && !edition
+                      ? t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.')
+                      : edition
+                        ? t('Enregistrer la modification')
+                        : t('Envoyer')
                 }
                 data-envoi-gele={canal.gele && !edition ? 'oui' : undefined}
-                disabled={edition ? !text.trim() : canal.gele || enPublication || (!agent && !envoyerSansAgent) || !text.trim()}
+                disabled={edition ? !text.trim() : canal.gele || enPublication || projetArchive || (!agent && !envoyerSansAgent) || !text.trim()}
                 onClick={() => submit()}
               >
                 {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}

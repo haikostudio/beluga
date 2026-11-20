@@ -41,7 +41,9 @@ export function choisirProjetAOuvrir(
 
   // Une reconnexion ne doit jamais déplacer l'utilisateur : ce qu'il regarde
   // l'emporte sur ce qui est enregistré.
-  if (existe(encours)) return { id: encours, aCorriger: memorise !== encours };
+  // Un projet ARCHIVÉ qu'on regarde reste ouvert : il se lit encore (`shared/src/archivage-projet.ts`).
+  const regarde = typeof encours === 'string' && projets.some((projet) => projet.id === encours);
+  if (regarde) return { id: encours, aCorriger: memorise !== encours };
 
   if (existe(memorise)) return { id: memorise, aCorriger: false };
 

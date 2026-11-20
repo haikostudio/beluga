@@ -183,6 +183,15 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('regroupement.separer'), id: z.string() }),
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
+  /**
+   * ARCHIVER UN PROJET SUR LE DISQUE EXTERNE (`server/src/archivage-projet.ts`).
+   * `estimer` dit la place à libérer et la raison d'un refus, sans rien toucher ;
+   * `archiver` / `desarchiver` répondent dès que le transfert est parti, puis
+   * l'avancement arrive par `project.archivage`.
+   */
+  z.object({ type: z.literal('project.archivage.estimer'), id: z.string(), sens: z.enum(['archiver', 'desarchiver']) }),
+  z.object({ type: z.literal('project.archiver'), id: z.string() }),
+  z.object({ type: z.literal('project.desarchiver'), id: z.string() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   /**
    * RELIRE LES TABLEAUX DÉJÀ EN MÉMOIRE AU RETOUR DU LIEN. `project.open` diffuse
@@ -2357,6 +2366,26 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
+  /**
+   * L'AVANCEMENT D'UN ARCHIVAGE OU D'UN DÉSARCHIVAGE, poussé à chaque étape et
+   * au fil des octets. L'état ENTIER repart à chaque fois : un événement perdu
+   * n'efface rien, le suivant rattrape tout.
+   */
+  z.object({
+    type: z.literal('project.archivage'),
+    projectId: z.string(),
+    sens: z.enum(['archiver', 'desarchiver']),
+    /** Les clés des étapes finies (`ETAPES_D_ARCHIVAGE`). */
+    faites: z.array(z.string()),
+    enCours: z.string().optional(),
+    octets: z.number(),
+    total: z.number(),
+    debutA: z.number(),
+    fini: z.boolean(),
+    erreur: z.string().optional(),
+    /** Un mot sur la fin : « rien à ramener », la place libérée… */
+    bilan: z.string().optional(),
+  }),
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
   /** LE PILOTAGE DE CHROME (`server/src/extension-chrome.ts`) : un Chrome relié, délié, un site ou un geste répété a changé. */
   z.object({ type: z.literal('extension.change') }),

@@ -205,6 +205,9 @@ const chargerAssistantDemarrage = () => import('@/components/assistant-demarrage
 const chargerConversation = () => import('@/components/right-panel');
 
 const TiroirFichiers = React.lazy(() => chargerConversation().then((m) => ({ default: m.TiroirFichiers })));
+import { EVENEMENT_ARCHIVAGE } from '@/lib/archivage-projet';
+/* LA FENÊTRE D'ARCHIVAGE D'UN PROJET : chargée à la première demande seulement. */
+const FenetreDArchivage = React.lazy(() => import('@/components/fenetre-d-archivage').then((m) => ({ default: m.FenetreDArchivage })));
 /* LA FENÊTRE « FICHIERS » (bouton du haut de la colonne de gauche) : chargée à sa première ouverture seulement. */
 const FenetreDesFichiers = React.lazy(() => import('@/components/fichiers/explorateur-de-fichiers').then((m) => ({ default: m.FenetreDesFichiers })));
 
@@ -577,6 +580,14 @@ export function App() {
   );
   /* LA FENÊTRE « FICHIERS » : tous les fichiers rangés par projet et par service, ouverte par `ouvrirLesFichiers`. */
   const [fenetreFichiers, setFenetreFichiers] = React.useState<{ ouverte: boolean; chemin?: string; projetId?: string } | null>(null);
+  /* La fenêtre d'archivage se monte à la première demande, puis reste montée (elle se ferme seule). */
+  const [archivageDemande, setArchivageDemande] = React.useState(false);
+  React.useEffect(() => {
+    if (archivageDemande) return;
+    const monter = () => setArchivageDemande(true);
+    window.addEventListener(EVENEMENT_ARCHIVAGE, monter);
+    return () => window.removeEventListener(EVENEMENT_ARCHIVAGE, monter);
+  }, [archivageDemande]);
   React.useEffect(() => {
     const ouvrir = (event: Event) => {
       const demande = (event as CustomEvent<DemandeDOuvertureDesFichiers>).detail ?? {};
@@ -2607,6 +2618,12 @@ export function App() {
             centre. Le bas reste dans le flux : il réserve sa place, le contenu ne passe jamais derrière. */}
         {telephone ? (
           <MenuDuBasDuTelephone menu={menuBas} gestes={{ ...gestesDeLApplication, ...(gestesDeclares ?? {}) }} onCibleDuPrincipal={setCibleDuBas} />
+        ) : null}
+        {/* LA FENÊTRE D'ARCHIVAGE D'UN PROJET : téléchargée à la première demande (`lib/archivage-projet.ts`). */}
+        {archivageDemande ? (
+          <React.Suspense fallback={null}>
+            <FenetreDArchivage />
+          </React.Suspense>
         ) : null}
         {fenetreFichiers ? (
           <React.Suspense fallback={null}>

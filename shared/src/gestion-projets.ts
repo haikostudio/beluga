@@ -183,8 +183,8 @@ export type DemandeProjet =
 
 /** Le refus opposé à toute tentative de suppression d'un projet. */
 export const REFUS_SUPPRESSION_PROJET =
-  "Refusé : un projet ne se SUPPRIME pas, il se RETIRE (geste « retirer ») — il est alors mis de côté, ses cartes et " +
-  "ses conversations restent en base et « Remettre en service » le fait revenir. Une suppression définitive reste un " +
+  "Refusé : un projet ne se SUPPRIME pas, il se RETIRE (geste « retirer ») — il est alors marqué archivé, ses cartes et " +
+  "ses conversations restent en base et « Désarchiver » le fait revenir. Une suppression définitive reste un " +
   "geste de l'utilisateur, dans les réglages du projet.";
 
 /** Le refus opposé à un montage de projet dont personne n'a demandé l'adresse. */

@@ -810,7 +810,7 @@ export function consigneDuQuestionnaire(e: {
     `5. ${REGLE_DE_LA_PIECE_DESIGNEE}`,
     '6. TU AGIS EN DIRECTEUR ARTISTIQUE ET RÉALISATEUR, pas en simple générateur : l’accroche dit le bénéfice dans les deux premières secondes ; une BIBLE VISUELLE (personnages, vêtements, décor, lumière, palette, focales) tient chaque image cohérente ; chaque prompt est complet et autonome (écrit en français, traduit en anglais avant l’envoi) avec ses interdits (aucun texte lisible généré, aucun logo inventé) ; LES VRAIS ÉCRANS NE SE GÉNÈRENT JAMAIS — ils s’incrustent au montage ; un montant dit son assiette (hors taxes, toutes taxes comprises) ; les formats et zones de sécurité des réseaux sont pensés dès la composition ; musique, voix et images portent une licence qui autorise l’usage publicitaire. Regarde chaque résultat (lis le fichier) avant d’en parler.',
     `7. ${REGLE_DES_PISTES}`,
-    '8. LES CHOIX QUI S’ÉCOUTENT OU SE REGARDENT : joins chaque fichier avec « attach_file », puis « ask_user » avec une option par fichier et son identifiant dans « media » (ou « image ») de l’option.',
+    '8. LES CHOIX QUI S’ÉCOUTENT OU SE REGARDENT : joins chaque fichier avec « attach_file », puis « ask_user » avec une option par fichier et son identifiant dans « media » (ou « image ») de l’option ; un choix fait de plusieurs images (une série) = UNE option avec « images ».',
     `8 bis. ${REGLE_DU_PRIX_DES_CHOIX}`,
     `9. Appuie ton savoir-faire sur ${COMPETENCES_DE_REALISATION}.`,
     style,

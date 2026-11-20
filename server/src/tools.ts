@@ -178,6 +178,22 @@ function imageDOption(valeur: unknown): string | undefined {
   return piece?.mime.startsWith('image/') ? piece.id : undefined;
 }
 
+/**
+ * LES IMAGES D'UNE OPTION D'« ask_user » (carte « Images groupées dans le fil ») : « image » puis « images », pièces
+ * jointes d'image connues, sans doublon, 8 au plus. Une seule → `image` seule, comme avant ; plusieurs → `images`
+ * aussi, et `image` = la première, pour tout ce qui ne lit que `image`.
+ */
+function imagesDOption(image: unknown, images: unknown): { image?: string; images?: string[] } {
+  const ids: string[] = [];
+  for (const valeur of [image, ...(Array.isArray(images) ? images : [])]) {
+    const id = imageDOption(valeur);
+    if (id && !ids.includes(id)) ids.push(id);
+    if (ids.length >= 8) break;
+  }
+  if (!ids.length) return {};
+  return ids.length === 1 ? { image: ids[0] } : { image: ids[0], images: ids };
+}
+
 /** Le son ou la vidéo d'une option d'« ask_user » : une pièce jointe AUDIO ou VIDÉO connue, sinon rien. */
 function mediaDOption(valeur: unknown): string | undefined {
   const piece = store.pieceJointeDesignee(valeur);
@@ -955,7 +971,8 @@ export const TOOL_DEFS: ToolDef[] = [
       "une pièce jointe reçue de l'utilisateur, et se télécharge d'un clic sous son vrai nom. Une image apparaît en " +
       "vignette, un PDF s'ouvre dans son cadre, tout le reste (journal, csv, tableur, archive, log) se télécharge. " +
       "À utiliser pour RENDRE un fichier au lieu d'en donner le chemin : captures d'un navigateur d'essai, rapport " +
-      "produit, journal d'exécution, export. Le chemin peut être relatif à ton dossier de travail, ou absolu.",
+      "produit, journal d'exécution, export. Le chemin peut être relatif à ton dossier de travail, ou absolu. " +
+      "Les images d'un même lot se joignent D'AFFILÉE, sans texte entre elles : le fil les réunit en un paquet.",
     inputSchema: {
       type: 'object',
       required: ['path'],
@@ -1037,6 +1054,12 @@ export const TOOL_DEFS: ToolDef[] = [
               image: {
                 type: 'string',
                 description: 'Facultatif : l’identifiant d’une pièce jointe image (un aperçu) qui illustre ce choix — la question devient un choix en images',
+              },
+              images: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Facultatif : PLUSIEURS images qui composent CE choix (une série, une fiche en 5 visuels, une version déclinée) — feuilletées dans un carrousel sur sa tuile. Une série = UNE option avec « images », jamais une option par image',
               },
               media: {
                 type: 'string',
@@ -3207,13 +3230,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
 
       if (demande.geste === 'retirer') {
-        if (vise.archived) return { ok: true, text: `« ${vise.name} » est déjà mis de côté.` };
+        if (vise.archived) return { ok: true, text: `« ${vise.name} » est déjà archivé.` };
         // Rien ne disparaît de la vue sans avoir été dit : les cartes encore
         // vivantes du projet sont NOMMÉES avant qu'il quitte la colonne.
         const vivantes = store.listCards(vise.id).filter((c) => c.column !== 'archived');
         const change = store.saveProject({ ...vise, archived: true });
         bus.emit({ type: 'project.upsert', project: change });
-        bus.toast('info', `« ${change.name} » mis de côté`);
+        bus.toast('info', `« ${change.name} » archivé`);
         const dites = vivantes.length
           ? `Ses ${vivantes.length} carte(s) hors archive partent de la vue avec lui : ` +
             `${vivantes.slice(0, 12).map((c) => `« ${c.title} » (${COLUMN_LABELS[c.column]})`).join(', ')}` +
@@ -3221,7 +3244,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           : "Il n'avait aucune carte hors archive.";
         return {
           ok: true,
-          text: `Projet « ${change.name} » mis de côté : il quitte la colonne de gauche, rien n'est supprimé. ${dites} « Remettre en service » le fait revenir.`,
+          text: `Projet « ${change.name} » marqué archivé : il reste dans la colonne de gauche avec le badge « Archivé », rien ne s'y lance et rien n'est supprimé (ses fichiers restent sur le serveur ; seul l'utilisateur les envoie sur le disque externe, menu du projet → « Archiver »). ${dites} « Désarchiver » le fait revenir.`,
         };
       }
 
@@ -3435,8 +3458,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
                200 signes, au milieu d'une phrase (« La fiche reste au nom »). */
             label: String(opt?.label ?? opt ?? '').slice(0, 240),
             description: typeof opt?.description === 'string' ? opt.description.trim().slice(0, 1000) : undefined,
-            /* UN CHOIX EN IMAGES : seule une pièce jointe connue d'image est gardée. */
-            ...(imageDOption(opt?.image) ? { image: imageDOption(opt?.image) } : {}),
+            /* UN CHOIX EN IMAGES : seule une pièce jointe connue d'image est gardée. Plusieurs images qui composent
+               CE choix (« images ») se feuillettent sur sa tuile ; « image » vaut toujours la première. */
+            ...imagesDOption(opt?.image, opt?.images),
             /* UN CHOIX QUI S'ÉCOUTE : seule une pièce jointe connue de son ou de vidéo est gardée. */
             ...(mediaDOption(opt?.media) ? { media: mediaDOption(opt?.media) } : {}),
             /* UN CHOIX DE COULEURS : ses teintes « #rrggbb », le reste ignoré (`couleursDOption`). */
@@ -3471,8 +3495,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         if (verdict.etat === 'complet') {
           /* La lettre de chaque exemple voyage sur son option : une image de
              secours du service externe n'a pas de lettre dans son nom. */
-          for (const o of options as { image?: string; media?: string; lettre?: string }[]) {
-            const piece = lot.pieces.find((p) => p.id === o.image || p.id === o.media);
+          for (const o of options as { image?: string; images?: string[]; media?: string; lettre?: string }[]) {
+            const piece = lot.pieces.find((p) => p.id === o.image || p.id === o.media || !!o.images?.includes(p.id));
             if (piece) o.lettre = piece.lettre;
           }
           oublierLeLot(ctx.agentId);

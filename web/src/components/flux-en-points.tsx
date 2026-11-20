@@ -50,6 +50,8 @@ import {
   vignettesDuTour,
   placerLesMediasDansLeFil,
   fluxDesEntrees,
+  paquetsDuFlux,
+  type ElementDuFilGroupe,
   JALON_NOTE_DE_L_AGENT,
   type ElementDuFluxDuTour,
   type MediaLivre,
@@ -102,9 +104,10 @@ import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
 import { CompetenceDuFlux } from '@/components/encadre-competence';
-import { ApercuDesCaptures, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
+import { ApercuDesCaptures, OuvrirDansUnPaquet, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
 import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
 import { GlissableVersUnPlan } from '@/components/glisser-vers-un-plan';
+import { PaquetDImages } from '@/components/paquet-d-images';
 import { MarqueEssaiRepris } from '@/components/encadre-etape';
 import { HeureDuFil } from '@/components/heure-du-fil';
 import { useTelephone } from '@/lib/telephone';
@@ -822,6 +825,7 @@ export function FluxEnPoints({
       <ContexteGalerieDuFil.Provider value={galerieDesCaptures}>
       <ContexteOuvrirUneImageDuTexte.Provider value={ouvrirUnePieceDuTexte}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
+      <OuvrirDansUnPaquet.Provider value={galerieDesCaptures.ouvrirDansLePaquet}>
       <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
       <PieceDUneCapture.Provider value={galerieDesCaptures.pieceDuChemin}>
       {/* TOUT MÉDIA DU FIL DE LA CARTE PORTE SON MENU « … » (27/10/2026) : les pièces des messages lisent la carte ici. */}
@@ -865,6 +869,7 @@ export function FluxEnPoints({
       </ContexteCarteDuFil.Provider>
       </PieceDUneCapture.Provider>
       </RepereDUneCapture.Provider>
+      </OuvrirDansUnPaquet.Provider>
       </OuvrirUneCapture.Provider>
       </ContexteOuvrirUneImageDuTexte.Provider>
       </ContexteGalerieDuFil.Provider>
@@ -2548,18 +2553,53 @@ export function FluxDuTour({
       ),
     [medias, elements],
   );
+  /* LES IMAGES ENVOYÉES À LA SUITE SE RÉUNISSENT EN PAQUET (carte « Images groupées dans le fil »). */
+  const groupes = React.useMemo(() => paquetsDuFlux(elements), [elements]);
   if (!elements.length && !medias?.length) return null;
   const dernier = elements[elements.length - 1];
   return (
     <ol className={cn('flex flex-col gap-2.5', LARGEUR_DE_L_AGENT)} data-flux-du-tour={elements.length}>
       <LignesDeMediasLivres medias={placement.avant} />
-      {elements.map((element) => (
-        <React.Fragment key={element.cle}>
-          <ElementDuFluxDuTourAffiche element={element} projectId={projectId} enCours={enCours && element === dernier} />
-          <LignesDeMediasLivres medias={placement.apres.get(element.cle)} />
-        </React.Fragment>
-      ))}
+      {groupes.map((element) =>
+        element.sorte === 'paquet' ? (
+          <React.Fragment key={element.cle}>
+            <PaquetDuFluxDuTour element={element} projectId={projectId} />
+            {/* Les médias rangés après une image du paquet se posent après lui, dans leur ordre. */}
+            {element.captures.map((capture) => (
+              <LignesDeMediasLivres key={capture.cle} medias={placement.apres.get(capture.cle)} />
+            ))}
+          </React.Fragment>
+        ) : (
+          <React.Fragment key={element.cle}>
+            <ElementDuFluxDuTourAffiche element={element} projectId={projectId} enCours={enCours && element === dernier} />
+            <LignesDeMediasLivres medias={placement.apres.get(element.cle)} />
+          </React.Fragment>
+        ),
+      )}
     </ol>
+  );
+}
+
+/** Un paquet d'images dans le fil d'un tour : sa phrase au pluriel, la pile, puis l'heure de la première image. */
+function PaquetDuFluxDuTour({ element, projectId }: { element: Extract<ElementDuFilGroupe, { sorte: 'paquet' }>; projectId?: string }) {
+  const entrees = React.useMemo(() => element.captures.map((capture) => capture.entree), [element]);
+  const premiere = entrees[0];
+  const derniere = entrees[entrees.length - 1];
+  const phrase =
+    element.famille === 'jointe'
+      ? t('Je joins {v0} fichiers à ma réponse.', { v0: entrees.length })
+      : t('Je regarde {v0} captures d’écran.', { v0: entrees.length });
+  const debut = premiere?.at;
+  const duree = premiere && derniere ? Math.max(0, derniere.at + (derniere.dureeMs ?? 0) - premiere.at) : undefined;
+  return (
+    <SousPointDuFlux icone={ICONE_DU_GENRE.capture} attrs={{ 'data-element-du-flux': 'paquet' }}>
+      <PaquetDImages
+        entrees={entrees}
+        projectId={projectId}
+        phrase={phrase}
+        pied={<MentionDeTemps debutAt={debut} dureeMs={duree} marque={element.cle} />}
+      />
+    </SousPointDuFlux>
   );
 }
 

@@ -114,7 +114,7 @@ import { CLASSE_LARGEUR_DE_LA_REPONSE, MessageView } from '@/components/message-
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
 import { GalerieDesMediasLivres, iconeDuMediaLivre, LigneDeMediaLivre, useMediasLivres } from '@/components/medias-livres';
 import { ChampFocaliseSurTelephone, Composer } from '@/components/composer';
-import { ApercuDesCaptures, BoutonDesCaptures, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, useGalerieDesCaptures } from '@/components/captures-du-flux';
+import { ApercuDesCaptures, OuvrirDansUnPaquet, BoutonDesCaptures, OuvrirUneCapture, PieceDUneCapture, RepereDUneCapture, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { ouvrirUnMedia } from '@/lib/ouvrir-un-media';
 import { ContexteOuvrirUneImageDuTexte } from '@/lib/markdown';
 import { SuggestionsDansLeFil, groupesDeSuggestions } from '@/components/suggestions-de-carte';
@@ -2006,6 +2006,7 @@ function FilDeConversation({
 
       <ContexteOuvrirUneImageDuTexte.Provider value={ouvrirUnePieceDuTexte}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
+      <OuvrirDansUnPaquet.Provider value={galerieDesCaptures.ouvrirDansLePaquet}>
       <RepereDUneCapture.Provider value={galerieDesCaptures.repereDuChemin}>
       <PieceDUneCapture.Provider value={galerieDesCaptures.pieceDuChemin}>
       <ZoneDefilement
@@ -2098,6 +2099,7 @@ function FilDeConversation({
       </ZoneDefilement>
       </PieceDUneCapture.Provider>
       </RepereDUneCapture.Provider>
+      </OuvrirDansUnPaquet.Provider>
       </OuvrirUneCapture.Provider>
       </ContexteOuvrirUneImageDuTexte.Provider>
       </div>

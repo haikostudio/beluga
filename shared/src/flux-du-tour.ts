@@ -160,3 +160,77 @@ export function fluxDesEntrees(entrees: readonly EntreeJournal[]): ElementDuFlux
   fermer();
   return flux;
 }
+
+/**
+ * LES IMAGES ENVOYÉES À LA SUITE FORMENT UN PAQUET (carte « Images groupées dans le fil », 19/11/2026, capture #347e) :
+ * un agent qui joint cinq visuels d'affilée posait cinq « Je joins un fichier à ma réponse. » sous cinq grandes
+ * images, et l'on ne savait plus ce qui allait avec quoi. Les CAPTURES consécutives d'une même famille — jointes
+ * (« attach_file », « attach_screenshot ») ou regardées (une image lue) — se réunissent en un élément `paquet`,
+ * dessiné en jeu de cartes.
+ *
+ *  - un groupe d'ACTIONS (commandes, lectures) peut s'intercaler : il ne coupe pas le paquet et se rend APRÈS lui ;
+ *  - une NOTE de l'agent, une QUESTION ou un ÉVÉNEMENT coupent le paquet — un texte annonce autre chose ;
+ *  - une image SEULE reste une capture ordinaire, dessinée comme avant ;
+ *  - des actions qui suivent la dernière image restent à leur place.
+ *
+ * Règle PURE, éprouvée dans `server/src/test/flux-du-tour.test.ts`.
+ */
+export type FamilleDeCapture = 'jointe' | 'regardee';
+
+export type ElementDuFilGroupe =
+  | ElementDuFluxDuTour
+  | {
+      sorte: 'paquet';
+      cle: string;
+      famille: FamilleDeCapture;
+      /** Les captures du paquet, dans l'ordre (deux au moins). */
+      captures: Extract<ElementDuFluxDuTour, { sorte: 'capture' }>[];
+      /** Les groupes d'actions venus entre deux images : rendus après le paquet. */
+      intercalees: Extract<ElementDuFluxDuTour, { sorte: 'actions' }>[];
+    };
+
+/** Une capture jointe à la réponse (outil qui joint), ou regardée par l'agent (lecture d'une image). */
+export function familleDeCapture(entree: EntreeJournal): FamilleDeCapture {
+  const outil = recitDeLEntree(entree).outil ?? '';
+  return outil === 'attach_file' || outil === 'attach_screenshot' ? 'jointe' : 'regardee';
+}
+
+export function paquetsDuFlux(elements: readonly ElementDuFluxDuTour[]): ElementDuFilGroupe[] {
+  const sortie: ElementDuFilGroupe[] = [];
+  let i = 0;
+  while (i < elements.length) {
+    const premier = elements[i]!;
+    if (premier.sorte !== 'capture') {
+      sortie.push(premier);
+      i += 1;
+      continue;
+    }
+    const famille = familleDeCapture(premier.entree);
+    const captures: Extract<ElementDuFluxDuTour, { sorte: 'capture' }>[] = [premier];
+    const intercalees: Extract<ElementDuFluxDuTour, { sorte: 'actions' }>[] = [];
+    let j = i + 1;
+    /* On avance tant qu'une capture de la même famille suit, des actions seules pouvant s'intercaler. */
+    for (;;) {
+      let k = j;
+      const enAttente: Extract<ElementDuFluxDuTour, { sorte: 'actions' }>[] = [];
+      while (k < elements.length && elements[k]!.sorte === 'actions') {
+        enAttente.push(elements[k] as Extract<ElementDuFluxDuTour, { sorte: 'actions' }>);
+        k += 1;
+      }
+      const suivante = elements[k];
+      if (!suivante || suivante.sorte !== 'capture' || familleDeCapture(suivante.entree) !== famille) break;
+      intercalees.push(...enAttente);
+      captures.push(suivante);
+      j = k + 1;
+    }
+    if (captures.length < 2) {
+      sortie.push(premier);
+      i += 1;
+      continue;
+    }
+    sortie.push({ sorte: 'paquet', cle: `paquet-${premier.cle}`, famille, captures, intercalees });
+    sortie.push(...intercalees);
+    i = j;
+  }
+  return sortie;
+}

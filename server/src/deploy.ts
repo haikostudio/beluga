@@ -21,6 +21,7 @@
  * l'étape échoue en le disant. Une étape réussie n'est jamais rejouée, rien ne
  * se « répare » tout seul : une panne s'arrête net, avec sa raison.
  */
+import { TEXTE_PROJET_ARCHIVE, projetFigeParLArchive } from '@beluga/shared';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -1667,6 +1668,7 @@ export async function startDeploy(
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
+  if (projetFigeParLArchive(project)) return { ok: false, error: TEXTE_PROJET_ARCHIVE };
   const etape = etapeDePublication(options.cible);
 
   if (!(await dossierJoignable(project.path))) {

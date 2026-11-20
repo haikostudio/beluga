@@ -32,6 +32,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
+import { ouvrirLArchivage } from '@/lib/archivage-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -263,8 +264,9 @@ export function ProjectSettings({
     }
   };
 
-  const archiver = async () => {
-    await client.call({ type: 'project.archive', id: project.id, archived: !project.archived });
+  /* ARCHIVER REMPLACE « METTRE DE CÔTÉ » (20/11/2026) : la fenêtre d'archivage prend la suite, les réglages se ferment. */
+  const archiver = () => {
+    ouvrirLArchivage(project.id, project.archived ? 'desarchiver' : 'archiver');
     onClose();
   };
 
