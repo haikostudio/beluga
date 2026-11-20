@@ -192,6 +192,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.archivage.estimer'), id: z.string(), sens: z.enum(['archiver', 'desarchiver']) }),
   z.object({ type: z.literal('project.archiver'), id: z.string() }),
   z.object({ type: z.literal('project.desarchiver'), id: z.string() }),
+  /**
+   * LA RUBRIQUE « ARCHIVAGE » DE LA CONFIGURATION (20/11/2026) : l'état, l'échéance de l'archivage automatique
+   * et l'HISTORIQUE des mouvements d'un projet ; et l'interrupteur « Ne jamais archiver automatiquement ».
+   */
+  z.object({ type: z.literal('project.archivage.historique'), id: z.string() }),
+  z.object({ type: z.literal('project.archivage.exempter'), id: z.string(), exempte: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   /**
    * RELIRE LES TABLEAUX DÉJÀ EN MÉMOIRE AU RETOUR DU LIEN. `project.open` diffuse
@@ -1317,6 +1323,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('relaisMac.delier'), ordinateurId: z.string().optional() }),
   /** Rouvrir sur le Mac l'écran des réglages d'une autorisation (assistant d'installation de la page Extension). */
   z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran']) }),
+  /** Beluga Connect prépare (ou répare) Chrome sur ce Mac : extension posée, reliée, navigation privée (20/11/2026). */
+  z.object({ type: z.literal('relaisMac.preparer'), ordinateurId: z.string() }),
   /*
    * LES ORDINATEURS NOMMÉS (`server/src/ordinateurs.ts`, carte « Choisir l'ordinateur visé depuis le téléphone ») :
    * en créer un (avant d'y relier un navigateur ou le programme du Mac), le renommer, le délier ; lire la liste avec
@@ -2402,6 +2410,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     /** Un mot sur la fin : « rien à ramener », la place libérée… */
     bilan: z.string().optional(),
   }),
+  /** Un mouvement s'est ajouté à l'historique d'archivage du projet : la rubrique « Archivage » ouverte le relit. */
+  z.object({ type: z.literal('project.archivage.mouvement'), projectId: z.string() }),
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
   /** LE PILOTAGE DE CHROME (`server/src/extension-chrome.ts`) : un Chrome relié, délié, un site ou un geste répété a changé. */
   z.object({ type: z.literal('extension.change') }),

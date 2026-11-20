@@ -447,6 +447,11 @@ export const Project = z.object({
       at: z.number(),
     })
     .optional(),
+  /**
+   * « NE JAMAIS ARCHIVER AUTOMATIQUEMENT » (décision de l'utilisateur, 20/11/2026) : ce projet échappe à
+   * l'archivage de nuit après `Settings.archivageAutoJours` jours sans tâche. Il reste archivable à la main.
+   */
+  archivageAutoDesactive: z.boolean().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -3070,6 +3075,12 @@ export type DeployRun = z.infer<typeof DeployRun>;
 /* ------------------------------------------------------------------ */
 
 export const Settings = z.object({
+  /**
+   * L'ARCHIVAGE AUTOMATIQUE DES PROJETS (20/11/2026) : un projet sans aucune activité de tâche depuis ce nombre
+   * de jours part seul, la nuit, sur le disque de stockage (`server/src/archivage-auto.ts`). Un seul délai pour
+   * tous les projets ; 0 = jamais.
+   */
+  archivageAutoJours: z.number().int().min(0).max(3650).default(30),
   /**
    * SIX AGENTS EN MÊME TEMPS AU PLUS SUR CE SERVEUR (décision de l'utilisateur, 15/11/2026, après trois décrochages
    * du serveur par mémoire saturée). L'ancien défaut 15 enregistré est ramené à 6 par la migration 176 ; un autre

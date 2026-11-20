@@ -85,12 +85,6 @@ export type ContenuDuCalendrier = ContenuMarketing & {
   envoiChrome?: 'attente-chrome' | 'en-retard' | null;
 };
 
-export interface PublicationsDeLaMarque {
-  contenus: ContenuDuCalendrier[];
-  comptes: CompteSocial[];
-  campagnes: { id: string; titre: string; debut?: string | null; fin?: string | null }[];
-}
-
 export interface MediaDeLaMarque {
   cle: string;
   campagneId: string | null;
@@ -105,11 +99,6 @@ export function useCampagnes() {
 export function useCampagne(id: string) {
   const { marque } = useV2();
   return useLecture<DetailDeCampagneV2>({ type: 'communication.campagne', marqueId: marque.id, id }, [marque.id, id]);
-}
-
-export function usePublicationsDeLaMarque() {
-  const { marque } = useV2();
-  return useLecture<PublicationsDeLaMarque>({ type: 'communication.publications', marqueId: marque.id, periode: 30 }, [marque.id]);
 }
 
 export function useMediasDeLaMarque() {

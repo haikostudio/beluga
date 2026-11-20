@@ -1,4 +1,3 @@
-import { decalerJour, lundiDeLaSemaine } from './communication.js';
 
 /**
  * COMMUNICATION 2 — l'espace « simple et limpide » (carte « Communication V2, simple et limpide », 08/11/2026).
@@ -250,59 +249,6 @@ export function etapeQuiBloqueV2(id: EtapeCommunicationV2, e: EntreeDesEtapesV2)
 export function pageAccessibleV2(page: PageCommunicationV2, e: EntreeDesEtapesV2): PageCommunicationV2 {
   if (page === 'reponses' || page === 'canaux') return page;
   return etapeQuiBloqueV2(page, e) ?? page;
-}
-
-/* ------------------------------------------------------------------ */
-/* Les bandes de campagnes dans une semaine du calendrier               */
-/* ------------------------------------------------------------------ */
-
-export interface BandeDeCampagne {
-  id: string;
-  /** Colonnes 0 (lundi) à 6 (dimanche), bornes comprises. */
-  de: number;
-  a: number;
-  /** La rangée de la bande dans la semaine : deux campagnes qui se chevauchent ne partagent jamais la même. */
-  rang: number;
-  /** La campagne commence avant ce lundi (la bande arrive par la gauche) ou finit après ce dimanche. */
-  suiteAvant: boolean;
-  suiteApres: boolean;
-}
-
-/**
- * LA POSE DES BANDES D'UNE SEMAINE (décision de l'utilisateur : le mois en grille, les campagnes en bandes nommées sur
- * leurs dates). Chaque campagne datée qui touche la semaine devient une bande COUPÉE aux bords de la semaine ; les
- * bandes se rangent l'une sous l'autre quand elles se chevauchent (la plus tôt d'abord, la plus longue à égalité), au
- * premier rang libre. Une campagne sans date de début n'a pas de bande ; sans fin, elle court jusqu'à son début.
- */
-export function bandesDeLaSemaine(lundi: string, campagnes: readonly { id: string; debut?: string | null; fin?: string | null }[]): BandeDeCampagne[] {
-  const premier = lundiDeLaSemaine(lundi);
-  const dimanche = decalerJour(premier, 6);
-  const colonne = (jour: string) => Math.round((Date.parse(`${jour}T12:00:00Z`) - Date.parse(`${premier}T12:00:00Z`)) / 86_400_000);
-  const touchees = campagnes
-    .filter((c) => !!c.debut)
-    .map((c) => ({ id: c.id, debut: c.debut!, fin: c.fin && c.fin >= c.debut! ? c.fin : c.debut! }))
-    .filter((c) => c.debut <= dimanche && c.fin >= premier)
-    .sort((a, b) => a.debut.localeCompare(b.debut) || b.fin.localeCompare(a.fin) || a.id.localeCompare(b.id));
-  const rangs: number[][] = [];
-  return touchees.map((c) => {
-    const de = c.debut < premier ? 0 : colonne(c.debut);
-    const a = c.fin > dimanche ? 6 : colonne(c.fin);
-    let rang = rangs.findIndex((occupees) => occupees.every((x) => x < de || x > a));
-    if (rang < 0) {
-      rang = rangs.length;
-      rangs.push([]);
-    }
-    for (let x = de; x <= a; x++) rangs[rang]!.push(x);
-    return { id: c.id, de, a, rang, suiteAvant: c.debut < premier, suiteApres: c.fin > dimanche };
-  });
-}
-
-/** Les lundis de `n` semaines à partir de la semaine d'un jour (`n` négatif : en remontant). */
-export function lundisDesSemaines(jour: string, avant: number, apres: number): string[] {
-  const depart = lundiDeLaSemaine(jour);
-  const lundis: string[] = [];
-  for (let i = -Math.max(0, avant); i <= Math.max(0, apres); i++) lundis.push(decalerJour(depart, i * 7));
-  return lundis;
 }
 
 /* ------------------------------------------------------------------ */

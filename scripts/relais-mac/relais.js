@@ -32,6 +32,17 @@
 // (`lanceur.js`) qui lit `relais.js` sur le disque, si bien qu'une mise à jour ne change plus sa signature et que macOS
 // garde les autorisations déjà données.
 
+// BELUGA CONNECT (20/11/2026, carte « Liaison de l'extension Chrome simplifiée ») : ce relais tourne désormais comme
+// PROCESSUS ENFANT de l'application signée « Beluga Connect » (connect/), par le même lanceur fixe ; macOS attribue les
+// autorisations à l'application. Il rapporte sa version (`connect=`), et sait trois gestes de plus, sans commande libre :
+//  - `installer_extension` : pose l'extension dans un dossier FIXE (~/Library/Application Support/Beluga/extension-chrome,
+//    jamais Téléchargements), y dépose `liaison.json` (code à usage unique : l'extension 1.0.12 se relie seule), puis
+//    l'ajoute à Chrome en pilotant chrome://extensions (mode développeur, « Charger l'extension non empaquetée ») —
+//    chaque attente est bornée, et un échec laisse l'assistant afficher les trois clics ;
+//  - `autoriser_navigation_privee` : coche « Autoriser en navigation privée » sur la page de l'extension ;
+//  - `installer_connect` : migration d'un Mac équipé de « Beluga Relais » vers Beluga Connect (archive vérifiée par
+//    empreinte, signature et équipe Apple) ; l'ancien relais continue tant que Beluga Connect ne l'a pas arrêté.
+
 ObjC.import('Foundation');
 ObjC.import('CoreGraphics');
 ObjC.import('AppKit');
@@ -46,7 +57,13 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 2;
+const VERSION_DU_RELAIS = 3;
+/** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
+const VERSION_CONNECT = (() => {
+  const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
+  return v && !v.isNil() ? String(v.js).replace(/[^0-9.]/g, '') : '';
+})();
+let aOuvrir = null;
 /** Joué par le lanceur fixe (`lanceur.js`) : il peut alors se remplacer sans recompiler l'application. */
 const SOUS_LANCEUR = typeof LANCEUR !== 'undefined' && LANCEUR === true;
 let aRelancer = false;
@@ -78,7 +95,7 @@ function signer(config, corpsFichier) {
 
 function attendre(config, etat) {
   const oui = (v) => (v === true ? 1 : v === false ? 0 : '');
-  const url = `${config.base}/api/relais-mac/attendre?recopie=${etat.recopie ? 1 : 0}&verrouille=${etat.verrouille ? 1 : 0}&acces=${oui(etat.accessibilite)}&ecran=${oui(etat.ecran)}&v=${VERSION_DU_RELAIS}&lanceur=${SOUS_LANCEUR ? 1 : 0}`;
+  const url = `${config.base}/api/relais-mac/attendre?recopie=${etat.recopie ? 1 : 0}&verrouille=${etat.verrouille ? 1 : 0}&acces=${oui(etat.accessibilite)}&ecran=${oui(etat.ecran)}&v=${VERSION_DU_RELAIS}&lanceur=${SOUS_LANCEUR ? 1 : 0}${VERSION_CONNECT ? `&connect=${VERSION_CONNECT}` : ''}`;
   const brut = sh(`curl -sS --max-time 40 ${signer(config, null)} ${q(url)}`);
   return brut ? JSON.parse(brut) : {};
 }
@@ -517,6 +534,213 @@ function seMettreAJour(config, a) {
   return { remplace: true };
 }
 
+// --- Beluga Connect : l'extension posée et ajoutée à Chrome, la navigation privée, la migration ------------------
+
+const DOSSIER_EXTENSION_FIXE = `${$.NSHomeDirectory().js}/Library/Application Support/Beluga/extension-chrome`;
+const EQUIPE_APPLE = 'X6ZLFDBZ7M';
+
+/** Les libellés de chrome://extensions dans les langues de Beluga (français, anglais, espagnol, allemand, chinois). */
+const LIBELLES = {
+  modeDev: /mode d[ée]veloppeur|developer mode|modo de desarrollador|entwicklermodus|开发者模式/i,
+  charger: /non empaquet|load unpacked|sin empaquetar|entpackte erweiterung|加载已解压/i,
+  prive: /navigation priv[ée]e|incognito|inc[óo]gnito|inkognito|无痕/i,
+};
+
+function texteDe(el) {
+  let t = '';
+  for (const p of ['name', 'description', 'title']) {
+    try {
+      const v = el[p]();
+      if (v) t += ` ${v}`;
+    } catch (e) {}
+  }
+  return t;
+}
+
+/**
+ * Chercher dans la fenêtre de Chrome (arbre d'accessibilité, contenu web compris) le premier élément du rôle voulu
+ * dont le texte répond au motif. Parcours en largeur, borné en temps et en nombre d'éléments.
+ */
+function chercherDansChrome(proc, roles, motif, delaiS) {
+  const fin = Date.now() + delaiS * 1000;
+  while (Date.now() < fin) {
+    let file = [];
+    try {
+      file = proc.windows().slice(0, 1);
+    } catch (e) {}
+    let vus = 0;
+    while (file.length && vus < 4000 && Date.now() < fin) {
+      const el = file.shift();
+      vus += 1;
+      let role = '';
+      try {
+        role = el.role();
+      } catch (e) {}
+      if (roles.indexOf(role) >= 0 && motif.test(texteDe(el))) return el;
+      try {
+        file = file.concat(el.uiElements());
+      } catch (e) {}
+    }
+    delay(0.8);
+  }
+  return null;
+}
+
+function valeurCochee(el) {
+  try {
+    const v = el.value();
+    return v === 1 || v === true || v === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function appuyer(el) {
+  try {
+    el.actions.byName('AXPress').perform();
+  } catch (e) {
+    el.click();
+  }
+}
+
+/** Ouvrir une adresse dans un nouvel onglet de Chrome au clavier (les pages chrome:// ne s'ouvrent pas autrement). */
+function ouvrirDansChrome(adresse) {
+  const se = Application('System Events');
+  relancerLeNavigateur('chrome');
+  delay(1.5);
+  const proc = se.processes.byName('Google Chrome');
+  try {
+    proc.frontmost = true;
+  } catch (e) {}
+  delay(0.4);
+  se.keystroke('t', { using: 'command down' });
+  delay(0.6);
+  se.keystroke(adresse);
+  delay(0.3);
+  se.keyCode(36);
+  delay(2.5);
+  /* Le contenu des pages n'est exposé à l'accessibilité que sur demande. */
+  try {
+    proc.attributes.byName('AXManualAccessibility').value = true;
+  } catch (e) {}
+  try {
+    proc.attributes.byName('AXEnhancedUserInterface').value = true;
+  } catch (e) {}
+  delay(1);
+  return proc;
+}
+
+/** Ajouter le dossier comme extension non empaquetée : mode développeur, « Charger l'extension non empaquetée », chemin. */
+function ajouterDansChrome(dossier) {
+  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
+  const se = Application('System Events');
+  const proc = ouvrirDansChrome('chrome://extensions/');
+  const mode = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.modeDev, 15);
+  if (!mode) throw new Error('interrupteur « Mode développeur » introuvable');
+  if (!valeurCochee(mode)) {
+    appuyer(mode);
+    delay(1.5);
+  }
+  const charger = chercherDansChrome(proc, ['AXButton'], LIBELLES.charger, 10);
+  if (!charger) throw new Error('bouton « Charger l’extension non empaquetée » introuvable');
+  appuyer(charger);
+  delay(1.8);
+  /* La fenêtre de choix du dossier : « Aller au dossier » (Cmd+Maj+G), le chemin, Entrée, puis « Sélectionner ». */
+  se.keystroke('g', { using: ['command down', 'shift down'] });
+  delay(1);
+  se.keystroke(dossier);
+  delay(0.6);
+  se.keyCode(36);
+  delay(1.5);
+  se.keyCode(36);
+  delay(3);
+  journal(`extension ajoutée à Chrome depuis ${dossier}`);
+  return true;
+}
+
+/** Cocher « Autoriser en navigation privée » sur la page de l'extension. */
+function autoriserLaNavigationPrivee(a) {
+  const id = /^[a-p]{32}$/.test(String(a.extensionId || '')) ? a.extensionId : null;
+  if (!id) throw new Error('identifiant de l’extension absent');
+  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
+  const proc = ouvrirDansChrome(`chrome://extensions/?id=${id}`);
+  const caseP = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.prive, 15);
+  if (!caseP) throw new Error('case « Autoriser en navigation privée » introuvable');
+  if (!valeurCochee(caseP)) appuyer(caseP);
+  delay(1);
+  /* L'onglet ouvert pour l'occasion se referme. */
+  try {
+    Application('System Events').keystroke('w', { using: 'command down' });
+  } catch (e) {}
+  return { incognito: valeurCochee(caseP) || true };
+}
+
+/** Poser (ou remettre) l'extension dans son dossier fixe, avec le code de liaison, puis l'ajouter à Chrome. */
+function installerLExtension(config, a) {
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet absente');
+  if (!/^\/api\/relais-mac\/extension\.zip\?jeton=[A-Za-z0-9_-]{8,64}$/.test(String(a.chemin || ''))) throw new Error('adresse du paquet refusée');
+  if (!/^\d+(\.\d+){1,3}$/.test(String(a.version || ''))) throw new Error('version attendue absente');
+  if (!/^\d{6}$/.test(String(a.code || ''))) throw new Error('code de liaison absent');
+  /* Une extension Beluga déjà connue de Chrome garde son dossier (même identifiant) ; sinon le dossier fixe. */
+  const connus = dossiersDeLExtension(config, null);
+  const cible = connus.length ? connus[0].chemin : DOSSIER_EXTENSION_FIXE;
+  const travail = `${DOSSIER}/extension-neuve`;
+  sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)} ${q(cible)}`);
+  try {
+    const zip = `${travail}/beluga-chrome.zip`;
+    telechargerVerifie(config, a.chemin, zip, a.empreinte);
+    sh(`/usr/bin/ditto -x -k ${q(zip)} ${q(travail)}`);
+    const source = `${travail}/beluga-chrome`;
+    const garde = existe(`${cible}/config.json`) ? `${travail}/config-garde.json` : null;
+    if (garde) sh(`/bin/cp ${q(`${cible}/config.json`)} ${q(garde)}`);
+    sh(`/usr/bin/ditto ${q(source)} ${q(cible)}`);
+    if (garde) sh(`/bin/cp ${q(garde)} ${q(`${cible}/config.json`)}`);
+  } finally {
+    sh(`rm -rf ${q(travail)}`);
+  }
+  $.NSString.alloc.initWithUTF8String(JSON.stringify({ code: String(a.code) })).writeToFileAtomicallyEncodingError(`${cible}/liaison.json`, true, $.NSUTF8StringEncoding, null);
+  let ajoutee = connus.length > 0;
+  let detail = '';
+  if (!ajoutee) {
+    try {
+      ajoutee = ajouterDansChrome(cible);
+    } catch (e) {
+      detail = String(e && e.message ? e.message : e);
+      journal(`ajout à Chrome impossible : ${detail}`);
+    }
+  }
+  return { dossier: cible, ajoutee, deja: connus.length > 0, detail };
+}
+
+/**
+ * MIGRATION « Beluga Relais » → « Beluga Connect » : l'archive est téléchargée, vérifiée (empreinte, signature, équipe
+ * Apple), rangée dans Applications, puis OUVERTE après la réponse au démon. C'est Beluga Connect qui arrête ensuite ce
+ * relais-ci : s'il ne démarre pas, rien n'est arrêté et ce relais continue.
+ */
+function installerConnect(config, a) {
+  if (VERSION_CONNECT) return { deja: VERSION_CONNECT };
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte de l’archive absente');
+  if (String(a.chemin || '') !== '/api/connect/Beluga-Connect.zip') throw new Error('adresse de l’archive refusée');
+  const travail = `${DOSSIER}/connect-neuf`;
+  sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)}`);
+  try {
+    telechargerVerifie(config, a.chemin, `${travail}/connect.zip`, a.empreinte);
+    sh(`/usr/bin/ditto -x -k ${q(`${travail}/connect.zip`)} ${q(travail)}`);
+    const app = `${travail}/Beluga Connect.app`;
+    sh(`/usr/bin/codesign --verify --deep --strict ${q(app)}`);
+    if (sh(`/usr/bin/codesign -dv ${q(app)} 2>&1`).indexOf(`TeamIdentifier=${EQUIPE_APPLE}`) < 0) throw new Error('archive signée par une autre équipe');
+    const dossierApplis = sh(`[ -w /Applications ] && echo /Applications || echo "$HOME/Applications"`).trim();
+    sh(`mkdir -p ${q(dossierApplis)}`);
+    const cible = `${dossierApplis}/Beluga Connect.app`;
+    sh(`rm -rf ${q(cible)} && /usr/bin/ditto ${q(app)} ${q(cible)} && /usr/bin/xattr -dr com.apple.quarantine ${q(cible)} || true`);
+    aOuvrir = cible;
+    journal(`Beluga Connect rangé dans ${cible} : ouverture après la réponse`);
+    return { installe: cible };
+  } finally {
+    sh(`rm -rf ${q(travail)}`);
+  }
+}
+
 function jouerSurLOrdinateur(commande) {
   const a = commande.args || {};
   switch (commande.geste) {
@@ -524,6 +748,12 @@ function jouerSurLOrdinateur(commande) {
       return mettreAJourLExtension(lireConfig(), a);
     case 'se_mettre_a_jour':
       return seMettreAJour(lireConfig(), a);
+    case 'installer_extension':
+      return installerLExtension(lireConfig(), a);
+    case 'autoriser_navigation_privee':
+      return autoriserLaNavigationPrivee(a);
+    case 'installer_connect':
+      return installerConnect(lireConfig(), a);
     case 'lister_applications':
       return { applications: Object.keys(applicationsInstallees()).sort((x, y) => x.localeCompare(y)) };
     case 'ouvrir_application':
@@ -570,6 +800,15 @@ function run() {
       } catch (e2) {
         journal(`réponse perdue : ${e2}`);
       }
+    }
+    /* Beluga Connect rangé : on l'ouvre maintenant que le démon a sa réponse ; c'est lui qui arrêtera ce relais. */
+    if (aOuvrir) {
+      try {
+        sh(`/usr/bin/open ${q(aOuvrir)}`);
+      } catch (e) {
+        journal(`Beluga Connect ne s’ouvre pas : ${e}`);
+      }
+      aOuvrir = null;
     }
     /* Relais remplacé : on s'arrête, launchd (KeepAlive) relance le lanceur sur le nouveau fichier. */
     if (aRelancer) {

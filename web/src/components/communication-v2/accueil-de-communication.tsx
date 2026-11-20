@@ -1,15 +1,10 @@
 import * as React from 'react';
-import { Image as ImageIcon, Loader2, Plus } from '@/components/ui/icones';
-import { cheminCommunicationV2, type CompteSocial, type EtatDeLaLigneDeConnexion, type ReseauSocial } from '@beluga/shared';
+import { Loader2, Plus } from '@/components/ui/icones';
+import { cheminCommunicationV2 } from '@beluga/shared';
 import { BoutonPrincipal, GestePrincipal } from '@/components/entete-de-zone';
-import { BasculeDePage, RechercheDuService, RubriquesDePage } from '@/components/fenetre-de-service';
-import { useFiltreCentral, useProjetDuService } from '@/components/projet-du-service';
+import { RechercheDuService } from '@/components/fenetre-de-service';
 import { SilhouetteTableauDeService } from '@/components/silhouettes';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, ZoneDefilement } from '@/components/ui';
-import { ApercuAuSurvol, BasculeTableauCartes, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
-import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
-import { BoutonVue } from '@/components/ui/boutons-a-menu';
-import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
 import { colonneProjet } from '@/components/ui/colonne-projet';
 import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
 import { PastilleProjet } from '@/components/pastille-projet';
@@ -17,55 +12,41 @@ import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
-import { adresseDePiece } from '@/components/pastille-de-fichier';
-import { Apercu, Badge2, PastilleReseau, TitreDeLigne, dateCourteLocale, instantCourt, libelleDuCanal } from './socle/pieces';
-import { ApercuDeCampagne, EtatDeLaCampagne } from './page-campagnes';
-import type { LigneDeCampagneV2 } from './donnees';
+import { Badge2, PastilleReseau, TitreDeLigne, dateCourteLocale } from './socle/pieces';
+import type { ContenuDuCalendrier, LigneDeCampagneV2 } from './donnees';
 import type { MarqueV2 } from './contexte';
 
 /**
- * L'ACCUEIL DE COMMUNICATION (carte « Services homogènes et centrés », 14/11/2026 : « l'outil communication ne pointe
- * sur rien du tout, ça me pointe sur le premier onglet du projet ; je veux le tableau avec l'ensemble des campagnes et
- * la colonne du nom du projet »). Plus de choix d'une marque : trois onglets à droite du titre —
- *  - CAMPAGNES : toutes les campagnes de toutes les marques, en tableau ou en cartes ;
- *  - COMPTES : les comptes de réseaux de chaque marque, reliés ou à relier ;
- *  - RÉPONSES : les commentaires et messages reçus, du plus récent au plus ancien.
- * Chaque ligne porte le projet de sa marque ; le filtre « Tous les projets » de la page filtre SUR PLACE. Un clic ouvre
- * l'élément dans sa marque, aux adresses de toujours (`#communication2/<marque>/…`). Les lectures sont celles de chaque
- * marque, réunies ici : rien de neuf côté démon.
+ * L'ACCUEIL DE COMMUNICATION : LES PROJETS QUI COMMUNIQUENT (décision de l'utilisateur du 20/11/2026, carte « Fil d'Ariane
+ * et Communication repensés » : « on doit avoir le service avec la liste des projets en cours, ensuite on ouvre un
+ * projet, on a la liste des campagnes, puis la fiche détail de la campagne »). Une ligne par marque — le projet qu'elle
+ * porte —, avec ses campagnes en cours, sa prochaine publication et ses réseaux ; les plus actifs d'abord. Un clic
+ * ouvre le projet (`#communication/<marque>`). Plus d'onglets Campagnes / Comptes / Réponses ici : les comptes reliés et
+ * les réponses vivent dans le menu « … » de la page du projet. Les lectures sont celles de chaque marque, réunies.
  */
-type Onglet = 'campagnes' | 'comptes' | 'reponses';
-
-interface LigneDeConnexion {
-  reseau: ReseauSocial;
-  libelle: string;
-  comptes: CompteSocial[];
-  etat: EtatDeLaLigneDeConnexion;
-}
-interface LigneDeMessage {
-  id: string;
-  genre: string;
-  reseau: string;
-  auteur: string;
-  texte: string;
-  instant: number;
-  repondu: boolean;
-  masqueLe?: number | null;
+interface LigneDeProjet {
+  marque: MarqueV2;
+  enCours: number;
+  total: number;
+  aValider: number;
+  reseaux: string[];
+  prochaine: { jour: string; heure?: string; titre: string } | null;
 }
 
 /** Une lecture faite pour chaque marque, réunie : `null` tant que toutes ne sont pas revenues. */
-function useLectureDesMarques<T>(marques: MarqueV2[] | null, type: string, actif: boolean): { marque: MarqueV2; donnees: T }[] | null {
+function useLectureDesMarques<T>(marques: MarqueV2[] | null, type: string, extra: Record<string, unknown> = {}): { marque: MarqueV2; donnees: T }[] | null {
   const state = useApp();
   const version = state.communicationVersion;
   const [resultat, setResultat] = React.useState<{ marque: MarqueV2; donnees: T }[] | null>(null);
   const cle = (marques ?? []).map((m) => m.id).join(',');
+  const cleExtra = JSON.stringify(extra);
   React.useEffect(() => {
-    if (!actif || !marques) return;
+    if (!marques) return;
     let vivant = true;
     void Promise.all(
       marques.map((marque) =>
         client
-          .call<T>({ type, marqueId: marque.id } as never)
+          .call<T>({ type, marqueId: marque.id, ...JSON.parse(cleExtra) } as never)
           .then((donnees) => ({ marque, donnees }))
           .catch(() => null),
       ),
@@ -76,267 +57,140 @@ function useLectureDesMarques<T>(marques: MarqueV2[] | null, type: string, actif
       vivant = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cle, type, actif, version]);
+  }, [cle, type, cleExtra, version]);
   return resultat;
 }
 
 const projetDeLaMarque = (m: MarqueV2) => ({ id: m.projets[0]?.id ?? null, nom: m.projets[0]?.nom ?? m.nom });
 
+/** Le jour de l'appareil, AAAA-MM-JJ. */
+function aujourdhui(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Une campagne en cours : pas terminée, et sa période n'est pas finie. */
+const campagneEnCours = (c: LigneDeCampagneV2, jour: string) => c.statut !== 'terminee' && (!c.fin || c.fin >= jour);
+
 export function AccueilDeCommunication({ marques, erreur, onVise }: { marques: MarqueV2[] | null; erreur: string | null; onVise: (chemin: string | null) => void }) {
   const telephone = useTelephone();
-  const [onglet, setOnglet] = React.useState<Onglet>('campagnes');
   const [recherche, setRecherche] = React.useState('');
-  const [vue, setVue] = useVueDeLaListe('communication.vueDeLAccueil');
-  /* LE FILTRE DES PROJETS DE LA PAGE : les marques de ce projet seulement. */
-  const projet = useProjetDuService();
-  const filtreCentral = useFiltreCentral();
-  const retenues = React.useMemo(
-    () => (marques ? (projet && filtreCentral ? marques.filter((m) => m.projets.some((p) => p.id === projet.id)) : marques) : null),
-    [marques, projet?.id, filtreCentral],
-  );
-  const campagnes = useLectureDesMarques<{ campagnes: LigneDeCampagneV2[] }>(retenues, 'communication.campagnes', true);
-  const connexions = useLectureDesMarques<{ reseaux: LigneDeConnexion[] }>(retenues, 'communication.connexion', onglet === 'comptes');
-  const messages = useLectureDesMarques<{ lignes: LigneDeMessage[] }>(retenues, 'communication.messages', onglet === 'reponses');
+  const campagnes = useLectureDesMarques<{ campagnes: LigneDeCampagneV2[] }>(marques, 'communication.campagnes');
+  const publications = useLectureDesMarques<{ contenus: ContenuDuCalendrier[] }>(marques, 'communication.publications', { periode: 30 });
 
-  const lignesDeCampagnes = React.useMemo(
-    () => (campagnes ?? []).flatMap(({ marque, donnees }) => donnees.campagnes.map((c) => ({ marque, c }))).sort((a, b) => (b.c.debut ?? '').localeCompare(a.c.debut ?? '')),
-    [campagnes],
-  );
-  const lignesDeComptes = React.useMemo(
-    () =>
-      (connexions ?? []).flatMap(({ marque, donnees }) =>
-        donnees.reseaux.flatMap((r) =>
-          r.comptes.length ? r.comptes.map((compte) => ({ id: `${marque.id}:${r.reseau}:${compte.id}`, marque, r, compte: compte as CompteSocial | null })) : [{ id: `${marque.id}:${r.reseau}`, marque, r, compte: null as CompteSocial | null }],
-        ),
-      ),
-    [connexions],
-  );
-  const lignesDeReponses = React.useMemo(
-    () => (messages ?? []).flatMap(({ marque, donnees }) => donnees.lignes.map((m) => ({ id: `${marque.id}:${m.id}`, marque, m }))).sort((a, b) => b.m.instant - a.m.instant),
-    [messages],
-  );
-  const aTraiter = lignesDeReponses.filter((l) => !l.m.repondu && !l.m.masqueLe).length;
-  const messagesDesMarques = (retenues ?? []).reduce((n, m) => n + (m.messages ?? 0), 0);
+  const lignes = React.useMemo<LigneDeProjet[] | null>(() => {
+    if (!marques || !campagnes) return null;
+    const jour = aujourdhui();
+    const maintenant = new Date();
+    const heure = `${String(maintenant.getHours()).padStart(2, '0')}:${String(maintenant.getMinutes()).padStart(2, '0')}`;
+    return marques
+      .map((marque) => {
+        const siennes = campagnes.find((x) => x.marque.id === marque.id)?.donnees.campagnes ?? [];
+        const enCours = siennes.filter((c) => campagneEnCours(c, jour));
+        const contenus = publications?.find((x) => x.marque.id === marque.id)?.donnees.contenus ?? [];
+        const avenir = contenus
+          .filter((c) => c.datePrevue && !['publie', 'echec', 'abandonne'].includes(c.etape) && (c.datePrevue > jour || (c.datePrevue === jour && (c.heurePrevue ?? '23:59') >= heure)))
+          .sort((a, b) => `${a.datePrevue}${a.heurePrevue ?? ''}`.localeCompare(`${b.datePrevue}${b.heurePrevue ?? ''}`))[0];
+        return {
+          marque,
+          enCours: enCours.length,
+          total: siennes.length,
+          aValider: enCours.reduce((n, c) => n + (c.aAccepter ?? 0), 0),
+          reseaux: [...new Set(enCours.flatMap((c) => c.reseaux))],
+          prochaine: avenir ? { jour: avenir.datePrevue!, ...(avenir.heurePrevue ? { heure: avenir.heurePrevue } : {}), titre: avenir.titre } : null,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.enCours - a.enCours ||
+          (a.prochaine?.jour ?? '9999').localeCompare(b.prochaine?.jour ?? '9999') ||
+          b.total - a.total ||
+          projetDeLaMarque(a.marque).nom.localeCompare(projetDeLaMarque(b.marque).nom),
+      );
+  }, [marques, campagnes, publications]);
 
-  const ouvrirCampagne = (l: { marque: MarqueV2; c: LigneDeCampagneV2 }) => onVise(cheminCommunicationV2({ marqueId: l.marque.id, page: 'campagnes', element: [l.c.id] }));
+  const ouvrir = (l: LigneDeProjet) => onVise(cheminCommunicationV2({ marqueId: l.marque.id }));
+  const resumeDesCampagnes = (l: LigneDeProjet) =>
+    l.enCours ? t('{n} en cours', { n: l.enCours }) : l.total ? t('Aucune en cours · {n} au total', { n: l.total }) : t('Aucune campagne');
+  const prochaine = (l: LigneDeProjet) =>
+    l.prochaine ? (
+      <TitreDeLigne titre={`${dateCourteLocale(l.prochaine.jour)}${l.prochaine.heure ? ` · ${l.prochaine.heure}` : ''}`} sous={l.prochaine.titre} />
+    ) : publications ? (
+      <span className="text-faint">{t('Rien de prévu')}</span>
+    ) : (
+      <span className="text-faint">…</span>
+    );
 
-  const colonnesDesCampagnes: ColonneDuTableauCommun<{ marque: MarqueV2; c: LigneDeCampagneV2 }>[] = [
-    { cle: 'apercu', libelle: '', largeur: 64, rendu: ({ c }) => <Apercu piece={c.image ?? c.apercu} genre="image" /> },
-    { cle: 'campagne', libelle: t('Campagne'), valeur: ({ c }) => c.titre, rendu: ({ c }) => <TitreDeLigne titre={c.titre} sous={c.objectif ?? c.message ?? '—'} /> },
-    colonneProjet(({ marque }) => projetDeLaMarque(marque), { largeur: 170 }),
+  const colonnes: ColonneDuTableauCommun<LigneDeProjet>[] = [
+    colonneProjet((l) => projetDeLaMarque(l.marque)),
+    {
+      cle: 'campagnes',
+      libelle: t('Campagnes'),
+      largeur: 190,
+      valeur: (l) => l.enCours * 1000 + l.total,
+      rendu: (l) => <span className={l.enCours ? 'text-text' : 'text-muted'}>{resumeDesCampagnes(l)}</span>,
+    },
+    { cle: 'prochaine', libelle: t('Prochaine publication'), largeur: 260, valeur: (l) => l.prochaine?.jour ?? '9999', rendu: prochaine },
     {
       cle: 'reseaux',
       libelle: t('Réseaux'),
-      largeur: 100,
+      largeur: 110,
       secondaire: true,
-      rendu: ({ c }) => (
-        <span className="inline-flex gap-1">
-          {c.reseaux.slice(0, 3).map((r) => (
-            <PastilleReseau key={r} canal={r} />
-          ))}
-        </span>
-      ),
+      rendu: (l) =>
+        l.reseaux.length ? (
+          <span className="inline-flex gap-1">
+            {l.reseaux.slice(0, 4).map((r) => (
+              <PastilleReseau key={r} canal={r} />
+            ))}
+          </span>
+        ) : (
+          <span className="text-faint">—</span>
+        ),
     },
     {
-      cle: 'periode',
-      libelle: t('Période'),
-      largeur: 170,
-      secondaire: true,
-      valeur: ({ c }) => c.debut ?? '',
-      rendu: ({ c }) => <span className="whitespace-nowrap text-muted">{c.debut || c.fin ? `${dateCourteLocale(c.debut)} → ${dateCourteLocale(c.fin)}` : '—'}</span>,
-    },
-    {
-      cle: 'visuels',
-      libelle: t('Visuels'),
-      largeur: 90,
+      cle: 'avalider',
+      libelle: t('À valider'),
+      largeur: 110,
       droite: true,
-      valeur: ({ c }) => (c.visuels?.prevus ? c.visuels.faits / c.visuels.prevus : 0),
-      rendu: ({ c }) => <span className="tabular-nums text-muted">{c.visuels?.prevus ? `${c.visuels.faits} / ${c.visuels.prevus}` : '—'}</span>,
-    },
-    { cle: 'etat', libelle: t('État'), largeur: 130, valeur: ({ c }) => c.statut, rendu: ({ c }) => <EtatDeLaCampagne campagne={c} /> },
-  ];
-
-  const colonnesDesComptes: ColonneDuTableauCommun<(typeof lignesDeComptes)[number]>[] = [
-    { cle: 'reseau', libelle: t('Réseau'), largeur: 190, valeur: (l) => l.r.libelle, rendu: (l) => <PastilleReseau canal={l.r.reseau} avecNom /> },
-    { cle: 'compte', libelle: t('Compte'), valeur: (l) => l.compte?.nom ?? '', rendu: (l) => (l.compte ? <span className="truncate font-medium text-text">{l.compte.nom}</span> : <span className="text-faint">{t('Aucun compte relié')}</span>) },
-    colonneProjet((l) => projetDeLaMarque(l.marque), { largeur: 170 }),
-    { cle: 'etat', libelle: t('État'), largeur: 170, valeur: (l) => etatDeLaConnexion(l.r.etat), rendu: (l) => <EtatDeConnexion etat={l.r.etat} /> },
-  ];
-
-  const colonnesDesReponses: ColonneDuTableauCommun<(typeof lignesDeReponses)[number]>[] = [
-    { cle: 'reseau', libelle: t('Réseau'), largeur: 70, valeur: (l) => libelleDuCanal(l.m.reseau), rendu: (l) => <PastilleReseau canal={l.m.reseau} /> },
-    { cle: 'message', libelle: t('Message'), valeur: (l) => `${l.m.auteur} ${l.m.texte}`, rendu: (l) => <TitreDeLigne titre={l.m.auteur} sous={l.m.texte} /> },
-    colonneProjet((l) => projetDeLaMarque(l.marque), { largeur: 170 }),
-    { cle: 'recu', libelle: t('Reçu'), largeur: 120, droite: true, valeur: (l) => l.m.instant, rendu: (l) => <span className="text-muted">{instantCourt(l.m.instant)}</span> },
-    {
-      cle: 'etat',
-      libelle: t('État'),
-      largeur: 120,
-      valeur: (l) => (l.m.repondu ? 1 : l.m.masqueLe ? 2 : 0),
-      rendu: (l) => (l.m.repondu ? <Badge2 ton="gris">{t('Répondu')}</Badge2> : l.m.masqueLe ? <Badge2 ton="gris">{t('Masqué')}</Badge2> : <Badge2 ton="attente">{t('À traiter')}</Badge2>),
+      valeur: (l) => l.aValider,
+      rendu: (l) => (l.aValider ? <Badge2 ton="attente">{l.aValider}</Badge2> : <span className="text-faint">—</span>),
     },
   ];
-
-  const onglets: { cle: Onglet; libelle: string; nombre?: number }[] = [
-    { cle: 'campagnes', libelle: t('Campagnes'), ...(campagnes ? { nombre: lignesDeCampagnes.length } : {}) },
-    { cle: 'comptes', libelle: t('Comptes') },
-    { cle: 'reponses', libelle: t('Réponses'), ...(messages ? { nombre: aTraiter } : messagesDesMarques ? { nombre: messagesDesMarques } : {}) },
-  ];
-
-  const chargement = (donnees: unknown) => (marques === null && !erreur) || (retenues !== null && retenues.length > 0 && donnees === null);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-v2-accueil={onglet}>
-      <RubriquesDePage>
-        {telephone ? (
-          /* SUR TÉLÉPHONE, LES TROIS ONGLETS DEVIENNENT UN BOUTON À MENU : la rangée unique de la feuille n'en tient pas
-             trois (même forme que « Audience » des Statistiques). */
-          <BoutonVue
-            repere="accueil-de-communication"
-            valeur={onglet}
-            onChoisir={setOnglet}
-            className="bg-raised"
-            choix={onglets.map((o) => ({ cle: o.cle, libelle: o.libelle, ...(o.nombre !== undefined ? { nombre: o.nombre } : {}), attributs: { 'data-v2-accueil-onglet': o.cle } }))}
-          />
-        ) : (
-          <BarreDOnglets
-            repere="accueil-de-communication"
-            libelle={t('Communication')}
-            onglets={onglets}
-            valeur={onglet}
-            onChange={setOnglet}
-            attributsOnglet={(o) => ({ 'data-v2-accueil-onglet': o })}
-          />
-        )}
-      </RubriquesDePage>
-      <RechercheDuService
-        valeur={recherche}
-        onChange={setRecherche}
-        placeholder={onglet === 'campagnes' ? t('Rechercher une campagne') : onglet === 'comptes' ? t('Rechercher un compte…') : t('Rechercher un message…')}
-        data-v2-accueil-recherche
-      />
-      {onglet === 'campagnes' ? (
-        <BasculeDePage>
-          <BasculeTableauCartes repere="vue-de-l-accueil-communication" valeur={vue} onChange={setVue} />
-        </BasculeDePage>
-      ) : null}
+    <div className="flex min-h-0 flex-1 flex-col" data-v2-accueil="projets">
+      <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher un projet')} data-v2-accueil-recherche />
       <ZoneDefilement fond="hsl(var(--bg))" className={telephone ? 'px-4 pb-6' : 'pb-6'}>
         {erreur ? (
           <p className="py-6 text-[13px] text-danger">{erreur}</p>
-        ) : onglet === 'campagnes' ? (
-          chargement(campagnes) ? (
-            <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
-          ) : (
-            <ApercuAuSurvol lire={(id) => lignesDeCampagnes.find((l) => `${l.marque.id}:${l.c.id}` === id)} rendu={(l) => <ApercuDeCampagne campagne={l.c} />} actif={vue === 'tableau'}>
-            <Tableau
-              repere="accueil-campagnes"
-              lignes={lignesDeCampagnes}
-              cle={(l) => `${l.marque.id}:${l.c.id}`}
-              onLigne={ouvrirCampagne}
-              aere
-              rechercheExterne={recherche}
-              colonnes={colonnesDesCampagnes}
-              vide={t('Aucune campagne pour l’instant : « Nouvelle campagne » en commence une.')}
-              attributsLigne={(l) => ({ 'data-v2-accueil-campagne': l.c.id, 'data-v2-accueil-marque': l.marque.id })}
-              pile={(l) => (
-                <>
-                  <Apercu piece={l.c.image ?? l.c.apercu} genre="image" />
-                  <span className="min-w-0 flex-1">
-                    <TitreDeLigne titre={l.c.titre} sous={projetDeLaMarque(l.marque).nom} />
-                  </span>
-                  <EtatDeLaCampagne campagne={l.c} />
-                </>
-              )}
-              {...(vue === 'cartes'
-                ? {
-                    grille: (l: { marque: MarqueV2; c: LigneDeCampagneV2 }) => (
-                      <CarteDeTableau
-                        image={<ImageDeCampagne piece={l.c.image ?? l.c.apercu ?? null} />}
-                        projet={projetDeLaMarque(l.marque)}
-                        etat={<EtatDeLaCampagne campagne={l.c} />}
-                        titre={l.c.titre}
-                        texte={l.c.objectif ?? l.c.message ?? ''}
-                        chiffres={[
-                          { libelle: t('Période'), valeur: l.c.debut || l.c.fin ? `${dateCourteLocale(l.c.debut)} → ${dateCourteLocale(l.c.fin)}` : '—' },
-                          { libelle: t('Visuels'), valeur: l.c.visuels?.prevus ? `${l.c.visuels.faits} / ${l.c.visuels.prevus}` : '—' },
-                          {
-                            libelle: t('Réseaux'),
-                            valeur: (
-                              <span className="inline-flex gap-1">
-                                {l.c.reseaux.slice(0, 3).map((r) => (
-                                  <PastilleReseau key={r} canal={r} />
-                                ))}
-                              </span>
-                            ),
-                          },
-                        ]}
-                        data-v2-accueil-carte={l.c.id}
-                      />
-                    ),
-                  }
-                : {})}
-            />
-            </ApercuAuSurvol>
-          )
-        ) : onglet === 'comptes' ? (
-          chargement(connexions) ? (
-            <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
-          ) : (
-            <Tableau
-              repere="accueil-comptes"
-              lignes={lignesDeComptes}
-              cle={(l) => l.id}
-              onLigne={(l) => onVise(cheminCommunicationV2({ marqueId: l.marque.id, page: 'connexion' }))}
-              aere
-              rechercheExterne={recherche}
-              colonnes={colonnesDesComptes}
-              vide={t('Aucun réseau choisi pour l’instant.')}
-              attributsLigne={(l) => ({ 'data-v2-accueil-compte': l.id })}
-            />
-          )
-        ) : chargement(messages) ? (
+        ) : lignes === null ? (
           <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
         ) : (
           <Tableau
-            repere="accueil-reponses"
-            lignes={lignesDeReponses}
-            cle={(l) => l.id}
-            onLigne={(l) => onVise(cheminCommunicationV2({ marqueId: l.marque.id, page: 'reponses', element: [l.m.id] }))}
+            repere="accueil-projets"
+            lignes={lignes}
+            cle={(l) => l.marque.id}
+            onLigne={ouvrir}
             aere
             rechercheExterne={recherche}
-            colonnes={colonnesDesReponses}
-            vide={t('Aucun commentaire ni message reçu pour l’instant.')}
-            attributsLigne={(l) => ({ 'data-v2-accueil-reponse': l.id })}
+            colonnes={colonnes}
+            vide={t('Aucun projet ne communique encore : « Nouvelle campagne » en lance un.')}
+            attributsLigne={(l) => ({ 'data-v2-accueil-projet': l.marque.id })}
+            pile={(l) => (
+              <>
+                <PastilleProjet project={{ name: projetDeLaMarque(l.marque).nom, favicon: l.marque.projets[0]?.favicon ?? l.marque.favicon ?? undefined }} />
+                <span className="min-w-0 flex-1">
+                  <TitreDeLigne titre={projetDeLaMarque(l.marque).nom} sous={l.prochaine ? `${resumeDesCampagnes(l)} · ${dateCourteLocale(l.prochaine.jour)}` : resumeDesCampagnes(l)} />
+                </span>
+                {l.aValider ? <Badge2 ton="attente">{l.aValider}</Badge2> : null}
+              </>
+            )}
           />
         )}
       </ZoneDefilement>
-      <NouvelleCampagne marques={retenues} onVise={onVise} />
+      <NouvelleCampagne marques={marques} onVise={onVise} />
     </div>
   );
-}
-
-function ImageDeCampagne({ piece }: { piece: string | null }) {
-  const [casse, setCasse] = React.useState(false);
-  return piece && !casse ? (
-    <img src={adresseDePiece(piece, false, 480)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover object-top" onError={() => setCasse(true)} />
-  ) : (
-    <ImageIcon className="h-6 w-6 text-faint" />
-  );
-}
-
-const etatDeLaConnexion = (e: EtatDeLaLigneDeConnexion): string =>
-  ({
-    officiel: t('Publication officielle'),
-    chrome: t('Publication par Chrome'),
-    en_cours: t('En cours'),
-    bloque: t('Bloqué'),
-    a_relier: t('À reconnecter'),
-    a_connecter: t('Pas encore connecté.'),
-  })[e];
-
-function EtatDeConnexion({ etat }: { etat: EtatDeLaLigneDeConnexion }) {
-  const ton = etat === 'officiel' || etat === 'chrome' ? 'vert' : etat === 'bloque' ? 'danger' : etat === 'en_cours' ? 'violet' : 'attente';
-  return <Badge2 ton={ton}>{etatDeLaConnexion(etat)}</Badge2>;
 }
 
 /**

@@ -90,8 +90,24 @@ export function FilDuProjet({
    * #22ca, « Fishflow / / ») : le fil devient « projet / service / ce que le service écrit » (`SuiteDuFil`). Le cran
    * du service ramène à sa liste pour ce projet ; `suite` est la cible où le service pose ses crans.
    */
-  /** Le service ouvert dans le projet : son cran mène à sa liste, limitée au projet — un VRAI lien (`adresse`). */
-  service?: { libelle: string; adresse: string; onOuvrir: () => void };
+  /**
+   * LE SERVICE OUVERT DANS LE PROJET (décision du 20/11/2026, « le service, ensuite le projet, puis la fiche ») : le fil
+   * devient « Service / Projet / fiche ». Le SERVICE mène à son accueil sur tous les projets (`onTous`), son chevron
+   * aux autres services de ce projet (`services`, `onAutreService`) ; le PROJET mène à la liste du service pour ce
+   * projet — un VRAI lien (`adresse`, `onOuvrir`) —, son chevron au même service dans un autre projet (`onAutreProjet`).
+   */
+  service?: {
+    cle: string;
+    libelle: string;
+    adresse: string;
+    onOuvrir: () => void;
+    /** L'adresse du service sur tous les projets (sans « # »). */
+    adresseTous: string;
+    onTous: () => void;
+    services: { valeur: string; libelle: string; groupe?: string }[];
+    onAutreService: (cle: string) => void;
+    onAutreProjet: (projectId: string) => void;
+  };
   suite?: React.ReactNode;
 }) {
   const allerALAccueil = (event: React.MouseEvent) => {
@@ -108,6 +124,54 @@ export function FilDuProjet({
         .map((p) => ({ valeur: p.id, libelle: p.name, icone: <PastilleProjet project={p} taille={16} /> })),
     [tous],
   );
+  if (service) {
+    /* « SERVICE / PROJET / FICHE » : noms seuls, sans icône ; le chevron des voisins ne paraît qu'au survol. */
+    return (
+      <nav aria-label="Fil d'Ariane" className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px]" data-fil-du-projet={project.id} data-fil-du-service-du-projet={service.cle}>
+        <span className="group/cran flex min-w-0 shrink-0 items-center">
+          <a
+            href={'#' + service.adresseTous.replace(/^#/, '')}
+            className="shrink-0 rounded-md px-1 py-0.5 text-muted transition-colors hover:text-text"
+            data-cran-du-service-du-projet
+            onClick={(event) => {
+              if (lienPourUnAutreOnglet(event)) return;
+              event.preventDefault();
+              service.onTous();
+            }}
+          >
+            {service.libelle}
+          </a>
+          <ChevronDesVoisins
+            voisins={{ nom: service.libelle, valeur: service.cle, options: service.services, titre: t('Services'), repere: 'service-du-projet', onChoisir: service.onAutreService }}
+            onOuvrir={service.onTous}
+          />
+        </span>
+        <span className="shrink-0 text-faint" aria-hidden>
+          /
+        </span>
+        <span className="group/cran flex min-w-0 max-w-[40%] shrink-0 items-center">
+          {/* UN VRAI LIEN (MEM-6859) : la liste du service, limitée au projet ; un clic du milieu l'ouvre ailleurs. */}
+          <a
+            href={'#' + service.adresse.replace(/^#/, '')}
+            className="min-w-0 truncate rounded-md px-1 py-0.5 text-muted transition-colors hover:text-text"
+            data-cran-du-projet
+            onClick={(event) => {
+              if (lienPourUnAutreOnglet(event)) return;
+              event.preventDefault();
+              service.onOuvrir();
+            }}
+          >
+            {project.name}
+          </a>
+          <ChevronDesVoisins
+            voisins={{ nom: project.name, valeur: project.id, options: voisins, titre: t('Projets'), repere: 'projet', onChoisir: service.onAutreProjet }}
+            onOuvrir={service.onOuvrir}
+          />
+        </span>
+        {suite}
+      </nav>
+    );
+  }
   return (
     <nav aria-label="Fil d'Ariane" className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px]" data-fil-du-projet={project.id}>
       {sansIcone ? null : (
@@ -121,17 +185,17 @@ export function FilDuProjet({
           <PastilleProjet project={project} taille={18} />
         </a>
       )}
-      <span className={cn('group/cran flex min-w-0 items-center', titre || service ? 'max-w-[40%] shrink-0' : 'shrink-0')}>
+      <span className={cn('group/cran flex min-w-0 items-center', titre ? 'max-w-[40%] shrink-0' : 'shrink-0')}>
         <a
           href={`#projet/${encodeURIComponent(project.id)}`}
-          className={cn('min-w-0 truncate rounded-md px-1 py-0.5 transition-colors hover:text-text', titre || service ? 'text-muted' : 'font-medium text-text')}
+          className={cn('min-w-0 truncate rounded-md px-1 py-0.5 transition-colors hover:text-text', titre ? 'text-muted' : 'font-medium text-text')}
           data-cran-du-projet
-          aria-current={titre || service ? undefined : 'page'}
+          aria-current={titre ? undefined : 'page'}
           onClick={allerALAccueil}
         >
           {project.name}
         </a>
-        {(titre || service) && !sansIcone ? (
+        {titre && !sansIcone ? (
           <ChevronDesVoisins
             voisins={{
               nom: project.name,
@@ -145,28 +209,7 @@ export function FilDuProjet({
           />
         ) : null}
       </span>
-      {service ? (
-        <>
-          <span className="shrink-0 text-faint" aria-hidden>
-            /
-          </span>
-          {/* UN VRAI LIEN (MEM-6859, carte « Services et fils d'Ariane fiables », 20/11/2026) : la liste du service, limitée
-              au projet ; un clic du milieu l'ouvre dans un autre onglet du navigateur. */}
-          <a
-            href={'#' + service.adresse.replace(/^#/, '')}
-            className="shrink-0 rounded-md px-1 py-0.5 text-muted transition-colors hover:text-text"
-            data-cran-du-service-du-projet
-            onClick={(event) => {
-              if (lienPourUnAutreOnglet(event)) return;
-              event.preventDefault();
-              service.onOuvrir();
-            }}
-          >
-            {service.libelle}
-          </a>
-          {suite}
-        </>
-      ) : titre ? (
+      {titre ? (
         <>
           <span className="shrink-0 text-faint" aria-hidden>
             /

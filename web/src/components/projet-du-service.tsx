@@ -46,6 +46,15 @@ const FiltreCentral = React.createContext(false);
 export const FournirLeFiltreCentral = FiltreCentral.Provider;
 export const useFiltreCentral = () => React.useContext(FiltreCentral);
 
+/**
+ * CHOISIR LA PORTÉE D'UNE PAGE DE SERVICE DEPUIS LE SERVICE (20/11/2026, « Service / Projet / Fiche ») : un service dont
+ * la fiche appartient à un projet (la marque ouverte dans Communication) y règle la portée, écrite dans l'adresse
+ * (`?projet=`) — le fil porte alors le cran du projet. `null` hors d'une page de service.
+ */
+const ChoixDeLaPortee = React.createContext<((projectId: string) => void) | null>(null);
+export const FournirLeChoixDeLaPortee = ChoixDeLaPortee.Provider;
+export const useChoixDeLaPortee = () => React.useContext(ChoixDeLaPortee);
+
 export function EtatVideDuProjet({
   icone,
   titre,

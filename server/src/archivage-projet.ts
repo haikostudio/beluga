@@ -49,9 +49,11 @@ import {
   refusDeSupprimerLeDossier,
   tailleLisible,
   unitesDuDossier,
+  type MouvementDArchivage,
   type Project,
   type SensDArchivage,
 } from '@beluga/shared';
+import { getDb } from './db.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -446,6 +448,67 @@ async function effacer(dossier: string): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* L'historique des mouvements                                         */
+/* ------------------------------------------------------------------ */
+
+export type OrigineDArchivage = MouvementDArchivage['origine'];
+
+/**
+ * NOTE UN MOUVEMENT dans l'historique du projet (table `archivage_mouvements`, migration 183). Ne fait jamais
+ * tomber le transfert : une base momentanément occupée coûte une ligne d'historique, pas l'archivage.
+ */
+export function noterMouvement(m: Omit<MouvementDArchivage, 'id' | 'quand'> & { quand?: number }): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO archivage_mouvements (project_id, quand, sens, origine, issue, detail, octets, octets_archive, chemin)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(m.projectId, m.quand ?? Date.now(), m.sens, m.origine, m.issue, m.detail ?? null, m.octets ?? null, m.octetsArchive ?? null, m.chemin ?? null);
+    bus.emit({ type: 'project.archivage.mouvement', projectId: m.projectId });
+  } catch (err) {
+    log.warn(`historique d'archivage : mouvement non noté — ${(err as Error).message}`);
+  }
+}
+
+/** L'historique d'un projet, le plus récent d'abord. */
+export function mouvementsDuProjet(projectId: string, limite = 200): MouvementDArchivage[] {
+  const lignes = getDb()
+    .prepare(
+      `SELECT id, project_id, quand, sens, origine, issue, detail, octets, octets_archive, chemin
+       FROM archivage_mouvements WHERE project_id = ? ORDER BY quand DESC, id DESC LIMIT ?`,
+    )
+    .all(projectId, limite) as any[];
+  return lignes.map((l) => ({
+    id: l.id,
+    projectId: l.project_id,
+    quand: l.quand,
+    sens: l.sens,
+    origine: l.origine,
+    issue: l.issue,
+    detail: l.detail,
+    octets: l.octets,
+    octetsArchive: l.octets_archive,
+    chemin: l.chemin,
+  }));
+}
+
+/** Le dernier désarchivage RÉUSSI de chaque projet : il compte comme une activité pour l'archivage automatique. */
+export function derniersDesarchivages(): Map<string, number> {
+  const lignes = getDb()
+    .prepare(`SELECT project_id AS id, MAX(quand) AS quand FROM archivage_mouvements WHERE sens = 'desarchiver' AND issue = 'reussi' GROUP BY project_id`)
+    .all() as { id: string; quand: number }[];
+  return new Map(lignes.map((l) => [l.id, l.quand]));
+}
+
+/** L'interrupteur « Ne jamais archiver automatiquement ». */
+export function exempter(id: string, exempte: boolean): Project {
+  const suite = majProjet(id, (p) => ({ ...p, archivageAutoDesactive: exempte || undefined }));
+  if (!suite) throw new Error('projet introuvable');
+  return suite;
+}
+
+/* ------------------------------------------------------------------ */
 /* Archiver                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -463,7 +526,7 @@ function echouer(t: Transfert, message: string): void {
 }
 
 /** Lance l'archivage ; rend la main dès que les contrôles sont passés. */
-export async function archiver(id: string): Promise<{ ok: true }> {
+export async function archiver(id: string, origine: OrigineDArchivage = 'main'): Promise<{ ok: true }> {
   const project = store.getProject(id);
   if (!project) throw new Error('projet introuvable');
   const t = nouveauTransfert(id, 'archiver');
@@ -477,18 +540,28 @@ export async function archiver(id: string): Promise<{ ok: true }> {
   } catch (err: any) {
     transferts.set(id, t);
     echouer(t, err?.message ?? String(err));
+    noterMouvement({ projectId: id, sens: 'archiver', origine, issue: 'echec', detail: err?.message ?? String(err) });
     throw err;
   }
   if (jugement.refus) {
     echouer(t, jugement.refus);
-    throw new Error(jugement.refus);
+    // La nuit note elle-même ses refus, une fois par raison (`refusDejaNote`).
+    if (origine === 'main') noterMouvement({ projectId: id, sens: 'archiver', origine, issue: 'refus', detail: jugement.refus });
+    const erreur = new Error(jugement.refus) as Error & { refus?: true };
+    erreur.refus = true;
+    throw erreur;
   }
   finirEtape(t, 'controles');
-  void suiteDeLArchivage(project, t, jugement).catch((err) => log.error('archivage', err));
+  void suiteDeLArchivage(project, t, jugement, origine).catch((err) => log.error('archivage', err));
   return { ok: true };
 }
 
-async function suiteDeLArchivage(project: Project, t: Transfert, jugement: { versionsDeTravail: string[]; dossierPresent: boolean }): Promise<void> {
+async function suiteDeLArchivage(
+  project: Project,
+  t: Transfert,
+  jugement: { versionsDeTravail: string[]; dossierPresent: boolean },
+  origine: OrigineDArchivage,
+): Promise<void> {
   const dossier = path.resolve(project.path);
   // Rien à transférer (projet réuni, ou dossier déjà parti) : seul le drapeau change.
   if (!jugement.dossierPresent || project.regroupement) {
@@ -497,6 +570,7 @@ async function suiteDeLArchivage(project: Project, t: Transfert, jugement: { ver
     t.bilan = 'Aucun fichier à déplacer : le projet est simplement marqué archivé.';
     t.fini = true;
     diffuser(t);
+    noterMouvement({ projectId: project.id, sens: 'archiver', origine, issue: 'reussi', detail: t.bilan });
     bus.toast('info', `« ${project.name} » archivé`);
     return;
   }
@@ -544,6 +618,7 @@ async function suiteDeLArchivage(project: Project, t: Transfert, jugement: { ver
     t.bilan = `${tailleLisible(t.total)} libérés sur le serveur (archive de ${tailleLisible(octetsArchive)}).`;
     t.fini = true;
     diffuser(t);
+    noterMouvement({ projectId: project.id, sens: 'archiver', origine, issue: 'reussi', detail: t.bilan, octets: t.total, octetsArchive, chemin: definitive });
     bus.toast('success', `« ${project.name} » archivé sur le disque externe`);
   } catch (err: any) {
     const message = err?.message ?? String(err);
@@ -558,6 +633,14 @@ async function suiteDeLArchivage(project: Project, t: Transfert, jugement: { ver
       // Le dossier est parti pendant l'effacement : l'archive vérifiée fait foi.
       majProjet(project.id, (p) => ({ ...p, archived: true, archive: { ...(p.archive ?? { at: Date.now() }), etat: 'archive', at: Date.now() } }));
     }
+    noterMouvement({
+      projectId: project.id,
+      sens: 'archiver',
+      origine,
+      issue: fs.existsSync(dossier) ? 'echec' : 'reussi',
+      detail: fs.existsSync(dossier) ? `${message} Rien n’a été effacé.` : `Archive vérifiée ; l’effacement a trébuché : ${message}`,
+      chemin: fs.existsSync(dossier) ? null : definitive,
+    });
     echouer(t, message);
   }
 }
@@ -566,7 +649,7 @@ async function suiteDeLArchivage(project: Project, t: Transfert, jugement: { ver
 /* Désarchiver                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function desarchiver(id: string): Promise<{ ok: true }> {
+export async function desarchiver(id: string, origine: OrigineDArchivage = 'main'): Promise<{ ok: true }> {
   const project = store.getProject(id);
   if (!project) throw new Error('projet introuvable');
   const t = nouveauTransfert(id, 'desarchiver');
@@ -576,6 +659,7 @@ export async function desarchiver(id: string): Promise<{ ok: true }> {
   transferts.set(id, t);
   if (refus) {
     echouer(t, refus);
+    noterMouvement({ projectId: id, sens: 'desarchiver', origine, issue: 'refus', detail: refus });
     throw new Error(refus);
   }
   finirEtape(t, 'controles');
@@ -585,10 +669,11 @@ export async function desarchiver(id: string): Promise<{ ok: true }> {
     t.bilan = 'Aucune archive à ramener : seul le badge est retiré.';
     t.fini = true;
     diffuser(t);
+    noterMouvement({ projectId: id, sens: 'desarchiver', origine, issue: 'reussi', detail: t.bilan });
     bus.toast('info', `« ${project.name} » désarchivé`);
     return { ok: true };
   }
-  void suiteDuDesarchivage(project, t).catch((err) => log.error('désarchivage', err));
+  void suiteDuDesarchivage(project, t, origine).catch((err) => log.error('désarchivage', err));
   return { ok: true };
 }
 
@@ -621,7 +706,7 @@ async function extraire(archive: string, attente: string, t: Transfert): Promise
   }
 }
 
-async function suiteDuDesarchivage(project: Project, t: Transfert): Promise<void> {
+async function suiteDuDesarchivage(project: Project, t: Transfert, origine: OrigineDArchivage): Promise<void> {
   const dossier = path.resolve(project.path);
   const archive = project.archive!.chemin!;
   const attente = path.join(path.dirname(dossier), `.beluga-desarchivage-${path.basename(dossier)}`);
@@ -671,6 +756,7 @@ async function suiteDuDesarchivage(project: Project, t: Transfert): Promise<void
       : `Fichiers remis en place (${tailleLisible(project.archive?.octetsSource ?? 0)}), copie externe supprimée.`;
     t.fini = true;
     diffuser(t);
+    noterMouvement({ projectId: project.id, sens: 'desarchiver', origine, issue: 'reussi', detail: t.bilan, octets: project.archive?.octetsSource ?? null, octetsArchive: project.archive?.octetsArchive ?? null, chemin: archive });
     bus.toast('success', `« ${project.name} » désarchivé`);
   } catch (err: any) {
     const message = err?.message ?? String(err);
@@ -682,6 +768,14 @@ async function suiteDuDesarchivage(project: Project, t: Transfert): Promise<void
       await lancer(['rm', '-rf', '--', attente], 30 * 60_000).catch(() => null);
       majProjet(project.id, (p) => ({ ...p, archive: { ...p.archive!, etat: 'echec', sens: 'desarchiver', erreur: message, at: Date.now() } }));
     }
+    noterMouvement({
+      projectId: project.id,
+      sens: 'desarchiver',
+      origine,
+      issue: revenu ? 'reussi' : 'echec',
+      detail: revenu ? `Fichiers revenus ; la suite a trébuché : ${message}` : `${message} L’archive reste intacte sur le disque externe.`,
+      chemin: archive,
+    });
     echouer(t, message);
   }
 }
@@ -712,10 +806,22 @@ export function reprendreAuDemarrage(): void {
       // Coupé AVANT l'effacement : le dossier est intact et fait foi, la copie externe en trop part.
       fs.rmSync(projet.archive!.chemin!, { force: true });
     }
+    noterMouvement({ projectId: projet.id, sens: etat === 'archivage' ? 'archiver' : 'desarchiver', origine: 'main', issue: 'echec', detail: 'Transfert interrompu par un redémarrage du serveur : rien n’a été effacé.' });
     store.saveProject({
       ...projet,
       archive: { ...projet.archive!, etat: 'echec', chemin: etat === 'archivage' ? undefined : projet.archive!.chemin, erreur: 'Transfert interrompu par un redémarrage du serveur : rien n’a été effacé, vous pouvez réessayer.', at: Date.now() },
     });
     log.warn(`archivage de ${projet.name} interrompu par un redémarrage : passé en échec, rien effacé`);
+  }
+}
+
+/** Attend qu'un transfert lancé soit fini (archivage de nuit : un projet à la fois). */
+export async function attendreLaFinDuTransfert(id: string, delaiMax = 6 * 60 * 60 * 1000): Promise<Transfert | undefined> {
+  const debut = Date.now();
+  for (;;) {
+    const t = transferts.get(id);
+    if (!t || t.fini) return t;
+    if (Date.now() - debut > delaiMax) return t;
+    await new Promise((r) => setTimeout(r, 2000));
   }
 }

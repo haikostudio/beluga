@@ -197,34 +197,6 @@ export function contenusDuCircuit<T extends Pick<ContenuMarketing, 'etape'> & { 
 /** Les canaux où rien ne part tout seul : ils vivent sur la ligne « À faire vous-même ». */
 export const CANAUX_SANS_PUBLICATION = ['courriel', 'communautes', 'site', 'bouche-a-oreille', 'partenariats', 'annuaires', 'presse', 'evenements', 'publicite-recherche', 'publicite-reseaux', 'reddit', 'autre'] as const;
 
-/** Une publication partie ne bouge plus. */
-export function caseDeplacable(etape: string): boolean {
-  return etape !== 'publie' && etape !== 'abandonne';
-}
-
-/** Le lundi (AAAA-MM-JJ) de la semaine d'un jour, sans dépendre du fuseau de la machine. */
-export function lundiDeLaSemaine(jour: string): string {
-  const d = new Date(`${jour}T12:00:00Z`);
-  const decalage = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - decalage);
-  return d.toISOString().slice(0, 10);
-}
-
-export function joursDeLaSemaine(lundi: string): string[] {
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(`${lundi}T12:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + i);
-    return d.toISOString().slice(0, 10);
-  });
-}
-
-/** Un jour décalé de `n` jours (« AAAA-MM-JJ »), sans heure d'été qui fasse sauter une date. */
-export function decalerJour(jour: string, n: number): string {
-  const d = new Date(`${jour}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
 /* ------------------------------------------------------------------ */
 /* Les médias : une ligne par média, avec ses versions                  */
 /* ------------------------------------------------------------------ */

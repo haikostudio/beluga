@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Check, CheckCheck, ChevronLeft, ChevronRight, EllipsisVertical, Inbox, Loader2, PanelRight, PanelRightClose, Trash2 } from '@/components/ui/icones';
-import { FICHES_RESEAUX, LIBELLES_DE_STRATEGIE, RUBRIQUES_DE_STRATEGIE, parcoursDeLaCampagne, type EtapeDuParcoursDeCampagne, type ReseauSocial } from '@beluga/shared';
+import { Check, CheckCheck, ChevronLeft, ChevronRight, Inbox, Loader2, PanelRight, PanelRightClose, Trash2 } from '@/components/ui/icones';
+import { FICHES_RESEAUX, LIBELLES_DE_STRATEGIE, RUBRIQUES_DE_STRATEGIE, jourIso, moisVoisin, parcoursDeLaCampagne, semainesDuMois, type EtapeDuParcoursDeCampagne, type ReseauSocial } from '@beluga/shared';
 import { LigneDeParcours, type EtapeDeLaLigne } from '@/components/ligne-de-parcours';
 import { Chat } from '@/components/chat';
 import { Composer } from '@/components/composer';
@@ -18,10 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
   Drawer,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   EnteteDeFeuille,
   ZoneDefilement,
 } from '@/components/ui';
@@ -30,7 +26,8 @@ import { CaseACocher } from '@/components/ui/elements-maison';
 import type { Canaux, LigneDeCanal } from './page-canaux';
 import { client } from '@/lib/client';
 import { Markdown } from '@/lib/markdown';
-import { t } from '@/lib/langue';
+import { formatRegional, t } from '@/lib/langue';
+import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
 import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -184,11 +181,6 @@ function usePliDuVolet(): [boolean | null, (ouvert: boolean) => void] {
   return [pli, poser];
 }
 
-/** Le plan a-t-il déjà quelque chose à montrer ? Un point tranché, une rubrique, une publication. */
-function planCommence(d: DetailDeCampagneV2): boolean {
-  return d.fiche.manquants.length < 8 || Object.keys(d.campagne.strategie ?? {}).length > 0 || d.publications.length > 0;
-}
-
 /** Le nom de chaque étape du parcours d'une campagne. */
 const NOMS_DU_PARCOURS = (): Record<EtapeDuParcoursDeCampagne, string> => ({
   brief: t('Brief'),
@@ -259,15 +251,9 @@ export function PageDeCampagneV2({ id, selection, versLeProgramme = false }: { i
   }
   const c = d.campagne;
   const ligne = liste?.campagnes.find((x) => x.id === id);
-  const voletOuvert = versLeProgramme || (pli ?? planCommence(d));
-  const enUneLigne = [
-    c.debut || c.fin ? `${dateCourteLocale(c.debut)} → ${dateCourteLocale(c.fin)}` : null,
-    c.reseaux.length ? c.reseaux.map(libelleDuCanal).join(', ') : null,
-    c.objectifChiffre ? `${nombreLisible(d.atteint)} / ${nombreLisible(c.objectifChiffre)} ${mesureLisible(c.mesure)}` : null,
-    statutDeCampagne(c.statut),
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  /* LE SUIVI EST OUVERT PAR DÉFAUT (maquette A, 20/11/2026) : ses chiffres et ses volets servent dès la première minute ;
+     seul un pli choisi par la personne le referme. */
+  const voletOuvert = versLeProgramme || (pli ?? true);
   const volet = <VoletDeCampagne d={d} agentId={agentId} auTravail={auTravail} selection={selection} />;
   /* LE PARCOURS DE LA CAMPAGNE, EN BAS COMME CELUI D'UN AGENT (14/11/2026) : il remplace « Procédures précédentes ».
      La connexion des réseaux et les réponses s'y ouvrent : ce ne sont plus des onglets en haut. */
@@ -322,63 +308,25 @@ export function PageDeCampagneV2({ id, selection, versLeProgramme = false }: { i
   );
   return (
     <PageEnPlace barre={false} invite={null} plein aligne={false} data-v2-campagne={c.id} data-v2-volet={telephone ? 'feuille' : voletOuvert ? 'ouvert' : 'ferme'}>
-      {/* LES GESTES DE LA CAMPAGNE MONTENT DANS LA BARRE DU FIL D'ARIANE (demande du 10/11/2026) : sur ordinateur, le
-          bouton qui replie ou rouvre le plan, puis les trois points (« Supprimer ») ; sur téléphone, les deux dans les
-          trois points du haut — « Le plan de la campagne » y ouvre la feuille du bas. */}
-      {telephone ? (
-        <OptionsDePage>
+      {/* LES GESTES DE LA CAMPAGNE VIVENT DANS LE « … » DE LA BARRE DU HAUT (maquette A retenue le 20/11/2026) : afficher ou
+          replier le suivi, supprimer la campagne. Plus de ligne au-dessus de la conversation : ses dates et réseaux
+          sont en tête du suivi. Sur téléphone, « Le suivi de la campagne » ouvre la feuille du bas. */}
+      <OptionsDePage enMenu>
+        {telephone ? (
           <OptionDePage icone={<PanelRight />} onClick={() => setFeuille(true)} data-v2-ouvrir-volet="">
-            {t('Le plan de la campagne')}
+            {t('Le suivi de la campagne')}
           </OptionDePage>
-          {supprimer}
-        </OptionsDePage>
-      ) : null}
-      {/* LA RANGÉE : la conversation, centrée dans la place que le volet lui laisse, puis le volet collé au bord droit. */}
+        ) : (
+          <OptionDePage icone={voletOuvert ? <PanelRightClose /> : <PanelRight />} onClick={() => setPli(!voletOuvert)} data-v2-plier-volet={voletOuvert ? 'ouvert' : 'ferme'}>
+            {voletOuvert ? t('Replier le suivi') : t('Afficher le suivi')}
+          </OptionDePage>
+        )}
+        {supprimer}
+      </OptionsDePage>
+      {/* LA RANGÉE : la conversation, centrée dans la place que le volet lui laisse, puis le suivi collé au bord droit. */}
       <div ref={setRangee} className="flex min-h-0 min-w-0 flex-1" data-v2-rangee-campagne>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-v2-conversation-campagne={agent?.id ?? 'chargement'}>
           <div className={CLASSE_DU_FIL}>
-            {/* LA LIGNE DU HAUT DU FIL (décision du 14/11/2026) : plus de barre vide au-dessus de la campagne — ses dates
-                et réseaux, puis, en haut à droite du fil, le bouton du volet et les options (« Supprimer la campagne »). */}
-            {enUneLigne || !telephone ? (
-              <div className="flex shrink-0 items-center gap-1 pl-4 pr-2 pt-2" data-v2-sous-titre-campagne>
-                <p className="min-w-0 flex-1 truncate text-[12px] text-muted">{enUneLigne}</p>
-                {!telephone ? (
-                  <>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className={cn('h-8 w-8 shrink-0 text-muted', voletOuvert && 'text-text')}
-                      aria-label={voletOuvert ? 'Replier le plan' : 'Afficher le plan'}
-                      title={voletOuvert ? t('Replier le plan') : t('Afficher le plan')}
-                      aria-pressed={voletOuvert}
-                      onClick={() => setPli(!voletOuvert)}
-                      data-v2-plier-volet={voletOuvert ? 'ouvert' : 'ferme'}
-                    >
-                      {voletOuvert ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-muted data-[state=open]:bg-raised" aria-label="Options de la campagne" title={t('Options de la campagne')} data-v2-options-campagne>
-                          <EllipsisVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="sm:w-[260px]">
-                        <DropdownMenuItem
-                          disabled={!!raisonDeSuppression}
-                          title={raisonDeSuppression ?? undefined}
-                          onSelect={() => setSuppression(true)}
-                          className="gap-2.5 text-danger data-[highlighted]:text-danger"
-                          data-v2-supprimer-campagne={raisonDeSuppression ? 'eteint' : 'pret'}
-                        >
-                          <Trash2 className="h-4 w-4 shrink-0" />
-                          {t('Supprimer la campagne')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
             {agent ? (
               <Chat agent={agent} projectId={agent.projectId} libelleDuChamp={t('Écrire à l’agent de la campagne…')} parcours={ligneDeParcours} />
             ) : (
@@ -390,9 +338,9 @@ export function PageDeCampagneV2({ id, selection, versLeProgramme = false }: { i
           <>
             {/* Au-dessus de la piste du pouce de défilement de la conversation (z-20), comme celle du plan d'une carte. */}
             <ResizeHandle onPointerDown={(e) => start(e, 'right')} onDoubleClick={reset} className="z-30" data-document-poignee="v2-volet-campagne" />
-            <aside className={cn('min-h-0', CLASSE_VOLET_DU_PLAN)} style={{ width }} aria-label="Le plan de la campagne" data-v2-volet-campagne>
+            <aside className={cn('min-h-0', CLASSE_VOLET_DU_PLAN)} style={{ width }} aria-label="Le suivi de la campagne" data-v2-volet-campagne>
               <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', CLASSE_FENETRE_DU_VOLET)} data-v2-fenetre-du-volet>
-                <PanneauDuVolet titre={t('Plan de la campagne')} libelleFermer={t('Replier le plan')} onFermer={() => setPli(false)} reperesCroix={{ 'data-croix-du-volet': 'campagne' }}>
+                <PanneauDuVolet titre={t('Suivi de la campagne')} libelleFermer={t('Replier le suivi')} onFermer={() => setPli(false)} reperesCroix={{ 'data-croix-du-volet': 'campagne' }}>
                   {volet}
                 </PanneauDuVolet>
               </div>
@@ -402,7 +350,7 @@ export function PageDeCampagneV2({ id, selection, versLeProgramme = false }: { i
       </div>
       {telephone ? (
         <Drawer feuille open={feuille} onClose={() => setFeuille(false)}>
-          <EnteteDeFeuille titre={t('Le plan de la campagne')} data-v2-feuille-volet />
+          <EnteteDeFeuille titre={t('Suivi de la campagne')} data-v2-feuille-volet />
           <ZoneDefilement className="px-4 pb-6">{volet}</ZoneDefilement>
         </Drawer>
       ) : null}
@@ -449,79 +397,109 @@ function VoletDeCampagne({ d, agentId, auTravail, selection }: { d: DetailDeCamp
   const strategie = c.strategie ?? {};
   const manquantes = d.strategieManquante ?? RUBRIQUES_DE_STRATEGIE.filter((r) => !strategie[r]);
   const deja = programmeValide(d.publications);
-  const avecVisuel = posts.filter((p) => p.tete.apercu);
+  /* LE SUIVI DE LA CAMPAGNE (maquette A retenue le 20/11/2026, pièce #0a044) : sa période et ses réseaux, trois chiffres
+     (l'objectif, les publications parties, ce qui attend l'accord), puis QUATRE VOLETS — le programme, son calendrier,
+     les réponses reçues sur ses publications, et son plan (les huit points, la stratégie, les résultats par réseau). */
+  const [onglet, setOnglet] = React.useState<VoletDuSuivi>('programme');
+  const publiees = d.publications.filter((p) => p.etape === 'publie').length;
+  const total = d.publications.filter((p) => p.etape !== 'abandonne').length;
+  const aValider = d.publications.filter((p) => p.etape === 'a_valider').length;
+  const periode = [c.debut || c.fin ? `${dateCourteLocale(c.debut)} → ${dateCourteLocale(c.fin)}` : null, c.reseaux.length ? c.reseaux.map(libelleDuCanal).join(', ') : null].filter(Boolean).join(' · ');
+  const chiffres: { valeur: string; libelle: string; attente?: boolean; repere: string }[] = [
+    { valeur: c.objectifChiffre ? `${nombreLisible(d.atteint)} / ${nombreLisible(c.objectifChiffre)}` : nombreLisible(d.atteint), libelle: mesureLisible(c.mesure), repere: 'objectif' },
+    { valeur: `${publiees} / ${total}`, libelle: t('publiées'), repere: 'publiees' },
+    { valeur: String(aValider), libelle: t('à valider'), attente: aValider > 0, repere: 'a-valider' },
+  ];
   return (
-    <div className="flex min-w-0 flex-col gap-4" data-v2-volet-plan>
-      <FicheEnHuitPoints c={c} manquants={d.fiche.manquants} />
-      <Bloc titre={t('La stratégie')} detail={manquantes.length ? t('{n} rubrique(s) encore à trancher', { n: manquantes.length }) : t('Complète')} data-v2-volet-strategie={manquantes.length}>
-        <dl className="flex min-w-0 flex-col gap-2.5 text-[13px]">
-          {RUBRIQUES_DE_STRATEGIE.map((r) => (
-            <div key={r} className="flex min-w-0 flex-col gap-0.5" data-v2-rubrique={r} data-etat={strategie[r] ? 'tranchee' : 'a-trancher'}>
-              <dt className="text-[12px] text-muted">{libelleDeRubrique(r)}</dt>
-              <dd className="min-w-0">
-                {/* MÊME RENDU QUE LE CHAT (gras, italique, listes, tableaux), en lecture seule : aucune liste cliquable. */}
-                {strategie[r] ? <Markdown content={strategie[r]} enTexte className="texte-du-volet" /> : <span className="text-[13px] text-faint">—</span>}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Bloc>
-      <section className="flex min-w-0 flex-col gap-2" data-v2-volet-programme={posts.length}>
-        <h2 className="text-[14px] font-semibold text-text">{t('Le programme')}</h2>
-        {posts.length ? (
-          <ul className="flex min-w-0 flex-col overflow-hidden rounded-xl bg-raised" data-v2-liste-publications={posts.length}>
-            {posts.map((p) => {
-              const { tete, membres } = p;
-              const actif = famille?.tete.id === tete.id;
-              return (
-                <li key={tete.id}>
-                  <button
-                    type="button"
-                    onClick={() => ouvrir(p)}
-                    aria-current={actif ? 'true' : undefined}
-                    className={cn('flex w-full min-w-0 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-fond-survol', actif && cn(VIOLET.fondPale, VIOLET.anneau))}
-                    data-v2-publication={tete.id}
-                    data-etape={tete.etape}
-                  >
-                    <Apercu piece={tete.apercu?.attachmentId ?? null} genre={tete.apercu?.genre ?? 'image'} taille={36} />
-                    <span className="min-w-0 flex-1">
-                      <b className={cn('block truncate text-[13px] font-semibold', actif ? VIOLET.texte : 'text-text')}>{tete.titre}</b>
-                      <span className="block truncate text-[12px] text-muted first-letter:uppercase">{dateDePublication(tete)}</span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1" aria-hidden>
-                      {membres.map((m) => {
-                        const r = m.canaux.find(estUnReseau);
-                        return r ? <LogoReseau key={m.id} reseau={r} className="h-3.5 w-3.5" /> : null;
-                      })}
-                    </span>
-                    <EtatDePublication etape={membres.some((m) => m.etape === 'a_valider') ? 'a_valider' : tete.etape} />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] leading-relaxed text-muted" data-v2-programme-vide>
-            {t('Le programme des publications arrive ici quand la stratégie est complète.')}
-          </p>
-        )}
-        {posts.length && !deja ? <ValiderLeProgramme d={d} agentId={agentId} auTravail={auTravail} /> : null}
-        <ToutValider publications={d.publications} />
-      </section>
-      {avecVisuel.length ? (
-        <Bloc titre={t('Les visuels')} detail={t('{n} visuel(s)', { n: avecVisuel.length })} data-v2-volet-visuels={avecVisuel.length}>
-          <ul className="grid grid-cols-3 gap-1.5">
-            {avecVisuel.map((p) => (
-              <li key={p.tete.id}>
-                <button type="button" onClick={() => ouvrir(p)} className="block w-full overflow-hidden rounded-lg" aria-label={p.tete.titre} title={p.tete.titre} data-v2-visuel={p.tete.id}>
-                  <Apercu piece={p.tete.apercu!.attachmentId} genre={p.tete.apercu!.genre} taille={96} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Bloc>
-      ) : null}
-      <Resultats d={d} />
+    <div className="flex min-w-0 flex-col gap-4" data-v2-volet-plan data-v2-suivi={onglet}>
+      {periode ? <p className="truncate text-[12.5px] text-muted" data-v2-suivi-periode>{periode}</p> : null}
+      <div className="grid grid-cols-3 gap-2" data-v2-suivi-chiffres>
+        {chiffres.map((x) => (
+          <div key={x.repere} className="min-w-0 rounded-xl bg-raised px-3 py-2.5" data-v2-chiffre={x.repere}>
+            <b className={cn('block truncate text-[17px] font-semibold tabular-nums', x.attente ? 'text-comprehension' : 'text-text')}>{x.valeur}</b>
+            <span className="block truncate text-[12px] text-muted">{x.libelle}</span>
+          </div>
+        ))}
+      </div>
+      <BarreDOnglets
+        repere="suivi-de-campagne"
+        libelle={t('Suivi de la campagne')}
+        pleineLargeur
+        onglets={[
+          { cle: 'programme' as VoletDuSuivi, libelle: t('Programme') },
+          { cle: 'calendrier' as VoletDuSuivi, libelle: t('Calendrier') },
+          { cle: 'reponses' as VoletDuSuivi, libelle: t('Réponses') },
+          { cle: 'plan' as VoletDuSuivi, libelle: t('Plan') },
+        ]}
+        valeur={onglet}
+        onChange={setOnglet}
+        attributsOnglet={(o) => ({ 'data-v2-volet-du-suivi': String(o) })}
+      />
+      {onglet === 'programme' ? (
+        <section className="flex min-w-0 flex-col gap-2" data-v2-volet-programme={posts.length}>
+          {posts.length ? (
+            <ul className="flex min-w-0 flex-col overflow-hidden rounded-xl bg-raised" data-v2-liste-publications={posts.length}>
+              {posts.map((p) => {
+                const { tete, membres } = p;
+                const actif = famille?.tete.id === tete.id;
+                return (
+                  <li key={tete.id}>
+                    <button
+                      type="button"
+                      onClick={() => ouvrir(p)}
+                      aria-current={actif ? 'true' : undefined}
+                      className={cn('flex w-full min-w-0 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-fond-survol', actif && cn(VIOLET.fondPale, VIOLET.anneau))}
+                      data-v2-publication={tete.id}
+                      data-etape={tete.etape}
+                    >
+                      <Apercu piece={tete.apercu?.attachmentId ?? null} genre={tete.apercu?.genre ?? 'image'} taille={36} />
+                      <span className="min-w-0 flex-1">
+                        <b className={cn('block truncate text-[13px] font-semibold', actif ? VIOLET.texte : 'text-text')}>{tete.titre}</b>
+                        <span className="block truncate text-[12px] text-muted first-letter:uppercase">{dateDePublication(tete)}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1" aria-hidden>
+                        {membres.map((m) => {
+                          const r = m.canaux.find(estUnReseau);
+                          return r ? <LogoReseau key={m.id} reseau={r} className="h-3.5 w-3.5" /> : null;
+                        })}
+                      </span>
+                      <EtatDePublication etape={membres.some((m) => m.etape === 'a_valider') ? 'a_valider' : tete.etape} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-[12.5px] leading-relaxed text-muted" data-v2-programme-vide>
+              {t('Le programme des publications arrive ici quand la stratégie est complète.')}
+            </p>
+          )}
+          {posts.length && !deja ? <ValiderLeProgramme d={d} agentId={agentId} auTravail={auTravail} /> : null}
+          <ToutValider publications={d.publications} />
+        </section>
+      ) : onglet === 'calendrier' ? (
+        <CalendrierDeLaCampagne c={c} posts={posts} choisie={famille?.tete.id ?? null} onOuvrir={ouvrir} />
+      ) : onglet === 'reponses' ? (
+        <ReponsesDeLaCampagne publications={d.publications} />
+      ) : (
+        <>
+          <FicheEnHuitPoints c={c} manquants={d.fiche.manquants} />
+          <Bloc titre={t('La stratégie')} detail={manquantes.length ? t('{n} rubrique(s) encore à trancher', { n: manquantes.length }) : t('Complète')} data-v2-volet-strategie={manquantes.length}>
+            <dl className="flex min-w-0 flex-col gap-2.5 text-[13px]">
+              {RUBRIQUES_DE_STRATEGIE.map((r) => (
+                <div key={r} className="flex min-w-0 flex-col gap-0.5" data-v2-rubrique={r} data-etat={strategie[r] ? 'tranchee' : 'a-trancher'}>
+                  <dt className="text-[12px] text-muted">{libelleDeRubrique(r)}</dt>
+                  <dd className="min-w-0">
+                    {/* MÊME RENDU QUE LE CHAT (gras, italique, listes, tableaux), en lecture seule : aucune liste cliquable. */}
+                    {strategie[r] ? <Markdown content={strategie[r]} enTexte className="texte-du-volet" /> : <span className="text-[13px] text-faint">—</span>}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </Bloc>
+          <Resultats d={d} />
+        </>
+      )}
       {/* LE TIROIR SE RESSERRE SUR L'APERÇU (15/11/2026) : 480 px au plus sur ordinateur — le post le plus large en fait
           400, marges comprises. */}
       <Drawer feuille open={!!famille} onClose={fermer} className="sm:max-w-[480px]">
@@ -676,6 +654,151 @@ function Resultats({ d }: { d: DetailDeCampagneV2 }) {
         </ul>
       ) : null}
     </Bloc>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Les volets du suivi : le calendrier et les réponses de la campagne   */
+/* ------------------------------------------------------------------ */
+
+type VoletDuSuivi = 'programme' | 'calendrier' | 'reponses' | 'plan';
+type PostDeLaCampagne = ReturnType<typeof postsDeLaCampagne>[number];
+
+/**
+ * LE CALENDRIER EST UN OUTIL DE LA CAMPAGNE, PLUS UN SERVICE (décision de l'utilisateur du 20/11/2026) : le mois de la
+ * campagne, ses jours en gris clair, et sur chaque jour la vignette de ses publications. Un clic ouvre l'aperçu, comme
+ * une ligne du programme. Il s'ouvre sur le mois en cours pendant la campagne, sinon sur son premier mois.
+ */
+function CalendrierDeLaCampagne({ c, posts, choisie, onOuvrir }: { c: CampagneV2; posts: readonly PostDeLaCampagne[]; choisie: string | null; onOuvrir: (p: PostDeLaCampagne) => void }) {
+  const parJour = React.useMemo(() => {
+    const m = new Map<string, PostDeLaCampagne[]>();
+    for (const p of posts) {
+      const jour = p.tete.datePrevue;
+      if (jour) m.set(jour, [...(m.get(jour) ?? []), p]);
+    }
+    return m;
+  }, [posts]);
+  const aujourdhui = jourIso(new Date());
+  /* Le mois affiché (`mois` de 0 à 11) : celui d'aujourd'hui pendant la campagne, sinon son premier mois. */
+  const [affiche, setAffiche] = React.useState(() => {
+    const depart = (c.debut && aujourdhui < c.debut) || (c.fin && aujourdhui > c.fin) ? (c.debut ?? c.fin)! : aujourdhui;
+    return { annee: Number(depart.slice(0, 4)), mois: Number(depart.slice(5, 7)) - 1 };
+  });
+  const mois = `${affiche.annee}-${String(affiche.mois + 1).padStart(2, '0')}`;
+  const cases = semainesDuMois(affiche.annee, affiche.mois).flat().map((jour) => (jour.startsWith(mois) ? jour : null));
+  const decaler = (pas: number) => setAffiche(moisVoisin(affiche.annee, affiche.mois, pas));
+  const premier = new Date(affiche.annee, affiche.mois, 1);
+  const regional = formatRegional();
+  const nomDuMois = premier.toLocaleDateString(regional, { month: 'long', year: 'numeric' });
+  const lundi = new Date(2026, 10, 16);
+  const nomsDesJours = Array.from({ length: 7 }, (_, i) => new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() + i).toLocaleDateString(regional, { weekday: 'narrow' }));
+  const dansLeMois = [...parJour.keys()].filter((j) => j.startsWith(mois)).length;
+  return (
+    <section className="flex min-w-0 flex-col gap-2" data-v2-calendrier-campagne={mois} data-v2-publications-du-mois={dansLeMois}>
+      <div className="flex items-center gap-1">
+        <Button size="icon-sm" variant="ghost" className="text-muted" aria-label="Mois précédent" title={t('Mois précédent')} onClick={() => decaler(-1)} data-v2-mois-precedent>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <p className="min-w-0 flex-1 truncate text-center text-[13.5px] font-medium text-text first-letter:uppercase">{nomDuMois}</p>
+        <Button size="icon-sm" variant="ghost" className="text-muted" aria-label="Mois suivant" title={t('Mois suivant')} onClick={() => decaler(1)} data-v2-mois-suivant>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] uppercase text-faint" aria-hidden>
+        {nomsDesJours.map((n, i) => (
+          <span key={i}>{n}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cases.map((jour, i) => {
+          if (!jour) return <span key={`vide-${i}`} />;
+          const ceJour = parJour.get(jour) ?? [];
+          const pendant = (!c.debut || jour >= c.debut) && (!c.fin || jour <= c.fin) && (!!c.debut || !!c.fin);
+          return (
+            <div
+              key={jour}
+              className={cn('flex min-h-[58px] min-w-0 flex-col gap-1 rounded-lg p-1', pendant ? 'bg-raised' : 'bg-surface')}
+              data-v2-jour={jour}
+              data-v2-publications={ceJour.length || undefined}
+            >
+              <span className={cn('text-[11px] tabular-nums', jour === aujourdhui ? 'font-semibold text-text' : 'text-muted')}>{Number(jour.slice(8))}</span>
+              {ceJour.length ? (
+                <div className="flex min-w-0 flex-wrap gap-0.5">
+                  {ceJour.slice(0, 2).map((p) => (
+                    <button
+                      key={p.tete.id}
+                      type="button"
+                      onClick={() => onOuvrir(p)}
+                      className={cn('block overflow-hidden rounded-md', choisie === p.tete.id && VIOLET.anneau)}
+                      aria-label={p.tete.titre}
+                      title={`${p.tete.heurePrevue ? `${p.tete.heurePrevue} · ` : ''}${p.tete.titre}`}
+                      data-v2-calendrier-publication={p.tete.id}
+                    >
+                      <Apercu piece={p.tete.apercu?.attachmentId ?? null} genre={p.tete.apercu?.genre ?? 'image'} taille={24} />
+                    </button>
+                  ))}
+                  {ceJour.length > 2 ? <span className="self-center text-[11px] text-muted">+{ceJour.length - 2}</span> : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+interface ReponseRecue {
+  id: string;
+  reseau: string;
+  auteur: string;
+  texte: string;
+  instant: number;
+  repondu: boolean;
+  masqueLe?: number | null;
+  contenu: { id: string; titre: string } | null;
+}
+
+/**
+ * LES RÉPONSES DE LA CAMPAGNE : les commentaires et messages reçus sur SES publications, du plus récent au plus ancien.
+ * Un clic ouvre la réponse dans la page « Réponses » du projet, où l'on y répond. Ce qui arrive hors d'une campagne vit
+ * dans le menu « … » du projet.
+ */
+function ReponsesDeLaCampagne({ publications }: { publications: readonly PublicationV2[] }) {
+  const { marque, aller } = useV2();
+  const { donnees } = useLecture<{ lignes: ReponseRecue[] }>({ type: 'communication.messages', marqueId: marque.id }, [marque.id]);
+  const ids = React.useMemo(() => new Set(publications.map((p) => p.id)), [publications]);
+  const lignes = donnees ? donnees.lignes.filter((l) => l.contenu && ids.has(l.contenu.id)) : null;
+  if (!lignes) return <SilhouetteConversation bulles={2} />;
+  if (!lignes.length) {
+    return (
+      <p className="text-[12.5px] leading-relaxed text-muted" data-v2-reponses-campagne={0}>
+        {t('Aucun commentaire ni message reçu sur les publications de cette campagne pour l’instant.')}
+      </p>
+    );
+  }
+  return (
+    <ul className="flex min-w-0 flex-col overflow-hidden rounded-xl bg-raised" data-v2-reponses-campagne={lignes.length}>
+      {lignes.map((l) => (
+        <li key={l.id}>
+          <button type="button" onClick={() => aller('reponses', l.id)} className="flex w-full min-w-0 items-start gap-2.5 px-3 py-2.5 text-left hover:bg-fond-survol" data-v2-reponse-campagne={l.id}>
+            {estUnReseau(l.reseau) ? <LogoReseau reseau={l.reseau} className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : null}
+            <span className="min-w-0 flex-1">
+              <b className="block truncate text-[13px] font-semibold text-text">{l.auteur}</b>
+              <span className="line-clamp-2 text-[12.5px] text-muted">{l.texte}</span>
+              {l.contenu ? <span className="block truncate text-[11.5px] text-faint">{l.contenu.titre}</span> : null}
+            </span>
+            {l.repondu ? (
+              <span className="shrink-0 text-[11.5px] text-faint">{t('Répondu')}</span>
+            ) : l.masqueLe ? (
+              <span className="shrink-0 text-[11.5px] text-faint">{t('Masqué')}</span>
+            ) : (
+              <span className="shrink-0 rounded-full bg-comprehension-fond px-2 py-0.5 text-[11.5px] font-medium text-comprehension">{t('À traiter')}</span>
+            )}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

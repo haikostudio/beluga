@@ -332,8 +332,6 @@ function phraseDuService(cle: string): string {
       return t('Chartes et plaquettes de tous vos projets');
     case 'communication2':
       return t('Campagnes, comptes et réponses reçues');
-    case 'calendrier':
-      return t('Toutes les publications programmées du mois');
     case 'studio':
       return t('Vidéos, images et sons fabriqués pour vous');
     case 'marketing2':
@@ -393,8 +391,6 @@ function etatDuService(cle: string, resume: ResumeDesServices | null, ecran: Ret
       return ou(resume.chartes, (n) => (n === 1 ? t('1 charte') : t('{v0} chartes', { v0: nombre(n) })), t('Vos chartes'));
     case 'communication2':
       return ou(resume.campagnes, (n) => (n === 1 ? t('1 campagne') : t('{v0} campagnes', { v0: nombre(n) })), t('Vos campagnes'));
-    case 'calendrier':
-      return ou(resume.publicationsDuMois, (n) => t('{v0} ce mois-ci', { v0: nombre(n) }), t('Le mois en cours'));
     case 'studio':
       return ou(resume.creations, (n) => (n === 1 ? t('1 création') : t('{v0} créations', { v0: nombre(n) })), t('Vos créations'));
     case 'marketing2':

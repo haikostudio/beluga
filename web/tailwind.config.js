@@ -26,6 +26,10 @@ export default {
         accent: 'hsl(var(--accent))',
         'accent-fg': 'hsl(var(--accent-fg))',
         success: 'hsl(var(--success))',
+        // LA COCHE VERTE de l'installation d'un ordinateur et de la bande d'information de l'extension (décision de
+        // l'utilisateur du 20/11/2026, exception assumée au monochrome) : la même dans les douze palettes, donc une
+        // couleur fixe et non un jeton de palette.
+        coche: '#22c55e',
         warning: 'hsl(var(--warning))',
         // Le contenu NEUF d'un prompt envoyé (facturé), face au gris du
         // contenu déjà présent (`--faint`) — un jaune franc, distinct de

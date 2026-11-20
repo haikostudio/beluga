@@ -70,6 +70,12 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
     titre: 'Mise en production',
     resume: 'Envoyer le résultat là où le public le voit, souvent ailleurs.',
   },
+  /* L'ARCHIVAGE A SA RUBRIQUE (20/11/2026) : il était caché sous « Supprimer ». */
+  {
+    cle: 'archivage',
+    titre: 'Archivage',
+    resume: 'Où en est le projet, ce qu’il pèse, où vit son archive, et l’historique de ses mouvements.',
+  },
   /* La CLÉ reste « retrait » : elle vit dans l'adresse
      (« #projet/<id>/config/retrait ») et des liens la portent déjà. Seul le
      titre a changé — la rubrique propose les deux gestes, et son bouton
@@ -77,7 +83,7 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
   {
     cle: 'retrait',
     titre: 'Supprimer',
-    resume: 'Mettre ce projet de côté sans rien perdre, ou le supprimer pour de bon.',
+    resume: 'Supprimer ce projet pour de bon. Pour seulement libérer la place, archivez-le.',
     apart: true,
   },
 ];

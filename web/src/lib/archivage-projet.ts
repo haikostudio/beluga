@@ -7,6 +7,9 @@ import type { SensDArchivage } from '@beluga/shared';
  */
 export const EVENEMENT_ARCHIVAGE = 'beluga:archivage-projet';
 
+/** Un mouvement s'est ajouté à l'historique d'un projet (`detail` : son identifiant) — la rubrique « Archivage » le relit. */
+export const EVENEMENT_MOUVEMENT_D_ARCHIVAGE = 'beluga:mouvement-d-archivage';
+
 export interface DemandeDArchivage {
   projectId: string;
   sens: SensDArchivage;

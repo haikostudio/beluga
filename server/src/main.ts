@@ -623,6 +623,15 @@ async function main(): Promise<void> {
    * (`server/src/miroir-des-projets.ts`).
    */
   const miroirTimer = planifierLeMiroirDesProjets();
+  /*
+   * L'ARCHIVAGE AUTOMATIQUE DES PROJETS, chaque nuit : un projet sans tâche depuis le délai réglé (30 jours par
+   * défaut) part sur le disque de stockage, un à la fois, par le même chemin que le geste à la main
+   * (`server/src/archivage-auto.ts`).
+   */
+  let archivageAutoTimer: NodeJS.Timeout | undefined;
+  void import('./archivage-auto.js')
+    .then((m) => (archivageAutoTimer = m.planifierLArchivageAuto()))
+    .catch(() => {});
   // Les chemins réussis de Jarvis à l'écran se rangent chaque nuit en compétences (`server/src/gestes-de-jarvis.ts`).
   const cheminsDeJarvisTimer = planifierLeRangementDesChemins();
   // Les fiches du coffre retirées depuis plus de six mois s'effacent (`server/src/coffre-fort.ts`).
@@ -727,6 +736,7 @@ async function main(): Promise<void> {
     clearInterval(instructionsTimer);
     clearInterval(menageTimer);
     clearInterval(miroirTimer);
+    if (archivageAutoTimer) clearInterval(archivageAutoTimer);
     clearInterval(cheminsDeJarvisTimer);
     for (const minuteur of memoireTimers) clearTimeout(minuteur);
     for (const minuteur of archivesTimers) clearTimeout(minuteur);

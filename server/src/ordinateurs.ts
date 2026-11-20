@@ -110,6 +110,7 @@ interface NavigateurRelie {
   incognito?: boolean | null;
   vuLe: number | null;
   agentsAuTravail: number;
+  creeLe?: number;
 }
 
 export function ordinateursAssembles(
@@ -133,8 +134,19 @@ export function ordinateursAssembles(
       creeLe: l.cree_le,
       navigateurs: navigateurs
         .filter((n) => n.ordinateurId === l.id)
-        .map((n) => ({ id: n.id, genre: n.genre, enLigne: n.enLigne, version: n.version, incognito: n.incognito ?? null, vuLe: n.vuLe, agentsAuTravail: n.agentsAuTravail })),
-      programme: p ? { id: p.id, etat: p.etat, vuLe: p.vuLe, autorisations: p.autorisations ?? null } : null,
+        .map((n) => ({
+          id: n.id,
+          genre: n.genre,
+          enLigne: n.enLigne,
+          version: n.version,
+          incognito: n.incognito ?? null,
+          vuLe: n.vuLe,
+          agentsAuTravail: n.agentsAuTravail,
+          creeLe: n.creeLe,
+        })),
+      programme: p
+        ? { id: p.id, etat: p.etat, vuLe: p.vuLe, autorisations: p.autorisations ?? null, connect: p.connect ?? null, preparation: p.preparation ?? null }
+        : null,
     };
   });
 }

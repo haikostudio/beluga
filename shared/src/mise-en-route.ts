@@ -20,6 +20,7 @@ export const ORDRE_DE_LA_DISCUSSION: readonly EtapeDeLAssistant[] = [
   'moteurs',
   'bienvenue',
   'assistant',
+  'ordinateur',
   'domaine',
   'projet',
   'copie',
@@ -54,6 +55,8 @@ const SUJETS: Record<EtapeDeLAssistant, string> = {
     "se présenter (tu es Beluga, l'agent de Beluga Build) et dire en deux ou trois phrases ce qu'est Beluga Build : un tableau de tâches que des agents IA réalisent sur ce serveur ; il apprend de chaque projet (mémoire, compétences) ; son code est sur ce serveur et se modifie comme un projet. Finir en proposant de faire les réglages ensemble.",
   assistant:
     "demander le prénom de la personne et le nom qu'elle veut te donner (Beluga par défaut) ; ce nom est aussi le mot qui t'appellera à voix haute.",
+  ordinateur:
+    "proposer d'équiper l'ordinateur où les agents travailleront (son navigateur, et sur un Mac la petite application Beluga Connect qui fait tout le reste) ; facultatif, on peut le faire plus tard.",
   domaine:
     "demander l'adresse (nom de domaine) à laquelle on ouvrira Beluga Build et sous laquelle les projets recevront la leur ; on peut garder l'adresse provisoire et le faire plus tard.",
   projet:

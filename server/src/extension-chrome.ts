@@ -30,6 +30,7 @@ import {
   HORS_LIGNE_APRES_MS,
   VERSION_EXTENSION_CHROME,
   adresseDeComparaison,
+  doublonsDuNavigateur,
   codeDeLiaisonValide,
   demandeDeLaRoutine,
   demandeInitialeDeLaCarte,
@@ -476,6 +477,7 @@ async function recevoir(c: Connexion, m: any): Promise<void> {
     getDb()
       .prepare('UPDATE chrome_appareils SET version = COALESCE(?, version), nom = COALESCE(?, nom), incognito = ?, extension_id = COALESCE(?, extension_id) WHERE id = ?')
       .run(c.version, nom, c.incognito === null ? null : c.incognito ? 1 : 0, extensionId, c.appareilId);
+    retirerLesDoublons(c.appareilId);
     bus.emit({ type: 'extension.change' });
     void import('./mise-a-jour-extension.js').then((m2) => m2.chromeRevenu(c.appareilId, c.version)).catch(() => {});
     return;
@@ -496,6 +498,35 @@ async function recevoir(c: Connexion, m: any): Promise<void> {
     } catch (err: any) {
       envoyer(c, { type: 'ack', id: m.id, ok: false, error: String(err?.message ?? err) });
     }
+  }
+}
+
+/**
+ * LES ANCIENNES FICHES DU MÊME CHROME SONT RETIRÉES (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026) :
+ * relier de nouveau un Chrome laissait l'ancienne fiche vivante, et la bande orange restait sur sa vieille version. Au
+ * bonjour (qui apporte l'identifiant de l'extension), les doublons désignés par `doublonsDuNavigateur` sont révoqués.
+ */
+function retirerLesDoublons(appareilId: string): void {
+  try {
+    const db = getDb();
+    const moi = db.prepare('SELECT * FROM chrome_appareils WHERE id = ? AND revoque_le IS NULL').get(appareilId) as LigneAppareil | undefined;
+    if (!moi?.ordinateur_id) return;
+    const fiche = (a: LigneAppareil) => ({
+      id: a.id,
+      ordinateurId: a.ordinateur_id,
+      genre: genreDeNavigateur(a.navigateur),
+      extensionId: a.extension_id ?? null,
+      creeLe: a.cree_le,
+      vuLe: a.vu_le,
+      enLigne: chromeEnLigne(a.id),
+    });
+    const doublons = doublonsDuNavigateur(fiche(moi), appareilsDuCompte(moi.compte_id).map(fiche));
+    if (!doublons.length) return;
+    const revoquer = db.prepare('UPDATE chrome_appareils SET revoque_le = ? WHERE id = ? AND revoque_le IS NULL');
+    for (const id of doublons) revoquer.run(Date.now(), id);
+    log.info(`extension Chrome : ${doublons.length} ancienne(s) fiche(s) du même Chrome retirée(s) (${doublons.join(', ')})`);
+  } catch (e) {
+    log.warn('extension Chrome : doublons non retirés', String((e as Error)?.message ?? e));
   }
 }
 
@@ -667,7 +698,11 @@ function relayerAuxPanneaux(event: ServerEvent): void {
     }
   } else if (e.type === 'agent.upsert' && e.agent) {
     for (const c of connexions.values()) if (agentRegardeLeChrome(e.agent.id, c.appareilId)) envoyer(c, { type: 'evenement', genre: 'agents' });
-    if (sessions.get(e.agent.id)?.tourOuvert && !agentAuTravail(e.agent.id)) void finirLaSession(e.agent.id);
+    if (sessions.get(e.agent.id)?.tourOuvert && !agentAuTravail(e.agent.id)) {
+      void finirLaSession(e.agent.id);
+      /* Une mise à jour de l'extension qui attendait la fin de cet agent part maintenant (20/11/2026). */
+      void import('./mise-a-jour-extension.js').then((m) => m.bientot()).catch(() => {});
+    }
   } else if (e.type === 'journal.entree') {
     /* UNE NOTE DE L'AGENT S'ÉCRIT AU JOURNAL SANS TOUCHER AU MESSAGE : on renvoie le message de son tour, pour que
        la phrase paraisse à son rang tout de suite, et non au prochain mouvement du tour. */

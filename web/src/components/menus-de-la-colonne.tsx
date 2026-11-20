@@ -17,7 +17,6 @@ import {
   Activity,
   ShieldCheck,
   BarChart3,
-  CalendarDays,
   ChevronDown,
   Clapperboard,
   Code2,
@@ -33,6 +32,7 @@ import {
 import { ordonnerParDerniereActivite, projetsQuiCorrespondent, type Project } from '@beluga/shared';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { useSuiteDuFilFournie } from '@/components/entete-de-zone';
+import { ChevronDesVoisins, type VoisinsDuCran } from '@/components/voisins-du-fil';
 import { useServicesOuverts } from '@/components/services';
 import {
   CLASSE_MENU_PAR_DESSUS_DU_BOUTON,
@@ -256,16 +256,13 @@ export function MenuNouvelAgent({
 /* « Services » : la liste déroulante des services                      */
 /* ------------------------------------------------------------------ */
 
-/** L'entrée « Calendrier » n'est pas une vue : c'est la page du calendrier général, toutes campagnes réunies. */
-export const CLE_CALENDRIER_GENERAL = 'calendrier';
-
 /** Un service de la colonne : sa clé, son icône, son libellé, son groupe (« Créer » ou « Suivre »). */
 export interface ServiceDuMenu {
   cle: string;
   Icone: typeof Code2;
   cleLibelle: string;
   groupe: 'creer' | 'suivre';
-  /** Le service qu'il faut avoir ouvert pour voir celui-ci (le Calendrier suit Communication). */
+  /** Le service qu'il faut avoir ouvert pour voir celui-ci. */
   requis?: string;
 }
 
@@ -276,7 +273,6 @@ export interface ServiceDuMenu {
 export const CLES_SERVICES_DU_MENU: ServiceDuMenu[] = [
   { cle: 'plaquettes', Icone: Palette, cleLibelle: 'Charte graphique', groupe: 'creer' },
   { cle: 'communication2', Icone: Megaphone, cleLibelle: 'Communication', groupe: 'creer' },
-  { cle: CLE_CALENDRIER_GENERAL, Icone: CalendarDays, cleLibelle: 'Calendrier', groupe: 'creer', requis: 'communication2' },
   { cle: 'studio', Icone: Clapperboard, cleLibelle: 'Studio', groupe: 'creer' },
   { cle: 'statistiques', Icone: BarChart3, cleLibelle: 'Statistiques', groupe: 'suivre' },
   { cle: 'espace-client', Icone: UsersRound, cleLibelle: 'Messagerie', groupe: 'suivre' },
@@ -343,142 +339,125 @@ export function FiltreDuProjetDeLaPage({
 /* ------------------------------------------------------------------ */
 
 /**
- * UN CRAN DU FIL QUI OUVRE UNE LISTE (14/11/2026, « je dois de nouveau avoir en haut le chevron qui permet de switcher
- * d'outil, projet, campagne ») : son icône, son nom, un petit chevron ; la liste commune (`ListeDeroulante`) s'ancre
- * dessous. Le cran choisi est coché ; un clic sur lui-même (`onChoisir` avec la valeur courante) remonte à sa page.
+ * UN CRAN DU FIL D'UNE PAGE DE SERVICE (carte « Fil d'Ariane et Communication repensés », 20/11/2026, capture #c3d8) :
+ * « les fils d'Ariane doivent juste avoir le nom de chaque section ; au survol, le chevron s'affiche pour avoir la liste
+ * des éléments similaires ». Le NOM se clique pour aller à la section ; le chevron (`ChevronDesVoisins`, au survol
+ * seulement) ouvre la liste des voisins : les autres services, ou les autres projets. Aucune icône.
  */
-export function CranAMenu({
-  icone,
+function CranDeLaPageDeService({
   libelle,
-  valeur,
-  options,
-  onChoisir,
-  titre,
   repere,
-  dernier = false,
-  seuilRecherche = 8,
-  onSection,
+  dernier,
+  onOuvrir,
+  voisins,
 }: {
-  icone?: React.ReactNode;
   libelle: string;
-  valeur: string;
-  options: React.ComponentProps<typeof ListeDeroulante>['options'];
-  onChoisir: (valeur: string) => void;
-  titre: string;
   repere: string;
-  dernier?: boolean;
-  seuilRecherche?: number;
-  /**
-   * LE DOUBLE CLIC MÈNE À LA SECTION DU CRAN (carte « Fil d'Ariane et corrections sécurité », 16/11/2026) : la liste
-   * ouverte par le premier clic se referme, et la page revient à l'accueil du cran. Par défaut : choisir sa valeur
-   * courante, qui « remonte à sa page ». Le clavier garde la même issue par la liste (sa valeur cochée).
-   */
-  onSection?: () => void;
+  /** Le dernier cran de l'accueil (en texte plein) ; dans une sous-page, il redevient un cran d'avant. */
+  dernier: boolean;
+  onOuvrir: () => void;
+  voisins: VoisinsDuCran;
 }) {
-  const allerALaSection = onSection ?? (() => onChoisir(valeur));
   return (
-    <ListeDeroulante
-      valeur={valeur}
-      options={options}
-      onChoisir={onChoisir}
-      titre={titre}
-      repere={repere}
-      seuilRecherche={seuilRecherche}
-      declencheur={(ouvrir, _libelle, fermer) => (
-        <button
-          type="button"
-          /* Le second clic d'un double clic ne rouvre pas la liste : le double clic la referme et va à la section. */
-          onClick={(e) => (e.detail >= 2 ? undefined : ouvrir(e))}
-          onDoubleClick={() => {
-            fermer();
-            allerALaSection();
-          }}
-          className={cn(
-            /* LES PREMIERS CRANS GARDENT LEUR LARGEUR (15/11/2026) : c'est le titre long d'une demande, au bout du fil, qui
-               se replie — plus « ETSi… / Messag… ». Borné à 220 px pour un nom de projet très long. */
-            'inline-flex h-8 min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 rounded-lg px-2 text-[14px] transition-colors hover:bg-raised hover:text-text',
-            /* Le service est le dernier cran sur son accueil ; dans une sous-page, un cran d'avant parmi d'autres. */
-            dernier ? 'font-medium text-text [[data-sous-page]_&]:font-normal [[data-sous-page]_&]:text-muted' : 'text-muted',
-          )}
-          data-cran-a-menu={repere}
-          aria-haspopup="listbox"
-        >
-          {icone ? <span className="flex shrink-0 items-center [&>svg]:h-4 [&>svg]:w-4">{icone}</span> : null}
-          <span className="min-w-0 truncate">{libelle}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-        </button>
-      )}
-    />
+    <span className="group/cran flex min-w-0 max-w-[240px] shrink-0 items-center" data-cran-a-menu={repere}>
+      <button
+        type="button"
+        onClick={onOuvrir}
+        className={cn(
+          'min-w-0 truncate rounded-md px-1 py-0.5 text-left text-[14px] transition-colors hover:text-text',
+          dernier ? 'font-medium text-text [[data-sous-page]_&]:font-normal [[data-sous-page]_&]:text-muted' : 'text-muted',
+        )}
+        data-cran-du-fil
+        data-nom-du-cran={repere}
+        aria-current={dernier ? 'page' : undefined}
+      >
+        {libelle}
+      </button>
+      <ChevronDesVoisins voisins={voisins} onOuvrir={onOuvrir} />
+    </span>
   );
 }
 
 /**
- * LES DEUX PREMIERS CRANS DE TOUTE PAGE DE SERVICE : la PORTÉE (un projet, ou « Tous les projets ») — elle remplace le
- * filtre de projet de la rangée (DEC-524) — puis le SERVICE, dont la liste est rangée comme le menu « Services »
- * (Créer, Suivre). Choisir le service ouvert ramène à son accueil.
+ * LES PREMIERS CRANS DE TOUTE PAGE DE SERVICE : « Service / Projet », puis la fiche que le service écrit
+ * (`SuiteDuFil`). Décision de l'utilisateur du 20/11/2026 : « on doit avoir le service, ensuite le projet, puis la fiche
+ * détail, et ça pour tous les services » — plus jamais le projet avant le service, ni deux fois. Le SERVICE mène à son
+ * accueil sur tous les projets ; son chevron liste les autres services (rangés Créer, Suivre). Le PROJET n'existe que si
+ * la page est limitée à un projet : il mène à l'accueil du service pour ce projet ; son chevron liste « Tous les projets »
+ * en tête, puis les projets.
  */
 export function FilDesPagesDeService({
   portee,
   onPortee,
   service,
   onService,
-  sansPortee = false,
+  onTousLesProjets,
 }: {
-  /** Le service tient lui-même son filtre de projet, avec ses nombres (le calendrier général) : pas de cran de portée. */
-  sansPortee?: boolean;
   /** L'identifiant du projet, ou `TOUS_LES_PROJETS`. */
   portee: string;
   onPortee: (projectId: string) => void;
   service: string;
   onService: (cle: string) => void;
+  /**
+   * REVENIR À « TOUS LES PROJETS » (le nom du service, ou le premier choix du chevron du projet) : l'accueil du service,
+   * sur tous les projets. Par défaut, la portée seule change.
+   */
+  onTousLesProjets?: () => void;
 }) {
   /* Le retour à l'accueil du service, tenu par la page (ses sous-pages l'écrivent). */
   const suite = useSuiteDuFilFournie();
   const projets = useProjetsAViser();
   const ouverts = new Set(useServicesOuverts().map((s) => s.cle as string));
   const services = CLES_SERVICES_DU_MENU.filter((s) => ouverts.has(s.requis ?? s.cle));
-  const projet = projets.find((p) => p.id === portee) ?? null;
+  const projet = portee ? (projets.find((p) => p.id === portee) ?? null) : null;
   const leService = services.find((s) => s.cle === service) ?? CLES_SERVICES_DU_MENU.find((s) => s.cle === service) ?? null;
-  const IconeDuService = leService?.Icone;
+  const nomDuService = leService ? t(leService.cleLibelle) : service;
+  const allerALAccueil = () => suite?.retour.current?.();
+  const versTousLesProjets = () => (onTousLesProjets ? onTousLesProjets() : onPortee(TOUS_LES_PROJETS));
   return (
     <>
-      {sansPortee ? null : (
-        <>
-      <CranAMenu
-        repere="portee-du-service"
-        titre={t('Projet')}
-        icone={projet ? <PastilleProjet project={projet} taille={16} /> : <Building2 />}
-        libelle={projet ? projet.name : t('Tous les projets')}
-        valeur={portee}
-        seuilRecherche={0}
-        options={[
-          { valeur: TOUS_LES_PROJETS, libelle: t('Tous les projets'), icone: <Building2 className="h-4 w-4" /> },
-          ...projets.map((p) => ({ valeur: p.id, libelle: p.name, icone: <PastilleProjet project={p} taille={16} /> })),
-        ]}
-        onChoisir={onPortee}
-        onSection={() => suite?.retour.current?.()}
-      />
-      <span className="shrink-0 text-faint" aria-hidden data-separateur-du-fil>
-        /
-      </span>
-        </>
-      )}
-      <CranAMenu
+      <CranDeLaPageDeService
         repere="service-de-la-page"
-        titre={t('Services')}
-        dernier
-        icone={IconeDuService ? <IconeDuService /> : undefined}
-        libelle={leService ? t(leService.cleLibelle) : service}
-        valeur={service}
-        seuilRecherche={0}
-        options={services.map((s) => ({
-          valeur: s.cle,
-          libelle: t(s.cleLibelle),
-          icone: <s.Icone className="h-4 w-4" />,
-          groupe: s.groupe === 'creer' ? t('Créer') : t('Suivre'),
-        }))}
-        onChoisir={(cle) => (cle === service ? suite?.retour.current?.() : onService(cle))}
+        libelle={nomDuService}
+        dernier={!projet}
+        /* Le service, sur tous les projets. */
+        onOuvrir={() => {
+          allerALAccueil();
+          if (portee !== TOUS_LES_PROJETS) versTousLesProjets();
+        }}
+        voisins={{
+          nom: nomDuService,
+          valeur: service,
+          titre: t('Services'),
+          repere: 'service-de-la-page',
+          options: services.map((s) => ({ valeur: s.cle, libelle: t(s.cleLibelle), groupe: s.groupe === 'creer' ? t('Créer') : t('Suivre') })),
+          onChoisir: (cle) => (cle === service ? allerALAccueil() : onService(cle)),
+        }}
       />
+      {projet ? (
+        <>
+          <span className="shrink-0 text-faint" aria-hidden data-separateur-du-fil>
+            /
+          </span>
+          <CranDeLaPageDeService
+            repere="portee-du-service"
+            libelle={projet.name}
+            dernier
+            onOuvrir={allerALAccueil}
+            voisins={{
+              nom: projet.name,
+              valeur: projet.id,
+              titre: t('Projets'),
+              repere: 'portee-du-service',
+              options: [
+                { valeur: '__tous__', libelle: t('Tous les projets'), groupe: t('Projets') },
+                ...projets.map((p) => ({ valeur: p.id, libelle: p.name, groupe: t('Projets') })),
+              ],
+              onChoisir: (id) => (id === '__tous__' ? versTousLesProjets() : onPortee(id)),
+            }}
+          />
+        </>
+      ) : null}
     </>
   );
 }

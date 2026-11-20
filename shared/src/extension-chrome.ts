@@ -17,7 +17,7 @@
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
 
 /** La version de l'extension SERVIE par ce démon. Une extension reliée plus ancienne voit « nouvelle version ». */
-export const VERSION_EXTENSION_CHROME = '1.0.11';
+export const VERSION_EXTENSION_CHROME = '1.0.12';
 
 /**
  * LA PLUS ANCIENNE EXTENSION QUI SAIT OUVRIR UNE FENÊTRE PRIVÉE RÉDUITE (`fenetre: 'privee-reduite'`, 18/11/2026). Les

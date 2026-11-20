@@ -5592,6 +5592,54 @@ export const MIGRATIONS: {
       ALTER TABLE chrome_appareils ADD COLUMN mise_a_jour_issue TEXT;
     `,
   },
+  {
+    id: 183,
+    name: 'chrome-relie-sans-doublon',
+    siTable: ['chrome_appareils'],
+    /*
+     * LES FICHES EN DOUBLE D'UN MÊME CHROME (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026) : relier de
+     * nouveau un Chrome laissait l'ancienne fiche vivante (Mac de l'utilisateur : 1.0.5 ET 1.0.11), et la bande orange
+     * restait sur la vieille version. Même règle que `doublonsDuNavigateur` (shared) : une fiche plus ancienne du même
+     * ordinateur et du même navigateur, au même identifiant d'extension, ou sans identifiant et plus vue depuis la
+     * naissance de la nouvelle, est révoquée. La règle vit ensuite au bonjour de chaque extension.
+     */
+    sql: `
+      UPDATE chrome_appareils SET revoque_le = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+       WHERE revoque_le IS NULL AND ordinateur_id IS NOT NULL AND EXISTS (
+         SELECT 1 FROM chrome_appareils b
+          WHERE b.revoque_le IS NULL AND b.id <> chrome_appareils.id AND b.compte_id = chrome_appareils.compte_id
+            AND b.ordinateur_id = chrome_appareils.ordinateur_id AND b.navigateur = chrome_appareils.navigateur
+            AND b.cree_le > chrome_appareils.cree_le
+            AND (CASE WHEN chrome_appareils.extension_id IS NOT NULL THEN chrome_appareils.extension_id = b.extension_id
+                      ELSE COALESCE(chrome_appareils.vu_le, chrome_appareils.cree_le) <= b.cree_le END)
+       );
+    `,
+  },
+  {
+    id: 184,
+    name: 'historique-d-archivage-des-projets',
+    /*
+     * L'HISTORIQUE DES MOUVEMENTS D'ARCHIVAGE (carte « Archivage des projets : page, historique, automatique »,
+     * 20/11/2026) : chaque archivage, désarchivage, échec ou refus d'un projet, à la main ou par la nuit, avec la
+     * place libérée ou ramenée et le chemin de l'archive (`server/src/archivage-projet.ts`). Lu par la rubrique
+     * « Archivage » de la configuration du projet.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS archivage_mouvements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL,
+        quand INTEGER NOT NULL,
+        sens TEXT NOT NULL,
+        origine TEXT NOT NULL,
+        issue TEXT NOT NULL,
+        detail TEXT,
+        octets INTEGER,
+        octets_archive INTEGER,
+        chemin TEXT
+      );
+      CREATE INDEX IF NOT EXISTS archivage_mouvements_par_projet ON archivage_mouvements(project_id, quand);
+    `,
+  },
 ];
 
 export function openDb(): DB {

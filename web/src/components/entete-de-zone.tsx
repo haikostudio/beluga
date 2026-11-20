@@ -276,7 +276,11 @@ export function SuiteDuFil({
   /* DANS UNE FENÊTRE DE SERVICE, pas de fil : le menu de gauche de la fenêtre dit déjà où l'on est. Dans une PAGE de
      service (14/11/2026), si : la sous-page s'écrit « Service / titre » en haut de la page. */
   if (enFenetre && !enPage) return null;
-  /* Hors de l'application (une page ouverte par-dessus), la suite reste en tête
+  /* DANS L'APPLICATION, UNE SUITE SANS CIBLE NE S'ÉCRIT NULLE PART (carte « Fil d'Ariane et Communication repensés »,
+     20/11/2026, capture #fe29) : rendue en ligne, elle tombait au milieu d'une rangée flexible (la page d'une campagne)
+     et écrasait la conversation. La cible manque le temps d'un rendu (écran caché, barre qui se remonte) : on attend. */
+  if (suite && !suite.cible) return null;
+  /* Hors de l'application (une page ouverte par-dessus, sans fil fourni), la suite reste en tête
      du contenu : elle ne se perd jamais. */
   if (!suite?.cible) {
     return (

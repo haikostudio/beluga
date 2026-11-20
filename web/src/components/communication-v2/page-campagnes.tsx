@@ -8,7 +8,7 @@ import { PageV2 as PageEnPlace } from './page-v2';
 import { Apercu, Badge2, EcranVide, PastilleReseau, TableauDeCommunication, TitreDeLigne, dateCourteLocale, nombreLisible, type ColonneDeTableau } from '@/components/communication-v2/socle/pieces';
 import { t } from '@/lib/langue';
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
-import { BasculeDePage } from '@/components/fenetre-de-service';
+import { BasculeDePage, RechercheDuService, useDansUnePageDeService } from '@/components/fenetre-de-service';
 import { cn } from '@/lib/utils';
 import { useV2 } from './contexte';
 import { PiedDAvance } from './pieces';
@@ -97,15 +97,35 @@ function ListeDesCampagnesV2() {
   /* TABLEAU OU CARTES (14/11/2026, façon Claude Desktop) : le tableau par défaut, les cartes d'avant gardées ; le choix
      est retenu. La bascule se pose à droite de la rangée de la page de service. */
   const [vue, setVue] = useVueDeLaListe('communication.vueDesCampagnes');
+  /* LA PAGE D'UN PROJET, SANS ENCOMBREMENT (décision du 20/11/2026, capture #958e) : plus de « 1 campagne(s) », plus
+     de bascule seule sur sa ligne puis de recherche sur la suivante. Dans une page de service, la recherche et la
+     bascule montent à droite du titre ; ailleurs (la page ouverte dans un projet), elles tiennent UNE rangée, avec le
+     filtre du tableau, à la hauteur commune. */
+  const [recherche, setRecherche] = React.useState('');
+  const dansUnePage = useDansUnePageDeService();
+  const [cibleDesOutils, setCibleDesOutils] = React.useState<HTMLElement | null>(null);
+  const outils = (
+    <>
+      <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher une campagne')} data-v2-recherche-campagnes />
+      <BasculeDePage>
+        <BasculeTableauCartes repere="vue-des-campagnes" valeur={vue} onChange={setVue} />
+      </BasculeDePage>
+    </>
+  );
   return (
-    <PageEnPlace barre={false} titre={t('Campagnes')} sousTitre={donnees?.campagnes.length ? t('{n} campagne(s)', { n: donnees.campagnes.length }) : t('Étape 1 sur 3')} invite={null} pied={pied} data-v2-campagnes={donnees?.campagnes.length ?? ''}>
+    <PageEnPlace barre={false} titre={t('Campagnes')} invite={null} pied={pied} data-v2-campagnes={donnees?.campagnes.length ?? ''}>
       {!donnees ? (
         <SilhouetteMarketing />
       ) : donnees.campagnes.length ? (
         <>
-        <BasculeDePage>
-          <BasculeTableauCartes repere="vue-des-campagnes" valeur={vue} onChange={setVue} />
-        </BasculeDePage>
+        {dansUnePage ? (
+          outils
+        ) : (
+          <div className="flex shrink-0 items-center gap-2 pb-3" data-v2-rangee-des-campagnes>
+            {outils}
+            <span ref={setCibleDesOutils} className="flex items-center gap-2 empty:hidden" />
+          </div>
+        )}
         <ApercuAuSurvol lire={(id) => donnees.campagnes.find((c) => c.id === id)} rendu={(c) => <ApercuDeCampagne campagne={c} />} actif={vue === 'tableau'}>
         <MenuAuClicDroit
           lire={(id) => donnees.campagnes.find((c) => c.id === id) ?? null}
@@ -123,7 +143,8 @@ function ListeDesCampagnesV2() {
               tableau reste — recherche, filtre d'état, tri par un menu —, chaque campagne devient une carte. */}
           <TableauDeCommunication
             repere="campagnes-v2"
-            recherche={t('Rechercher une campagne')}
+            rechercheExterne={recherche}
+            {...(!dansUnePage && cibleDesOutils ? { cibleDesOutils } : {})}
             colonnes={colonnes}
             lignes={donnees.campagnes}
             cleDe={(c) => c.id}

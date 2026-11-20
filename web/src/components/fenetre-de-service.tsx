@@ -151,7 +151,7 @@ export function FenetreDeService({
 
   if (!telephone && enPage) {
     return open ? (
-      <PageDeService repere={repere} titre={titre} fil={filDeLaPage} droite={filDeLaPage ? undefined : droiteDeLaPage} sousPageImposee={sousPage}>
+      <PageDeService repere={repere} titre={titre} fil={filDeLaPage} droite={droiteDeLaPage} sousPageImposee={sousPage}>
         {children}
       </PageDeService>
     ) : null;

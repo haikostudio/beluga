@@ -244,3 +244,108 @@ export function projetFigeParLArchive(projet: { archived?: boolean; archive?: { 
   if (!projet) return false;
   return !!projet.archived || projet.archive?.etat === 'archivage' || projet.archive?.etat === 'desarchivage';
 }
+
+/* ------------------------------------------------------------------ */
+/* L'historique des mouvements et l'archivage automatique              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE DÉLAI PAR DÉFAUT DE L'ARCHIVAGE AUTOMATIQUE (décision de l'utilisateur, 20/11/2026) : un projet sans
+ * aucune activité de tâche depuis 30 jours part seul sur le disque de stockage, la nuit. Réglé UNE fois pour
+ * tous les projets (`Settings.archivageAutoJours`, 0 = jamais) ; un projet s'en exempte par son interrupteur
+ * (`Project.archivageAutoDesactive`).
+ */
+export const ARCHIVAGE_AUTO_JOURS_PAR_DEFAUT = 30;
+
+const JOUR_MS = 24 * 60 * 60 * 1000;
+
+/** Un mouvement de l'historique d'archivage d'un projet. */
+export interface MouvementDArchivage {
+  id: number;
+  projectId: string;
+  quand: number;
+  sens: SensDArchivage;
+  /** À la main (menu, réglages, agent) ou par la nuit (archivage automatique). */
+  origine: 'main' | 'auto';
+  issue: 'reussi' | 'echec' | 'refus';
+  /** La raison d'un échec ou d'un refus, ou le bilan d'une réussite. */
+  detail?: string | null;
+  /** Les octets libérés (archiver) ou ramenés (désarchiver). */
+  octets?: number | null;
+  octetsArchive?: number | null;
+  chemin?: string | null;
+}
+
+/** Ce qu'il faut savoir d'un projet pour l'archivage automatique. */
+export interface ProjetPourLArchivageAuto {
+  id: string;
+  name?: string;
+  isSelf?: boolean;
+  archived?: boolean;
+  regroupement?: boolean;
+  marqueSansDepot?: boolean;
+  archivageAutoDesactive?: boolean;
+  archive?: { etat?: string } | null;
+  /** La dernière carte du projet qui a bougé (ms), dérivée par le serveur. */
+  derniereActivite?: number;
+  createdAt: number;
+}
+
+/**
+ * LA DERNIÈRE ACTIVITÉ QUI COMPTE pour l'archivage automatique : la dernière carte qui a bougé, sinon la
+ * création du projet (un projet neuf sans carte ne part pas le premier soir), et le dernier désarchivage — un
+ * projet qu'on vient de ramener ne repart pas la nuit même parce que ses cartes sont anciennes.
+ */
+export function derniereActiviteDArchivage(p: ProjetPourLArchivageAuto, dernierDesarchivage?: number | null): number {
+  return Math.max(p.derniereActivite ?? 0, p.createdAt ?? 0, dernierDesarchivage ?? 0);
+}
+
+/** Pourquoi ce projet n'entre JAMAIS dans l'archivage automatique — `null` : il y entre. */
+export function horsArchivageAuto(p: ProjetPourLArchivageAuto): string | null {
+  if (p.isSelf) return 'L’espace de développement de Beluga ne s’archive pas.';
+  if (p.regroupement) return 'Un regroupement de projets ne s’archive pas tout seul.';
+  if (p.marqueSansDepot) return 'Ce projet n’a pas de dossier à archiver.';
+  if (p.archivageAutoDesactive) return 'L’archivage automatique est coupé pour ce projet.';
+  return null;
+}
+
+/**
+ * DANS COMBIEN DE JOURS ce projet partira seul (0 = cette nuit), ou `null` quand il ne partira pas : déjà
+ * archivé, exempté, délai coupé (0 jour).
+ */
+export function joursAvantArchivageAuto(
+  p: ProjetPourLArchivageAuto,
+  o: { maintenant: number; jours: number; dernierDesarchivage?: number | null },
+): number | null {
+  if (!o.jours || o.jours <= 0) return null;
+  if (p.archived || horsArchivageAuto(p)) return null;
+  const echeance = derniereActiviteDArchivage(p, o.dernierDesarchivage) + o.jours * JOUR_MS;
+  return Math.max(0, Math.ceil((echeance - o.maintenant) / JOUR_MS));
+}
+
+/**
+ * LES PROJETS À ARCHIVER CETTE NUIT, le plus ancien d'abord. Le démon les traite UN À LA FOIS, par la même
+ * fonction que le geste à la main (contrôles, copie vérifiée avant tout effacement).
+ */
+export function projetsAArchiverSeuls(
+  projets: ProjetPourLArchivageAuto[],
+  o: { maintenant: number; jours: number; derniersDesarchivages?: Map<string, number> },
+): ProjetPourLArchivageAuto[] {
+  if (!o.jours || o.jours <= 0) return [];
+  const limite = o.maintenant - o.jours * JOUR_MS;
+  return projets
+    .filter((p) => !p.archived && !horsArchivageAuto(p))
+    .filter((p) => p.archive?.etat !== 'archivage' && p.archive?.etat !== 'desarchivage')
+    .map((p) => ({ p, quand: derniereActiviteDArchivage(p, o.derniersDesarchivages?.get(p.id)) }))
+    .filter((x) => x.quand <= limite)
+    .sort((a, b) => a.quand - b.quand)
+    .map((x) => x.p);
+}
+
+/**
+ * UN REFUS DE NUIT NE SE NOTE QU'UNE FOIS : un projet qui sert un site public est refusé chaque nuit ; son
+ * historique ne garde que le premier refus tant que la raison ne change pas.
+ */
+export function refusDejaNote(dernier: Pick<MouvementDArchivage, 'issue' | 'origine' | 'detail'> | null | undefined, raison: string): boolean {
+  return !!dernier && dernier.issue === 'refus' && dernier.origine === 'auto' && (dernier.detail ?? '') === raison;
+}

@@ -323,6 +323,11 @@ export function formeDeCodeValide(saisie: string): boolean {
  * pas, ajouter un projet reste libre). Chaque autre page se passe (« plus
  * tard ») et se retrouve dans les réglages.
  *
+ * « ordinateur » (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026, décision de l'utilisateur) :
+ * équiper l'ordinateur où les agents travailleront — Beluga Connect sur un Mac, l'extension et son code ailleurs.
+ * Elle se PASSE (« Plus tard », rappelée dans les réglages). Ajoutée après coup, elle ne rouvre JAMAIS une mise en
+ * route déjà terminée : l'écran ne s'ouvre que sur `statut: 'a-faire'`.
+ *
  * « bienvenue » ne règle rien : elle dit ce qu'est Beluga Build avant de rien
  * demander. « copie » fait de l'installation la copie PERSONNELLE de qui
  * l'installe — son dépôt à lui, et le projet de l'application sur son tableau.
@@ -333,6 +338,7 @@ export const ETAPES_DE_L_ASSISTANT = [
   'domaine',
   'projet',
   'assistant',
+  'ordinateur',
   'copie',
   'courriels',
   'espace-client',

@@ -58,6 +58,23 @@ export function PageInstallation() {
       <Groupe titre={t('Votre assistant')}>
         <SectionVotreAssistant />
       </Groupe>
+      {/* « Votre ordinateur » (20/11/2026) : l'étape de la mise en route se retrouve ici ; le parcours vit dans la page
+          « Extension », qui montre aussi les ordinateurs déjà équipés. */}
+      <Groupe titre={t('Votre ordinateur')}>
+        <div className="flex flex-wrap items-center gap-3" data-installation-ordinateur>
+          <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-muted">
+            {t('Équipez l’ordinateur où les agents travaillent : son navigateur, et sur un Mac l’application Beluga Connect qui fait tout le reste.')}
+          </p>
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={() => window.dispatchEvent(new CustomEvent('beluga:ouvrir-reglages', { detail: { page: 'extension' } }))}
+            data-installation-ouvrir-extension
+          >
+            {t('Installer un ordinateur')}
+          </Button>
+        </div>
+      </Groupe>
       {/* Les mises à jour ont leur page à elles (« Mise à jour », `page-mise-a-jour.tsx`). */}
       {state.offreHebergee ? null : (
         <Groupe titre={t('Votre propre Beluga')}>

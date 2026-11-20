@@ -30,6 +30,7 @@ import {
   type EtatDeLInstallation,
 } from '@/components/installation/sections';
 import { SectionVotreAssistant, type EtatDeVotreAssistant } from '@/components/installation/votre-assistant';
+import { ParcoursDInstallation } from '@/components/reglages/assistant-installation';
 import { OrbeDeLAgent } from '@/components/installation/orbe-de-l-agent';
 import { BarreDuTerminal, TerminalACote } from '@/components/installation/travail';
 import { useVoileAffiche } from '@/lib/barre-de-l-heure';
@@ -80,6 +81,8 @@ function paroleEcriteDAvance(etape: EtapeDeLAssistant, nom: string): string {
       return t('Me voilà ! Beluga Build est un tableau de tâches que des agents réalisent sur votre serveur. Il apprend de chaque projet, et son code se modifie comme n’importe quel projet. On fait les réglages ensemble ?');
     case 'assistant':
       return t('Comment dois-je vous appeler ? Et gardez-vous le nom « {v0} » pour moi ? C’est aussi le mot qui m’appellera à voix haute.', { v0: nom });
+    case 'ordinateur':
+      return t('Équipons maintenant l’ordinateur où je travaillerai pour vous : son navigateur, et sur un Mac une petite application qui fait tout le reste. Vous pouvez aussi le faire plus tard.');
     case 'domaine':
       return t('À quelle adresse voulez-vous ouvrir Beluga Build ? Vos projets recevront la leur sous le même nom. L’adresse provisoire marche très bien en attendant.');
     case 'projet':
@@ -153,6 +156,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
 
   const [envoi, setEnvoi] = React.useState<'faite' | 'passee' | null>(null);
   const [assistantPret, setAssistantPret] = React.useState(false);
+  const [ordinateurPret, setOrdinateurPret] = React.useState(false);
   const surEtatDeLAssistant = React.useCallback((e: EtatDeVotreAssistant) => setAssistantPret(e.pret), []);
 
   /* Les bulles déjà écrites pendant cette séance : elles ne se réécrivent pas à chaque rendu. Celles des étapes
@@ -177,7 +181,15 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
   const parole = (etape: EtapeDeLAssistant) => paroleAvecPrenom(paroles.paroles[etape] || paroleEcriteDAvance(etape, nom), prenom);
 
   const peutValider =
-    enCours === 'moteurs' ? moteurPret : enCours === 'projet' ? githubRelie : enCours === 'assistant' ? assistantPret : true;
+    enCours === 'moteurs'
+      ? moteurPret
+      : enCours === 'projet'
+        ? githubRelie
+        : enCours === 'assistant'
+          ? assistantPret
+          : enCours === 'ordinateur'
+            ? ordinateurPret
+            : true;
 
   const repondre = async (issue: 'faite' | 'passee') => {
     if (enCours === 'fin') return;
@@ -262,7 +274,9 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
                               ? t('Reliez GitHub pour continuer : c’est par lui que vos projets se récupèrent et se sauvegardent.')
                               : enCours === 'assistant' && !assistantPret
                                 ? t('Donnez votre prénom et un nom que l’assistant entendra pour continuer.')
-                                : null
+                                : enCours === 'ordinateur' && !ordinateurPret
+                                  ? t('Terminez l’installation, ou choisissez « Plus tard ».')
+                                  : null
                         }
                       >
                         <ContenuDeLaQuestion
@@ -271,6 +285,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
                           relire={relire}
                           githubRelie={githubRelie}
                           surEtatDeLAssistant={surEtatDeLAssistant}
+                          surOrdinateurPret={setOrdinateurPret}
                           partage={Boolean(relais?.joint)}
                         />
                       </CarteDeQuestion>
@@ -452,6 +467,7 @@ function ContenuDeLaQuestion({
   relire,
   githubRelie,
   surEtatDeLAssistant,
+  surOrdinateurPret,
   partage,
 }: {
   etape: EtapeDeLAssistant;
@@ -459,6 +475,7 @@ function ContenuDeLaQuestion({
   relire: () => Promise<void>;
   githubRelie: boolean;
   surEtatDeLAssistant: (e: EtatDeVotreAssistant) => void;
+  surOrdinateurPret: (pret: boolean) => void;
   partage: boolean;
 }) {
   switch (etape) {
@@ -468,6 +485,9 @@ function ContenuDeLaQuestion({
       return <SectionMemoire etat={etat} relire={relire} />;
     case 'assistant':
       return <SectionVotreAssistant surEtat={surEtatDeLAssistant} sansVoix />;
+    case 'ordinateur':
+      /* Le MÊME parcours que Réglages › Extension, sans fenêtre : « Plus tard » et « Valider » restent ceux de la carte. */
+      return <ParcoursDInstallation integre surFini={surOrdinateurPret} onTerminer={() => {}} />;
     case 'domaine':
       return <SectionDomaine etat={etat} relire={relire} />;
     case 'projet':

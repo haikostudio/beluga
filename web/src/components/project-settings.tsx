@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Archive,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -44,6 +45,7 @@ import { RubriqueChartes } from '@/components/config-projet/page-chartes';
 import { RubriqueDeploiement } from '@/components/config-projet/page-deploiement';
 import { RubriqueProduction } from '@/components/config-projet/page-production';
 import { RubriqueRetrait } from '@/components/config-projet/page-retrait';
+import { RubriqueArchivage } from '@/components/config-projet/page-archivage';
 
 /* ------------------------------------------------------------------ */
 /* CE QUE L'ÉCRAN AJOUTE AUX RUBRIQUES : une icône, un rendu            */
@@ -63,6 +65,7 @@ const RENDU_DES_RUBRIQUES: Record<
   chartes: { icone: Palette, rendu: RubriqueChartes },
   deploiement: { icone: Rocket, rendu: RubriqueDeploiement },
   production: { icone: Upload, rendu: RubriqueProduction },
+  archivage: { icone: Archive, rendu: RubriqueArchivage },
   retrait: { icone: Trash2, rendu: RubriqueRetrait },
 };
 

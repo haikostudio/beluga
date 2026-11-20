@@ -1,4 +1,4 @@
-import { TEXTE_PROJET_ARCHIVE, auMoinsUnMoteurEnLigne, projetFigeParLArchive } from '@beluga/shared';
+import { TEXTE_PROJET_ARCHIVE, auMoinsUnMoteurEnLigne, derniereActiviteDArchivage, horsArchivageAuto, joursAvantArchivageAuto, projetFigeParLArchive } from '@beluga/shared';
 import http from 'node:http';
 import { chercherDesFichiers, lireLaCorbeille, lireLeDossier, mettreALaCorbeille, projetsRanges, rangerLesFichiers, renommerUnFichier, restaurerUnFichier } from './fichiers-ranges.js';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -1520,6 +1520,26 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'project.desarchiver': {
       const { desarchiver } = await import('./archivage-projet.js');
       return desarchiver(cmd.id);
+    }
+    case 'project.archivage.historique': {
+      const projet = store.getProject(cmd.id);
+      if (!projet) throw new Error('projet introuvable');
+      const { mouvementsDuProjet } = await import('./archivage-projet.js');
+      const { joursDArchivageAuto } = await import('./archivage-auto.js');
+      const mouvements = mouvementsDuProjet(cmd.id);
+      const jours = joursDArchivageAuto();
+      const dernierDesarchivage = mouvements.find((m) => m.sens === 'desarchiver' && m.issue === 'reussi')?.quand ?? null;
+      return {
+        mouvements,
+        jours,
+        derniereActivite: derniereActiviteDArchivage(projet, dernierDesarchivage),
+        joursRestants: joursAvantArchivageAuto(projet, { maintenant: Date.now(), jours, dernierDesarchivage }),
+        horsAuto: horsArchivageAuto(projet),
+      };
+    }
+    case 'project.archivage.exempter': {
+      const { exempter } = await import('./archivage-projet.js');
+      return { project: exempter(cmd.id, cmd.exempte) };
     }
 
     case 'project.create': {
@@ -4272,6 +4292,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
           if (!auMoinsUnMoteurEnLigne(await listEngines(), cachedQuotas())) throw new Error('Reliez d’abord un moteur : aucun n’est encore prêt.');
         }
         if (cmd.etape === 'assistant' && !store.getSettings().assistantNom.trim()) throw new Error('Donnez d’abord un nom à l’assistant.');
+        /* « Votre ordinateur » (20/11/2026) : faite seulement si un navigateur est relié et répond. */
+        if (cmd.etape === 'ordinateur') {
+          const { chromesDuCompte } = await import('./extension-chrome.js');
+          if (!chromesDuCompte(compte.id).some((c) => c.enLigne)) throw new Error('Aucun navigateur n’est encore relié : terminez l’installation, ou choisissez « Plus tard ».');
+        }
         if (cmd.etape === 'projet') {
           const { etatGitHub } = await import('./installation-commandes.js');
           if (!(await etatGitHub()).connecte) throw new Error('Reliez d’abord GitHub : c’est par lui que vos projets se récupèrent.');
@@ -4547,8 +4572,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return etatDeLExtension(compte);
     }
     case 'extension.retards': {
-      const { retardsDuCompte } = await import('./mise-a-jour-extension.js');
-      return { retards: await retardsDuCompte(compte.id) };
+      const { retardsDuCompte, avisDuCompte } = await import('./mise-a-jour-extension.js');
+      /* `avis` : les mises à jour faites seules, que la bande annonce en simple information (20/11/2026). */
+      return { retards: await retardsDuCompte(compte.id), avis: avisDuCompte(compte.id) };
     }
     case 'extension.mettreAJour': {
       const { mettreAJourLExtension } = await import('./mise-a-jour-extension.js');
@@ -4610,6 +4636,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'relaisMac.reglage': {
       const { ouvrirUnReglageDuMac } = await import('./relais-mac.js');
       await ouvrirUnReglageDuMac(compte.id, cmd.ordinateurId, cmd.reglage);
+      return { ok: true };
+    }
+    case 'relaisMac.preparer': {
+      const { preparerChromeDeLOrdinateur } = await import('./relais-mac.js');
+      if (!preparerChromeDeLOrdinateur(compte.id, cmd.ordinateurId)) throw new Error('Beluga Connect ne répond pas sur cet ordinateur.');
       return { ok: true };
     }
     case 'relaisMac.delier': {

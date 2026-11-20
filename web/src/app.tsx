@@ -12,7 +12,7 @@ import { BoutonOptionsDuProjet, MenuGeneral } from '@/components/quota-bar';
 import { CLES_DES_SERVICES, FeuilleDesServices, OUTILS_DE_CREATION, useServicesOuverts } from '@/components/services';
 import { BandeDeZone } from '@/components/bande-de-zone';
 import { FenetreDeService } from '@/components/fenetre-de-service';
-import { CalendarDays, Key, Library } from '@/components/ui/icones';
+import { Key, Library } from '@/components/ui/icones';
 import { RechercheCentrale } from '@/components/recherche-centrale';
 import { TerminalDeLApplication } from '@/components/terminal-de-l-application';
 import { QuestionDuPartage } from '@/components/question-du-partage';
@@ -54,10 +54,9 @@ import {
 import { naviguerVers } from '@/components/ui/lien-interne';
 import { BoutonPublier, BoutonPublierDuHaut, EVENEMENT_OUVRIR_PUBLIER, FeuillePublier, useCompteAPublier } from '@/components/menu-publier';
 import { ouvrirLePublierDuProjet } from '@/components/mises-en-ligne';
-import { FournirLeFiltreCentral, FournirLeProjetDuService } from '@/components/projet-du-service';
-import { CLE_CALENDRIER_GENERAL, FilDesPagesDeService, FiltreDuProjetDeLaPage, TOUS_LES_PROJETS, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
+import { FournirLeChoixDeLaPortee, FournirLeFiltreCentral, FournirLeProjetDuService } from '@/components/projet-du-service';
+import { CLES_SERVICES_DU_MENU, FilDesPagesDeService, FiltreDuProjetDeLaPage, TOUS_LES_PROJETS, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
 import { creerUnAgentDeType, ouvrirDansLeProjet } from '@/lib/creer-un-agent';
-import { CalendrierGeneral } from '@/components/calendrier-general';
 import { FeuilleDesTaches } from '@/components/feuille-des-taches';
 import { Celebrations } from '@/components/celebration';
 import {
@@ -287,6 +286,8 @@ interface ValeursDeLaZone {
 /* PLUS AUCUN MENU PROPRE DANS LA ZONE CENTRALE (13/11/2026) : chaque service y garde sa navigation dans la page. */
 const COLONNE_COUPEE = { corps: null, definirNiveau: () => undefined, absente: true };
 const rienAFaire = () => undefined;
+/* UN ÉCRAN CACHÉ N'ÉCRIT SA SUITE NULLE PART (20/11/2026) : une suite fournie sans cible ne se rend pas (`SuiteDuFil`). */
+const SUITE_MUETTE = { cible: null, retour: { current: null }, signaler: rienAFaire };
 
 /**
  * UN ÉCRAN GARDÉ DE LA ZONE CENTRALE (onglets instantanés, 13/11/2026). Visible, il reçoit les vrais emplacements ;
@@ -308,7 +309,7 @@ function GardeDeVue({
   children: React.ReactNode;
 }) {
   return (
-    <FournirLaSuiteDuFil value={visible ? valeurs.suite : null}>
+    <FournirLaSuiteDuFil value={visible ? valeurs.suite : SUITE_MUETTE}>
       <FournirLaColonneDeService value={visible ? valeurs.colonne : COLONNE_COUPEE}>
         <FournirLaDeclarationDuProjet value={visible ? valeurs.declarerProjet : null}>
           <FournirLaDeclarationDesGestesDuBas value={visible ? valeurs.declarerGestes : null}>
@@ -495,9 +496,6 @@ export function App() {
   const [filtreDuServiceCentral, setFiltreDuServiceCentral] = React.useState<string | undefined>(undefined);
   const projetDesOngletsRef = React.useRef<string | null>(null);
   const [viseDeCreation, setViseDeCreation] = React.useState<ElementVise>({});
-  const [calendrierOuvert, setCalendrierOuvert] = React.useState(false);
-  /* La publication ouverte dans l'aperçu du calendrier : « #calendrier/<contenu> ». */
-  const [contenuDuCalendrier, setContenuDuCalendrier] = React.useState<string | null>(null);
   const fenetreDeService = VUES_EN_FENETRE.includes(vueCentrale) ? vueCentrale : null;
   const fenetreDeFonctionnement = VUES_DE_FONCTIONNEMENT.includes(vueCentrale) ? vueCentrale : null;
   const vueDeFondRetenue = React.useRef<VueCentrale>('projet');
@@ -647,7 +645,11 @@ export function App() {
   const colonneServices = useResizable('colonne-services', { initial: 340, min: 232, max: 480 });
   /* LA SUITE DU FIL D'ARIANE : son emplacement dans la barre, sa présence, et
      le geste qui ramène à l'accueil du service (`SuiteDuFil`). */
-  const [cibleDeLaSuite, setCibleDeLaSuite] = React.useState<HTMLElement | null>(null);
+  /* DEUX CIBLES À PART POUR LA SUITE DU FIL (20/11/2026, capture #fe29) : celle du fil de la zone et celle de la barre
+     d'un projet. Un seul état tenu par deux `ref` se faisait remettre à vide par l'élément qui partait, et la suite
+     n'avait plus de place. La cible retenue dépend de l'endroit où le fil est réellement posé. */
+  const [cibleDuFilDeZone, setCibleDuFilDeZone] = React.useState<HTMLElement | null>(null);
+  const [cibleDeLaBarreDuProjet, setCibleDeLaBarreDuProjet] = React.useState<HTMLElement | null>(null);
   const [suitePresente, setSuitePresente] = React.useState(false);
   const retourDeLaSuite = React.useRef<(() => void) | null>(null);
   /* SUR TÉLÉPHONE, LES CRANS D'AVANT SONT CACHÉS : la page ouverte dans un
@@ -962,14 +964,14 @@ export function App() {
      * du fond, qui ne bouge pas. Un OBJET réel d'un outil (une création, un dossier ouvert) garde son chemin
      * d'onglet, plus bas. Toute autre adresse les referme : Précédent sort de la page du service.
      */
+    /* LE CALENDRIER N'EST PLUS UN SERVICE (20/11/2026) : c'est un volet de chaque campagne. Un ancien lien
+       « #calendrier… » ouvre Communication, sur la liste des projets ; l'adresse s'y réécrit. */
     if (ecran.vue === 'calendrier') {
-      setFenetreDeCreation(null);
-      setContenuDuCalendrier(ecran.contenuId ?? null);
-      setCalendrierOuvert(true);
+      setViseDeCreation({});
+      setFiltreDuServiceCentral(TOUS_LES_PROJETS);
+      setFenetreDeCreation('communication2');
       return;
     }
-    setCalendrierOuvert(false);
-    setContenuDuCalendrier(null);
     const outil = destinationDeLEcran(ecran);
     if (outil && OUTILS_DE_CREATION.includes(outil) && !adresseDObjetReel(construireFragment({ ...ecran, tiroirs: undefined }))) {
       setViseDeCreation(elementViseDeLEcran(ecran));
@@ -1114,8 +1116,6 @@ export function App() {
     }
     const ecranSansTiroirs: EcranNavigateur = settingsOpen
       ? { vue: 'reglages', page: settingsPage }
-      : calendrierOuvert
-      ? { vue: 'calendrier', ...(contenuDuCalendrier ? { contenuId: contenuDuCalendrier } : {}) }
       : fenetreDeCreation
       ? ecranDeLaVue({ vue: fenetreDeCreation, element: viseDeCreation, projectId: state.activeProjectId })
       : configProjetId
@@ -1144,7 +1144,7 @@ export function App() {
     /* LA PORTÉE CHOISIE S'ÉCRIT au bout de l'adresse d'une page de service (outil de création ou de fonctionnement) ;
        la Charte limitée à un projet le dit déjà dans son chemin. */
     const pageDeService =
-      !settingsOpen && !calendrierOuvert && !configProjetId && (!!fenetreDeCreation || VUES_DE_FONCTIONNEMENT.includes(vueCentrale));
+      !settingsOpen && !configProjetId && (!!fenetreDeCreation || VUES_DE_FONCTIONNEMENT.includes(vueCentrale));
     const porteeEcrite =
       pageDeService && filtreDuServiceCentral && !(ecranSansTiroirs.vue === 'plaquettes' && ecranSansTiroirs.projectId === filtreDuServiceCentral)
         ? filtreDuServiceCentral
@@ -1221,8 +1221,6 @@ export function App() {
     titreCarteOuverte,
     carteAffichee,
     projetDeLaCarteAffichee,
-    calendrierOuvert,
-    contenuDuCalendrier,
     fenetreDeCreation,
     viseDeCreation,
     filtreDuServiceCentral,
@@ -1554,13 +1552,6 @@ export function App() {
       /* DEPUIS LA PAGE D'UNE TÂCHE (14/11/2026, « aucun bouton du menu Services ne fonctionne ») : cette page, en z-40,
          recouvrait la page du service (z-30). Elle se referme d'abord, quel que soit le service. */
       setOpenCardId(null);
-      if (cle === CLE_CALENDRIER_GENERAL) {
-        setFenetreDeCreation(null);
-        if (fonctionnementOuvert) fermerLaFenetre();
-        setCalendrierOuvert(true);
-        return;
-      }
-      setCalendrierOuvert(false);
       setFiltreDuServiceCentral(portee);
       if (OUTILS_DE_CREATION.includes(cle)) {
         if (fonctionnementOuvert) fermerLaFenetre();
@@ -1576,15 +1567,11 @@ export function App() {
   /* L'entrée de « Services » dont la page est ouverte : en orange dans la liste — QUEL QUE SOIT LE CHEMIN PAR LEQUEL
      ON Y EST VENU, et jusque dans ses pages enfants (15/11/2026) : un service rouvert par son adresse, par le fil
      d'Ariane, ou l'objet d'un service ouvert en onglet (une création du Studio, un dossier Marketing) le garde allumé. */
-  const serviceCentralActif = calendrierOuvert
-    ? CLE_CALENDRIER_GENERAL
-    : (fenetreDeCreation ??
-      fenetreDeFonctionnement ??
-      (CLES_DES_SERVICES.some((x) => x.cle === vueCentrale) ? vueCentrale : null));
+  const serviceCentralActif =
+    fenetreDeCreation ?? fenetreDeFonctionnement ?? (CLES_DES_SERVICES.some((x) => x.cle === vueCentrale) ? vueCentrale : null);
   /* « NOUVEL AGENT › TYPE › PROJET » (14/11/2026) : l'élément naît dans le projet choisi et s'ouvre en onglet. */
   const creerUnAgent = React.useCallback((type: TypeDAgent, cible: CibleDeCreation) => {
     setFenetreDeCreation(null);
-    setCalendrierOuvert(false);
     void creerUnAgentDeType(type, cible, (id) => (carteRobotIdRef.current = id));
   }, []);
   /* Le titre d'une page qui n'appartient à aucun projet : il prend la place du
@@ -1663,6 +1650,9 @@ export function App() {
   const ongletsDuProjet = React.useMemo(() => lireLesOnglets(ongletsRetenus), [ongletsRetenus]);
   /* LE NOM DE L'OBJET OUVERT DANS UN OUTIL (une création, une campagne) : le service l'écrit dans la suite du fil
      d'Ariane, restée montée, cachée ; l'onglet le lit là. */
+  const serviceDuFond = vueDuFond !== 'projet' && CLES_DES_SERVICES.some((x) => x.cle === vueDuFond) ? vueDuFond : null;
+  const suiteDansLaBarreDuProjet = !!projetDesOnglets && !telephone && !!serviceDuFond && !carteAffichee;
+  const cibleDeLaSuite = suiteDansLaBarreDuProjet ? cibleDeLaBarreDuProjet : cibleDuFilDeZone;
   const [texteDeLaSuite, setTexteDeLaSuite] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!cibleDeLaSuite) return;
@@ -1786,19 +1776,21 @@ export function App() {
     [filtreDuServiceCentral, projetFigeDuService, projetFiltreDuServiceCentral?.id, projetFiltreDuServiceCentral?.name, projetFiltreDuServiceCentral?.path],
   );
   /*
-   * LE FIL D'UNE PAGE DE SERVICE (14/11/2026) : la portée ⌄ (elle remplace le filtre de la rangée), puis le service ⌄.
-   * Changer de service garde la portée choisie.
+   * LE FIL D'UNE PAGE DE SERVICE (20/11/2026) : le service, puis le projet quand la page est limitée à un projet
+   * (`FilDesPagesDeService`). Changer de service garde la portée choisie.
    */
   const porteeDuService = filtreDuServiceCentral ?? projetFigeDuService?.id ?? TOUS_LES_PROJETS;
   /*
    * LE FILTRE DES PROJETS D'UNE PAGE DE SERVICE (14/11/2026) : à droite de la rangée de la page, à la hauteur commune.
    * TOUJOURS POSÉ, MÊME OUVERT DEPUIS UN PROJET (carte « Audits absents et Sécurité sur mobile », 16/11/2026) : sur
    * téléphone, le fil (et sa portée ⌄) n'existe pas ; sans ce filtre, une page ouverte depuis un projet restait figée sur
-   * lui, sans moyen de voir « Tous les projets ». Sur ordinateur, le fil le remplace (`droite` ignoré quand il y a un
-   * fil). Le calendrier porte son propre filtre.
+   * lui, sans moyen de voir « Tous les projets ».
    */
   const filtreDeLaPage = (service: string | null) =>
-    service === CLE_CALENDRIER_GENERAL ? null : (
+    /* SUR ORDINATEUR, LE FILTRE NE SERT QUE SUR « TOUS LES PROJETS » (20/11/2026) : limitée à un projet, la page le
+       porte en second cran du fil (« Service / Projet »), dont le chevron rend les autres projets. Communication n'en a
+       pas : son accueil EST la liste des projets. */
+    service === 'communication2' || (!telephone && porteeDuService !== TOUS_LES_PROJETS) ? null : (
       <div className="w-[200px]" data-filtre-du-service-central>
         <FiltreDuProjetDeLaPage valeur={porteeDuService} onChoisir={(id) => setFiltreDuServiceCentral(id)} />
       </div>
@@ -1810,7 +1802,11 @@ export function App() {
         onPortee={(id) => setFiltreDuServiceCentral(id)}
         service={service}
         onService={(cle) => ouvrirServiceCentral(cle, porteeDuService)}
-        sansPortee={service === CLE_CALENDRIER_GENERAL}
+        onTousLesProjets={() => {
+          setFiltreDuServiceCentral(TOUS_LES_PROJETS);
+          /* Un outil de création revient à son accueil : la liste de tous les projets, plus la fiche d'un seul. */
+          if (fenetreDeCreation) setViseDeCreation({});
+        }}
       />
     ) : null;
   /*
@@ -1830,7 +1826,6 @@ export function App() {
        tâche referme la tâche, et ce départ ne doit pas refermer aussitôt le service qu'on vient d'ouvrir. */
     if (Date.now() - ouvertureDeServiceA.current < 1500) return;
     setFenetreDeCreation(null);
-    setCalendrierOuvert(false);
   }, [lieuDeLaZone]);
   /*
    * LES ONGLETS INSTANTANÉS (13/11/2026, `lib/vues-gardees.tsx`) : l'écran de chaque onglet déjà affiché reste monté,
@@ -1851,10 +1846,8 @@ export function App() {
   const garderLaCarte = React.useCallback((cle: string) => ongletsDuProjet.some((o) => o.cle === cle), [ongletsDuProjet]);
   const vuesDeCarte = useVuesGardees(cleDeCarteAffichee, garderLaCarte);
   /* L'OBJET D'UN SERVICE OUVERT DANS LE PROJET (15/11/2026, capture #22ca « Fishflow / / ») : sur ordinateur, la barre du
-     projet porte « projet / service / ce que le service écrit » — la suite du fil se pose DANS elle, plus dans le fil
-     caché de la zone. */
-  const serviceDuFond = vueDuFond !== 'projet' && CLES_DES_SERVICES.some((x) => x.cle === vueDuFond) ? vueDuFond : null;
-  const suiteDansLaBarreDuProjet = !!projetDesOnglets && !telephone && !!serviceDuFond && !carteAffichee;
+     projet porte « service / projet / ce que le service écrit » (ordre inversé le 20/11/2026) — la suite du fil se pose
+     DANS elle, plus dans le fil caché de la zone. */
   const barreDuProjet = React.useMemo<BarreDuProjet | null>(
     () =>
       projetDesOnglets
@@ -1869,11 +1862,21 @@ export function App() {
                 {...(suiteDansLaBarreDuProjet && serviceDuFond
                   ? {
                       service: {
+                        cle: serviceDuFond,
                         libelle: t(CLES_TITRE_DE_VUE[serviceDuFond as keyof typeof CLES_TITRE_DE_VUE]),
                         adresse: construireFragment({ ...ecranDeLaVue({ vue: serviceDuFond, projectId: projetDesOnglets?.id ?? null }), portee: projetDesOnglets?.id }),
                         onOuvrir: () => ouvrirUnOutil(serviceDuFond),
+                        adresseTous: construireFragment(ecranDeLaVue({ vue: serviceDuFond, projectId: null })),
+                        onTous: () => ouvrirServiceCentral(serviceDuFond, TOUS_LES_PROJETS),
+                        services: CLES_SERVICES_DU_MENU.filter((x) => servicesOuvertsAuCompte.includes(x.requis ?? x.cle)).map((x) => ({
+                          valeur: x.cle,
+                          libelle: t(x.cleLibelle),
+                          groupe: x.groupe === 'creer' ? t('Créer') : t('Suivre'),
+                        })),
+                        onAutreService: (cle: string) => ouvrirServiceCentral(cle, projetDesOnglets.id),
+                        onAutreProjet: (id: string) => ouvrirServiceCentral(serviceDuFond, id),
                       },
-                      suite: <div ref={setCibleDeLaSuite} data-suite-du-fil="barre-du-projet" className="contents" />,
+                      suite: <div ref={setCibleDeLaBarreDuProjet} data-suite-du-fil="barre-du-projet" className="contents" />,
                     }
                   : {})}
               />
@@ -1890,7 +1893,7 @@ export function App() {
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projetDesOnglets, ongletsDuProjet, ongletCourant?.cle, ongletCourant?.titre, activerLOnglet, vueDuFond, ouvrirUnOutil, telephone, cleDesOnglets, suiteDansLaBarreDuProjet, serviceDuFond],
+    [projetDesOnglets, ongletsDuProjet, ongletCourant?.cle, ongletCourant?.titre, activerLOnglet, vueDuFond, ouvrirUnOutil, ouvrirServiceCentral, servicesOuvertsAuCompte.join(','), telephone, cleDesOnglets, suiteDansLaBarreDuProjet, serviceDuFond],
   );
   /* LE HAUT DU TÉLÉPHONE, SUR DEUX ÉTAGES (03/11/2026) : le service en petit, le projet en grand. Le projet est
      celui que la page a déclaré (Communication : sa marque), sinon le projet actif pour les vues qui le suivent. */
@@ -2004,7 +2007,10 @@ export function App() {
      VISIBLE y a accès ; un écran gardé caché reçoit des emplacements vides (`GardeDeVue`). */
   /* L'ACCUEIL D'UN PROJET POSE SES GESTES (la période) DANS LA BARRE DU PROJET, à la hauteur de « Publier »
      (14/11/2026, « remonte la barre du milieu à la hauteur des boutons qui sont sur la droite »). */
-  const gestesDansLaBarreDuProjet = !telephone && vueDuFond === 'projet' && !carteAffichee && !!projetDesOnglets && !!cibleDesGestesDuProjet;
+  /* …ET L'OBJET D'UN SERVICE OUVERT DANS LE PROJET AUSSI (20/11/2026, maquette A de la campagne) : ses gestes et son
+     « … » se posent au bout du fil « Service / Projet / Fiche », à côté de « Publier » — plus dans une bande vide qui
+     repoussait la page de 48 px. */
+  const gestesDansLaBarreDuProjet = !telephone && (vueDuFond === 'projet' || suiteDansLaBarreDuProjet) && !carteAffichee && !!projetDesOnglets && !!cibleDesGestesDuProjet;
   const cibleDesGestesDeLaZone = gestesDansLaBarreDuProjet ? cibleDesGestesDuProjet : cibleDesGestes;
   const valeursDeLaZone = React.useMemo<ValeursDeLaZone>(
     () => ({
@@ -2143,29 +2149,6 @@ export function App() {
         <Celebrations />
         {/* LA BANNIÈRE ORANGE D'UNE EXTENSION CHROME EN RETARD (20/11/2026) : au-dessus de TOUT, colonne et entête compris. */}
         <BanniereExtension />
-        {/* LE CALENDRIER GÉNÉRAL (14/11/2026) : toutes les publications de toutes les campagnes, tous projets. */}
-        <FenetreDeService
-          open={calendrierOuvert}
-          onClose={() => setCalendrierOuvert(false)}
-          titre={t('Calendrier')}
-          icone={<CalendarDays />}
-          repere="calendrier-general"
-          sansMenuDuService
-          large
-          enPage
-          filDeLaPage={filDuService(CLE_CALENDRIER_GENERAL)}
-        >
-          {calendrierOuvert ? (
-            <CalendrierGeneral
-              vise={contenuDuCalendrier}
-              onVise={setContenuDuCalendrier}
-              onOuvrirCampagne={(projectId, adresse) => {
-                setCalendrierOuvert(false);
-                ouvrirDansLeProjet(projectId, adresse);
-              }}
-            />
-          ) : null}
-        </FenetreDeService>
         {/* LA FENÊTRE DES OUTILS DE CRÉATION, dans le projet affiché. */}
         <FenetreDeService
           open={!!fenetreDeCreation}
@@ -2186,6 +2169,7 @@ export function App() {
           filDeLaPage={filDuService(fenetreDeCreation)}
         >
           <FournirLeFiltreCentral value={filtreDuServiceCentral !== undefined}>
+          <FournirLeChoixDeLaPortee value={setFiltreDuServiceCentral}>
           <FournirLeProjetDuService value={projetDeLaFenetre}>
             {/* UN MONTAGE PAR OUTIL (`key`) : passer du Studio à Marketing démonte le Studio pour de bon — sa frise
                 restait affichée sous la liste Marketing pendant le chargement de l'autre outil (capture #84cfd). */}
@@ -2210,6 +2194,7 @@ export function App() {
               </PanneauALaDemande>
             ) : null}
           </FournirLeProjetDuService>
+          </FournirLeChoixDeLaPortee>
           </FournirLeFiltreCentral>
         </FenetreDeService>
         {/* LES OUTILS DE FONCTIONNEMENT EN GRANDE FENÊTRE, SANS ONGLET (décision du 13/11/2026) : Statistiques,
@@ -2431,7 +2416,7 @@ export function App() {
                  création ouverte) : son nom redevient un cran, qui y ramène. */
               titreEnCran={suitePresente}
               onTitre={suitePresente ? () => retourDeLaSuite.current?.() : undefined}
-              suite={suiteDansLaBarreDuProjet ? null : <div ref={setCibleDeLaSuite} data-suite-du-fil="barre" className="contents" />}
+              suite={suiteDansLaBarreDuProjet ? null : <div ref={setCibleDuFilDeZone} data-suite-du-fil="barre" className="contents" />}
               /* SUR TÉLÉPHONE, DANS UN ENFANT DU SERVICE, la flèche de retour
                  prend la place du bouton des projets : elle remonte d'un cran,
                  et aucune page n'a plus de barre de retour à elle. */

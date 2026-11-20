@@ -1,8 +1,7 @@
 import * as React from 'react';
 import { ArrowLeft, ArrowRight, ArrowUp, ChevronDown, ChevronUp, Loader2 } from '@/components/ui/icones';
-import { pasDeLaBarreV2, type EtapeCommunicationV2, type EtapeV2, type GenreDeCoulisses } from '@beluga/shared';
+import { pasDeLaBarreV2, type EtapeCommunicationV2, type GenreDeCoulisses } from '@beluga/shared';
 import { Button } from '@/components/ui';
-import { type FormeDuRondDEtape } from '@/components/barre-etapes';
 import { JournalDeLAgent, useJournalDeLAgent } from '@/components/journal-de-l-agent';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -247,26 +246,6 @@ export function MotDuChef({ genres, cibles }: { genres: readonly GenreDeCoulisse
 }
 
 /**
- * LA FORME DU ROND D'UNE ÉTAPE, celle des barres d'étapes des agents (`RondDEtape` de barre-etapes) : plein et coché
- * une fois faite, cerclé avec son point là où l'on en est (une roue quand le chef y travaille), vide et pâle à venir.
- */
-export function formeDeLEtapeV2(e: Pick<EtapeV2, 'etat'>, chefDessus = false): FormeDuRondDEtape {
-  if (e.etat === 'fait') return 'faite';
-  if (chefDessus) return 'travail';
-  return e.etat === 'en_cours' ? 'ici' : 'avenir';
-}
-
-/** Les genres de coulisses qui travaillent CHAQUE étape : la roue tourne sur l'étape que le chef prépare. */
-const GENRES_DE_L_ETAPE: Record<EtapeCommunicationV2, readonly GenreDeCoulisses[]> = {
-  campagnes: ['canaux', 'campagnes', 'campagne', 'programme', 'programme-changer', 'visuels', 'retouche'],
-  connexion: [],
-  calendrier: ['calendrier'],
-};
-export function chefSurLEtape(genre: GenreDeCoulisses | null | undefined, etape: EtapeCommunicationV2): boolean {
-  return !!genre && GENRES_DE_L_ETAPE[etape].includes(genre);
-}
-
-/**
  * L'ÉTAT D'UNE PUBLICATION, en clair : à valider, validée, programmée, publiée, en échec — et « En fabrication »
  * (le Studio y travaille, en violet) ou « Au programme » (un brouillon qui attend la validation du programme).
  */
@@ -313,19 +292,6 @@ export function EtatDePublication({ etape, fabrication, envoiChrome }: { etape: 
 }
 
 export const nomDeLEtapeV2 = (id: EtapeCommunicationV2): string => ({ campagnes: t('Campagnes'), connexion: t('Connexion'), calendrier: t('Calendrier') })[id];
-
-/**
- * POURQUOI UNE ÉTAPE EST ENCORE FERMÉE (les étapes s'ouvrent dans l'ordre, `etapeQuiBloqueV2`) : l'étape à terminer
- * d'abord, en clair. Lue en infobulle sur l'étape pâle de la colonne et du menu du téléphone. Les phrases s'écrivent
- * ici en littéraux traduits (le dictionnaire ne lit que `t('…')`) ; la règle vit dans shared.
- */
-export function raisonDuVerrouV2(bloquante: EtapeCommunicationV2): string {
-  return ({
-    campagnes: t('Terminez d’abord une campagne : tous ses visuels faits.'),
-    connexion: t('Connectez d’abord au moins un réseau.'),
-    calendrier: '',
-  } as Record<EtapeCommunicationV2, string>)[bloquante];
-}
 
 /** Pourquoi « Suivant » est éteint, en clair (le texte de `RAISONS_DU_SUIVANT_BLOQUE`, traduit littéralement). */
 export function raisonDuSuivantEteint(page: EtapeCommunicationV2): string {

@@ -1300,6 +1300,25 @@ export function createHttpServer(): http.Server {
        * LE RELAIS DU MAC (`server/src/relais-mac.ts`, 13/11/2026) : AVANT le mur, comme l'extension Chrome — le relais
        * n'a pas de session. Le code à usage unique le relie ; ensuite chaque demande est signée par sa clé d'appareil.
        */
+      /*
+       * BELUGA CONNECT (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026) : l'application Mac signée et
+       * notarisée, téléchargée par le bouton « Installer sur ce Mac » de l'assistant, AVANT le mur (le Mac n'a pas de
+       * session ; l'archive ne contient aucun secret) ; `version` sert à sa mise à jour d'elle-même.
+       */
+      if (route === '/api/connect/Beluga-Connect.zip' || route === '/api/connect/version') {
+        const { archiveDeConnect } = await import('./relais-mac.js');
+        const a = archiveDeConnect();
+        if (!a) return json(res, 404, { ok: false, raison: 'Beluga Connect n’est pas encore fabriqué sur ce Beluga.' });
+        if (route === '/api/connect/version') return json(res, 200, { version: a.version, empreinte: a.empreinte, chemin: '/api/connect/Beluga-Connect.zip' });
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'content-length': a.zip.length,
+          'content-disposition': 'attachment; filename="Beluga-Connect.zip"',
+          'cache-control': 'no-store',
+        });
+        return res.end(a.zip);
+      }
+
       if (route.startsWith('/api/relais-mac/')) {
         const relaisMac = await import('./relais-mac.js');
         if (route === '/api/relais-mac/relier' && req.method === 'POST') {
@@ -1348,6 +1367,8 @@ export function createHttpServer(): http.Server {
             /* 20/11/2026 : version du relais et lanceur fixe (absents : relais d'avant, version 1). */
             version: q.has('v') ? Number(q.get('v')) || 1 : undefined,
             lanceur: q.get('lanceur') === '1',
+            /* Beluga Connect (20/11/2026) : sa version ; absente pour l'ancien « Beluga Relais ». */
+            connect: /^\d+(\.\d+){1,3}$/.test(q.get('connect') ?? '') ? q.get('connect')! : undefined,
           });
           return json(res, 200, commande ? { commande } : {});
         }
@@ -1359,6 +1380,20 @@ export function createHttpServer(): http.Server {
           if (!zip) return json(res, 404, { ok: false, raison: 'Paquet inconnu ou expiré.' });
           res.writeHead(200, { 'content-type': 'application/zip', 'content-length': zip.length, 'cache-control': 'no-store' });
           return res.end(zip);
+        }
+        /* Le menu de Beluga Connect : son état, et ses deux gestes (« Mettre à jour maintenant », « Réparer »). */
+        if (route === '/api/relais-mac/statut' && req.method === 'POST') {
+          return json(res, 200, await relaisMac.statutPourConnect(voie.appareilId, voie.compteId));
+        }
+        if (route === '/api/relais-mac/demande' && req.method === 'POST') {
+          let demande: Record<string, unknown> = {};
+          try {
+            demande = JSON.parse(corps || '{}');
+          } catch {
+            return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+          }
+          const r = await relaisMac.demandeDeConnect(voie.appareilId, voie.compteId, demande.quoi);
+          return json(res, r.ok ? 200 : 400, r.ok ? r : { ok: false, raison: r.texte });
         }
         if (route === '/api/relais-mac/reponse' && req.method === 'POST') {
           let reponse: Record<string, unknown> = {};

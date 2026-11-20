@@ -537,10 +537,35 @@ void chrome.storage.session.get('ouvertsALaMain').then(({ ouvertsALaMain: gardes
 });
 void reprendreLesGroupes();
 
+/*
+ * 1.0.12 — LA LIAISON POSÉE PAR BELUGA CONNECT (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026) : quand
+ * l'application du Mac installe l'extension, elle pose à côté d'elle `liaison.json` ({ code }), un code de liaison à
+ * usage unique émis par Beluga pour CET ordinateur. Tant qu'elle n'est pas reliée, l'extension le lit (au démarrage,
+ * puis à chaque réveil) et se relie seule : personne n'a de code à taper. Un code déjà essayé n'est jamais rejoué.
+ */
+async function lierParLeFichier() {
+  const { identifiant } = await liaison();
+  if (identifiant) return;
+  let fiche = null;
+  try {
+    const r = await fetch(chrome.runtime.getURL('liaison.json'), { cache: 'no-store' });
+    if (r.ok) fiche = await r.json();
+  } catch {
+    return;
+  }
+  const code = String(fiche?.code ?? '');
+  if (!/^\d{6}$/.test(code)) return;
+  const { liaisonEssayee } = await chrome.storage.local.get('liaisonEssayee');
+  if (liaisonEssayee === code) return;
+  await chrome.storage.local.set({ liaisonEssayee: code });
+  await relier(code).catch(() => {});
+}
+
+const seReveiller = () => void lierParLeFichier().finally(() => connecter());
 chrome.alarms.create('beluga-reveil', { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener((a) => a.name === 'beluga-reveil' && void connecter());
-chrome.runtime.onStartup.addListener(() => void connecter());
-void connecter();
+chrome.alarms.onAlarm.addListener((a) => a.name === 'beluga-reveil' && seReveiller());
+chrome.runtime.onStartup.addListener(seReveiller);
+seReveiller();
 
 /* ------------------------------------------------------------------ */
 /* La fenêtre et les groupes des agents                                 */

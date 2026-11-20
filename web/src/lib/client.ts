@@ -1,3 +1,4 @@
+import { EVENEMENT_MOUVEMENT_D_ARCHIVAGE } from './archivage-projet';
 import { noterUneCoupure } from './mesure-d-usage';
 import { EVENEMENT_OUVRIR_PUBLIER } from '@/lib/evenements-publier';
 import {
@@ -2256,6 +2257,9 @@ class Client {
         this.set((state) => ({ archivages: { ...state.archivages, [event.projectId]: transfert } }));
         break;
       }
+      case 'project.archivage.mouvement':
+        window.dispatchEvent(new CustomEvent(EVENEMENT_MOUVEMENT_D_ARCHIVAGE, { detail: event.projectId }));
+        break;
 
       case 'prefs':
         // Un réglage envoyé d'ici et pas encore confirmé ne recule pas. Un événement

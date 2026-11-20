@@ -82,6 +82,8 @@ export interface NavigateurDOrdinateur {
   vuLe: number | null;
   /** Les agents qui travaillent dans ce navigateur en ce moment. */
   agentsAuTravail: number;
+  /** Quand ce navigateur a été relié : l'assistant reconnaît la liaison faite avec SON code. */
+  creeLe?: number;
 }
 
 /**
@@ -99,6 +101,22 @@ export interface ProgrammeDuMac {
   vuLe: number | null;
   /** `null` : programme d'avant « Beluga Relais » (il ne rapporte rien), ou pas encore de nouvelles. */
   autorisations: AutorisationsDuMac | null;
+  /** La version de Beluga Connect qui joue ce programme ; `null`/absent : ancien « Beluga Relais ». */
+  connect?: string | null;
+  /** Beluga Connect prépare Chrome (écran 5 de l'assistant) ; `null` : rien en cours ni récent. */
+  preparation?: PreparationDeChrome | null;
+}
+
+/**
+ * LA PRÉPARATION DE CHROME PAR BELUGA CONNECT (carte « Liaison de l'extension Chrome simplifiée », 20/11/2026) :
+ * extension posée et ajoutée à Chrome (`ajoutee`, `null` tant que ce n'est pas tenté), puis reliée et autorisée en
+ * navigation privée — ces deux-là se lisent sur le navigateur relié lui-même. `message` : ce qui a bloqué.
+ */
+export interface PreparationDeChrome {
+  etat: 'en-cours' | 'fait' | 'echec';
+  ajoutee: boolean | null;
+  message: string | null;
+  depuis: number;
 }
 
 /** Les deux autorisations sont-elles données ? (Pour cocher l'étape de l'assistant.) */

@@ -8,14 +8,20 @@
  * remplace le contenu du MÊME dossier (même identifiant : liaison et autorisation de navigation privée gardées), puis
  * l'extension se recharge (1.0.11 et plus) ou Chrome est quitté proprement et rouvert (plus ancienne).
  *
- * Décision de l'utilisateur : SEUL la nuit (1 h – 6 h), sur un CLIC le jour (bannière orange en haut de l'application).
- * Jamais pendant qu'un agent travaille dans ce Chrome : la relance couperait sa séance.
+ * Décision de l'utilisateur (20/11/2026, carte « Liaison de l'extension Chrome simplifiée ») : TOUT DE SUITE dès
+ * qu'aucun agent ne travaille dans ce Chrome (extension 1.0.11 et plus, qui se recharge sans fermer les onglets) ; la
+ * relance de Chrome (plus ancienne) reste la nuit ou sur un clic. Jamais pendant qu'un agent travaille dans ce Chrome :
+ * la tournée repasse à la fin de sa séance (`apresUneSeance`), à chaque retour du Chrome ou du programme du Mac, et
+ * toutes les dix minutes. Une mise à jour faite seule s'annonce dans la bande en simple information (`avisDuCompte`).
  */
 import crypto from 'node:crypto';
 import {
   VERSION_EXTENSION_CHROME,
-  aMettreAJourCetteNuit,
+  aMettreAJourSeul,
+  avisDeLIssue,
+  echecRecent,
   faconDeRecharger,
+  type AvisDeMiseAJour,
   retardsDExtension,
   versionAuMoins,
   type ChromeAJuger,
@@ -39,7 +45,7 @@ export function paquetPreparePour(appareilRelais: string, jeton: string, mainten
   return p && p.appareilRelais === appareilRelais ? p.zip : null;
 }
 
-async function preparerLePaquet(appareilRelais: string): Promise<{ jeton: string; empreinte: string }> {
+export async function preparerLePaquet(appareilRelais: string): Promise<{ jeton: string; empreinte: string }> {
   const { paquetDeLExtension } = await import('./extension-chrome.js');
   let adresse = '';
   try {
@@ -104,11 +110,45 @@ export async function retardsDuCompte(compteId: string, maintenant = Date.now())
   } catch {
     /* base pas encore migrée */
   }
-  return retardsDExtension(chromes, VERSION_EXTENSION_CHROME, programmes, maintenant).map((r) => ({
+  const echecs = new Set<string>();
+  try {
+    for (const l of getDb().prepare('SELECT id, mise_a_jour_le, mise_a_jour_issue FROM chrome_appareils WHERE compte_id = ? AND revoque_le IS NULL').all(compteId) as {
+      id: string;
+      mise_a_jour_le: number | null;
+      mise_a_jour_issue: string | null;
+    }[]) {
+      if (echecRecent(l.mise_a_jour_issue, l.mise_a_jour_le, maintenant)) echecs.add(l.id);
+    }
+  } catch {
+    /* base pas encore migrée */
+  }
+  return retardsDExtension(chromes, VERSION_EXTENSION_CHROME, programmes, maintenant, echecs).map((r) => ({
     ...r,
     nom: (r.ordinateurId && noms.get(r.ordinateurId)) || r.nom,
     enCours: enCours.has(r.chromeId),
   }));
+}
+
+/**
+ * LES MISES À JOUR FAITES SEULES du compte, pour la bande d'information : une réussite automatique de moins d'un jour,
+ * sur un Chrome encore relié, au nom de son ORDINATEUR. La page retire l'avis une fois vu (Chrome + version).
+ */
+export function avisDuCompte(compteId: string, maintenant = Date.now()): AvisDeMiseAJour[] {
+  try {
+    const lignes = getDb()
+      .prepare(
+        `SELECT c.id, c.nom, c.mise_a_jour_le, c.mise_a_jour_issue, o.nom AS ordinateur
+           FROM chrome_appareils c LEFT JOIN ordinateurs o ON o.id = c.ordinateur_id
+          WHERE c.compte_id = ? AND c.revoque_le IS NULL AND c.mise_a_jour_le IS NOT NULL`,
+      )
+      .all(compteId) as { id: string; nom: string; mise_a_jour_le: number; mise_a_jour_issue: string | null; ordinateur: string | null }[];
+    return lignes.flatMap((l) => {
+      const avis = avisDeLIssue(l.mise_a_jour_issue, l.mise_a_jour_le, maintenant);
+      return avis ? [{ chromeId: l.id, nom: l.ordinateur || l.nom, version: avis.version, faiteLe: l.mise_a_jour_le }] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 /** Le Chrome s'est (re)connecté : un retour attendu se résout, et une autorisation donnée lève l'attente du suivi GEO. */
@@ -118,6 +158,8 @@ export function chromeRevenu(chromeId: string, version: string | null): void {
     retours.delete(chromeId);
     attente(version);
   }
+  /* Un Chrome en retard qui revient : la mise à jour part tout de suite s'il n'a pas d'agent au travail. */
+  if (!versionAuMoins(version, VERSION_EXTENSION_CHROME)) bientot();
   try {
     const ligne = getDb().prepare('SELECT incognito FROM chrome_appareils WHERE id = ?').get(chromeId) as { incognito: number | null } | undefined;
   } catch {
@@ -143,9 +185,10 @@ export type IssueDeMiseAJour = { ok: true; version: string; texte: string } | { 
 
 /**
  * METTRE À JOUR L'EXTENSION D'UN CHROME par le programme de son Mac, puis attendre qu'il revienne en version neuve.
- * `origine` : « clic » (bannière, le jour) ou « nuit » (tournée de 1 h – 6 h).
+ * `origine` : « clic » (bande, menu de Beluga Connect), « auto » (tournée, dès qu'aucun agent ne travaille) ou « nuit »
+ * (relance de Chrome, de 1 h à 6 h).
  */
-export async function mettreAJourLExtension(compteId: string, chromeId: string, origine: 'clic' | 'nuit'): Promise<IssueDeMiseAJour> {
+export async function mettreAJourLExtension(compteId: string, chromeId: string, origine: 'clic' | 'nuit' | 'auto'): Promise<IssueDeMiseAJour> {
   const ligne = ligneDuChrome(chromeId);
   if (!ligne || ligne.compte_id !== compteId) return { ok: false, texte: 'Ce Chrome n’est plus relié.' };
   if (versionAuMoins(ligne.version, VERSION_EXTENSION_CHROME)) return { ok: true, version: ligne.version!, texte: 'L’extension est déjà à jour.' };
@@ -219,35 +262,60 @@ export async function ouvrirLesReglagesDeLExtension(compteId: string, chromeId: 
 }
 
 /**
- * LA TOURNÉE DE NUIT : chaque Chrome en retard de version, dont le programme du Mac répond et où aucun agent ne
- * travaille, est mis à jour seul — au plus une fois toutes les six heures. Le jour, rien : la bannière attend le clic.
+ * LA TOURNÉE DES MISES À JOUR : chaque Chrome en retard de version, dont le programme du Mac répond et où aucun agent ne
+ * travaille, est mis à jour seul (`aMettreAJourSeul` : tout de suite s'il se recharge, la nuit s'il faut relancer
+ * Chrome), au plus une fois toutes les trente minutes après un échec. Une seule tournée à la fois.
  */
-export async function tourneeDeNuit(maintenant = Date.now()): Promise<number> {
+let tourneeEnCours = false;
+export async function tourneeDesMisesAJour(maintenant = Date.now()): Promise<number> {
+  if (tourneeEnCours) return 0;
+  tourneeEnCours = true;
   let comptes: string[] = [];
   try {
     comptes = (getDb().prepare('SELECT DISTINCT compte_id FROM chrome_appareils WHERE revoque_le IS NULL').all() as { compte_id: string }[]).map((l) => l.compte_id);
   } catch {
+    tourneeEnCours = false;
     return 0;
   }
   let faits = 0;
-  for (const compteId of comptes) {
-    for (const r of await retardsDuCompte(compteId, maintenant)) {
-      const ligne = ligneDuChrome(r.chromeId);
-      const { chromesDuCompte } = await import('./extension-chrome.js');
-      const agents = chromesDuCompte(compteId).find((c) => c.id === r.chromeId)?.agentsAuTravail ?? 0;
-      if (!aMettreAJourCetteNuit(r, agents, ligne?.mise_a_jour_le ?? null, maintenant)) continue;
-      const issue = await mettreAJourLExtension(compteId, r.chromeId, 'nuit');
-      if (issue.ok) faits += 1;
+  try {
+    const { chromesDuCompte } = await import('./extension-chrome.js');
+    for (const compteId of comptes) {
+      for (const r of await retardsDuCompte(compteId, maintenant)) {
+        if (r.enCours) continue;
+        const ligne = ligneDuChrome(r.chromeId);
+        const agents = chromesDuCompte(compteId).find((c) => c.id === r.chromeId)?.agentsAuTravail ?? 0;
+        if (!aMettreAJourSeul(r, agents, ligne?.mise_a_jour_le ?? null, maintenant)) continue;
+        const issue = await mettreAJourLExtension(compteId, r.chromeId, faconDeRecharger(r.version) === 'extension' ? 'auto' : 'nuit');
+        if (issue.ok) faits += 1;
+      }
     }
+  } finally {
+    tourneeEnCours = false;
   }
   return faits;
 }
 
+/** Ancien nom, gardé pour les appelants (suivi GEO) : la tournée ne dépend plus de la nuit. */
+export const tourneeDeNuit = tourneeDesMisesAJour;
+
+let prochaine: NodeJS.Timeout | null = null;
+/** Une tournée dans quelques secondes (regroupe les déclencheurs rapprochés : retour du Chrome, fin de séance…). */
+export function bientot(delaiMs = 5_000): void {
+  if (prochaine) return;
+  prochaine = setTimeout(() => {
+    prochaine = null;
+    void tourneeDesMisesAJour().catch((e) => log.warn('mise à jour automatique de l’extension', String(e?.message ?? e)));
+  }, delaiMs);
+  prochaine.unref();
+}
+
 let minuterie: NodeJS.Timeout | null = null;
 
-/** Toutes les quinze minutes, la tournée regarde s'il fait nuit (elle ne fait rien le jour). */
+/** Toutes les dix minutes, et une première fois une minute après le démarrage du démon. */
 export function planifierLaMiseAJourDeNuit(): void {
   if (minuterie) return;
-  minuterie = setInterval(() => void tourneeDeNuit().catch((e) => log.warn('mise à jour de nuit de l’extension', String(e?.message ?? e))), 15 * 60_000);
+  minuterie = setInterval(() => bientot(0), 10 * 60_000);
   minuterie.unref();
+  bientot(60_000);
 }

@@ -22,6 +22,50 @@ import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { ARCHIVAGE_AUTO_JOURS_PAR_DEFAUT } from '@beluga/shared';
+
+/**
+ * LE DÉLAI DE L'ARCHIVAGE AUTOMATIQUE (20/11/2026) : réglé UNE fois pour tous les projets. Un projet sans tâche
+ * depuis ce nombre de jours part seul, la nuit, sur le disque de stockage ; 0 coupe l'archivage automatique.
+ * Chaque projet peut s'en exempter dans sa rubrique « Archivage ».
+ */
+function DelaiDArchivageAuto() {
+  const settings = useApp().settings as { archivageAutoJours?: number } | null;
+  const jours = settings?.archivageAutoJours ?? ARCHIVAGE_AUTO_JOURS_PAR_DEFAUT;
+  const [saisie, setSaisie] = React.useState(String(jours));
+  React.useEffect(() => setSaisie(String(jours)), [jours]);
+  const enregistrer = () => {
+    const n = Math.max(0, Math.min(3650, Math.round(Number(saisie.replace(',', '.')))));
+    if (!Number.isFinite(n)) return setSaisie(String(jours));
+    setSaisie(String(n));
+    if (n !== jours) void client.geste({ type: 'settings.update', patch: { archivageAutoJours: n } }, t('Enregistrement du réglage'));
+  };
+  return (
+    <div data-delai-archivage-auto className="space-y-1">
+      <p className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        {t('Archivage automatique')}
+        <BulleInfo cote="start">
+          {t('Chaque nuit, un projet sans aucune tâche depuis ce nombre de jours part sur le disque de stockage, sauf s’il sert un site en ligne, qu’un agent y travaille ou qu’il en est exempté dans sa rubrique « Archivage ». 0 coupe l’archivage automatique.')}
+        </BulleInfo>
+      </p>
+      <div className="flex items-center gap-2 text-[13.5px] text-muted">
+        <span>{t('Après')}</span>
+        <Input
+          className="w-20"
+          inputMode="numeric"
+          value={saisie}
+          onChange={(e) => setSaisie(e.target.value.replace(/[^\d]/g, ''))}
+          onBlur={enregistrer}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          data-champ-delai-archivage
+        />
+        <span>{t('jours sans tâche')}</span>
+      </div>
+    </div>
+  );
+}
 
 /**
  * LA RUBRIQUE « PROJETS » DES RÉGLAGES — réunir plusieurs projets sous un nom
@@ -94,6 +138,7 @@ export function PageProjetsReunis() {
         />
         {t('Ranger la colonne de gauche par dernière ouverture')}
       </label>
+      <DelaiDArchivageAuto />
       <div>
         <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
           <FolderTree className="h-3.5 w-3.5 text-faint" />
