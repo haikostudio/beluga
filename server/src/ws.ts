@@ -4526,6 +4526,19 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const { etatDeLExtension } = await import('./extension-chrome.js');
       return etatDeLExtension(compte);
     }
+    case 'extension.retards': {
+      const { retardsDuCompte } = await import('./mise-a-jour-extension.js');
+      return { retards: await retardsDuCompte(compte.id) };
+    }
+    case 'extension.mettreAJour': {
+      const { mettreAJourLExtension } = await import('./mise-a-jour-extension.js');
+      return mettreAJourLExtension(compte.id, cmd.chromeId, 'clic');
+    }
+    case 'extension.ouvrirReglages': {
+      const { ouvrirLesReglagesDeLExtension } = await import('./mise-a-jour-extension.js');
+      await ouvrirLesReglagesDeLExtension(compte.id, cmd.chromeId);
+      return { ok: true };
+    }
     case 'extension.code': {
       const { emettreUnCodeDeLiaison } = await import('./extension-chrome.js');
       return emettreUnCodeDeLiaison(compte.id, Date.now(), { ordinateurId: cmd.ordinateurId ?? null, nom: cmd.nom?.trim() || null });
@@ -5823,7 +5836,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
     case 'voix.direct.arreter': {
       const { arreterLeDirect } = await import('./voix-directe.js');
-      return arreterLeDirect(cmd.raison);
+      return arreterLeDirect(cmd.raison, { garderLeTravail: cmd.garderLeTravail === true });
+    }
+    case 'voix.direct.repondre': {
+      const { repondreALaConfirmation } = await import('./voix-directe.js');
+      return repondreALaConfirmation(cmd.id, cmd.reponse);
     }
     case 'voix.direct.saluer': {
       const { saluerLeDirect } = await import('./voix-directe.js');

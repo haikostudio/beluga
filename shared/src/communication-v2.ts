@@ -13,7 +13,7 @@ import { decalerJour, lundiDeLaSemaine } from './communication.js';
  */
 
 /* ------------------------------------------------------------------ */
-/* L'adresse : #communication2/<marque>/<étape>/<élément…>              */
+/* L'adresse : #communication/<marque>/<étape>/<élément…>               */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -45,7 +45,7 @@ export interface EmplacementCommunicationV2 {
   element?: string[];
 }
 
-/** Le chemin écrit après « #communication2/ ». Sans page, la marque s'ouvre sur ses campagnes (`PAGE_D_OUVERTURE_V2`). */
+/** Le chemin écrit après « #communication/ ». Sans page, la marque s'ouvre sur ses campagnes (`PAGE_D_OUVERTURE_V2`). */
 export function cheminCommunicationV2(e: EmplacementCommunicationV2): string {
   if (!e.marqueId) return '';
   const reste = e.element?.filter(Boolean) ?? [];
@@ -78,6 +78,23 @@ export function cheminDeLAncienneCommunication(chemin: string | null | undefined
       return marqueId;
   }
 }
+/**
+ * LE CHEMIN LU APRÈS « #communication/ » (20/11/2026) : ce mot est redevenu celui du service, et son chemin est celui
+ * d'aujourd'hui (`cheminCommunicationV2`). Seuls les lieux que l'ANCIEN espace était seul à écrire — les publications,
+ * les messages, les commentaires, la fiche d'un canal (« canaux/<canal> ») — sont encore traduits : un lien parti avant
+ * le 11/11/2026 tombe toujours au bon endroit, et un lien d'aujourd'hui n'est jamais réinterprété.
+ */
+export function cheminDeCommunicationLu(chemin: string | null | undefined): string {
+  const morceaux = String(chemin ?? '')
+    .split('/')
+    .filter(Boolean);
+  const [, lieu, premier] = morceaux;
+  /* Un lieu d'aujourd'hui (une page, ou l'ancienne page « plan » que `lireCheminCommunicationV2` corrige) passe tel
+     quel ; tout autre lieu (publications, messages, commentaires, médias…) est un lieu de l'ancien espace. */
+  const daujourdhui = !lieu || lieu === 'plan' || (estPageCommunicationV2(lieu) && (lieu !== 'canaux' || premier === 'reglages'));
+  return daujourdhui ? morceaux.join('/') : cheminDeLAncienneCommunication(morceaux.join('/'));
+}
+
 /**
  * UNE ANCIENNE ADRESSE DE LA PAGE « PLAN MARKETING » (retirée le 08/11/2026) s'ouvre sur les campagnes — jamais un
  * écran vide.

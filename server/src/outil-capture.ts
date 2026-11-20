@@ -219,7 +219,7 @@ function projetDesigne(designation: string) {
  */
 async function pdfDansLeFil(ctx: ToolContext, p: Plaquette, debut: string): Promise<ToolResult> {
   const fiche = ficheDeLaPlaquette(p.id)!;
-  const adresse = `#plaquettes/${ctx.projectId}/${p.id}`;
+  const adresse = `#charte/${ctx.projectId}/${p.id}`;
   const lien = `- Lien privé pour le client (ne l’envoie PAS toi-même) : ${fiche.lien}`;
   const r = await fabriquerLePdf(p.id);
   if (!r.ok) {

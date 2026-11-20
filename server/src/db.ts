@@ -5575,6 +5575,23 @@ export const MIGRATIONS: {
       ) WHERE role = 'admin';
     `,
   },
+  {
+    id: 182,
+    name: 'extension-autorisee-en-prive',
+    siTable: ['chrome_appareils'],
+    /*
+     * L'EXTENSION DIT SON ÉTAT (carte « Extension à jour et Jarvis tout en voix », 20/11/2026) : à partir de la 1.0.11,
+     * chaque Chrome relié rapporte s'il est autorisé en navigation privée (`incognito` 1/0, NULL = ne le dit pas) et
+     * l'identifiant de l'extension (`extension_id`), que le programme du Mac utilise pour trouver son dossier.
+     * Chaque mise à jour tentée par Beluga laisse sa date (`mise_a_jour_le`) et son issue (`mise_a_jour_issue`).
+     */
+    sql: `
+      ALTER TABLE chrome_appareils ADD COLUMN incognito INTEGER;
+      ALTER TABLE chrome_appareils ADD COLUMN extension_id TEXT;
+      ALTER TABLE chrome_appareils ADD COLUMN mise_a_jour_le INTEGER;
+      ALTER TABLE chrome_appareils ADD COLUMN mise_a_jour_issue TEXT;
+    `,
+  },
 ];
 
 export function openDb(): DB {

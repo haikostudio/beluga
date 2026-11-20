@@ -1,3 +1,4 @@
+import { useVoixDisponible } from '@/lib/voix-disponible';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCw, X } from '@/components/ui/icones';
@@ -52,6 +53,15 @@ const SANS_CIBLE = () => null;
  * comme les tiroirs (`--zone-sure-haut`, `--clavier`) : la fenêtre ne passe plus jamais sous la barre d'état.
  */
 export function AssistantGlobal() {
+  /* LE VOLET N'EXISTE QUE SANS LA VOIX (décision de l'utilisateur, 20/11/2026) : voix éteinte dans les réglages, ou aucun
+     compte ChatGPT relié. Avec la voix, tout se passe dans les bulles du mode vocal ; Jarvis et ce volet ont les mêmes
+     outils (le pont de Beluga) : ils sont complémentaires, jamais affichés ensemble. */
+  const { disponible } = useVoixDisponible();
+  if (disponible) return null;
+  return <VoletDeLAssistantGlobal />;
+}
+
+function VoletDeLAssistantGlobal() {
   const state = useApp();
   const { retenu, retenir: setBrut, agent: agentDuMagasin, agentId: agentDeLaVoix } = useEtatAssistant();
   const [geste, setGeste] = React.useState<ChatAssistant | null>(null);

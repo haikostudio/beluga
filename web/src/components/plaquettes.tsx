@@ -51,7 +51,7 @@ import { BoutonsRadio, CaseACocher, ChoixDeCouleur } from '@/components/ui/eleme
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { CranDuFil, GestesDePage, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { PastilleProjet } from '@/components/pastille-projet';
-import { SilhouetteConversation, SilhouetteTachesRecurrentes } from '@/components/silhouettes';
+import { SilhouetteConversation, SilhouetteTableauDeService, SilhouetteTachesRecurrentes } from '@/components/silhouettes';
 import { adresseDePiece, ImageDePiece } from '@/components/pastille-de-fichier';
 import { libelleDuFormat, VignetteDePlaquette } from '@/components/carte-de-plaquette';
 import { DocumentModifiable, type PoigneeDuLecteur } from '@/components/plaquette-editeur';
@@ -343,9 +343,10 @@ export function Plaquettes({
             void creerUnAgentDeType('charte', { projectId: projetDuService.id }, () => {}).finally(() => setCreationEnCours(false));
           }}
           /* « VOIR TOUS LES PROJETS » (carte « Charte FishFlow introuvable », 17/11/2026) : la charte d'un autre projet
-             existe peut-être — l'adresse « #plaquettes » rouvre la page sur tous les projets. */
+             existe peut-être — l'adresse « #charte » rouvre la page sur tous les projets. */
+          fond={<SilhouetteTableauDeService lignes={8} />}
           actionSecondaire={t('Voir tous les projets')}
-          onActionSecondaire={() => naviguerVers('#plaquettes')}
+          onActionSecondaire={() => naviguerVers('#charte')}
           data-plaquettes-vide-projet
         />
       </Drawer>
@@ -398,11 +399,11 @@ export function Plaquettes({
                 </BasculeDePage>
               ) : null}
               <ZoneDefilement className="min-h-0 flex-1 pb-8">
-                {liste === null ? <SilhouetteTachesRecurrentes /> : <>{filtre}{vide ?? (vueDeLaListe === 'tableau' ? tableau : grilleDesDocuments)}</>}
+                {liste === null ? <SilhouetteTableauDeService lignes={3} zone="charte-liste" /> : <>{filtre}{vide ?? (vueDeLaListe === 'tableau' ? tableau : grilleDesDocuments)}</>}
               </ZoneDefilement>
             </>
           ) : liste === null ? (
-            <SilhouetteTachesRecurrentes />
+            <SilhouetteTableauDeService lignes={3} zone="charte-liste" />
           ) : (
             <div className="flex flex-1 items-center justify-center">{vide}</div>
           )}

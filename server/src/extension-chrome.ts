@@ -204,6 +204,8 @@ interface LigneAppareil {
   cree_le: number;
   vu_le: number | null;
   revoque_le: number | null;
+  incognito?: number | null;
+  extension_id?: string | null;
 }
 
 function appareilsDuCompte(compteId: string): LigneAppareil[] {
@@ -226,6 +228,7 @@ export function chromesDuCompte(compteId: string): ChromeRelie[] {
     id: a.id,
     nom: a.nom,
     version: connexions.get(a.id)?.version ?? a.version,
+    incognito: connexions.get(a.id)?.incognito ?? (a.incognito === 1 ? true : a.incognito === 0 ? false : null),
     creeLe: a.cree_le,
     vuLe: connexions.has(a.id) ? Date.now() : a.vu_le,
     enLigne: chromeEnLigne(a.id),
@@ -354,6 +357,8 @@ interface Connexion {
   appareilId: string;
   compteId: string;
   version: string | null;
+  /** Autorisée en navigation privée, telle que l'extension le dit (1.0.11 et plus) ; `null` sinon. */
+  incognito: boolean | null;
   vu: number;
   attentes: Map<string, Attente>;
 }
@@ -374,16 +379,19 @@ export function unChromeEstEnLigne(): boolean {
  * LES CHROME ALLUMÉS DONT L'EXTENSION EST TROP ANCIENNE pour une fenêtre privée (audit GEO, 19/11/2026) : leur nom et
  * leur version, pour dire quoi mettre à jour. Vide quand au moins un Chrome allumé est à jour (`aJour`).
  */
-export function chromesAllumesTropAnciens(aJour: (version: string | null) => boolean): { aJour: boolean; tropAnciens: string[] } {
+export function chromesAllumesTropAnciens(aJour: (version: string | null) => boolean): { aJour: boolean; tropAnciens: string[]; sansAutorisation: boolean } {
   const allumes = [...connexions.values()].filter((c) => chromeEnLigne(c.appareilId));
-  if (allumes.some((c) => aJour(c.version))) return { aJour: true, tropAnciens: [] };
+  const capables = allumes.filter((c) => aJour(c.version));
+  /* À jour, mais l'extension DIT ne pas être autorisée en navigation privée (1.0.11 et plus) : la séance attend la case. */
+  if (capables.length && capables.every((c) => c.incognito === false)) return { aJour: true, tropAnciens: [], sansAutorisation: true };
+  if (capables.length) return { aJour: true, tropAnciens: [], sansAutorisation: false };
   const noms = new Map<string, string>();
   try {
     for (const l of getDb().prepare('SELECT id, nom FROM chrome_appareils WHERE revoque_le IS NULL').all() as { id: string; nom: string }[]) noms.set(l.id, l.nom);
   } catch {
     /* sans base lisible, on dit seulement la version */
   }
-  return { aJour: false, tropAnciens: allumes.map((c) => `« ${noms.get(c.appareilId) ?? 'Chrome'} » (version ${c.version ?? 'inconnue'})`) };
+  return { aJour: false, tropAnciens: allumes.map((c) => `« ${noms.get(c.appareilId) ?? 'Chrome'} » (version ${c.version ?? 'inconnue'})`), sansAutorisation: false };
 }
 
 function envoyer(c: Connexion, message: unknown): void {
@@ -419,7 +427,7 @@ export function attacherLaVoieChrome(): WebSocketServer {
   wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, porte: { appareilId: string; compteId: string }) => {
     const ancienne = connexions.get(porte.appareilId);
     if (ancienne) ancienne.ws.close(4000, 'remplacée');
-    const c: Connexion = { ws, appareilId: porte.appareilId, compteId: porte.compteId, version: null, vu: Date.now(), attentes: new Map() };
+    const c: Connexion = { ws, appareilId: porte.appareilId, compteId: porte.compteId, version: null, incognito: null, vu: Date.now(), attentes: new Map() };
     connexions.set(porte.appareilId, c);
     bus.emit({ type: 'extension.change' });
     envoyer(c, { type: 'bienvenue', version: VERSION_EXTENSION_CHROME, battementMs: BATTEMENT_EXTENSION_MS, langue: String(store.readPreference('langue') ?? 'fr') });
@@ -462,7 +470,14 @@ async function recevoir(c: Connexion, m: any): Promise<void> {
   if (m.type === 'bonjour') {
     c.version = typeof m.version === 'string' ? m.version.slice(0, 20) : null;
     const nom = typeof m.nom === 'string' && m.nom.trim() ? m.nom.trim().slice(0, 60) : null;
-    getDb().prepare('UPDATE chrome_appareils SET version = COALESCE(?, version), nom = COALESCE(?, nom) WHERE id = ?').run(c.version, nom, c.appareilId);
+    /* 1.0.11 : l'autorisation de navigation privée et l'identifiant de l'extension (absents avant : NULL gardé). */
+    c.incognito = typeof m.incognito === 'boolean' ? m.incognito : null;
+    const extensionId = typeof m.extensionId === 'string' && /^[a-p]{32}$/.test(m.extensionId) ? m.extensionId : null;
+    getDb()
+      .prepare('UPDATE chrome_appareils SET version = COALESCE(?, version), nom = COALESCE(?, nom), incognito = ?, extension_id = COALESCE(?, extension_id) WHERE id = ?')
+      .run(c.version, nom, c.incognito === null ? null : c.incognito ? 1 : 0, extensionId, c.appareilId);
+    bus.emit({ type: 'extension.change' });
+    void import('./mise-a-jour-extension.js').then((m2) => m2.chromeRevenu(c.appareilId, c.version)).catch(() => {});
     return;
   }
   if (m.type === 'resultat' && typeof m.id === 'string') {

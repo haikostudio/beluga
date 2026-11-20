@@ -16,6 +16,7 @@
  * module de voix (`voix-assistant.tsx`) garde le micro, l'attente du mot, le direct et la veille.
  */
 import * as React from 'react';
+import { Loader2 } from '@/components/ui/icones';
 import {
   CLE_BORD_ORDINATEUR,
   CLE_BORD_TELEPHONE,
@@ -303,7 +304,13 @@ export function JarvisNatif(p: ProprietesJarvisNatif) {
             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
             style={{ width: CIBLE, height: CIBLE }}
           />
-          <IconeTroisBarres vivante={p.conversation || !!p.travaille} />
+          {/* JARVIS TRAVAILLE (décision de l'utilisateur, 20/11/2026) : hors conversation, un rond de chargement remplace les
+              trois barres tant que son travail dure — veille comprise. Même icône que le reste de l'application. */}
+          {p.travaille && !p.conversation ? (
+            <Loader2 data-jarvis-travaille aria-hidden className="h-[18px] w-[18px] animate-spin" />
+          ) : (
+            <IconeTroisBarres vivante={p.conversation} />
+          )}
           {!p.voletOuvert && (p.questions ?? 0) > 0 ? (
             /* DANS l'arrondi du « D », au-dessus de la barre de droite, sans toucher celle du milieu (côté gauche
                quand le bouton est au bord droit, l'arrondi y étant à gauche). */

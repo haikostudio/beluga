@@ -30,7 +30,7 @@
 
 import { VUES_CENTRALES, type VueCentrale } from './vue-centrale.js';
 import { RUBRIQUE_CONFIG_PAR_DEFAUT } from './config-projet-rubriques.js';
-import { cheminDeLAncienneCommunication } from './communication-v2.js';
+import { cheminDeCommunicationLu } from './communication-v2.js';
 
 /** Un tableau de bord, avec sa carte ouverte par-dessus quand il y en a une. */
 type CarteSurTableauDeBord<V extends 'tableau-de-bord' | 'en-route'> = {
@@ -78,10 +78,11 @@ type EcranDeBase =
   | { vue: 'surveillance'; siteId?: string }
   /* LA SÉCURITÉ : la liste des projets suivis, ou la page d'un projet (« #securite/<projet> »). */
   | { vue: 'securite'; projetId?: string }
-  /* L'atelier Réseaux sociaux, ouvert sur UN projet : « #reseaux-sociaux/<projet> » (vue interne « marketing » ;
-     l'ancienne adresse « #marketing/<projet> » reste LUE, pour les liens déjà partis). */
+  /* L'atelier Réseaux sociaux (retiré : il mène à Communication), « #reseaux-sociaux/<projet> » (vue interne
+     « marketing »). Le mot « marketing » de l'adresse appartient désormais au service Marketing (voir plus bas). */
   | { vue: 'marketing'; projectId?: string }
-  /* Communication 2 : « #communication2/<marque>/<étape>/<élément…> » (`shared/src/communication-v2.ts`). */
+  /* Communication : « #communication/<marque>/<étape>/<élément…> » (vue interne `communication2`,
+     `shared/src/communication-v2.ts`) ; l'ancien « #communication2/… » y mène. */
   | { vue: 'communication2'; chemin?: string }
   /* Le Studio, ouvert sur UNE création : « #studio/<création> ». */
   | { vue: 'studio'; creationId?: string }
@@ -92,9 +93,9 @@ type EcranDeBase =
   /* Les tâches récurrentes d'UN projet, et la veille ouverte dans son tiroir :
      « #taches-recurrentes/<projet>/veille/<veille> ». */
   | { vue: 'taches-recurrentes'; projectId?: string; veilleId?: string }
-  /* LES PLAQUETTES CLIENT (carte « Refonte de l'espace Plaquettes ») : toutes (« #plaquettes »), filtrées sur un projet
-     (« #plaquettes/<projet> »), et celle ouverte dans son tiroir (« #plaquettes/<projet>/<plaquette> », ou
-     « #plaquettes/tous/<plaquette> » quand la liste n'est pas filtrée). */
+  /* LA CHARTE GRAPHIQUE (vue interne `plaquettes`) : toutes (« #charte »), filtrées sur un projet (« #charte/<projet> »),
+     et celle ouverte (« #charte/<projet>/<plaquette> », ou « #charte/tous/<plaquette> » quand la liste n'est pas
+     filtrée). L'ancien mot « plaquettes » reste lu. */
   | { vue: 'plaquettes'; projectId?: string; plaquetteId?: string }
   /*
    * L'ESPACE CLIENT, OUVERT SUR UNE FICHE. C'est l'adresse que portent les
@@ -116,7 +117,19 @@ type EcranDeBase =
  * d'historique, Précédent referme celui du dessus. Un nom inconnu est ignoré à
  * la lecture par le composant qui n'existe pas, jamais bloquant.
  */
-export type EcranNavigateur = EcranDeBase & { tiroirs?: string[] };
+export type EcranNavigateur = EcranDeBase & {
+  tiroirs?: string[];
+  /**
+   * LA PORTÉE D'UNE PAGE DE SERVICE (carte « Services et fils d'Ariane fiables », 20/11/2026) : le projet auquel la
+   * page se limite, choisi dans le fil d'Ariane. Absente : TOUS les projets. Elle s'écrit à la fin de l'adresse,
+   * « #communication?projet=<id> », pour qu'un rechargement ou un lien partagé redonne exactement le même écran — elle
+   * ne vit plus dans un état caché (le dernier projet touché), qui faisait dire à un service « rien ici » à tort.
+   */
+  portee?: string;
+};
+
+/** La marque de la portée, à la toute fin de l'adresse. */
+const MARQUE_PORTEE = '?projet=';
 
 /**
  * LA PILE S'ÉCRIT EN SEGMENTS ORDINAIRES, APRÈS L'ÉCRAN :
@@ -163,6 +176,34 @@ function couperLesTiroirs(complet: string): { base: string; noms: string[] } {
  * mot « marketing » reste lu comme un alias (`lireFragment`).
  */
 export const ADRESSE_RESEAUX_SOCIAUX = 'reseaux-sociaux';
+
+/**
+ * LES MOTS DE L'ADRESSE DES SERVICES PORTENT LE NOM DU SERVICE, SANS CHIFFRE (décision de l'utilisateur du 20/11/2026,
+ * carte « Services et fils d'Ariane fiables ») : « #marketing », « #communication », « #charte ». Les vues INTERNES
+ * gardent leur identifiant (`marketing2`, `communication2`, `plaquettes`) ; seul le mot écrit change. Les anciens mots
+ * (« marketing2 », « strategie », « communication2 », « plaquettes ») restent LUS, pour les liens déjà partis
+ * (courriels, notifications, onglets retenus), et l'application réécrit l'adresse dans sa forme neuve.
+ */
+export const ADRESSE_MARKETING = 'marketing';
+export const ADRESSE_COMMUNICATION = 'communication';
+export const ADRESSE_CHARTE = 'charte';
+
+/** Les anciens mots d'adresse d'un service et leur mot d'aujourd'hui. */
+const ANCIENS_MOTS_DE_SERVICE: Readonly<Record<string, string>> = {
+  marketing2: ADRESSE_MARKETING,
+  communication2: ADRESSE_COMMUNICATION,
+  plaquettes: ADRESSE_CHARTE,
+};
+
+/**
+ * UNE ADRESSE RETENUE (onglet d'un projet, lien d'agent) DANS SA FORME NEUVE : seul le mot du service change
+ * (« communication2/m/campagnes/c » → « communication/m/campagnes/c »), le chemin reste tel quel. Sans « # ».
+ */
+export function adresseAuMotDuJour(adresse: string): string {
+  const [tete, ...reste] = adresse.split('/');
+  const neuf = tete ? ANCIENS_MOTS_DE_SERVICE[tete] : undefined;
+  return neuf ? [neuf, ...reste].join('/') : adresse;
+}
 
 /** La vue d'adresse qui correspond à chaque destination de la colonne. */
 const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
@@ -236,15 +277,20 @@ export function slugTitre(titre: string): string {
  * Le fragment (sans le « # ») qui décrit un écran. L'appelant y met le « # »
  * lui-même. Un écran d'accueil rend une chaîne vide.
  */
-/** Le segment d'une plaquette ouverte sans filtre de projet (« #plaquettes/tous/<plaquette> »). */
+/** Le segment d'une plaquette ouverte sans filtre de projet (« #charte/tous/<plaquette> »). */
 const TOUTES_LES_PLAQUETTES = 'tous';
 
-export function construireFragment(ecran: EcranNavigateur): string {
+export function construireFragment(ecranDemande: EcranNavigateur): string {
+  /* LA CHARTE DIT SA PORTÉE DANS SON CHEMIN (« #charte/<projet> », 17/11/2026) : une portée posée sur elle y passe. */
+  const ecran: EcranNavigateur =
+    ecranDemande.vue === 'plaquettes' && ecranDemande.portee
+      ? { ...ecranDemande, portee: undefined, ...(ecranDemande.projectId ? {} : { projectId: ecranDemande.portee }) }
+      : ecranDemande;
   const base = construireFragmentSansTiroirs(ecran);
   const tiroirs = (ecran.tiroirs ?? []).filter(nomDeTiroirValide);
-  if (!tiroirs.length) return base;
   const pile = [SEGMENT_TIROIRS, ...tiroirs].join('/');
-  return base ? `${base}/${pile}` : pile;
+  const avecTiroirs = !tiroirs.length ? base : base ? `${base}/${pile}` : pile;
+  return ecran.portee && avecTiroirs ? `${avecTiroirs}${MARQUE_PORTEE}${encodeURIComponent(ecran.portee)}` : avecTiroirs;
 }
 
 function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
@@ -278,7 +324,7 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       /* « <projet> », « <projet>/<rubrique> » ou « <projet>/canaux/<canal> » : chaque morceau son segment. */
       return ecran.projectId ? `${ADRESSE_RESEAUX_SOCIAUX}/${ecran.projectId.split('/').map(encodeURIComponent).join('/')}` : ADRESSE_RESEAUX_SOCIAUX;
     case 'communication2':
-      return ecran.chemin ? `communication2/${ecran.chemin.split('/').map(encodeURIComponent).join('/')}` : 'communication2';
+      return ecran.chemin ? `${ADRESSE_COMMUNICATION}/${ecran.chemin.split('/').map(encodeURIComponent).join('/')}` : ADRESSE_COMMUNICATION;
     case 'studio':
       return ecran.creationId ? `studio/${encodeURIComponent(ecran.creationId)}` : 'studio';
     case 'statistiques':
@@ -294,8 +340,8 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
     case 'calendrier':
       return ecran.contenuId ? `calendrier/${encodeURIComponent(ecran.contenuId)}` : 'calendrier';
     case 'plaquettes': {
-      if (!ecran.projectId && !ecran.plaquetteId) return 'plaquettes';
-      const base = `plaquettes/${ecran.projectId ? encodeURIComponent(ecran.projectId) : TOUTES_LES_PLAQUETTES}`;
+      if (!ecran.projectId && !ecran.plaquetteId) return ADRESSE_CHARTE;
+      const base = `${ADRESSE_CHARTE}/${ecran.projectId ? encodeURIComponent(ecran.projectId) : TOUTES_LES_PLAQUETTES}`;
       return ecran.plaquetteId ? `${base}/${encodeURIComponent(ecran.plaquetteId)}` : base;
     }
     case 'espace': {
@@ -364,13 +410,17 @@ function fragmentDeCarteSurTableau(
  * bloquer l'ouverture.
  */
 export function lireFragment(hash: string): EcranNavigateur {
-  const complet = (hash || '').replace(/^#/, '').replace(/^\/+/, '').trim();
+  const entier = (hash || '').replace(/^#/, '').replace(/^\/+/, '').trim();
+  const rangPortee = entier.lastIndexOf(MARQUE_PORTEE);
+  const complet = rangPortee >= 0 ? entier.slice(0, rangPortee) : entier;
+  const portee = rangPortee >= 0 ? decodeSegment(entier.slice(rangPortee + MARQUE_PORTEE.length)).trim() : '';
   const { base, noms } = couperLesTiroirs(complet);
   const ecran = lireFragmentSansTiroirs(base.replace(/\/+$/, ''));
   const tiroirs = noms
     .map((nom) => decodeSegment(nom).trim())
     .filter((nom, i, tous) => nomDeTiroirValide(nom) && tous.indexOf(nom) === i);
-  return tiroirs.length ? { ...ecran, tiroirs } : ecran;
+  const avecTiroirs = tiroirs.length ? { ...ecran, tiroirs } : ecran;
+  return portee && avecTiroirs.vue !== 'accueil' ? { ...avecTiroirs, portee } : avecTiroirs;
 }
 
 function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
@@ -439,9 +489,10 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const projectId = morceaux.slice(1, 4).map((m) => decodeSegment(m)).filter(Boolean).join('/');
     return projectId ? { vue: 'marketing', projectId } : { vue: 'marketing' };
   }
-  /* L'ANCIEN ESPACE COMMUNICATION (retiré le 11/11/2026) : son adresse ouvre le même lieu du nouveau. */
-  if (tete === 'communication') {
-    const chemin = cheminDeLAncienneCommunication(morceaux.slice(1).map((m) => decodeSegment(m)).filter(Boolean).join('/'));
+  /* « #communication/… » : LE SERVICE COMMUNICATION (20/11/2026). Les lieux de l'ANCIEN espace (retiré le 11/11/2026 :
+     publications, messages, commentaires, la fiche d'un canal) y sont encore traduits vers leur page d'aujourd'hui. */
+  if (tete === ADRESSE_COMMUNICATION) {
+    const chemin = cheminDeCommunicationLu(morceaux.slice(1).map((m) => decodeSegment(m)).filter(Boolean).join('/'));
     return chemin ? { vue: 'communication2', chemin } : { vue: 'communication2' };
   }
   if (tete === 'communication2') {
@@ -466,7 +517,7 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const veilleId = projectId && morceaux[2] === 'veille' ? decodeSegment(morceaux[3] ?? '') : '';
     return { vue: 'taches-recurrentes', ...(projectId ? { projectId } : {}), ...(veilleId ? { veilleId } : {}) };
   }
-  if (tete === 'plaquettes') {
+  if (tete === ADRESSE_CHARTE || tete === 'plaquettes') {
     const segment = decodeSegment(morceaux[1] ?? '');
     const projectId = segment === TOUTES_LES_PLAQUETTES ? '' : segment;
     const plaquetteId = segment ? decodeSegment(morceaux[2] ?? '') : '';
@@ -515,7 +566,7 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
  * coûter un appui de plus sur le bouton Précédent.
  */
 export function memeEcran(a: EcranNavigateur, b: EcranNavigateur): boolean {
-  return memeEcranSansTiroirs(a, b) && memeTiroirs(a.tiroirs, b.tiroirs);
+  return memeEcranSansTiroirs(a, b) && memeTiroirs(a.tiroirs, b.tiroirs) && (a.portee ?? '') === (b.portee ?? '');
 }
 
 /** Deux piles de tiroirs identiques, dans le même ordre. */

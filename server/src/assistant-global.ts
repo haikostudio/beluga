@@ -182,7 +182,7 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
 /* ------------------------------------------------------------------ */
 
 /** Les deux outils qui ont déjà leur propre « projet » (le projet à gérer). */
-const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier']);
+const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier', 'voix_confirmer']);
 
 /**
  * LES OUTILS DE LA CONVERSATION VOCALE SEULE (carte « Jarvis plus fiable et vérifié », 18/11/2026) : servis au cerveau
@@ -195,6 +195,19 @@ const OUTILS_DE_LA_VOIX: ToolDef[] = [
     description:
       "LE DOSSIER DE VÉRIFICATION de la phrase que l'utilisateur vient de dire, À APPELER SEULEMENT quand la demande l'exige (le passé, une décision, l'état de Beluga, une tâche, une action) — JAMAIS pour un salut, un merci, un avis ou une question générale. Beluga y réunit, en deux secondes au plus, la MÉMOIRE du projet (unités et décisions, avec leur id), les DISCUSSIONS vocales passées (DISC-…), les TÂCHES approchantes de tous les projets (avec leur lien) et l'ACTIVITÉ du moment (tâches au travail, mises en ligne et en production avec leur état réel, PUBLICATIONS EN ATTENTE — à déployer et à mettre en production, mêmes chiffres que les Tableaux de bord —, ce qui attend). Ouvre ensuite ce qu'il désigne, autant que la question l'exige. « demande » (facultatif) : un autre sujet à vérifier que la dernière phrase.",
     inputSchema: { type: 'object', properties: { demande: { type: 'string', description: 'Un autre sujet que la dernière phrase, en quelques mots.' } } },
+  },
+  {
+    name: 'voix_confirmer',
+    description:
+      "LA CONFIRMATION EN BULLE (décision de l'utilisateur, 20/11/2026) : AVANT de créer une carte ou de faire une action, pose la question ICI — elle s'affiche en bulle au-dessus du mode vocal, avec ses choix à toucher. Dis-la aussi à voix haute en une phrase courte, puis ATTENDS : la réponse arrive soit dite à voix haute, soit touchée (« L'utilisateur a répondu en touchant l'écran : … »). « question » : la phrase ; « choix » : deux à quatre réponses courtes (par défaut « Oui, vas-y » et « Non »).",
+    inputSchema: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: { type: 'string', description: 'La question, en une phrase courte.' },
+        choix: { type: 'array', items: { type: 'string' }, description: 'Deux à quatre réponses courtes.' },
+      },
+    },
   },
 ];
 
@@ -402,6 +415,10 @@ export async function executerPourLAssistant(
       case 'voix_dossier': {
         const { dossierPourLeCerveau } = await import('./voix-directe.js');
         return await dossierPourLeCerveau(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);
+      }
+      case 'voix_confirmer': {
+        const { poserUneConfirmation } = await import('./voix-directe.js');
+        return poserUneConfirmation(ctx.agentId, String(args.question ?? ''), Array.isArray(args.choix) ? args.choix.map(String) : []);
       }
       case 'assistant_messagerie':
         return await messagerie(args, projetVise);
@@ -720,7 +737,9 @@ async function gestes(args: Record<string, any>, projetVise?: string): Promise<T
         await commeLUtilisateur({ type: 'proposal.decide', messageId: message.id, proposalId, accept: true });
         const creee = store.getMessage(message.id)?.proposals.find((p) => p.id === proposalId);
         const carte = creee?.cardId ? store.getCard(creee.cardId) : null;
-        return { ok: true, text: carte ? `Carte créée.\n${ligneDeCarte(carte)}` : 'Proposition validée.' };
+        /* À LA VOIX, L'ÉCRAN PRINCIPAL BASCULE SUR LA CARTE CRÉÉE (décision de l'utilisateur, 20/11/2026), sans volet. */
+        if (carte) void import('./voix-directe.js').then((m) => m.ouvrirLaCarteCreee(message.agentId, carte.id, carte.projectId)).catch(() => {});
+        return { ok: true, text: carte ? `Carte créée — elle s'ouvre à l'écran.\n${ligneDeCarte(carte)}` : 'Proposition validée.' };
       }
       case 'changer_de_projet': {
         const vers = projetParNom(String(args.vers ?? ''));

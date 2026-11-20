@@ -21,7 +21,7 @@ import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
 import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { useAttenteDuMot, jouerLeSonDeVeille } from '@/lib/mot-de-reveil';
-import { niveauxEtVoixDuDirect, recevoirLaSynthese, useDirectCodex, voixDuDirectEntendue, type TourDuDirect } from '@/lib/direct-codex';
+import { niveauxEtVoixDuDirect, recevoirLaSynthese, useDirectCodex, useTravailEnVeille, voixDuDirectEntendue, type TourDuDirect } from '@/lib/direct-codex';
 import { ID_DE_L_ONGLET, brancherLesGestesDeJarvis } from '@/lib/gestes-de-jarvis';
 import { CurseurDeJarvis } from '@/components/jarvis-a-l-ecran';
 import { signalerEcouteVoulue } from '@/lib/micro';
@@ -517,19 +517,9 @@ export function VoixAssistant() {
       window.removeEventListener(EVENEMENT_OUVRIR_L_ASSISTANT, surSignal);
     };
   }, [ouvrirLeVolet]);
-  React.useEffect(() => {
-    if (!admin) return;
-    const surNouvelle = (e: Event) => {
-      const evenement = (e as CustomEvent).detail as { type?: string; agentId?: string; texte?: string } | undefined;
-      if (cibleRef.current) return; // la voix d'une carte se tient dans le champ de sa carte
-      const deLAssistant = !evenement?.agentId || !assistantRef.current.agentId || evenement.agentId === assistantRef.current.agentId;
-      if (!deLAssistant) return;
-      if (evenement?.type === 'voix.direct.production') ouvrirLeVolet(true);
-      else if (evenement?.type === 'voix.direct.synthese' && (evenement.texte ?? '').trim()) ouvrirLeVolet(true);
-    };
-    window.addEventListener('beluga:voix-directe', surNouvelle);
-    return () => window.removeEventListener('beluga:voix-directe', surNouvelle);
-  }, [admin, ouvrirLeVolet]);
+  /* PLUS AUCUN CHEMIN N'OUVRE LE VOLET DEPUIS LE MODE VOCAL (décision de l'utilisateur, 20/11/2026) : ce que Jarvis
+     produit (carte, image, document, question) se pose dans les bulles au-dessus du mode vocal, et la synthèse de fin
+     n'existe plus. Le volet de l'assistant n'existe que quand la voix n'est pas disponible (`app.tsx`). */
 
   /*
    * JARVIS AGIT DANS L'APPLICATION (décision du 18/11/2026) : sur ORDINATEUR, la fenêtre de conversation (le volet)
@@ -542,12 +532,8 @@ export function VoixAssistant() {
     if (conversationAllumee) rouvrirLesBulles();
   }, [conversationAllumee]);
   React.useEffect(() => {
-    if (ancreMenu) {
-      replierLesBullesPendantLAction(jarvisAgit);
-      return;
-    }
-    if (jarvisAgit && admin && !cibleRef.current) ouvrirLeVolet(true);
-  }, [jarvisAgit, ancreMenu, admin, ouvrirLeVolet]);
+    if (ancreMenu) replierLesBullesPendantLAction(jarvisAgit);
+  }, [jarvisAgit, ancreMenu]);
 
   /* LA SOURDINE (bouton Muet) : LE MICRO NE CAPTE PLUS RIEN (décision du 18/11/2026 — avant, seule la piste qui part
      se taisait : le micro écoutait encore et les ondes bougeaient). La piste du micro réel est éteinte (rien n'est
@@ -627,10 +613,7 @@ export function VoixAssistant() {
       else setConversationAllumee(false);
       return;
     }
-    if (admin && assistantRef.current.retenu.ouvert) {
-      ouvrirLeVolet(false);
-      return;
-    }
+    /* Voix disponible : le bouton lance TOUJOURS la conversation vocale, jamais le volet (20/11/2026). */
     if (admin) parlerAJarvis(null);
     else {
       basculerMicro(true);
@@ -639,8 +622,8 @@ export function VoixAssistant() {
   }, [admin, basculerMicro, setConversationAllumee, ouvrirLeVolet]);
 
   /* La bulle vocale : la conversation de l'assistant (ou sa synthèse), volet replié. */
-  const bulleVisible =
-    admin && !assistant.retenu.ouvert && !cible && (conversationAllumee || (directVu.etat === 'eteint' && !!directVu.redaction));
+  const bulleVisible = admin && !cible && conversationAllumee;
+  const travailEnVeille = useTravailEnVeille();
 
   /* Le bouton du bord est l'entrée de l'assistant : toujours posé pour qui a l'assistant ; sinon, seulement si
      « Réglages › Voix » l'affiche. Le module tourne de toute façon (écoute, conversation, voix haute). */
@@ -659,8 +642,8 @@ export function VoixAssistant() {
         voixActive={voixActive}
         etatDirect={direct.etat}
         conversation={conversationAllumee}
-        voletOuvert={admin && assistant.retenu.ouvert}
-        travaille={admin && assistant.travaille}
+        voletOuvert={admin && !voixActive && assistant.retenu.ouvert}
+        travaille={admin && (assistant.travaille || travailEnVeille)}
         questions={admin ? assistant.questions : 0}
         onToucher={toucher}
       />

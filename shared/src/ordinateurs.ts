@@ -77,6 +77,8 @@ export interface NavigateurDOrdinateur {
   genre: GenreDeNavigateur;
   enLigne: boolean;
   version: string | null;
+  /** Autorisée en navigation privée (extension 1.0.11 et plus) ; `null`/absent quand elle ne le dit pas. */
+  incognito?: boolean | null;
   vuLe: number | null;
   /** Les agents qui travaillent dans ce navigateur en ce moment. */
   agentsAuTravail: number;
@@ -223,6 +225,7 @@ export function choisirLOrdinateur(
 export type ChoixPourFenetrePrivee =
   | { genre: 'pret'; ordinateur: Ordinateur; navigateur: NavigateurDOrdinateur }
   | { genre: 'a-mettre-a-jour'; texte: string; aMettreAJour: string }
+  | { genre: 'sans-autorisation'; texte: string; lesquels: string }
   | { genre: 'aucun'; texte: string };
 
 /**
@@ -238,11 +241,21 @@ export function choisirPourFenetrePrivee(
   dernierOrdinateur?: string | null,
 ): ChoixPourFenetrePrivee {
   const allumes = ordinateurs.flatMap((o) => o.navigateurs.filter((n) => n.genre === 'chrome' && n.enLigne).map((n) => ({ ordinateur: o, navigateur: n })));
+  /* Un Chrome qui DIT ne pas être autorisé en navigation privée (1.0.11 et plus) n'est jamais pris : il refuserait. */
   const capables = allumes
-    .filter((c) => aJour(c.navigateur.version))
+    .filter((c) => aJour(c.navigateur.version) && c.navigateur.incognito !== false)
     .sort((a, b) => Number(b.ordinateur.id === dernierOrdinateur) - Number(a.ordinateur.id === dernierOrdinateur) || (b.navigateur.vuLe ?? 0) - (a.navigateur.vuLe ?? 0));
   const elu = capables[0];
   if (elu) return { genre: 'pret', ...elu };
+  const sansAutorisation = allumes.filter((c) => aJour(c.navigateur.version) && c.navigateur.incognito === false);
+  if (sansAutorisation.length) {
+    const lesquels = sansAutorisation.map((c) => `« ${c.ordinateur.nom} »`).join(', ');
+    return {
+      genre: 'sans-autorisation',
+      lesquels,
+      texte: `L’extension Beluga de ${lesquels} est à jour mais n’est pas autorisée en navigation privée : rien n’a été ouvert. La personne doit cocher « Autoriser en navigation privée » dans chrome://extensions › Beluga (la bannière de Beluga ouvre cette page). Arrête la séance et dis-le dans ton compte rendu.`,
+    };
+  }
   if (allumes.length) {
     const aMettreAJour = allumes.map((c) => `« ${c.ordinateur.nom} » (version ${c.navigateur.version ?? 'inconnue'})`).join(', ');
     return {

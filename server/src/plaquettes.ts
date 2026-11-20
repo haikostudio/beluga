@@ -731,8 +731,8 @@ export async function envoyerLeRecapDesCommentaires(
   if (!destinataire) return { envoye: false, raison: 'sans-destinataire' };
   const base = adresseDuLien();
   const courriel = courrielDuRecapDesCommentaires({
-    documents: [...parDocument.values()].map((d) => ({ titre: d.p.titre, lien: `${base}/#plaquettes/tous/${encodeURIComponent(d.p.id)}`, messages: d.messages })),
-    lienDuService: `${base}/#plaquettes`,
+    documents: [...parDocument.values()].map((d) => ({ titre: d.p.titre, lien: `${base}/#charte/tous/${encodeURIComponent(d.p.id)}`, messages: d.messages })),
+    lienDuService: `${base}/#charte`,
   });
   store.setMetaValue(CLE_DU_RECAP, String(maintenant));
   const echec = await envoyer(destinataire, courriel.sujet, courriel.texte, courriel.html);

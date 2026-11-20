@@ -239,6 +239,7 @@ const TiroirAgentDeConfiguration = React.lazy(() =>
 const ProjectSettings = React.lazy(() =>
   chargerConfigProjet().then((m) => ({ default: m.ProjectSettings })),
 );
+import { BanniereExtension } from './components/banniere-extension';
 import { AssistantGlobal } from '@/components/assistant-global';
 const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.VoixAssistant })));
 const AssistantDemarrage = React.lazy(() =>
@@ -479,11 +480,20 @@ export function App() {
    */
   /*
    * LES OUTILS DE CRÉATION ET LE CALENDRIER, OUVERTS EN PAGE PAR-DESSUS L'ÉCRAN (13/11/2026) — ET DANS L'ADRESSE
-   * (15/11/2026, « l'adresse ne change pas quand on passe du Studio au Marketing ») : « #studio », « #marketing2 »,
-   * « #communication2 », « #plaquettes », « #calendrier ». L'écrivain d'adresse les écrit, `appliquerEcran` les relit
-   * (rechargement, Précédent) ; l'écran du dessous reste la vue du fond.
+   * (15/11/2026, « l'adresse ne change pas quand on passe du Studio au Marketing ») : « #studio », « #marketing »,
+   * « #communication », « #charte », « #calendrier » (mots sans chiffre depuis le 20/11/2026). L'écrivain d'adresse les
+   * écrit, `appliquerEcran` les relit (rechargement, Précédent) ; l'écran du dessous reste la vue du fond.
    */
   const [fenetreDeCreation, setFenetreDeCreation] = React.useState<VueCentrale | null>(null);
+  /*
+   * LA PORTÉE D'UNE PAGE DE SERVICE (décision du 14/11/2026, revue le 20/11/2026) : `TOUS_LES_PROJETS` (« »), ou
+   * l'identifiant du projet choisi. Le menu « Services » ouvre TOUJOURS tous les projets ; la limite à un projet se
+   * choisit dans le fil d'Ariane (ou vient d'un onglet du projet, `ouvrirUnOutil`). ELLE S'ÉCRIT DANS L'ADRESSE
+   * (« #communication?projet=<id> ») et s'en relit (`appliquerEcran`) : plus aucune page ne se limite en silence au
+   * dernier projet touché. `undefined` n'existe plus qu'avant la première ouverture.
+   */
+  const [filtreDuServiceCentral, setFiltreDuServiceCentral] = React.useState<string | undefined>(undefined);
+  const projetDesOngletsRef = React.useRef<string | null>(null);
   const [viseDeCreation, setViseDeCreation] = React.useState<ElementVise>({});
   const [calendrierOuvert, setCalendrierOuvert] = React.useState(false);
   /* La publication ouverte dans l'aperçu du calendrier : « #calendrier/<contenu> ». */
@@ -963,15 +973,18 @@ export function App() {
     const outil = destinationDeLEcran(ecran);
     if (outil && OUTILS_DE_CREATION.includes(outil) && !adresseDObjetReel(construireFragment({ ...ecran, tiroirs: undefined }))) {
       setViseDeCreation(elementViseDeLEcran(ecran));
-      /* LA CHARTE ROUVERTE PAR SON ADRESSE GARDE LA PORTÉE QUE L'ADRESSE DIT (carte « Charte FishFlow introuvable »,
-         17/11/2026) : « #plaquettes » = tous les projets, « #plaquettes/<projet> » = ce projet. Sans ce réglage, le
-         filtre restait `undefined` et la page s'enfermait dans le projet actif (« Aucune charte pour Beluga »), alors
-         que la charte de FishFlow existait. */
-      if (ecran.vue === 'plaquettes') setFiltreDuServiceCentral(ecran.projectId ?? TOUS_LES_PROJETS);
+      /* TOUT OUTIL ROUVERT PAR SON ADRESSE GARDE LA PORTÉE QUE L'ADRESSE DIT (carte « Charte FishFlow introuvable »,
+         17/11/2026, étendue à tous les outils le 20/11/2026) : sans « ?projet= », tous les projets ; « #charte/<projet> »
+         vaut aussi pour la Charte. Sans ce réglage, la page s'enfermait dans le projet actif (« Aucune charte pour
+         Beluga », « Beluga n'a pas encore de marque ») alors que les données existaient. */
+      setFiltreDuServiceCentral(ecran.portee ?? (ecran.vue === 'plaquettes' ? ecran.projectId : undefined) ?? TOUS_LES_PROJETS);
       setFenetreDeCreation(outil);
       return;
     }
     setFenetreDeCreation(null);
+    /* Une page de fonctionnement (Statistiques, Messagerie, Backup…) relit sa portée de l'adresse, elle aussi. */
+    const destinationLue = destinationDeLEcran(ecran);
+    if (destinationLue && VUES_DE_FONCTIONNEMENT.includes(destinationLue)) setFiltreDuServiceCentral(ecran.portee ?? TOUS_LES_PROJETS);
     /*
      * L'ÉLÉMENT VISÉ EST CELUI DU SERVICE DEMANDÉ, ET LUI SEUL. Poser les six
      * d'un coup évite qu'une fiche visée dans un service en rouvre une autre
@@ -1128,12 +1141,21 @@ export function App() {
           titreCarte: titreCarteOuverte,
           onglet: ongletCarte,
         });
+    /* LA PORTÉE CHOISIE S'ÉCRIT au bout de l'adresse d'une page de service (outil de création ou de fonctionnement) ;
+       la Charte limitée à un projet le dit déjà dans son chemin. */
+    const pageDeService =
+      !settingsOpen && !calendrierOuvert && !configProjetId && (!!fenetreDeCreation || VUES_DE_FONCTIONNEMENT.includes(vueCentrale));
+    const porteeEcrite =
+      pageDeService && filtreDuServiceCentral && !(ecranSansTiroirs.vue === 'plaquettes' && ecranSansTiroirs.projectId === filtreDuServiceCentral)
+        ? filtreDuServiceCentral
+        : undefined;
+    const ecranPorte: EcranNavigateur = porteeEcrite ? { ...ecranSansTiroirs, portee: porteeEcrite } : ecranSansTiroirs;
     /* Les tiroirs désignés par une adresse collée attendent leur écran : si
        l'écran change sous eux, l'attente tombe. */
-    oublierLAttenteSiEcranChange(ecranSansTiroirs, memeEcran);
+    oublierLAttenteSiEcranChange(ecranPorte, memeEcran);
     const ecran: EcranNavigateur = pileTiroirs.length
-      ? { ...ecranSansTiroirs, tiroirs: pileTiroirs }
-      : ecranSansTiroirs;
+      ? { ...ecranPorte, tiroirs: pileTiroirs }
+      : ecranPorte;
 
     const cible = construireFragment(ecran);
     const url = cible ? '#' + cible : window.location.pathname + window.location.search;
@@ -1203,6 +1225,7 @@ export function App() {
     contenuDuCalendrier,
     fenetreDeCreation,
     viseDeCreation,
+    filtreDuServiceCentral,
   ]);
 
   /*
@@ -1503,18 +1526,14 @@ export function App() {
     }
     setViseDeCreation(element);
   }, []);
-  /*
-   * LES PAGES CENTRALES DES SERVICES (décision du 14/11/2026) : « Services », dans la colonne, ouvre la page d'un
-   * service pour TOUS les projets, avec un filtre de projet. `undefined` : la page suit le projet affiché (feuille des
-   * outils du téléphone) ; `TOUS_LES_PROJETS` : tous ; sinon l'identifiant du projet filtré.
-   */
-  const [filtreDuServiceCentral, setFiltreDuServiceCentral] = React.useState<string | undefined>(undefined);
   /* L'instant où un service vient d'être ouvert (voir « LES PAGES DE SERVICE SE REFERMENT QUAND ON VA AILLEURS »). */
   const ouvertureDeServiceA = React.useRef(0);
   const ouvrirUnOutil = React.useCallback(
     (vue: VueCentrale) => {
       ouvertureDeServiceA.current = Date.now();
-      setFiltreDuServiceCentral(undefined);
+      /* DEPUIS UN PROJET (son onglet, la feuille des outils du téléphone) : l'outil se limite à CE projet, écrit en
+         toutes lettres — l'adresse le porte, un rechargement le redonne. */
+      setFiltreDuServiceCentral(projetDesOngletsRef.current ?? TOUS_LES_PROJETS);
       /* LA PAGE D'UNE TÂCHE SE REFERME AUSSI pour un outil de création (14/11/2026) : posée en z-40, elle recouvrait
          la page du service (z-30), montée mais invisible. Brouillon et pièces jointes suivent l'agent, rien ne se perd. */
       setOpenCardId(null);
@@ -1604,7 +1623,8 @@ export function App() {
         vue={vueDuFond}
         onOuvrirVue={(vue) => {
           setProjetsOuverts(false);
-          ouvrirVue(vue);
+          if (VUES_DE_FONCTIONNEMENT.includes(vue) || OUTILS_DE_CREATION.includes(vue)) ouvrirServiceCentral(vue);
+          else ouvrirVue(vue);
         }}
         carteOuverte={carteAffichee}
         onOuvrirCarte={(card) => ouvrirCarteDepuisUnService(card)}
@@ -1636,6 +1656,8 @@ export function App() {
     activeProject && !surTableauxDeBord && (vueDuFond === 'projet' || estUnServiceDuProjet(vueDuFond))
       ? activeProject
       : null;
+  /* Lu par `ouvrirUnOutil` (rappel stable, déclaré plus haut) : le projet d'où l'on ouvre un outil. */
+  projetDesOngletsRef.current = projetDesOnglets?.id ?? null;
   const cleDesOnglets = projetDesOnglets ? cleDesOngletsDuProjet(projetDesOnglets.id) : null;
   const ongletsRetenus = cleDesOnglets ? state.prefs[cleDesOnglets] : undefined;
   const ongletsDuProjet = React.useMemo(() => lireLesOnglets(ongletsRetenus), [ongletsRetenus]);
@@ -1848,6 +1870,7 @@ export function App() {
                   ? {
                       service: {
                         libelle: t(CLES_TITRE_DE_VUE[serviceDuFond as keyof typeof CLES_TITRE_DE_VUE]),
+                        adresse: construireFragment({ ...ecranDeLaVue({ vue: serviceDuFond, projectId: projetDesOnglets?.id ?? null }), portee: projetDesOnglets?.id }),
                         onOuvrir: () => ouvrirUnOutil(serviceDuFond),
                       },
                       suite: <div ref={setCibleDeLaSuite} data-suite-du-fil="barre-du-projet" className="contents" />,
@@ -2015,6 +2038,18 @@ export function App() {
     },
     [ouvrirServiceSinonCarte, ouvrirLaCarteDuProjet, setMobileView],
   );
+  /* LA CARTE CRÉÉE À LA VOIX s'ouvre sur l'écran principal (décision de l'utilisateur, 20/11/2026), sans volet. */
+  React.useEffect(() => {
+    const ouvrir = (e: Event) => {
+      const d = (e as CustomEvent<{ cardId?: string; projectId?: string }>).detail;
+      if (!d?.cardId || !d.projectId) return;
+      if (client.lireEtat().activeProjectId !== d.projectId) client.setActiveProject(d.projectId);
+      ouvrirLaCarteDuProjet(d.cardId);
+      setMobileView('board');
+    };
+    window.addEventListener('beluga:ouvrir-carte-de-jarvis', ouvrir);
+    return () => window.removeEventListener('beluga:ouvrir-carte-de-jarvis', ouvrir);
+  }, [ouvrirLaCarteDuProjet, setMobileView]);
   const ouvrirUneCarteDeCommunication = React.useCallback(
     (cardId: string, projectId: string) => {
       if (client.lireEtat().activeProjectId !== projectId) client.setActiveProject(projectId);
@@ -2103,6 +2138,8 @@ export function App() {
         }}
       >
         <Celebrations />
+        {/* LA BANNIÈRE ORANGE D'UNE EXTENSION CHROME EN RETARD (20/11/2026) : au-dessus de TOUT, colonne et entête compris. */}
+        <BanniereExtension />
         {/* LE CALENDRIER GÉNÉRAL (14/11/2026) : toutes les publications de toutes les campagnes, tous projets. */}
         <FenetreDeService
           open={calendrierOuvert}
@@ -2312,6 +2349,7 @@ export function App() {
             <FeuilleDesServices ouvert={feuilleOutils} onFermer={() => setFeuilleOutils(false)} vue={vueDuFond} onOuvrirVue={ouvrirUnOutil} />
             <FeuilleDesTaches
               projectId={state.activeProjectId}
+              carteOuverte={carteAffichee}
               ouvert={feuilleTaches}
               onFermer={() => setFeuilleTaches(false)}
               onOuvrir={(card) => ouvrirCarteDuTableau(card.id)}
@@ -2810,7 +2848,9 @@ export function App() {
           <RechercheCentrale
             onOuvrirVue={(vue) => {
               setOpenCardId(null);
-              ouvrirVue(vue);
+              /* Un SERVICE trouvé s'ouvre comme depuis le menu « Services » : tous les projets, portée dans l'adresse. */
+              if (VUES_DE_FONCTIONNEMENT.includes(vue) || OUTILS_DE_CREATION.includes(vue)) ouvrirServiceCentral(vue);
+              else ouvrirVue(vue);
             }}
             onOuvrirCarte={(card) => ouvrirCarteDepuisUnService(card)}
           />

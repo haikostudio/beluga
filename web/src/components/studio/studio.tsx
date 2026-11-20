@@ -5,7 +5,7 @@ import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
 import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
 import { colonneProjet } from '@/components/ui/colonne-projet';
 import * as React from 'react';
-import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
+import { EtatVideDuProjet, useProjetDeLObjetOuvert, useProjetDuService } from '@/components/projet-du-service';
 import {
   Bot,
   Route,
@@ -377,6 +377,7 @@ function ListeDesCreations({ onOuvrir }: { onOuvrir: (id: string) => void }) {
             texte={t('Une création est un visuel ou une courte vidéo animée, que l’agent du studio dessine pour vous et que vous exportez aux formats des réseaux.')}
             action={t('Nouvelle création')}
             onAction={() => setNouvelle(true)}
+            fond={<SilhouetteStudio vignettes={9} />}
             data-studio-vide-projet
           />
         ) : !vue.creations.length ? (
@@ -711,6 +712,8 @@ export function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string
   }, [creationId, version]);
 
   const composition = donnees?.composition;
+  /* La création ouverte range le fil sous SON projet. */
+  useProjetDeLObjetOuvert(donnees?.creation.projectId ? [donnees.creation.projectId] : null);
   const rythme = useRythme(creationId, donnees?.creation.version ?? 0);
   /* L'AGENT DE LA CRÉATION TRAVAILLE : le témoin suit l'agent (tour vivant, ou statut en cours), pas un message.
      Tant qu'il travaille, la barre du haut est grisée à 50 % et sans effet — ses gestes se marcheraient dessus. */

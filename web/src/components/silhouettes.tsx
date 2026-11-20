@@ -31,7 +31,18 @@ import { CLASSE_GROUPE_DE_LIGNES, DialogTitle } from '@/components/ui';
  * qu'aucune teinte ne soit écrite en dur.
  */
 export function Silhouette({ className }: { className?: string }) {
-  return <div aria-hidden className={cn('animate-silhouette rounded bg-border', className)} />;
+  const enFond = React.useContext(EnFondDEtatVide);
+  return <div aria-hidden className={cn(enFond ? 'rounded bg-border' : 'animate-silhouette rounded bg-border', className)} />;
+}
+
+/**
+ * UNE SILHOUETTE POSÉE EN FOND D'UN ÉTAT VIDE (20/11/2026, `EtatVideDuProjet fond`) n'est PAS une attente : elle ne
+ * respire pas, ne se dit pas « Chargement en cours » et ne porte pas `data-silhouette` (les contrôles y lisent un
+ * chargement). Elle ne sert qu'à montrer la forme que prendra la page.
+ */
+const EnFondDEtatVide = React.createContext(false);
+export function FondDEtatVide({ children }: { children: React.ReactNode }) {
+  return <EnFondDEtatVide.Provider value>{children}</EnFondDEtatVide.Provider>;
 }
 
 /**
@@ -48,6 +59,7 @@ function Bloc({
   className?: string;
   children: React.ReactNode;
 }) {
+  if (React.useContext(EnFondDEtatVide)) return <div className={className}>{children}</div>;
   return (
     <div data-silhouette={zone} role="status" aria-busy="true" aria-label="Chargement en cours" className={className}>
       <span className="sr-only">{t('Chargement en cours…')}</span>

@@ -71,7 +71,7 @@ function lisibleSur(fond: string): string {
 
 /** Mène à la plaquette dans sa page, tiroir ouvert. */
 export function ouvrirLaPlaquette(projectId: string, id: string): void {
-  window.location.hash = `plaquettes/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}`;
+  window.location.hash = `charte/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}`;
 }
 
 export function CarteDePlaquetteDuFil({ item, onOpen, className }: { item: Attachment; onOpen: () => void; className?: string }) {

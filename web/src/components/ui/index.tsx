@@ -2419,7 +2419,10 @@ function FeuilleDeTiroir({
 }) {
   void open;
   void hauteurFixe;
-  /* LE CADRE SE MESURE ET SE SUIT (fenêtre redimensionnée) : la page en prend la place exacte. */
+  /* LE CADRE SE MESURE ET SE SUIT (fenêtre redimensionnée, panneau qui défile) : la page en prend la place exacte —
+     MAIS SEULEMENT SA PART VISIBLE (20/11/2026, captures #c7fe : le corps d'une page de service GRANDIT avec son
+     contenu, 1 580 px pour les Statistiques d'un site, et le pied de l'assistant « Installer le suivi » tombait sous
+     le bas de l'écran). La boîte est coupée par chaque ancêtre qui rogne (le panneau qui défile) puis par l'écran. */
   const [boite, setBoite] = React.useState<{ top: number; left: number; width: number; height: number } | null>(null);
   React.useLayoutEffect(() => {
     if (!cadre) {
@@ -2428,15 +2431,41 @@ function FeuilleDeTiroir({
     }
     const mesurer = () => {
       const r = cadre.getBoundingClientRect();
-      setBoite({ top: r.top, left: r.left, width: r.width, height: r.height });
+      let haut = r.top;
+      let bas = r.bottom;
+      for (let el = cadre.parentElement; el && el !== document.body; el = el.parentElement) {
+        if (!/(auto|scroll|hidden|clip)/.test(getComputedStyle(el).overflowY)) continue;
+        const p = el.getBoundingClientRect();
+        haut = Math.max(haut, p.top);
+        bas = Math.min(bas, p.bottom);
+      }
+      haut = Math.max(haut, 0);
+      bas = Math.min(bas, window.innerHeight);
+      const suivante = { top: haut, left: r.left, width: r.width, height: Math.max(0, bas - haut) };
+      setBoite((avant) =>
+        avant && avant.top === suivante.top && avant.left === suivante.left && avant.width === suivante.width && avant.height === suivante.height
+          ? avant
+          : suivante,
+      );
     };
     mesurer();
+    let image = 0;
+    const auDefilement = () => {
+      if (image) return;
+      image = requestAnimationFrame(() => {
+        image = 0;
+        mesurer();
+      });
+    };
     const observateur = new ResizeObserver(mesurer);
     observateur.observe(cadre);
     window.addEventListener('resize', mesurer);
+    window.addEventListener('scroll', auDefilement, true);
     return () => {
       observateur.disconnect();
       window.removeEventListener('resize', mesurer);
+      window.removeEventListener('scroll', auDefilement, true);
+      if (image) cancelAnimationFrame(image);
     };
   }, [cadre]);
   /* L'EN-TÊTE PAR DÉFAUT EST LA BARRE AU FIL D'ARIANE de l'application : la
@@ -4506,6 +4535,13 @@ export function ListeDeroulante({
   const bouton = React.useRef<HTMLButtonElement | null>(null);
   const corpsListe = React.useRef<HTMLDivElement | null>(null);
   const panneau = React.useRef<HTMLDivElement | null>(null);
+  /*
+   * L'ANCRE VIRTUELLE DU PANNEAU EST UN OBJET STABLE (carte « Services et fils d'Ariane fiables », 20/11/2026). Écrite
+   * en ligne (`virtualRef={{ current: … }}`), elle changeait à CHAQUE rendu : l'ancre de Radix la reposait par un état à
+   * chaque passage, et une liste montée dans un écran qui se rend en rafale tournait en boucle jusqu'à « Maximum update
+   * depth exceeded » (#185, « L'affichage s'est interrompu »).
+   */
+  const ancreVirtuelle = React.useRef({ getBoundingClientRect: () => (ancre.current ?? bouton.current ?? document.body).getBoundingClientRect() });
   const multiple = !!valeurs;
   const estChoisie = (v: string) => (valeurs ? valeurs.includes(v) : v === valeur);
   const retenue = multiple ? undefined : options.find((o) => o.valeur === valeur);
@@ -4818,7 +4854,7 @@ export function ListeDeroulante({
        celui de la fenêtre — seul le dernier compte —, et le sien la laisse
        défiler. Hors fenêtre, elle reste non modale : la page défile encore. */
     <PopoverPrimitive.Root modal={dansUneFenetre} open={ouvert} onOpenChange={(o) => (o ? setOuvert(true) : fermer())}>
-      <PopoverPrimitive.Anchor virtualRef={{ current: { getBoundingClientRect: () => (ancre.current ?? bouton.current ?? document.body).getBoundingClientRect() } }} />
+      <PopoverPrimitive.Anchor virtualRef={ancreVirtuelle} />
       {leDeclencheur}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content

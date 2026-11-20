@@ -4,7 +4,7 @@
  * Décision de l'utilisateur : « quand on ouvre une charte on doit la voir à droite dans un volet et à gauche l'agent
  * pour itérer sur la charte. L'agent de la charte doit être spécialisé dans la conception d'une charte comme les autres
  * agents le sont pour leur service. Question-réponse et itération libre mais guidée. » Chaque document du service a
- * donc SON agent (`agent.service`, adresse `plaquettes/<projet>/<document>` — c'est aussi l'adresse de l'écran), créé à
+ * donc SON agent (`agent.service`, adresse `charte/<projet>/<document>` — c'est aussi l'adresse de l'écran), créé à
  * la première ouverture ; sa consigne est relue à CHAQUE message (le patron de Marketing 2), avec l'état réel du
  * document. Règles pures, sans base ni disque : `server/src/agent-de-charte.ts` les branche.
  */
@@ -16,7 +16,7 @@ export const NOM_DU_SERVICE_DE_CHARTE = 'Charte graphique';
 
 /** L'adresse de l'agent d'un document : la même que celle de l'écran qui le montre. */
 export function adresseDeLAgentDeCharte(projectId: string, plaquetteId: string): string {
-  return `plaquettes/${projectId}/${plaquetteId}`;
+  return `charte/${projectId}/${plaquetteId}`;
 }
 
 export function serviceDeLAgentDeCharte(projectId: string, plaquetteId: string): { id: string; nom: string; adresse: string } {
@@ -26,7 +26,8 @@ export function serviceDeLAgentDeCharte(projectId: string, plaquetteId: string):
 /** Le document qu'un agent sert, lu sur son service ; `null` pour tout autre agent (un agent de tâche ordinaire compris). */
 export function plaquetteDeLAgentDeCharte(service: { id?: string; adresse?: string } | null | undefined): { projectId: string; plaquetteId: string } | null {
   if (!service || service.id !== SERVICE_DE_L_AGENT_DE_CHARTE) return null;
-  const m = /^plaquettes\/([^/]+)\/([^/]+)$/.exec(service.adresse ?? '');
+  /* Les agents créés avant le 20/11/2026 portent l'ancien mot « plaquettes » : lus pareil. */
+  const m = /^(?:charte|plaquettes)\/([^/]+)\/([^/]+)$/.exec(service.adresse ?? '');
   return m ? { projectId: m[1]!, plaquetteId: m[2]! } : null;
 }
 

@@ -1298,6 +1298,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * un depuis une carte qui a travaillé dans Chrome (« Refaire chaque… »).
    */
   z.object({ type: z.literal('extension.etat') }),
+  /*
+   * LA MISE À JOUR DE L'EXTENSION (`server/src/mise-a-jour-extension.ts`, 20/11/2026) : les Chrome en retard (bannière
+   * orange), la mise à jour d'un clic par le programme du Mac, et la page de l'extension ouverte dans Chrome pour cocher
+   * « Autoriser en navigation privée ».
+   */
+  z.object({ type: z.literal('extension.retards') }),
+  z.object({ type: z.literal('extension.mettreAJour'), chromeId: z.string() }),
+  z.object({ type: z.literal('extension.ouvrirReglages'), chromeId: z.string() }),
   z.object({ type: z.literal('extension.code'), ordinateurId: z.string().optional(), nom: z.string().max(80).optional() }),
   z.object({ type: z.literal('relaisMac.etat') }),
   z.object({ type: z.literal('relaisMac.code'), ordinateurId: z.string().optional() }),
@@ -1951,9 +1959,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
     gestes: z.array(z.record(z.string(), z.unknown())).max(40),
   }),
   /* `raison` : pourquoi l'écran ferme (bouton, veille, coupure, rechargement, démontage…) — le journal du démon le dit. */
-  z.object({ type: z.literal('voix.direct.arreter'), raison: z.string().max(120).optional() }),
+  /** `garderLeTravail` : mise en veille pendant que le cerveau travaille — la voix se coupe, le travail continue. */
+  z.object({ type: z.literal('voix.direct.arreter'), raison: z.string().max(120).optional(), garderLeTravail: z.boolean().optional() }),
   /* LE SALUT (18/11/2026) : l'écran a la ligne, Jarvis dit « Salut <prénom>, je t'écoute. » (`saluerLeDirect`). */
   z.object({ type: z.literal('voix.direct.saluer') }),
+  /** Un choix TOUCHÉ dans la bulle de confirmation du mode vocal (20/11/2026). */
+  z.object({ type: z.literal('voix.direct.repondre'), id: z.string().max(40), reponse: z.string().max(200) }),
   /* Jarvis prêt à l'avance (17/11/2026) : l'écran qui a la voix activée le redit toutes les quelques minutes. */
   z.object({ type: z.literal('voix.direct.preparer') }),
   z.object({ type: z.literal('voix.direct.voix') }),
@@ -2784,8 +2795,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('voix.direct'),
-    /* « synthese » : la conversation est close, Jarvis rédige la synthèse pour le champ de `agentId`. */
-    etat: z.enum(['connexion', 'en-direct', 'synthese', 'arrete', 'erreur']),
+    /* « veille-au-travail » (20/11/2026) : la voix est coupée par la veille, mais le cerveau de `agentId` travaille encore ;
+       la fin de son tour envoie `voix.direct.reprendre`. Plus de « synthese » : Jarvis se tait en fin de discussion. */
+    etat: z.enum(['connexion', 'en-direct', 'veille-au-travail', 'arrete', 'erreur']),
     agentId: z.string().optional(),
     message: z.string().optional(),
     voix: z.string().optional(),
@@ -2812,6 +2824,32 @@ export const ServerEvent = z.discriminatedUnion('type', [
    */
   z.object({
     type: z.literal('voix.direct.production'),
+    agentId: z.string(),
+    /** Le message « Jarvis · conversation vocale » qui porte les productions : l'écran le rend dans les bulles (20/11/2026). */
+    messageId: z.string().optional(),
+  }),
+  /**
+   * UNE CONFIRMATION EN BULLE (20/11/2026) : la question du cerveau, affichée au-dessus du mode vocal avec ses choix.
+   * `reponse` présente : elle est tranchée (touchée), la bulle se referme.
+   */
+  z.object({
+    type: z.literal('voix.direct.question'),
+    id: z.string(),
+    agentId: z.string(),
+    question: z.string(),
+    choix: z.array(z.string()),
+    reponse: z.string().optional(),
+  }),
+  /** LA CARTE CRÉÉE À LA VOIX s'ouvre sur l'écran principal (20/11/2026). */
+  z.object({
+    type: z.literal('voix.direct.ouvrir'),
+    agentId: z.string(),
+    cardId: z.string(),
+    projectId: z.string(),
+  }),
+  /** LE TRAVAIL FAIT PENDANT LA VEILLE EST FINI (20/11/2026) : l'écran rouvre la conversation, Jarvis dit le résultat. */
+  z.object({
+    type: z.literal('voix.direct.reprendre'),
     agentId: z.string(),
   }),
   z.object({

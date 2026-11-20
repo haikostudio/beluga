@@ -497,3 +497,4 @@ export * from './calendrier-general.js';
 export * from './plafond.js';
 export * from './tri-par-activite.js';
 export * from './paquet-d-images.js';
+export * from './mise-a-jour-extension.js';

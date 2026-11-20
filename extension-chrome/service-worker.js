@@ -102,7 +102,11 @@ async function connecter() {
     voie = ws;
     ws.onopen = () => {
       const nom = SAFARI ? 'Safari · macOS' : `${navigator.userAgentData?.platform ?? 'Chrome'}`;
-      ws.send(JSON.stringify({ type: 'bonjour', version: chrome.runtime.getManifest().version, plateforme: nom }));
+      /* 1.0.11 : l'extension dit aussi si elle est autorisée en navigation privée et son identifiant, pour que Beluga
+         vérifie AVANT un audit GEO et sache quel dossier le programme du Mac doit mettre à jour. */
+      void autorisationPrivee().then((incognito) =>
+        ws.send(JSON.stringify({ type: 'bonjour', version: chrome.runtime.getManifest().version, plateforme: nom, incognito, extensionId: chrome.runtime.id })),
+      );
       clearInterval(battement);
       /* Un service worker MV3 s'endort après 30 s sans échange : le battement le garde éveillé (Chrome ≥ 116). */
       battement = setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'ping' })), BATTEMENT_MS);
@@ -1166,7 +1170,38 @@ async function deposerParLeDebogueur(tabId, args) {
 /* Les gestes                                                           */
 /* ------------------------------------------------------------------ */
 
+/** Autorisée en navigation privée ? `null` quand le navigateur ne sait pas le dire (Safari). */
+async function autorisationPrivee() {
+  try {
+    return typeof chrome.extension?.isAllowedIncognitoAccess === 'function' ? await chrome.extension.isAllowedIncognitoAccess() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LES GESTES DE L'EXTENSION ELLE-MÊME (1.0.11), sans agent : se recharger après que le programme du Mac a remplacé ses
+ * fichiers (même dossier, même identifiant), et ouvrir sa page de réglages pour cocher « Autoriser en navigation
+ * privée ». Rien d'autre.
+ */
+async function gesteDeLExtension(geste) {
+  if (geste === 'se_recharger') {
+    setTimeout(() => chrome.runtime.reload(), 300);
+    return { recharge: true, version: chrome.runtime.getManifest().version };
+  }
+  if (geste === 'ouvrir_reglages_extension') {
+    await chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+    return { ouvert: true };
+  }
+  if (geste === 'etat_extension') {
+    return { version: chrome.runtime.getManifest().version, incognito: await autorisationPrivee(), extensionId: chrome.runtime.id };
+  }
+  return undefined;
+}
+
 async function executer(geste, args) {
+  const propre = await gesteDeLExtension(geste);
+  if (propre !== undefined) return propre;
   const agentId = String(args.agentId ?? '');
   if (!agentId) throw new Error('Geste sans agent.');
   /* La garde du site, en double du démon : lecture seule = aucune action, refusé = rien. */

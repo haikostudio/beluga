@@ -3,7 +3,7 @@ import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
 import { BasculeDePage, DroiteDePage, RechercheDuService, RubriquesDePage, useDansUnePageDeService } from '@/components/fenetre-de-service';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { useProjetDuService } from '@/components/projet-du-service';
+import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
 import { BoutonVue } from '@/components/ui/boutons-a-menu';
 import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Download, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from '@/components/ui/icones';
 import {
@@ -822,6 +822,10 @@ function DetailDuSite({
     />
   );
   const bouton = detail ? boutonDuSuivi(detail.etatAffiche) : null;
+  /** TANT QU'AUCUNE VISITE N'EST JAMAIS ARRIVÉE, la page n'a pas de chiffres à montrer : un message au centre, les
+   *  tableaux en fond flou, et ni période, ni vue, ni blocs (décision du 20/11/2026, captures #1fbc, maquette #8494e). */
+  const sansChiffres = !!detail && detail.etatAffiche !== 'verifie';
+  const installer = () => setAssistant(true);
   return (
     <>
       {/* PLUS DE SECONDE BARRE (demande du 11/10/2026 : « tout doit se passer
@@ -838,20 +842,20 @@ function DetailDuSite({
           les lignes du menu à trois points ; tant que le suivi n'est pas posé,
           « Installer le suivi » est le bouton du bas de l'écran. */}
       <OptionsDePage>
-        {telephone || enRangee ? null : dates}
+        {telephone || enRangee || sansChiffres ? null : dates}
         {/* « SUIVI ACTIF » : le même réglage que l'atelier Marketing — éteint, le
             projet passe dans « Projets inactifs ». Un site autonome n'a pas cet état. */}
         {detail && !detail.autonome ? <InterrupteurDeSuivi projectId={detail.id} actif={detail.espace.actif !== false} libelle={t('Suivi actif')} repere="Suivi actif" /> : null}
         {/* L'INSTALLATION N'EST PLUS UN ONGLET (demande du 28/09/2026) : un
             bouton, en haut à droite, ouvre l'assistant pas à pas. */}
-        {detail && bouton && !bouton.principal ? (
+        {detail && bouton && !bouton.principal && !sansChiffres ? (
           <OptionDePage icone={bouton.icone} className="shrink-0" onClick={() => setAssistant(true)} data-stats-installer={detail.etatAffiche}>
             {bouton.libelle}
           </OptionDePage>
         ) : null}
-        {blocsDeclares ? <LignesDesBlocs declares={blocsDeclares} /> : null}
+        {blocsDeclares && !sansChiffres ? <LignesDesBlocs declares={blocsDeclares} /> : null}
       </OptionsDePage>
-      {detail && bouton?.principal ? (
+      {detail && bouton?.principal && !sansChiffres ? (
         <GestePrincipal>
           <BoutonPrincipal variant="default" className="shrink-0" onClick={() => setAssistant(true)} data-stats-installer={detail.etatAffiche}>
             {bouton.icone}
@@ -881,6 +885,8 @@ function DetailDuSite({
         <div>
           <SilhouetteStatistiques lignes={3} />
         </div>
+      ) : sansChiffres ? (
+        <SuiviSansChiffres detail={detail} onInstaller={installer} onOuvrirCarte={onOuvrirCarte} />
       ) : (
         <FournirLeMenuDesBlocs value={setBlocsDeclares}>
           <Tabs value={onglet} onValueChange={(v) => setOnglet(v as OngletStats)} className="flex min-h-0 flex-1 flex-col">
@@ -954,39 +960,76 @@ function DetailDuSite({
 /* ------------------------------------------------------------------ */
 
 /**
- * LE BANDEAU AU-DESSUS DES CHIFFRES, quand aucune visite n'est mesurée : il dit
- * l'état réel du suivi (`etatAfficheDuSuivi`) et propose le SEUL geste utile —
- * installer tant que rien n'est posé, suivre l'installation en cours, ou
- * tester le suivi quand le code est posé mais qu'aucune visite n'arrive.
+ * UN SITE SANS CHIFFRES (décision de l'utilisateur du 20/11/2026, captures #1fbc, maquette #8494e) : tant qu'aucune
+ * visite n'est jamais arrivée (`etatAfficheDuSuivi` ≠ `verifie`), la page ne déroule plus ses tableaux à zéro. Elle
+ * pose au centre un titre, une phrase et LE geste utile — installer, suivre l'agent, tester le code posé, corriger —,
+ * et derrière, le vrai tableau du site, flou et à 30 % (`EtatVideDuProjet fond`), pour montrer ce qui viendra.
+ * Repère `data-stats-sans-chiffres=<état>`.
  */
-function BandeauDuSuivi({ detail, onInstaller }: { detail: DetailSite; onInstaller: () => void }) {
+function SuiviSansChiffres({
+  detail,
+  onInstaller,
+  onOuvrirCarte,
+}: {
+  detail: DetailSite;
+  onInstaller: () => void;
+  onOuvrirCarte?: (card: Card) => void;
+}) {
   const etat = detail.etatAffiche;
-  const phrase =
-    etat === 'verifie'
-      ? t('Aucune visite mesurée sur cette période.')
-      : etat === 'installation'
-        ? t('L’installation est en cours : les chiffres arriveront une fois le site mis en ligne.')
-        : etat === 'attente'
-          ? t('Le code est posé sur le site, mais aucune visite n’a encore été reçue.')
-          : etat === 'probleme'
-            ? t('Le code de suivi lu sur le site est à corriger.')
-            : t('Les chiffres arrivent dès que le code de suivi est posé sur le site.');
+  const fond = <Audience detail={detail} dates={null} onInstaller={() => {}} />;
+  const site = detail.nom;
+  const carte = detail.carteSuivi;
+  if (etat === 'installation') {
+    return (
+      <EtatVideDuProjet
+        icone={<Loader2 className="animate-spin" />}
+        titre={t('L’installation du suivi est en cours')}
+        texte={t('Un agent pose le code de suivi sur {site}. Les chiffres arriveront une fois le site mis en ligne, dès la première visite.', { site })}
+        action={t('Voir l’agent au travail')}
+        iconeAction={<Play className="h-4 w-4" />}
+        onAction={() => (carte && onOuvrirCarte ? onOuvrirCarte(carte) : onInstaller())}
+        fond={fond}
+        data-stats-sans-chiffres={etat}
+      />
+    );
+  }
+  if (etat === 'attente') {
+    return (
+      <EtatVideDuProjet
+        icone={<Hourglass />}
+        titre={t('Données pas encore récoltées')}
+        texte={t('Le suivi est installé sur {site}. Les chiffres apparaîtront ici dès la première visite : revenez un peu plus tard.', { site })}
+        note={<TesterLeSuivi id={detail.id} centre />}
+        fond={fond}
+        data-stats-sans-chiffres={etat}
+      />
+    );
+  }
+  if (etat === 'probleme') {
+    return (
+      <EtatVideDuProjet
+        icone={<Wrench />}
+        titre={t('Le code de suivi est à corriger')}
+        texte={t('La page en ligne de {site} ne porte pas le bon code de suivi : aucune visite ne peut être comptée.', { site })}
+        action={t('Corriger l’installation')}
+        iconeAction={<Wrench className="h-4 w-4" />}
+        onAction={onInstaller}
+        fond={fond}
+        data-stats-sans-chiffres={etat}
+      />
+    );
+  }
   return (
-    <div className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5 text-[12.5px] text-muted" data-marketing-statistiques-vide={etat}>
-      <p>
-        {phrase}{' '}
-        {etat === 'absent' || etat === 'probleme' ? (
-          <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={onInstaller}>
-            {t('Installer le suivi')}
-          </button>
-        ) : etat === 'installation' ? (
-          <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={onInstaller}>
-            {t('Suivre l’installation')}
-          </button>
-        ) : null}
-      </p>
-      {etat === 'attente' ? <TesterLeSuivi id={detail.id} /> : null}
-    </div>
+    <EtatVideDuProjet
+      icone={<BarChart3 />}
+      titre={t('Le suivi de {site} n’est pas encore installé', { site })}
+      texte={t('Installez le suivi des visites : audience, provenance, pages vues et parcours s’afficheront ici dès les premières visites.')}
+      action={t('Initialiser l’installation du suivi')}
+      iconeAction={<Wrench className="h-4 w-4" />}
+      onAction={onInstaller}
+      fond={fond}
+      data-stats-sans-chiffres={etat}
+    />
   );
 }
 
@@ -1007,7 +1050,7 @@ function phraseDuTest(diagnostic: DiagnosticSuivi): string {
 }
 
 /** « TESTER LE SUIVI » : le démon relit la page en ligne tout de suite et dit ce qu'elle porte. */
-function TesterLeSuivi({ id }: { id: string }) {
+function TesterLeSuivi({ id, centre = false }: { id: string; centre?: boolean }) {
   const [envoi, setEnvoi] = React.useState(false);
   const [resultat, setResultat] = React.useState<DiagnosticSuivi | null>(null);
   const tester = async () => {
@@ -1022,8 +1065,8 @@ function TesterLeSuivi({ id }: { id: string }) {
     }
   };
   return (
-    <div className="flex flex-col gap-1.5" data-stats-tester>
-      <Button size="sm" variant="subtle" className="self-start" disabled={envoi} onClick={() => void tester()} data-stats-tester-bouton>
+    <div className={cn('flex flex-col gap-1.5', centre && 'max-w-[420px] items-center')} data-stats-tester>
+      <Button size="sm" variant="subtle" className={centre ? undefined : 'self-start'} disabled={envoi} onClick={() => void tester()} data-stats-tester-bouton>
         {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5" />}
         {envoi ? t('Test en cours…') : t('Tester le suivi')}
       </Button>
@@ -1156,7 +1199,18 @@ function Audience({ detail, dates, onInstaller }: { detail: DetailSite; dates: R
   ];
   return (
     <div className="flex flex-col gap-3" data-marketing-statistiques={r.totaux.visites ?? 0}>
-      <TableauDeBlocs onglet="audience" blocs={blocs} outils={dates} avant={aucuneVisite ? <BandeauDuSuivi detail={detail} onInstaller={onInstaller} /> : null} />
+      <TableauDeBlocs
+        onglet="audience"
+        blocs={blocs}
+        outils={dates}
+        avant={
+          aucuneVisite && detail.etatAffiche === 'verifie' ? (
+            <p className="rounded-md bg-bloc px-3 py-2.5 text-[12.5px] text-muted" data-marketing-statistiques-vide="verifie">
+              {t('Aucune visite mesurée sur cette période.')}
+            </p>
+          ) : null
+        }
+      />
       {r.tronque ? <p className="text-[12px] text-warning">{t('Période très chargée : seuls les passages les plus récents sont comptés.')}</p> : null}
     </div>
   );
@@ -2268,15 +2322,30 @@ function BlocChoix({
       disabled={disabled}
       onClick={onClick}
       data-actif={actif ? '' : undefined}
+      aria-pressed={actif}
       {...repere}
       className={cn(
-        'flex flex-col gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55',
-        /* Le choix RETENU : son fond, et son titre en violet — plus d'anneau. */
+        'flex items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55',
+        /* LE CHOIX RETENU SE VOIT D'UN COUP D'ŒIL (20/11/2026, capture #c7fe : « Anonyme » choisi, les deux cartes
+           identiques — `--teinte` est un gris) : son fond, son titre appuyé, et une pastille cochée à l'encre à gauche ;
+           l'autre garde un rond vide tracé en `--muted`. Plus d'anneau autour de la carte. */
         actif ? 'bg-raised' : 'bg-bloc hover:bg-bloc/70',
       )}
     >
-      <span className={cn('text-[13px] font-medium', actif ? 'text-teinte' : 'text-text')}>{titre}</span>
-      <span className="text-[12px] text-muted">{description}</span>
+      <span
+        aria-hidden
+        className={cn(
+          'mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full',
+          actif ? 'bg-encre text-encre-fg' : 'ring-[1.5px] ring-inset ring-muted',
+        )}
+        data-stats-choix-marque={actif ? 'retenu' : 'libre'}
+      >
+        {actif ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className={cn('text-[13px]', actif ? 'font-semibold text-text' : 'font-medium text-text')}>{titre}</span>
+        <span className="text-[12px] text-muted">{description}</span>
+      </span>
     </button>
   );
 }

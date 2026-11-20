@@ -248,6 +248,7 @@ export function Securite({
           action={t('Suivre ce projet')}
           onAction={() => void ajouter(projetDuService.id)}
           enCours={ajout}
+          fond={<SilhouetteTableauDeService lignes={8} />}
           data-securite-vide-projet=""
         />
       </Drawer>

@@ -629,6 +629,8 @@ async function main(): Promise<void> {
   const archivesTimers = planifierPurgeDesArchives();
   // Les gestes répétés dans Chrome partent à leur échéance, ou au retour de Chrome (`server/src/extension-chrome.ts`).
   void import('./extension-chrome.js').then((m) => m.planifierLesRoutines()).catch(() => {});
+  /* L'extension Chrome des Mac se met à jour seule la nuit, par le programme du Mac (20/11/2026). */
+  void import('./mise-a-jour-extension.js').then((m) => m.planifierLaMiseAJourDeNuit()).catch(() => {});
   // L'audit SEO + GEO du Marketing : contrôle technique hebdomadaire, test des IA mensuel (`server/src/referencement.ts`).
   // Les médias de Communication restés 30 jours à la corbeille s'effacent (`server/src/communication.ts`).
   const corbeilleDesMediasTimers = planifierPurgeDeLaCorbeilleDesMedias();

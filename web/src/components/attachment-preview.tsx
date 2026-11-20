@@ -953,12 +953,12 @@ function legendeAffichable(legende: LegendeDuMedia | null): LegendeDuMedia | nul
 }
 
 /**
- * SOUS LE MÉDIA, CE QU'IL EST (17/11/2026, maquette #0dbd) : « A · #ff70 », le titre et « Conseillé » sur une ligne,
- * puis la description ENTIÈRE — jamais coupée. Elle défile si elle dépasse, et tout s'y copie à la souris. Son cadre
+ * SOUS LE MÉDIA, CE QU'IL EST (17/11/2026, maquette #0dbd) : le titre et « Conseillé » sur une ligne, puis la description
+ * ENTIÈRE — jamais coupée. PLUS DE « A · #ff70 » DEVANT LA PHRASE (demande du 20/11/2026, capture #e7fe) : la lettre et
+ * la référence sont déjà dans l'en-tête de la visionneuse, à côté de la date ; en bas, seule la phrase se lit. Elle défile si elle dépasse, et tout s'y copie à la souris. Son cadre
  * prend la hauteur de son texte, collé en bas.
  */
 function LegendeSousLeMedia({ legende }: { legende: LegendeDuMedia }) {
-  const code = [legende.lettre, legende.reference].filter(Boolean).join(' · ');
   return (
     <ZoneDefilement
       fond="hsl(var(--raised))"
@@ -969,19 +969,20 @@ function LegendeSousLeMedia({ legende }: { legende: LegendeDuMedia }) {
       data-legende-du-media
       className="px-3.5 py-2.5"
     >
-      <div className="flex min-w-0 items-baseline gap-2">
-        {code ? <span className="shrink-0 font-mono text-[12px] text-faint texte-copiable" data-legende-code>{code}</span> : null}
-        <span className="min-w-0 flex-1 break-words text-[14px] font-semibold leading-snug text-text texte-copiable" data-legende-titre>
-          {legende.titre}
-        </span>
-        {legende.conseillee ? (
-          <span className="shrink-0 text-[12.5px] font-medium text-accent" data-legende-conseillee>
-            {t('Conseillé')}
+      {legende.titre || legende.conseillee ? (
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="min-w-0 flex-1 break-words text-[14px] font-semibold leading-snug text-text texte-copiable" data-legende-titre>
+            {legende.titre}
           </span>
-        ) : null}
-      </div>
+          {legende.conseillee ? (
+            <span className="shrink-0 text-[12.5px] font-medium text-accent" data-legende-conseillee>
+              {t('Conseillé')}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {legende.description ? (
-        <p className="mt-1 whitespace-pre-line break-words text-[13.5px] leading-relaxed text-muted texte-copiable" data-legende-description>
+        <p className={cn(legende.titre || legende.conseillee ? 'mt-1' : '', 'whitespace-pre-line break-words text-[13.5px] leading-relaxed text-muted texte-copiable')} data-legende-description>
           {legende.description}
         </p>
       ) : null}

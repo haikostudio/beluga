@@ -325,6 +325,7 @@ export function TachesRecurrentes({
           icone={<Repeat />}
           titre={t('Aucune tâche récurrente pour {v0}', { v0: projetDuService.name })}
           texte={t('Une tâche récurrente revient d’elle-même : vérifier chaque matin une fiche, relancer une publication, surveiller un concurrent… Demandez-la à un agent dans une tâche de ce projet : elle apparaîtra ici.')}
+          fond={<SilhouetteTachesRecurrentes lignes={8} />}
           data-recurrentes-vide-projet
         />
       </Drawer>

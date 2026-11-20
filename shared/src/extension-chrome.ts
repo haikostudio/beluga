@@ -17,7 +17,7 @@
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
 
 /** La version de l'extension SERVIE par ce démon. Une extension reliée plus ancienne voit « nouvelle version ». */
-export const VERSION_EXTENSION_CHROME = '1.0.10';
+export const VERSION_EXTENSION_CHROME = '1.0.11';
 
 /**
  * LA PLUS ANCIENNE EXTENSION QUI SAIT OUVRIR UNE FENÊTRE PRIVÉE RÉDUITE (`fenetre: 'privee-reduite'`, 18/11/2026). Les
@@ -449,6 +449,8 @@ export interface ChromeRelie {
   id: string;
   nom: string;
   version: string | null;
+  /** Autorisée en navigation privée (dit par l'extension 1.0.11 et plus) ; `null` quand elle ne le dit pas. */
+  incognito?: boolean | null;
   creeLe: number;
   vuLe: number | null;
   enLigne: boolean;

@@ -11,6 +11,10 @@
  *
  * LES LIGNES DE LA COLONNE (décision de l'utilisateur du 16/11/2026, capture #3836) : icône d'état, titre, heure à
  * droite — plus de nom de branche ni de badge encadré (`formatColonne`). La recherche et le filtre restent en tête.
+ *
+ * LA TÂCHE OÙ L'ON SE TROUVE EST EN BLEU (demande du 20/11/2026, capture #5c98d, maquette #11b0) : la feuille reçoit
+ * `carteOuverte`, et sa ligne prend le même repère que dans la colonne de l'ordinateur — titre au bleu de l'important, fond
+ * léger `.ligne-ouverte-de-colonne` (sauf une tâche qui attend une réponse). Repère `[data-ouvert]` sur la ligne.
  */
 import * as React from 'react';
 import type { Card } from '@beluga/shared';
@@ -24,12 +28,15 @@ import { cn } from '@/lib/utils';
 
 export function FeuilleDesTaches({
   projectId,
+  carteOuverte,
   ouvert,
   onFermer,
   onOuvrir,
   onCree,
 }: {
   projectId: string | null;
+  /** La tâche affichée derrière la feuille : sa ligne s'allume en bleu. */
+  carteOuverte?: string | null;
   ouvert: boolean;
   onFermer: () => void;
   onOuvrir: (card: Card) => void;
@@ -55,6 +62,7 @@ export function FeuilleDesTaches({
         {ouvert ? (
           <ListeDesAgents
             projectId={projectId}
+            carteOuverte={carteOuverte}
             pleinePage
             formatColonne
             onOuvrir={(card) => {

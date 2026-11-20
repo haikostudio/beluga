@@ -167,7 +167,7 @@ interface Attente {
 const files = new Map<string, Commande[]>();
 const preneurs = new Map<string, (c: Commande | null) => void>();
 const enAttente = new Map<string, Attente>();
-type Nouvelles = { vuLe: number; recopie?: boolean; verrouille?: boolean; accessibilite?: boolean | null; ecran?: boolean | null };
+type Nouvelles = { vuLe: number; recopie?: boolean; verrouille?: boolean; accessibilite?: boolean | null; ecran?: boolean | null; version?: number; lanceur?: boolean };
 const nouvelles = new Map<string, Nouvelles>();
 
 /** Ce que le relais rapporte à chaque attente. `accessibilite`/`ecran` absents : relais d'avant « Beluga Relais ». */
@@ -176,6 +176,44 @@ export interface EtatRapporteParLeRelais {
   verrouille?: boolean;
   accessibilite?: boolean | null;
   ecran?: boolean | null;
+  /** La version du relais (`VERSION_DU_RELAIS` de relais.js) ; absente avant le 20/11/2026 (version 1). */
+  version?: number;
+  /** Joué par le lanceur fixe : il sait se remplacer seul sans que macOS oublie ses autorisations. */
+  lanceur?: boolean;
+}
+
+/** Dernière demande de remplacement envoyée à chaque relais : une seule toutes les dix minutes. */
+const remplacementsDemandes = new Map<string, number>();
+
+/**
+ * UN RELAIS EN RETARD SE REMPLACE SEUL (20/11/2026) : s'il tourne sous le lanceur fixe et que sa version est plus
+ * ancienne que celle servie, le démon lui confie `se_mettre_a_jour` avec l'empreinte du fichier servi. Sans lanceur
+ * (installation d'avant), rien : il faut rejouer la commande d'installation une fois.
+ */
+function remplacerSiEnRetard(appareilId: string, etat: EtatRapporteParLeRelais, maintenant = Date.now()): void {
+  if (!etat.lanceur) return;
+  const servi = versionDuRelaisServi();
+  if (!servi || (etat.version ?? 1) >= servi) return;
+  if (maintenant - (remplacementsDemandes.get(appareilId) ?? 0) < 10 * 60_000) return;
+  const script = scriptDuRelais();
+  if (!script) return;
+  remplacementsDemandes.set(appareilId, maintenant);
+  log.info(`relais du Mac en version ${etat.version ?? 1} : remplacement par la version ${servi}`);
+  void demanderAuRelais(appareilId, 'se_mettre_a_jour', { empreinte: crypto.createHash('sha256').update(script).digest('hex') }, 120_000).catch((e) =>
+    log.warn('relais du Mac : remplacement refusé', String((e as Error)?.message ?? e)),
+  );
+}
+
+/** La version du relais servi, lue dans `relais.js` (`const VERSION_DU_RELAIS = n;`). */
+export function versionDuRelaisServi(): number | null {
+  const m = /const VERSION_DU_RELAIS = (\d+);/.exec(scriptDuRelais() ?? '');
+  return m ? Number(m[1]) : null;
+}
+
+/** Ce que le relais d'un ordinateur sait faire : sa version et s'il tourne sous le lanceur. */
+export function capacitesDuRelais(appareilId: string): { version: number; lanceur: boolean } | null {
+  const n = nouvelles.get(appareilId);
+  return n ? { version: n.version ?? 1, lanceur: !!n.lanceur } : null;
 }
 
 /** Le relais demande du travail (longue attente) : un geste en file, ou rien au bout de `ATTENTE_DU_RELAIS_MS`. */
@@ -186,6 +224,7 @@ export function attendreUnGeste(appareilId: string, etat: EtatRapporteParLeRelai
   if (!avant || Date.now() - avant.vuLe > RELAIS_HORS_LIGNE_APRES_MS || avant.recopie !== etat.recopie || avant.verrouille !== etat.verrouille || avant.accessibilite !== etat.accessibilite || avant.ecran !== etat.ecran) {
     bus.emit({ type: 'extension.change' });
   }
+  remplacerSiEnRetard(appareilId, etat);
   const file = files.get(appareilId) ?? [];
   const suivante = file.shift();
   if (suivante) return Promise.resolve(suivante);
@@ -340,6 +379,11 @@ export function unRelaisEstRelie(): boolean {
 /** Le script du relais (JavaScript pour Automation, joué par `osascript`), versionné dans `scripts/relais-mac/`. */
 export function scriptDuRelais(): string | null {
   return lireLeFichier('relais.js');
+}
+
+/** Le lanceur fixe compilé en « Beluga Relais.app » : il lit `relais.js` sur le disque et le joue. */
+export function lanceurDuRelais(): string | null {
+  return lireLeFichier('lanceur.js');
 }
 
 /** L'installateur, avec l'adresse de CE Beluga écrite dedans : une seule commande à coller dans le Terminal du Mac. */

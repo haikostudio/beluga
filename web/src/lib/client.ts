@@ -2330,6 +2330,9 @@ class Client {
       case 'voix.direct.action':
       case 'voix.direct.activite':
       case 'voix.direct.production':
+      case 'voix.direct.question':
+      case 'voix.direct.ouvrir':
+      case 'voix.direct.reprendre':
       case 'jarvis.geste':
         window.dispatchEvent(new CustomEvent('beluga:voix-directe', { detail: event }));
         break;

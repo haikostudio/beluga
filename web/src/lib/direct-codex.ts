@@ -21,7 +21,7 @@ import { brouillonApresSynthese, creerControleDeVie, type MesureDuMicro } from '
 import { t } from '@/lib/langue';
 import { signalerErreur } from './erreurs';
 import { plateformeNative } from './natif';
-import { prendreLaRaisonDeFermeture } from './etat-vocal';
+import { EVENEMENT_PARLER_A_JARVIS, prendreLaRaisonDeFermeture } from './etat-vocal';
 
 /** Sans voix de Jarvis ni phrase de sa part ce temps-là après l'appel, Jarvis est dit « ne répond pas ». */
 const REPONSE_A_L_APPEL_MAX_MS = 12_000;
@@ -86,6 +86,40 @@ export interface TourDuDirect {
   action?: ActionDuDirect;
   activite?: ActiviteDuDirect;
   verifications?: VerificationsDuDirect;
+  /** Une confirmation posée en bulle par le cerveau (« voix_confirmer », 20/11/2026), avec ses choix à toucher. */
+  question?: QuestionDuDirect;
+  /** Ce que Jarvis a PRODUIT (carte proposée, image, document…) : le message qui le porte, rendu dans la bulle (20/11/2026). */
+  production?: { messageId: string };
+}
+
+export interface QuestionDuDirect {
+  id: string;
+  question: string;
+  choix: string[];
+  /** Le choix touché, ou « dite » quand la réponse est venue de la voix. */
+  reponse?: string;
+}
+
+/*
+ * JARVIS TRAVAILLE PENDANT LA VEILLE (décision de l'utilisateur, 20/11/2026) : la voix est coupée, le cerveau finit son
+ * travail ; le bouton du coin montre un rond de chargement tant que dure ce travail (`jarvis-natif.tsx`).
+ */
+let travailEnVeille = false;
+const abonnesDuTravail = new Set<() => void>();
+function poserLeTravailEnVeille(valeur: boolean): void {
+  if (travailEnVeille === valeur) return;
+  travailEnVeille = valeur;
+  for (const f of abonnesDuTravail) f();
+}
+export function useTravailEnVeille(): boolean {
+  return React.useSyncExternalStore(
+    (f) => {
+      abonnesDuTravail.add(f);
+      return () => abonnesDuTravail.delete(f);
+    },
+    () => travailEnVeille,
+    () => false,
+  );
 }
 
 export interface DirectCodex {
@@ -233,6 +267,10 @@ export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => 
     if (!tour.texte) return fil;
     if (i >= 0) suite[i] = tour;
     else suite.push(tour);
+    /* Une réponse DITE à voix haute tranche la confirmation en attente : ses choix se referment. */
+    if (role === 'user' && tour.final) {
+      for (let k = 0; k < suite.length; k += 1) if (suite[k].question && !suite[k].question!.reponse) suite[k] = { ...suite[k], question: { ...suite[k].question!, reponse: 'dite' } };
+    }
     return suite.slice(-TOURS_A_L_ECRAN);
   }
   /* UNE ACTION DE JARVIS À L'ÉCRAN — de CET onglet seulement : son encadré se met à jour en place, geste par geste. */
@@ -278,6 +316,28 @@ export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => 
     }
     suite.push({ id: prochainId(), le: Date.now(), role: 'assistant', texte: '', final: true, projets: tache.projet ? [tache.projet] : [], tache });
     return suite.slice(-TOURS_A_L_ECRAN);
+  }
+  /* UNE CONFIRMATION EN BULLE (20/11/2026) : posée, puis tranchée en place quand un choix est touché. */
+  if (evenement?.type === 'voix.direct.question') {
+    const id = String(evenement.id ?? '');
+    if (!id) return fil;
+    const suite = [...fil];
+    for (let k = suite.length - 1; k >= 0; k -= 1) {
+      if (suite[k].question?.id === id) {
+        suite[k] = { ...suite[k], question: { ...suite[k].question!, ...(evenement.reponse ? { reponse: String(evenement.reponse) } : {}) } };
+        return suite;
+      }
+    }
+    if (evenement.reponse) return fil;
+    const question: QuestionDuDirect = { id, question: String(evenement.question ?? ''), choix: Array.isArray(evenement.choix) ? evenement.choix.map(String) : [] };
+    suite.push({ id: prochainId(), le: Date.now(), role: 'assistant', texte: '', final: true, projets: [], question });
+    return suite.slice(-TOURS_A_L_ECRAN);
+  }
+  /* CE QUE JARVIS PRODUIT (carte, image, document) se lit DANS LES BULLES, plus dans le volet (20/11/2026). */
+  if (evenement?.type === 'voix.direct.production') {
+    const messageId = typeof evenement.messageId === 'string' ? evenement.messageId : '';
+    if (!messageId || fil.some((tour) => tour.production?.messageId === messageId)) return fil;
+    return [...fil, { id: prochainId(), le: Date.now(), role: 'assistant' as const, texte: '', final: true, projets: [], production: { messageId } }].slice(-TOURS_A_L_ECRAN);
   }
   /* CE QUE JARVIS FAIT, EN DIRECT (16/11/2026) : chaque appel d'outil pose sa ligne, mise à jour en place à sa fin. */
   if (evenement?.type === 'voix.direct.activite') {
@@ -335,20 +395,31 @@ export function useDirectCodex(actif: boolean, entree: EntreeDuDirect | null = n
           if (!evenement.client || evenement.client === ID_DE_L_ONGLET) recevoirLaSynthese(String(evenement.agentId ?? ''), String(evenement.texte ?? ''), undefined, true);
           return;
         }
-        setRedaction((r) => (r === evenement.agentId ? null : r));
-        // Le champ revient d'abord à l'écran (la zone vocale se retire), PUIS il reçoit la synthèse.
-        window.setTimeout(() => recevoirLaSynthese(String(evenement.agentId ?? ''), String(evenement.texte ?? ''), evenement.erreur), 150);
+        /* PLUS DE SYNTHÈSE DE FIN (décision de l'utilisateur, 20/11/2026) : Jarvis se tait, le champ n'est pas touché. */
+        return;
+      }
+      /* LA CARTE CRÉÉE À LA VOIX s'ouvre sur l'écran principal (20/11/2026) — l'écran qui tient la conversation. */
+      if (evenement?.type === 'voix.direct.ouvrir') {
+        window.dispatchEvent(new CustomEvent('beluga:ouvrir-carte-de-jarvis', { detail: { cardId: evenement.cardId, projectId: evenement.projectId } }));
+        return;
+      }
+      /* LE TRAVAIL FAIT PENDANT LA VEILLE EST FINI : la conversation se rouvre, Jarvis dit le résultat. */
+      if (evenement?.type === 'voix.direct.reprendre') {
+        poserLeTravailEnVeille(false);
+        window.dispatchEvent(new CustomEvent(EVENEMENT_PARLER_A_JARVIS, { detail: { agentId: null, reprise: true } }));
         return;
       }
       if (evenement?.type === 'voix.direct') {
-        if (evenement.etat === 'synthese') {
-          setRedaction(evenement.agentId ?? null);
+        if (evenement.etat === 'veille-au-travail') {
+          poserLeTravailEnVeille(true);
           return;
         }
         if (evenement.etat === 'arrete') {
           setRedaction(null);
+          poserLeTravailEnVeille(false);
           return;
         }
+        if (evenement.etat === 'en-direct') poserLeTravailEnVeille(false);
         if (evenement.etat === 'erreur') {
           setEtat('erreur');
           setErreur(evenement.message ?? t('Le direct avec Codex s’est interrompu.'));
@@ -563,7 +634,8 @@ export function useDirectCodex(actif: boolean, entree: EntreeDuDirect | null = n
       if (controle !== null) window.clearInterval(controle);
       entree?.finir();
       const raison = prendreLaRaisonDeFermeture() ?? (pageQuittee ? 'page quittée ou rechargée' : document.visibilityState === 'hidden' ? 'écran caché' : 'conversation démontée');
-      void client.call({ type: 'voix.direct.arreter', raison }).catch(() => undefined);
+      /* La MISE EN VEILLE garde le travail du cerveau en cours (20/11/2026) : le démon ne coupe que la voix. */
+      void client.call({ type: 'voix.direct.arreter', raison, ...(/silence|veille/.test(raison) ? { garderLeTravail: true } : {}) }).catch(() => undefined);
       try {
         pc?.close();
       } catch {

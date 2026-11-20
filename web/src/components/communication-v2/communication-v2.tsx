@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { EtatVideDuProjet, useFiltreCentral, useProjetDuService as useProjetDuServiceBrut } from '@/components/projet-du-service';
+import { EtatVideDuProjet, useFiltreCentral, useProjetDeLObjetOuvert, useProjetDuService as useProjetDuServiceBrut } from '@/components/projet-du-service';
 import { AccueilDeCommunication } from './accueil-de-communication';
 import { CalendarDays, Flag, Inbox, Link2, Loader2, Megaphone, Plus, Radio } from '@/components/ui/icones';
 import { PAGE_D_OUVERTURE_V2, cheminCommunicationV2, etapeQuiBloqueV2, etapesDeLaMarqueV2, lireCheminCommunicationV2, pageAccessibleV2, type GenreDeCoulisses, type PageCommunicationV2 } from '@beluga/shared';
@@ -9,7 +9,7 @@ import { useDeclarerLeProjetDuHaut } from '@/components/haut-du-telephone';
 import { useDeclarerLeNiveauDuBas, useDeclarerLesGestesDuBas, type GestesDuBas } from '@/components/menu-du-bas';
 import { RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { SelecteurDeProjet } from '@/components/selecteur-de-projet';
-import { SilhouetteMarketing, SilhouetteProjets } from '@/components/silhouettes';
+import { SilhouetteMarketing, SilhouetteProjets, SilhouetteTableauDeService } from '@/components/silhouettes';
 import { Button, Dialog, ListeDeroulante, TELEPHONE_SOUS_LA_BARRE, ZoneDefilement } from '@/components/ui';
 import { LienInterne } from '@/components/ui/lien-interne';
 import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
@@ -110,6 +110,8 @@ export function Communication2({
   const redirigee = !!marque && !!emplacement.page && (page !== emplacement.page || pageEcrite !== emplacement.page);
   const element = redirigee ? [] : (emplacement.element ?? []);
   const coulisses = useCoulisses(marque?.id ?? null);
+  /* Une CAMPAGNE ouverte (objet réel, en onglet) se range sous un projet de SA marque. */
+  useProjetDeLObjetOuvert(marque && element.length ? marque.projets.map((p) => p.id) : null);
   /* LE NOM DE LA CAMPAGNE OUVERTE, pour le fil d'Ariane : déclaré par sa page (qui l'a déjà lu), effacé en la quittant. */
   const [titreDeLaCampagne, setTitreDeLaCampagne] = React.useState<string | null>(null);
 
@@ -337,6 +339,7 @@ function CreerLaMarqueDuProjet({ projet, marques, onCree }: { projet: { id: stri
         titre={t('{v0} n’a pas encore de marque', { v0: projet.name })}
         texte={t('La marque réunit les campagnes, les comptes reliés et le calendrier des publications de ce projet. Elle prend son nom et son logo.')}
         {...(telephone ? { action: libelle, onAction: () => void creer(), enCours } : {})}
+        fond={<SilhouetteTableauDeService lignes={8} />}
         data-v2-projet-sans-marque={projet.id}
       />
       {telephone ? null : (

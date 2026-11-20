@@ -6,7 +6,9 @@ import { Check, ChevronDown, ChevronUp, Loader2, MicOff, PanelRight, Square, Vol
 import { IconeTroisBarres, OndesDuDirect } from '@/components/ondes-de-voix';
 import { EncadreDAction } from '@/components/jarvis-a-l-ecran';
 import { Tooltip, ZoneDefilement } from '@/components/ui';
-import type { ActiviteDuDirect, TourDuDirect } from '@/lib/direct-codex';
+import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
+import type { ActiviteDuDirect, QuestionDuDirect, TourDuDirect } from '@/lib/direct-codex';
 import { useAgentDeLAssistant } from '@/lib/assistant-global';
 import { activerLeSonDuDirect, arreterJarvis, basculerLaSourdine, basculerLesBulles, useBullesRepliees, useDirectVu } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
@@ -147,7 +149,7 @@ export function PiedVocal({
             <MicOff className="h-[18px] w-[18px]" />
           </button>
         </Tooltip>
-        <Tooltip label={t('Arrêter et rédiger la synthèse')}>
+        <Tooltip label={t('Arrêter la conversation')}>
           <button
             type="button"
             data-jarvis-raccrocher
@@ -266,7 +268,8 @@ export function BulleVocale({ nom, telephone }: { nom: string; telephone: boolea
         <span className="font-medium text-text">{nom}</span>
         {etat ? <span className="min-w-0 truncate text-muted">· {etat}</span> : null}
       </div>
-      <PiedVocal fenetre="deplier" retenirLeCercle={morphing === 'ouverture'} enRedaction={redaction} />
+      {/* PLUS DE BOUTON VERS LE VOLET (décision de l'utilisateur, 20/11/2026) : tout se passe dans ces bulles. */}
+      <PiedVocal retenirLeCercle={morphing === 'ouverture'} enRedaction={redaction} />
     </div>
   );
 }
@@ -523,7 +526,80 @@ function ListeDesVerifications({ etapes }: { etapes: ActiviteDuDirect[] }) {
   );
 }
 
+/*
+ * LA CONFIRMATION EN BULLE (décision de l'utilisateur, 20/11/2026) : la question de Jarvis avant de créer une carte ou
+ * d'agir, avec ses choix à toucher — ou à dire à voix haute. Même tenue que la question du chat : un cadre jaune, jamais
+ * un fond jaune ; une fois tranchée, le choix retenu reste lu.
+ */
+function BulleDeQuestion({ question }: { question: QuestionDuDirect }) {
+  const [envoi, setEnvoi] = React.useState<string | null>(null);
+  const tranchee = question.reponse ?? null;
+  return (
+    <div data-bulle="question" data-question-du-direct={tranchee ? 'tranchee' : 'ouverte'} className="flex justify-start">
+      <div className="cadre-de-question pointer-events-auto w-fit min-w-0 max-w-[90%] rounded-lg bg-surface px-3 py-2 text-[13px] leading-snug shadow-[0_1px_3px_rgb(0_0_0/0.08)]">
+        <p className="break-words text-text">{question.question}</p>
+        {tranchee ? (
+          <p className="mt-1 text-[12px] text-muted">{tranchee === 'dite' ? t('Répondu à voix haute') : t('Choisi : {choix}', { choix: tranchee })}</p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {question.choix.map((choix) => (
+              <button
+                key={choix}
+                type="button"
+                data-choix-du-direct={choix}
+                disabled={!!envoi}
+                onClick={() => {
+                  setEnvoi(choix);
+                  void client.call({ type: 'voix.direct.repondre', id: question.id, reponse: choix }).catch(() => setEnvoi(null));
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-raised px-3 text-[12.5px] text-text transition-colors hover:bg-fond-survol disabled:opacity-60"
+              >
+                {envoi === choix ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                {choix}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const MessageView = React.lazy(() => import('@/components/message-view').then((m) => ({ default: m.MessageView })));
+
+/*
+ * CE QUE JARVIS A PRODUIT, DANS LA BULLE (décision de l'utilisateur, 20/11/2026) : carte proposée ou créée, images,
+ * paquet d'images, document — rendus par les MÊMES composants que le chat (`MessageView`), au-dessus du mode vocal, au
+ * lieu d'ouvrir le volet. Le message qui les porte est celui de la conversation vocale, chargé s'il ne l'est pas.
+ */
+function BulleDeProduction({ messageId }: { messageId: string }) {
+  const state = useApp();
+  const assistant = useAgentDeLAssistant();
+  const message = React.useMemo(() => {
+    for (const liste of Object.values(state.messages)) {
+      const trouve = liste?.find((m) => m.id === messageId);
+      if (trouve) return trouve;
+    }
+    return null;
+  }, [state.messages, messageId]);
+  React.useEffect(() => {
+    if (!message && assistant) void client.chargerAgent(assistant);
+  }, [message, assistant]);
+  if (!message) return null;
+  return (
+    <div data-bulle="production" className="flex justify-start">
+      <div className="pointer-events-auto w-full min-w-0 max-w-[90%] rounded-lg bg-surface px-3 py-2 text-[13px] shadow-[0_1px_3px_rgb(0_0_0/0.08)]">
+        <React.Suspense fallback={<Loader2 className="h-3 w-3 animate-spin text-muted" />}>
+          <MessageView message={message} allMessages={[message]} onToggleEvolution={() => undefined} onToggleAll={() => undefined} />
+        </React.Suspense>
+      </div>
+    </div>
+  );
+}
+
 function Bulle({ tour }: { tour: TourDuDirect }) {
+  if (tour.question) return <BulleDeQuestion question={tour.question} />;
+  if (tour.production) return <BulleDeProduction messageId={tour.production.messageId} />;
   if (tour.verifications) return <ListeDesVerifications etapes={tour.verifications.etapes} />;
   if (tour.activite) {
     const { etat, libelle } = tour.activite;

@@ -448,6 +448,7 @@ export function Backups({
             enCours={projetLance === projetDuService.id}
             onAction={() => void configurerProjet({ id: projetDuService.id, nom: projetDuService.name, chemin: projetDuService.path })}
             note={t('Les copies vont sur le disque de stockage, jamais sur le serveur.')}
+            fond={<SilhouetteBackups lignes={8} />}
             data-backups-vide
           />
         </Drawer>

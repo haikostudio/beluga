@@ -175,8 +175,9 @@ export function Surveillance({
     }
   };
 
-  /* UN PROJET SANS SURVEILLANCE, OUVERT EN ONGLET : il le dit, et propose de commencer (maquette #4e4f). */
-  if (projetDuService && !sites.length && tiroir === null) {
+  /* UN PROJET SANS SURVEILLANCE, OUVERT EN ONGLET : il le dit, et propose de commencer (maquette #4e4f) — UNE FOIS LA
+     LISTE REÇUE (20/11/2026) : avant, la page montre sa silhouette, jamais un « aucune surveillance » à tort. */
+  if (projetDuService && state.surveillanceRecue && !sites.length && tiroir === null) {
     return (
       <Drawer open={open} onClose={onClose} enPage={enPage}>
         <EtatVideDuProjet
@@ -186,6 +187,7 @@ export function Surveillance({
           action={t('Créer une surveillance')}
           onAction={() => setTiroir({ nouvelle: true })}
           note={t('Le premier contrôle part dès la création.')}
+          fond={<SilhouetteSurveillance lignes={8} />}
           data-surveillance-vide
         />
       </Drawer>

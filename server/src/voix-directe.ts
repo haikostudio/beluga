@@ -31,6 +31,7 @@ import {
   ACCENT_DE_LA_VOIX,
   consigneDeLaVoix,
   consigneDuSalut,
+  consigneDeLaReprise,
   salutDeJarvis,
   appelEnCoursPourLaVoix,
   texteDuDossier,
@@ -46,9 +47,6 @@ import {
   souvenirsPourLaVoix,
   DISCUSSIONS_EN_SOUVENIR,
   nomDeLAssistant,
-  DELAI_DE_LA_SYNTHESE_MS,
-  consigneDeLaSynthese,
-  syntheseAColler,
   libelleDeLActivite,
   outilQuiAgit,
   REPRISE_DU_DIRECT_MS,
@@ -233,6 +231,8 @@ interface Session {
   travail?: TravailDuCerveau;
   /** Un point d'avancement vient d'être passé : la prochaine phrase de la voix est ce point, pas la réponse. */
   pointEnAttente?: boolean;
+  /** Rouverte après un travail fait pendant la veille : Jarvis dit ce résultat au lieu de saluer (20/11/2026). */
+  travailARapporter?: { resultat: string; fini: boolean };
 }
 
 /**
@@ -314,6 +314,8 @@ export const ABANDON_DE_LA_RESERVE_MS = 6 * 60 * 1000;
 /** L'identifiant de tour de la session vocale de cet agent (ouverte, en ouverture ou en réserve) : la garde du pont l'accepte. */
 export function tourVocalDe(agentId: string, tourAnnonce?: string): string | undefined {
   if (session && session.agentId === agentId && !session.arret) return session.tour;
+  /* LE TRAVAIL QUI CONTINUE PENDANT LA VEILLE (20/11/2026) garde sa porte tant qu'il tourne. */
+  if (detachee && detachee.session.agentId === agentId) return detachee.session.tour;
   /* LA GRÂCE D'UNE SESSION FERMÉE (18/11/2026) : un appel d'outil parti juste avant la fermeture (ou le fil de la
      synthèse, qui démarre son pont après) finit au lieu d'être refusé « tour terminé ». Le même agent, le même tour,
      `GRACE_DU_TOUR_VOCAL_MS` au plus : jamais la porte d'un autre agent. */
@@ -444,10 +446,13 @@ export function poserLOuvertureVocalePourEssai(valeur: { agentId: string; tour: 
  * phrases de l'échange, elles, restent dans les bulles et n'entrent pas dans le fil.
  */
 export function messageDeLaSessionVocale(agentId: string, tour: string | undefined): string | undefined {
-  if (!session || session.agentId !== agentId || session.tour !== tour) return undefined;
-  /* Appelée à CHAQUE production : l'écran déplie le volet si la conversation se tenait dans la bulle vocale. */
-  bus.emit({ type: 'voix.direct.production', agentId });
-  if (session.messageId && store.getMessage(session.messageId)) return session.messageId;
+  const courante = session && session.agentId === agentId && session.tour === tour ? session : detachee?.session.agentId === agentId && detachee.session.tour === tour ? detachee.session : null;
+  if (!courante) return undefined;
+  /* Appelée à CHAQUE production : l'écran la pose dans les bulles du mode vocal (plus de volet, 20/11/2026). */
+  if (courante.messageId && store.getMessage(courante.messageId)) {
+    bus.emit({ type: 'voix.direct.production', agentId, messageId: courante.messageId });
+    return courante.messageId;
+  }
   const message = store.saveMessage(
     Message.parse({
       id: store.newId(),
@@ -458,7 +463,8 @@ export function messageDeLaSessionVocale(agentId: string, tour: string | undefin
     }),
   );
   bus.emit({ type: 'message.upsert', message });
-  session.messageId = message.id;
+  courante.messageId = message.id;
+  bus.emit({ type: 'voix.direct.production', agentId, messageId: message.id });
   return message.id;
 }
 
@@ -467,7 +473,7 @@ function projetsJoignables(): ProjetJoignable[] {
 }
 
 function annoncer(
-  etat: 'connexion' | 'en-direct' | 'synthese' | 'arrete' | 'erreur',
+  etat: 'connexion' | 'en-direct' | 'veille-au-travail' | 'arrete' | 'erreur',
   extra: { message?: string; voix?: string; discussion?: string; agentId?: string } = {},
 ): void {
   bus.emit({ type: 'voix.direct', etat, ...extra });
@@ -691,6 +697,12 @@ export async function saluerLeDirect(): Promise<{ ok: boolean; salut?: string }>
   if (!courante || courante.arret || !courante.salutVoulu || courante.salue) return { ok: false };
   courante.salue = true;
   try {
+    if (courante.travailARapporter) {
+      const texte = consigneDeLaReprise(courante.prenom, courante.travailARapporter.resultat, courante.travailARapporter.fini);
+      courante.travailARapporter = undefined;
+      await courante.serveur.appeler('thread/realtime/appendText', { threadId: courante.threadId, text: texte, role: 'developer' }, 5000);
+      return { ok: true };
+    }
     await courante.serveur.appeler('thread/realtime/appendText', { threadId: courante.threadId, text: consigneDuSalut(courante.prenom), role: 'developer' }, 5000);
     return { ok: true, salut: salutDeJarvis(courante.prenom) };
   } catch (err) {
@@ -861,7 +873,7 @@ export async function demarrerLeDirect(
   appel = false,
 ): Promise<{ sdp: string; voix: string; discussion: string; agentId: string; appel: boolean }> {
   if (!/^v=0/.test(offre)) throw new Error('Offre de connexion invalide.');
-  // L'ancienne session se détache tout de suite ; sa synthèse s'écrit à côté, sans retarder la nouvelle.
+  // L'ancienne session se ferme tout de suite, sans retarder la nouvelle.
   if (session) void arreterLeDirect();
   // L'AGENT DU CHAMP où l'on a appuyé ; sans cible (« Dis Jarvis », Cmd+Espace), TOUJOURS l'assistant.
   const assistant = agentAssistantGlobal();
@@ -875,11 +887,20 @@ export async function demarrerLeDirect(
   let serveur: AppServer | null = null;
   try {
     // JARVIS PRÊT À L'AVANCE : la réserve de l'assistant épargne le lancement de Codex, sa consigne et son fil.
-    const prete = cible ? null : await prendreLaReserve(agent.id);
+    /* LE TRAVAIL FAIT PENDANT LA VEILLE (20/11/2026) : la conversation se rouvre sur le MÊME Codex et le MÊME fil. */
+    const compteDuTravail = travailEnVeille() ? await compteCodex().catch(() => null) : null;
+    const repris = compteDuTravail ? reprendreLeTravailDetache(agent.id, compteDuTravail.id) : null;
+    const prete = cible || repris ? null : await prendreLaReserve(agent.id);
     let compteId: string;
     let cwd: string;
     let consigne: string;
-    if (prete && prete.serveur) {
+    if (repris) {
+      tour = repris.session.tour;
+      compteId = repris.session.compteId;
+      cwd = repris.session.cwd;
+      serveur = repris.session.serveur;
+      consigne = '';
+    } else if (prete && prete.serveur) {
       tour = prete.tour;
       compteId = prete.compteId;
       cwd = prete.cwd;
@@ -898,7 +919,9 @@ export async function demarrerLeDirect(
     const cerveau = cerveauDuDirect();
 
     // UNE RELANCE PROCHE REPREND LE MÊME FIL ET LA MÊME DISCUSSION (changement de voix, coupure du réseau).
-    const reprise = derniere && derniere.compteId === compteId && derniere.agentId === agent.id && Date.now() - derniere.fin < REPRISE_DU_DIRECT_MS && discussions.lireDiscussion(derniere.discussion) ? derniere : null;
+    const reprise = repris
+      ? null
+      : derniere && derniere.compteId === compteId && derniere.agentId === agent.id && Date.now() - derniere.fin < REPRISE_DU_DIRECT_MS && discussions.lireDiscussion(derniere.discussion) ? derniere : null;
     let threadId = '';
     if (reprise) {
       try {
@@ -915,6 +938,7 @@ export async function demarrerLeDirect(
         threadId = '';
       }
     }
+    if (repris) threadId = repris.session.threadId;
     if (!threadId && prete?.threadId) threadId = prete.threadId;
     if (!threadId) {
       const r = await serveur.appeler<{ thread: { id: string } }>('thread/start', {
@@ -927,9 +951,13 @@ export async function demarrerLeDirect(
       });
       threadId = r.thread.id;
     }
-    const discussion = reprise && threadId === reprise.threadId ? reprise.discussion : discussions.ouvrirDiscussion({ agentId: agent.id, threadId, compte: compteId });
+    const discussion = repris
+      ? repris.session.discussion
+      : reprise && threadId === reprise.threadId
+        ? reprise.discussion
+        : discussions.ouvrirDiscussion({ agentId: agent.id, threadId, compte: compteId });
     if (reprise && discussion === reprise.discussion) discussions.rouvrirDiscussion(discussion);
-    const messageId = reprise && discussion === reprise.discussion ? reprise.messageId : undefined;
+    const messageId = repris ? repris.session.messageId : reprise && discussion === reprise.discussion ? reprise.messageId : undefined;
 
     const voix = voixDuDirectRetenue(voixDemandee ?? store.getSettings().voixCodexDirect, voixEnCache?.liste ?? VOIX_DU_DIRECT);
     const reponse = attendreLaReponse(serveur, threadId);
@@ -954,9 +982,10 @@ export async function demarrerLeDirect(
       salue: false,
       // LE SALUT À CHAQUE OUVERTURE VOULUE (décision du 18/11/2026), reprise du même fil comprise ; seule une
       // reconnexion automatique (`appel` faux) s'en passe. Il est dit quand l'écran a la ligne (`saluerLeDirect`).
-      salutVoulu: appel,
+      salutVoulu: appel || !!repris,
       arret: false,
       ouverteLe: Date.now(),
+      ...(repris ? { travailARapporter: { resultat: repris.resultat, fini: repris.fini } } : {}),
     };
     serveur.onNotification = (n) => {
       if (reponse.traiter(n)) return;
@@ -1011,12 +1040,16 @@ export async function demarrerLeDirect(
 }
 
 /**
- * FERME LA SESSION, PUIS FAIT RÉDIGER LA SYNTHÈSE (17/11/2026). La session se DÉTACHE tout de suite (une nouvelle peut
- * s'ouvrir, le pont d'outils refuse désormais ses appels) ; le direct s'arrête chez Codex ; si l'utilisateur a parlé,
- * le même Codex rédige la demande préparée — bornée à `DELAI_DE_LA_SYNTHESE_MS` — AVANT que le processus s'éteigne ;
- * puis `voix.direct.synthese` la porte au champ de l'agent. Un échec se dit, jamais un champ muet.
+ * FERME LA SESSION (décision de l'utilisateur du 20/11/2026 : PLUS AUCUNE SYNTHÈSE dans le champ d'écriture — Jarvis se
+ * tait en fin de discussion, qui reste lisible dans « Discussions »). La session se DÉTACHE tout de suite (une nouvelle
+ * peut s'ouvrir, le pont d'outils refuse ses appels), le direct s'arrête chez Codex, puis le processus s'éteint.
+ *
+ * LE TRAVAIL CONTINUE PENDANT LA VEILLE (même décision) : fermée par la mise en veille (`garderLeTravail`) alors que le
+ * cerveau travaille encore, la session coupe seulement la voix et GARDE son processus et son tour. À la fin du tour,
+ * Beluga demande à l'écran de rouvrir la conversation (`voix.direct.reprendre`) : Jarvis dit alors le résultat en
+ * reprenant le fil (`saluerLeDirect`). Un seul travail détaché à la fois, borné à `PLAFOND_DU_TRAVAIL_EN_VEILLE_MS`.
  */
-export async function arreterLeDirect(raison?: string): Promise<{ ok: true }> {
+export async function arreterLeDirect(raison?: string, o: { garderLeTravail?: boolean } = {}): Promise<{ ok: true; detache?: boolean }> {
   const courante = session;
   if (!courante) return { ok: true };
   courante.arret = true;
@@ -1028,73 +1061,121 @@ export async function arreterLeDirect(raison?: string): Promise<{ ok: true }> {
     const reste = courante.enCours[role].trim();
     if (reste) courante.transcription.push({ role, texte: reste });
   }
-  const aSynthetiser = courante.transcription.some((tour) => tour.role === 'user');
-  if (aSynthetiser) annoncer('synthese', { agentId: courante.agentId });
   try {
     await courante.serveur.appeler('thread/realtime/stop', { threadId: courante.threadId }, 5000);
   } catch {
     /* le processus s'éteint de toute façon */
   }
-  let synthese: { texte: string } | { erreur: string } | null = null;
-  if (aSynthetiser) {
-    try {
-      synthese = { texte: syntheseAColler(await redigerLaSynthese(courante)) };
-    } catch (err) {
-      synthese = { erreur: `La synthèse n’a pas pu s’écrire : ${(err as Error).message}` };
-    }
+  if (o.garderLeTravail && courante.travail && !courante.serveur.estFerme()) {
+    detacher(courante);
+    return { ok: true, detache: true };
   }
   clore(courante);
-  if (synthese) bus.emit({ type: 'voix.direct.synthese', agentId: courante.agentId, ...('texte' in synthese ? { texte: synthese.texte } : { texte: '', erreur: synthese.erreur }) });
   annoncer('arrete', { agentId: courante.agentId });
   return { ok: true };
 }
 
+/* ------------------------------------------------------------------ */
+/* Ce que la voix montre dans ses bulles (20/11/2026)                   */
+/* ------------------------------------------------------------------ */
+
+const questionsPosees = new Map<string, { agentId: string; choix: string[] }>();
+
 /**
- * LA SYNTHÈSE, RÉDIGÉE PAR LE MÊME CODEX : un fil éphémère (sans outils utiles : le pont refuse la session close),
- * nourri de la transcription, en réflexion légère pour répondre vite. Rend le texte brut du modèle.
+ * UNE CONFIRMATION EN BULLE : le cerveau pose sa question (`voix_confirmer`), l'écran l'affiche au-dessus du mode vocal
+ * avec ses choix. Elle n'arrête rien : la réponse arrive dite à voix haute, ou touchée (`repondreALaConfirmation`).
  */
-async function redigerLaSynthese(courante: Session): Promise<string> {
-  const { serveur } = courante;
-  const debut = Date.now();
-  const reste = () => Math.max(1000, DELAI_DE_LA_SYNTHESE_MS - (Date.now() - debut));
-  const t = await serveur.appeler<{ thread: { id: string } }>(
-    'thread/start',
-    { cwd: courante.cwd, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', model: cerveauDuDirect().modele },
-    reste(),
-  );
-  const threadId = t.thread.id;
-  return await new Promise<string>((ok, ko) => {
-    const morceaux: string[] = [];
-    let fini = false;
-    const finir = (erreur: Error | null) => {
-      if (fini) return;
-      fini = true;
-      clearTimeout(minuterie);
-      if (erreur) ko(erreur);
-      else ok(morceaux.join('\n\n'));
-    };
-    const minuterie = setTimeout(() => finir(new Error('Codex a mis trop de temps à répondre.')), reste());
-    serveur.onNotification = (n) => {
-      if (n.params?.threadId !== threadId) return;
-      if (n.method === 'item/completed' && n.params.item?.type === 'agentMessage' && typeof n.params.item.text === 'string') {
-        morceaux.push(n.params.item.text);
-      } else if (n.method === 'turn/completed') {
-        const turn = n.params.turn ?? {};
-        if (turn.status === 'failed') finir(new Error(String(turn.error?.message ?? 'refus de Codex')));
-        else finir(null);
-      } else if (n.method === 'error') {
-        finir(new Error(String(n.params.error?.message ?? 'erreur de Codex')));
-      }
-    };
-    serveur.onSortie = () => finir(new Error('Codex s’est arrêté.'));
-    serveur
-      .appeler('turn/start', {
-        threadId,
-        input: [{ type: 'text', text: consigneDeLaSynthese(courante.transcription, courante.destinataire) }],
-        effort: 'low',
-      }, reste())
-      .catch((err: Error) => finir(err));
-  });
+export function poserUneConfirmation(agentId: string, question: string, choix: string[]): { ok: boolean; text: string } {
+  const courante = session && session.agentId === agentId && !session.arret ? session : null;
+  if (!courante) return { ok: false, text: 'Aucune conversation vocale ouverte : pose la question à voix haute.' };
+  const propres = choix.map((c) => c.trim()).filter(Boolean).slice(0, 4);
+  const lesChoix = propres.length >= 2 ? propres : ['Oui, vas-y', 'Non'];
+  const id = crypto.randomBytes(6).toString('hex');
+  questionsPosees.set(id, { agentId, choix: lesChoix });
+  bus.emit({ type: 'voix.direct.question', id, agentId, question: question.trim().slice(0, 300) || 'Je le fais ?', choix: lesChoix });
+  return { ok: true, text: 'La question est affichée en bulle avec ses choix. Dis-la à voix haute en une phrase, puis attends la réponse, dite ou touchée.' };
+}
+
+/** L'utilisateur a TOUCHÉ un choix de la bulle : la voix l'apprend comme s'il l'avait dit. */
+export async function repondreALaConfirmation(id: string, reponse: string): Promise<{ ok: boolean }> {
+  const posee = questionsPosees.get(id);
+  questionsPosees.delete(id);
+  const courante = session;
+  if (!posee || !courante || courante.agentId !== posee.agentId || courante.arret) return { ok: false };
+  bus.emit({ type: 'voix.direct.question', id, agentId: posee.agentId, question: '', choix: posee.choix, reponse });
+  await courante.serveur
+    .appeler('thread/realtime/appendText', { threadId: courante.threadId, text: `L’utilisateur a répondu en touchant l’écran : « ${reponse} ». Continue d’après cette réponse.`, role: 'developer' }, 5000)
+    .catch((err) => log.warn(`direct vocal : la réponse touchée n’a pas pu partir — ${(err as Error).message}`));
+  return { ok: true };
+}
+
+/** La carte créée à la voix s'ouvre sur l'écran qui tient la conversation (plus de volet). */
+export function ouvrirLaCarteCreee(agentId: string, cardId: string, projectId: string): void {
+  const courante = session?.agentId === agentId ? session : detachee?.session.agentId === agentId ? detachee.session : null;
+  if (!courante) return;
+  bus.emit({ type: 'voix.direct.ouvrir', agentId, cardId, projectId });
+}
+
+/** Le travail du cerveau qui continue pendant la veille, au plus un à la fois. */
+let detachee: { session: Session; minuterie: NodeJS.Timeout; resultat: string[]; fini: boolean } | null = null;
+
+/** Au-delà, le travail détaché est abandonné et son processus fermé (jamais de Codex orphelin). */
+export const PLAFOND_DU_TRAVAIL_EN_VEILLE_MS = 15 * 60_000;
+/** Une fois le travail fini, l'écran a ce temps pour rouvrir la conversation ; sinon tout se ferme. */
+const ATTENTE_DE_LA_REPRISE_MS = 2 * 60_000;
+
+function detacher(courante: Session): void {
+  if (detachee) abandonnerLeTravailDetache('un autre travail passe en veille');
+  const minuterie = setTimeout(() => abandonnerLeTravailDetache('plafond de durée atteint'), PLAFOND_DU_TRAVAIL_EN_VEILLE_MS);
+  minuterie.unref();
+  detachee = { session: courante, minuterie, resultat: [], fini: false };
+  log.info(`direct vocal en veille : le travail continue (${idDeDiscussion(courante.discussion)}, agent ${courante.agentId})`);
+  annoncer('veille-au-travail', { agentId: courante.agentId });
+}
+
+function abandonnerLeTravailDetache(pourquoi: string): void {
+  const d = detachee;
+  if (!d) return;
+  detachee = null;
+  clearTimeout(d.minuterie);
+  log.info(`direct vocal : travail détaché fermé — ${pourquoi}`);
+  clore(d.session);
+  annoncer('arrete', { agentId: d.session.agentId });
+}
+
+/** Le cerveau a fini pendant la veille : l'écran rouvre la conversation, Jarvis dira le résultat. */
+function travailDetacheFini(courante: Session): void {
+  const d = detachee;
+  if (!d || d.session !== courante || d.fini) return;
+  d.fini = true;
+  clearTimeout(d.minuterie);
+  d.minuterie = setTimeout(() => abandonnerLeTravailDetache('personne n’a rouvert la conversation'), ATTENTE_DE_LA_REPRISE_MS);
+  d.minuterie.unref();
+  log.info(`direct vocal : le travail fait pendant la veille est fini, reprise demandée à l’écran`);
+  bus.emit({ type: 'voix.direct.reprendre', agentId: courante.agentId });
+}
+
+/** Le travail détaché que la prochaine ouverture doit reprendre (même agent, même compte), retiré de l'attente. */
+function reprendreLeTravailDetache(agentId: string, compteId: string): { session: Session; resultat: string; fini: boolean } | null {
+  const d = detachee;
+  if (!d || d.session.agentId !== agentId || d.session.compteId !== compteId || d.session.serveur.estFerme()) return null;
+  detachee = null;
+  clearTimeout(d.minuterie);
+  return { session: d.session, resultat: d.resultat.join('\n\n').trim(), fini: d.fini };
+}
+
+/** Jarvis travaille-t-il en veille en ce moment ? (Le bouton du coin montre alors son rond de chargement.) */
+export function travailEnVeille(): { agentId: string; fini: boolean } | null {
+  return detachee ? { agentId: detachee.session.agentId, fini: detachee.fini } : null;
+}
+
+/** Ce que le cerveau dit pendant la veille (son texte de fin), et la fin de son tour. */
+function traiterLaNotificationDetachee(courante: Session, n: Notification): void {
+  const d = detachee;
+  if (!d || d.session !== courante) return;
+  const p = n.params ?? {};
+  if (n.method === 'item/completed' && p.item?.type === 'agentMessage' && typeof p.item.text === 'string') d.resultat.push(p.item.text);
+  else if (n.method === 'turn/completed') travailDetacheFini(courante);
 }
 
 function clore(courante: Session): void {
@@ -1180,6 +1261,7 @@ function donnerDesNouvelles(courante: Session): void {
 
 /** Ce que Codex dit pendant la session : les phrases, les appels d'outils, la fin. */
 function traiterLaNotification(courante: Session, n: Notification): void {
+  if (detachee?.session === courante) return traiterLaNotificationDetachee(courante, n);
   if (session !== courante) return;
   const p = n.params ?? {};
   switch (n.method) {

@@ -90,7 +90,8 @@ export function FilDuProjet({
    * #22ca, « Fishflow / / ») : le fil devient « projet / service / ce que le service écrit » (`SuiteDuFil`). Le cran
    * du service ramène à sa liste pour ce projet ; `suite` est la cible où le service pose ses crans.
    */
-  service?: { libelle: string; onOuvrir: () => void };
+  /** Le service ouvert dans le projet : son cran mène à sa liste, limitée au projet — un VRAI lien (`adresse`). */
+  service?: { libelle: string; adresse: string; onOuvrir: () => void };
   suite?: React.ReactNode;
 }) {
   const allerALAccueil = (event: React.MouseEvent) => {
@@ -149,14 +150,20 @@ export function FilDuProjet({
           <span className="shrink-0 text-faint" aria-hidden>
             /
           </span>
-          <button
-            type="button"
+          {/* UN VRAI LIEN (MEM-6859, carte « Services et fils d'Ariane fiables », 20/11/2026) : la liste du service, limitée
+              au projet ; un clic du milieu l'ouvre dans un autre onglet du navigateur. */}
+          <a
+            href={'#' + service.adresse.replace(/^#/, '')}
             className="shrink-0 rounded-md px-1 py-0.5 text-muted transition-colors hover:text-text"
             data-cran-du-service-du-projet
-            onClick={service.onOuvrir}
+            onClick={(event) => {
+              if (lienPourUnAutreOnglet(event)) return;
+              event.preventDefault();
+              service.onOuvrir();
+            }}
           >
             {service.libelle}
-          </button>
+          </a>
           {suite}
         </>
       ) : titre ? (

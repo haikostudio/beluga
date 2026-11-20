@@ -23,6 +23,15 @@
 // (fichier « demander » posé par l'installateur), il DÉCLENCHE les demandes de macOS, ce qui l'inscrit dans les deux
 // listes des réglages ; le geste `ouvrir_reglage` (accessibilite | ecran, rien d'autre) rouvre le bon écran sur le Mac.
 
+// L'EXTENSION CHROME À JOUR (20/11/2026, carte « Extension à jour et Jarvis tout en voix ») : `mettre_a_jour_extension`
+// remplace le CONTENU du dossier de l'extension non empaquetée (trouvé dans les préférences de Chrome, jamais deviné),
+// par le paquet signé que le démon sert, empreinte SHA-256 vérifiée avant tout remplacement ; le MÊME chemin garde le
+// même identifiant, donc la liaison et l'autorisation de navigation privée. `config.json` de l'installation est gardé.
+// Puis Chrome est quitté proprement et rouvert (extension d'avant 1.0.11), sinon le démon demande à l'extension de se
+// recharger. `se_mettre_a_jour` remplace ce fichier-ci : l'application compilée n'est plus qu'un LANCEUR fixe
+// (`lanceur.js`) qui lit `relais.js` sur le disque, si bien qu'une mise à jour ne change plus sa signature et que macOS
+// garde les autorisations déjà données.
+
 ObjC.import('Foundation');
 ObjC.import('CoreGraphics');
 ObjC.import('AppKit');
@@ -36,6 +45,11 @@ const DOSSIER = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_REL
 const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
+/** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
+const VERSION_DU_RELAIS = 2;
+/** Joué par le lanceur fixe (`lanceur.js`) : il peut alors se remplacer sans recompiler l'application. */
+const SOUS_LANCEUR = typeof LANCEUR !== 'undefined' && LANCEUR === true;
+let aRelancer = false;
 
 function sh(commande) {
   return app.doShellScript(commande);
@@ -64,7 +78,7 @@ function signer(config, corpsFichier) {
 
 function attendre(config, etat) {
   const oui = (v) => (v === true ? 1 : v === false ? 0 : '');
-  const url = `${config.base}/api/relais-mac/attendre?recopie=${etat.recopie ? 1 : 0}&verrouille=${etat.verrouille ? 1 : 0}&acces=${oui(etat.accessibilite)}&ecran=${oui(etat.ecran)}`;
+  const url = `${config.base}/api/relais-mac/attendre?recopie=${etat.recopie ? 1 : 0}&verrouille=${etat.verrouille ? 1 : 0}&acces=${oui(etat.accessibilite)}&ecran=${oui(etat.ecran)}&v=${VERSION_DU_RELAIS}&lanceur=${SOUS_LANCEUR ? 1 : 0}`;
   const brut = sh(`curl -sS --max-time 40 ${signer(config, null)} ${q(url)}`);
   return brut ? JSON.parse(brut) : {};
 }
@@ -377,9 +391,139 @@ function garderEveille() {
   }
 }
 
+// --- L'extension Chrome et le relais lui-même : mises à jour vérifiées ------------------------------------------
+
+const PREFERENCES_CHROME = `${$.NSHomeDirectory().js}/Library/Application Support/Google/Chrome`;
+/** Chrome range une extension « chargée non empaquetée » sous ce genre (Manifest::Location UNPACKED). */
+const EXTENSION_NON_EMPAQUETEE = 4;
+
+function existe(chemin) {
+  return $.NSFileManager.defaultManager.fileExistsAtPath(chemin);
+}
+
+function lireJson(chemin) {
+  try {
+    const texte = $.NSString.stringWithContentsOfFileEncodingError(chemin, $.NSUTF8StringEncoding, null);
+    return texte && !texte.isNil() ? JSON.parse(texte.js) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function hoteDe(adresse) {
+  const m = /^https?:\/\/([^/:]+)/i.exec(String(adresse || ''));
+  return m ? m[1].toLowerCase() : '';
+}
+
+/** Un dossier d'extension Beluga : son manifeste, son service worker, son panneau et la configuration de l'installation. */
+function dossierBeluga(chemin) {
+  const conf = lireJson(`${chemin}/config.json`);
+  return !!(conf && typeof conf.adresse === 'string' && lireJson(`${chemin}/manifest.json`) && existe(`${chemin}/service-worker.js`) && existe(`${chemin}/panneau.html`));
+}
+
+/**
+ * LES DOSSIERS DE L'EXTENSION BELUGA, lus dans les préférences de CHAQUE profil de Chrome (« Default », « Profile N ») :
+ * `extensions.settings[id].path` des extensions non empaquetées. L'identifiant donné par le démon fait foi ; sans lui
+ * (extension d'avant 1.0.11), on garde les dossiers Beluga dont la configuration vise le même serveur que ce relais.
+ */
+function dossiersDeLExtension(config, extensionId) {
+  const profils = (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(PREFERENCES_CHROME, null)) || []).filter(
+    (n) => n === 'Default' || /^Profile \d+$/.test(n),
+  );
+  const trouves = {};
+  for (const profil of profils) {
+    for (const fichier of ['Secure Preferences', 'Preferences']) {
+      const prefs = lireJson(`${PREFERENCES_CHROME}/${profil}/${fichier}`);
+      const reglages = (prefs && prefs.extensions && prefs.extensions.settings) || {};
+      for (const id of Object.keys(reglages)) {
+        const r = reglages[id] || {};
+        if (r.location !== EXTENSION_NON_EMPAQUETEE || typeof r.path !== 'string' || r.path.charAt(0) !== '/') continue;
+        if (extensionId && id !== extensionId) continue;
+        if (!dossierBeluga(r.path)) continue;
+        trouves[r.path] = { chemin: r.path, id, profil, hote: hoteDe((lireJson(`${r.path}/config.json`) || {}).adresse) };
+      }
+    }
+  }
+  const tous = Object.keys(trouves).map((k) => trouves[k]);
+  if (extensionId) return tous;
+  const memeServeur = tous.filter((d) => d.hote === hoteDe(config.base));
+  return memeServeur.length ? memeServeur : tous.length === 1 ? tous : [];
+}
+
+/** Télécharger par la voie signée, puis comparer l'empreinte : rien ne se remplace sur un fichier altéré. */
+function telechargerVerifie(config, chemin, fichier, empreinte) {
+  sh(`curl -fsS --max-time 90 ${signer(config, null)} -o ${q(fichier)} ${q(`${config.base}${chemin}`)}`);
+  const lue = sh(`shasum -a 256 ${q(fichier)} | cut -d' ' -f1`);
+  if (lue !== empreinte) throw new Error('paquet altéré (empreinte différente) : rien n’a été remplacé');
+}
+
+/** Quitter Chrome PROPREMENT (comme Cmd+Q), attendre sa fermeture, puis le rouvrir : l'extension se relit du disque. */
+function quitterEtRouvrirChrome() {
+  const lesquels = () => $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.chrome);
+  const ouverts = lesquels();
+  for (let i = 0; i < ouverts.count; i++) ouverts.objectAtIndex(i).terminate;
+  for (let essai = 0; essai < 40 && lesquels().count > 0; essai++) delay(0.5);
+  if (lesquels().count > 0) {
+    journal('Chrome ne s’est pas fermé en 20 s : fermeture forcée');
+    const restants = lesquels();
+    for (let i = 0; i < restants.count; i++) restants.objectAtIndex(i).forceTerminate;
+    delay(2);
+  }
+  delay(1);
+  relancerLeNavigateur('chrome');
+}
+
+function mettreAJourLExtension(config, a) {
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet absente');
+  if (!/^\/api\/relais-mac\/extension\.zip\?jeton=[A-Za-z0-9_-]{8,64}$/.test(String(a.chemin || ''))) throw new Error('adresse du paquet refusée');
+  if (!/^\d+(\.\d+){1,3}$/.test(String(a.version || ''))) throw new Error('version attendue absente');
+  const extensionId = /^[a-p]{32}$/.test(String(a.extensionId || '')) ? a.extensionId : null;
+  const dossiers = dossiersDeLExtension(config, extensionId);
+  if (!dossiers.length) throw new Error('dossier de l’extension Beluga introuvable dans les profils de Chrome de ce Mac');
+  const travail = `${DOSSIER}/extension-neuve`;
+  sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)}`);
+  try {
+    const zip = `${travail}/beluga-chrome.zip`;
+    telechargerVerifie(config, a.chemin, zip, a.empreinte);
+    sh(`/usr/bin/ditto -x -k ${q(zip)} ${q(travail)}`);
+    const source = `${travail}/beluga-chrome`;
+    const lu = lireJson(`${source}/manifest.json`);
+    if (!lu || lu.version !== a.version) throw new Error(`paquet inattendu (version ${lu ? lu.version : 'illisible'})`);
+    dossiers.forEach((d, i) => {
+      const garde = `${travail}/config-${i}.json`;
+      sh(`/bin/cp ${q(`${d.chemin}/config.json`)} ${q(garde)}`);
+      sh(`/usr/bin/ditto ${q(source)} ${q(d.chemin)}`);
+      sh(`/bin/cp ${q(garde)} ${q(`${d.chemin}/config.json`)}`);
+      const apres = lireJson(`${d.chemin}/manifest.json`);
+      if (!apres || apres.version !== a.version) throw new Error(`le dossier ${d.chemin} n’a pas pris la version ${a.version}`);
+      journal(`extension Beluga mise à jour en ${a.version} : ${d.chemin} (${d.id}, ${d.profil})`);
+    });
+  } finally {
+    sh(`rm -rf ${q(travail)}`);
+  }
+  if (a.relancer === true) quitterEtRouvrirChrome();
+  return { version: a.version, dossiers: dossiers.map((d) => ({ chemin: d.chemin, id: d.id, profil: d.profil })), relance: a.relancer === true };
+}
+
+/** Le relais se remplace lui-même (sous le lanceur seulement) puis s'arrête : launchd le relance sur le fichier neuf. */
+function seMettreAJour(config, a) {
+  if (!SOUS_LANCEUR) throw new Error('ce programme ne sait pas se remplacer seul : relancez la commande d’installation');
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du relais absente');
+  const neuf = `${DOSSIER}/relais-neuf.js`;
+  telechargerVerifie(config, '/api/relais-mac/relais.js', neuf, a.empreinte);
+  sh(`/bin/mv -f ${q(neuf)} ${q(`${DOSSIER}/relais.js`)}`);
+  journal('relais remplacé : redémarrage sur la nouvelle version');
+  aRelancer = true;
+  return { remplace: true };
+}
+
 function jouerSurLOrdinateur(commande) {
   const a = commande.args || {};
   switch (commande.geste) {
+    case 'mettre_a_jour_extension':
+      return mettreAJourLExtension(lireConfig(), a);
+    case 'se_mettre_a_jour':
+      return seMettreAJour(lireConfig(), a);
     case 'lister_applications':
       return { applications: Object.keys(applicationsInstallees()).sort((x, y) => x.localeCompare(y)) };
     case 'ouvrir_application':
@@ -426,6 +570,11 @@ function run() {
       } catch (e2) {
         journal(`réponse perdue : ${e2}`);
       }
+    }
+    /* Relais remplacé : on s'arrête, launchd (KeepAlive) relance le lanceur sur le nouveau fichier. */
+    if (aRelancer) {
+      journal('arrêt pour relance');
+      return;
     }
   }
 }

@@ -4,7 +4,7 @@ import { cheminCommunicationV2, type CompteSocial, type EtatDeLaLigneDeConnexion
 import { BoutonPrincipal, GestePrincipal } from '@/components/entete-de-zone';
 import { BasculeDePage, RechercheDuService, RubriquesDePage } from '@/components/fenetre-de-service';
 import { useFiltreCentral, useProjetDuService } from '@/components/projet-du-service';
-import { SilhouetteMarketing } from '@/components/silhouettes';
+import { SilhouetteTableauDeService } from '@/components/silhouettes';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, ZoneDefilement } from '@/components/ui';
 import { ApercuAuSurvol, BasculeTableauCartes, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
@@ -225,7 +225,7 @@ export function AccueilDeCommunication({ marques, erreur, onVise }: { marques: M
           <p className="py-6 text-[13px] text-danger">{erreur}</p>
         ) : onglet === 'campagnes' ? (
           chargement(campagnes) ? (
-            <SilhouetteMarketing />
+            <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
           ) : (
             <ApercuAuSurvol lire={(id) => lignesDeCampagnes.find((l) => `${l.marque.id}:${l.c.id}` === id)} rendu={(l) => <ApercuDeCampagne campagne={l.c} />} actif={vue === 'tableau'}>
             <Tableau
@@ -280,7 +280,7 @@ export function AccueilDeCommunication({ marques, erreur, onVise }: { marques: M
           )
         ) : onglet === 'comptes' ? (
           chargement(connexions) ? (
-            <SilhouetteMarketing />
+            <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
           ) : (
             <Tableau
               repere="accueil-comptes"
@@ -295,7 +295,7 @@ export function AccueilDeCommunication({ marques, erreur, onVise }: { marques: M
             />
           )
         ) : chargement(messages) ? (
-          <SilhouetteMarketing />
+          <SilhouetteTableauDeService lignes={4} zone="communication-accueil" />
         ) : (
           <Tableau
             repere="accueil-reponses"

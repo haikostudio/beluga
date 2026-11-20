@@ -91,12 +91,12 @@ export async function creerUnAgentDeType(type: TypeDAgent, cible: CibleDeCreatio
           });
           marque = { id: r.marque.id, projets: [{ id: projectId }] };
         }
-        ouvrirDansLeProjet(projectId, `communication2/${marque.id}/campagnes/nouvelle`);
+        ouvrirDansLeProjet(projectId, `communication/${marque.id}/campagnes/nouvelle`);
         return;
       }
       case 'charte': {
         const r = await client.call<{ plaquetteId: string }>({ type: 'plaquettes.creerVide', projectId });
-        ouvrirDansLeProjet(projectId, `plaquettes/${projectId}/${r.plaquetteId}`);
+        ouvrirDansLeProjet(projectId, `charte/${projectId}/${r.plaquetteId}`);
         return;
       }
       default: {

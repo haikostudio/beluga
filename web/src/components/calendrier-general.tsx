@@ -175,7 +175,7 @@ export function CalendrierGeneral({
     [setOuverteId],
   );
   const adresseDeLaCampagne = (p: PublicationAffichee) =>
-    p.campagneId ? `communication2/${p.marqueId}/campagnes/${p.campagneId}` : `communication2/${p.marqueId}/calendrier`;
+    p.campagneId ? `communication/${p.marqueId}/campagnes/${p.campagneId}` : `communication/${p.marqueId}/calendrier`;
 
   const pastille = (p: PublicationAffichee, compacte: boolean) => {
     const proj = projetDe(p.projectId);

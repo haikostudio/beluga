@@ -11,6 +11,8 @@
  * actif) se déduit de l'écran, jamais de la liste : la liste ne dit que ce qui reste ouvert.
  */
 
+import { adresseAuMotDuJour } from './adresse-navigateur.js';
+
 export type GenreDOnglet =
   | 'tache'
   | 'service'
@@ -82,12 +84,21 @@ function estOnglet(o: unknown): o is OngletDuProjet {
   );
 }
 
+function ongletAuMotDuJour(o: OngletDuProjet): OngletDuProjet {
+  const adresse = adresseAuMotDuJour(o.adresse);
+  if (adresse === o.adresse) return o;
+  return { ...o, adresse, ...(o.genre === 'objet' && o.cle === `objet:${o.adresse}` ? { cle: `objet:${adresse}` } : {}) };
+}
+
 /** Relit une liste retenue : tout ce qui est abîmé ou en double tombe, sans jamais lever d'erreur. */
 export function lireLesOnglets(brut: unknown): OngletDuProjet[] {
   if (!Array.isArray(brut)) return [];
   const vus = new Set<string>();
   const sortie: OngletDuProjet[] = [];
-  for (const o of brut) {
+  for (const brut1 of brut) {
+    /* UN ONGLET RETENU AVEC UN ANCIEN MOT DE SERVICE (« communication2/… », « marketing2/… », « plaquettes/… »,
+       renommés le 20/11/2026) est relu dans sa forme neuve : même onglet, même clé que celui qu'on ouvrirait aujourd'hui. */
+    const o = estOnglet(brut1) ? ongletAuMotDuJour(brut1) : brut1;
     if (!estOnglet(o) || vus.has(o.cle)) continue;
     /* UN ONGLET D'OBJET QUI NE MONTRE QUE LA RACINE DE SON SERVICE (« Mes marques ») est abîmé : il tombe. */
     if (o.genre === 'objet' && !adresseDObjetReel(o.adresse)) continue;
@@ -148,19 +159,20 @@ export function rouvrirLOnglet(liste: readonly OngletDuProjet[], cle: string, ma
 /**
  * L'ADRESSE D'UN ONGLET D'OBJET DÉSIGNE-T-ELLE VRAIMENT UN OBJET ? La racine d'un service (la liste des créations du
  * Studio, « Mes marques » de Communication, une marque sans campagne ouverte) n'en est pas un : c'est l'onglet du
- * service. Studio : `studio/<création>` ; Communication : `communication2/<marque>/<page>/<élément>` ; plaquettes :
- * `plaquettes/<projet>/<plaquette>` ; Marketing : `marketing2/<dossier>`.
+ * service. Studio : `studio/<création>` ; Communication : `communication/<marque>/<page>/<élément>` ; Charte :
+ * `charte/<projet>/<plaquette>` ; Marketing : `marketing/<dossier>`. Les anciens mots (`communication2`, `plaquettes`,
+ * `marketing2`) sont lus pareil.
  */
 export function adresseDObjetReel(adresse: string): boolean {
-  const [tete, ...reste] = adresse.split('/').filter(Boolean);
+  const [tete, ...reste] = adresseAuMotDuJour(adresse).split('/').filter(Boolean);
   switch (tete) {
     case 'studio':
       return reste.length >= 1;
-    case 'communication2':
+    case 'communication':
       return reste.length >= 3;
-    case 'plaquettes':
+    case 'charte':
       return reste.length >= 2;
-    case 'marketing2':
+    case 'marketing':
       return reste.length >= 1;
     default:
       return false;

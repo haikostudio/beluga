@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { adresseAuMotDuJour } from '@beluga/shared';
 import {
   DUREE_D_UN_RENDU_A_OUVRIR_MS,
   DUREE_D_UNE_DEPLOYEE_A_OUVRIR_MS,
@@ -3168,7 +3169,8 @@ function decisionsHorsProjet(decisions: DecisionAttendue[]): DecisionAttendue[] 
   };
   return decisions.map((decision) => {
     const service = decision.agentId && !decision.cardId ? serviceDe(decision.agentId) : null;
-    return service ? { ...decision, projectId: '', projectName: service.nom, url: `#${service.adresse}` } : decision;
+    /* Un agent créé avant le 20/11/2026 garde l'ancien mot de son service (« plaquettes/… ») : le lien part dans la forme neuve. */
+    return service ? { ...decision, projectId: '', projectName: service.nom, url: `#${adresseAuMotDuJour(service.adresse)}` } : decision;
   });
 }
 

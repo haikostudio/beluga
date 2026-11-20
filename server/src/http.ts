@@ -1318,6 +1318,12 @@ export function createHttpServer(): http.Server {
           res.writeHead(200, { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' });
           return res.end(script);
         }
+        if (route === '/api/relais-mac/lanceur.js' && req.method === 'GET') {
+          const script = relaisMac.lanceurDuRelais();
+          if (!script) return json(res, 404, { error: 'lanceur introuvable' });
+          res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+          return res.end(script);
+        }
         if (route === '/api/relais-mac/relais.js' && req.method === 'GET') {
           const script = relaisMac.scriptDuRelais();
           if (!script) return json(res, 404, { error: 'relais introuvable' });
@@ -1339,8 +1345,20 @@ export function createHttpServer(): http.Server {
             /* Autorisations de macOS (« Beluga Relais ») : 1, 0, vide = inconnue ; absentes = relais d'avant. */
             accessibilite: q.has('acces') ? (q.get('acces') === '1' ? true : q.get('acces') === '0' ? false : null) : undefined,
             ecran: q.has('ecran') ? (q.get('ecran') === '1' ? true : q.get('ecran') === '0' ? false : null) : undefined,
+            /* 20/11/2026 : version du relais et lanceur fixe (absents : relais d'avant, version 1). */
+            version: q.has('v') ? Number(q.get('v')) || 1 : undefined,
+            lanceur: q.get('lanceur') === '1',
           });
           return json(res, 200, commande ? { commande } : {});
+        }
+        /* Le paquet de l'extension, préparé par le démon pour UNE mise à jour (jeton à usage court), signé comme le reste. */
+        if (route === '/api/relais-mac/extension.zip' && req.method === 'GET') {
+          const { paquetPreparePour } = await import('./mise-a-jour-extension.js');
+          const jeton = new URL(req.url ?? '/', 'http://x').searchParams.get('jeton') ?? '';
+          const zip = paquetPreparePour(voie.appareilId, jeton);
+          if (!zip) return json(res, 404, { ok: false, raison: 'Paquet inconnu ou expiré.' });
+          res.writeHead(200, { 'content-type': 'application/zip', 'content-length': zip.length, 'cache-control': 'no-store' });
+          return res.end(zip);
         }
         if (route === '/api/relais-mac/reponse' && req.method === 'POST') {
           let reponse: Record<string, unknown> = {};

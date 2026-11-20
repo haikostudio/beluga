@@ -167,7 +167,7 @@ function naitreUnChef(compte: Compte, role: RoleDuChef, projetPorteurId: string,
     service: {
       id: SERVICE_DU_DIRECTEUR,
       nom: 'Communication',
-      adresse: role.niveau === 'campagne' ? `communication2/${role.marqueId}/campagnes/${role.campagneId}` : `communication/${role.marqueId}`,
+      adresse: role.niveau === 'campagne' ? `communication/${role.marqueId}/campagnes/${role.campagneId}` : `communication/${role.marqueId}`,
     },
   });
   setMeta(cleDuRoleDuChef(agent.id), JSON.stringify(role));
@@ -465,7 +465,7 @@ async function notifierDuMessage(agentId: string, maintenant = new Date()): Prom
   const apercu = apercuDuMessage(dernier.content);
   const titre = role ? `${agent.title} · ${apercu.titre}` : apercu.titre;
   const corps = apercu.corps;
-  const adresse = role?.niveau === 'campagne' ? `communication2/${role.marqueId}/campagnes/${role.campagneId}` : role ? `communication/${role.marqueId}` : undefined;
+  const adresse = role?.niveau === 'campagne' ? `communication/${role.marqueId}/campagnes/${role.campagneId}` : role ? `communication/${role.marqueId}` : undefined;
   if (decision === 'envoyer') await envoyer(compteId, titre, corps, adresse);
   else if (decision === 'reporter') {
     const attente = lireReport(agentId);

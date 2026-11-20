@@ -8,8 +8,9 @@
 # après un redémarrage du Mac. macOS attribue ainsi les autorisations à « Beluga Relais » : c'est sous ce nom qu'il
 # paraît dans Réglages Système → Confidentialité et sécurité (carte « Installation guidée sur le Mac », 15/11/2026 ;
 # avant, le relais tournait sous l'outil caché « osascript » et n'apparaissait nulle part).
-# L'application n'est recompilée que si le relais a changé : une recompilation change sa signature, et macOS
-# oublierait les autorisations déjà données.
+# L'application ne contient que le LANCEUR fixe (lanceur.js), qui lit relais.js sur le disque (20/11/2026) : elle n'est
+# recompilée que si le lanceur a changé — une recompilation change sa signature, et macOS oublierait les autorisations
+# déjà données. Le relais lui-même se remplace sans recompiler (geste « se_mettre_a_jour », ou cette commande).
 #
 # Relancer cette commande remplace l'installation précédente (ancienne version comprise) sans rien laisser derrière.
 # Pour le retirer :
@@ -27,12 +28,13 @@ chmod 700 "$DOSSIER"
 
 # 1. Le relais, et sa liaison à Beluga.
 curl -fsSL "$BASE/api/relais-mac/relais.js" -o "$DOSSIER/relais-neuf.js"
+curl -fsSL "$BASE/api/relais-mac/lanceur.js" -o "$DOSSIER/lanceur.js"
 NOM="$(scutil --get ComputerName 2>/dev/null || echo Mac)"
 REPONSE="$(curl -sS -X POST -H 'content-type: application/json' --data "{\"code\":\"$CODE\",\"nom\":\"$NOM\"}" "$BASE/api/relais-mac/relier")"
 ID="$(printf '%s' "$REPONSE" | plutil -extract identifiant raw -o - - 2>/dev/null || true)"
 SECRET="$(printf '%s' "$REPONSE" | plutil -extract secret raw -o - - 2>/dev/null || true)"
 if [ -z "$ID" ] || [ -z "$SECRET" ]; then
-  rm -f "$DOSSIER/relais-neuf.js"
+  rm -f "$DOSSIER/relais-neuf.js" "$DOSSIER/lanceur.js"
   echo "Liaison refusée : $REPONSE"
   exit 1
 fi
@@ -41,19 +43,19 @@ fi
 # 2. L'ancien relais s'arrête (ancienne version osascript comprise : même étiquette launchd).
 launchctl unload "$PLIST" 2>/dev/null || true
 
-# 3. L'application « Beluga Relais », recompilée seulement si le relais a changé.
-NEUF="$(shasum -a 256 "$DOSSIER/relais-neuf.js" | cut -d' ' -f1)"
-ANCIEN="$(cat "$DOSSIER/relais.empreinte" 2>/dev/null || true)"
+# 3. L'application « Beluga Relais » (le lanceur), recompilée seulement si le lanceur a changé.
+NEUF="$(shasum -a 256 "$DOSSIER/lanceur.js" | cut -d' ' -f1)"
+ANCIEN="$(cat "$DOSSIER/lanceur.empreinte" 2>/dev/null || true)"
 if [ "$NEUF" != "$ANCIEN" ] || [ ! -x "$APPLI/Contents/MacOS/applet" ]; then
   rm -rf "$APPLI"
-  osacompile -l JavaScript -o "$APPLI" "$DOSSIER/relais-neuf.js"
+  osacompile -l JavaScript -o "$APPLI" "$DOSSIER/lanceur.js"
   INFO="$APPLI/Contents/Info.plist"
   plutil -replace CFBundleIdentifier -string cloud.beluga.relais "$INFO"
   plutil -replace CFBundleName -string "Beluga Relais" "$INFO"
   plutil -replace CFBundleDisplayName -string "Beluga Relais" "$INFO" 2>/dev/null || plutil -insert CFBundleDisplayName -string "Beluga Relais" "$INFO"
   plutil -replace LSUIElement -bool true "$INFO" 2>/dev/null || plutil -insert LSUIElement -bool true "$INFO"
   codesign --force --deep --sign - "$APPLI" >/dev/null 2>&1
-  printf '%s\n' "$NEUF" > "$DOSSIER/relais.empreinte"
+  printf '%s\n' "$NEUF" > "$DOSSIER/lanceur.empreinte"
 fi
 mv -f "$DOSSIER/relais-neuf.js" "$DOSSIER/relais.js"
 
