@@ -1136,6 +1136,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('installation.competences') }),
   z.object({ type: z.literal('installation.competence'), nom: z.string().max(120) }),
+  /*
+   * LES PAROLES DE BELUGA pendant la mise en route en discussion (`server/src/mise-en-route.ts`) : écrites par le
+   * moteur relié, en un appel, dans la langue de l'écran ; gardées ensuite.
+   */
+  z.object({ type: z.literal('installation.paroles'), langue: z.string().max(5).optional() }),
   z.object({
     type: z.literal('installation.etape'),
     etape: z.enum(ETAPES_DE_L_ASSISTANT),

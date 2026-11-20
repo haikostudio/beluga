@@ -1932,9 +1932,12 @@ export function App() {
     const observateur = new ResizeObserver(mesurer);
     observateur.observe(el);
     window.addEventListener('resize', mesurer);
+    /* La bande orange de l'extension qui paraît, se déplie ou part DÉPLACE le haut sans le redimensionner. */
+    window.addEventListener('beluga:hauteur-banniere', mesurer);
     return () => {
       observateur.disconnect();
       window.removeEventListener('resize', mesurer);
+      window.removeEventListener('beluga:hauteur-banniere', mesurer);
     };
   }, [hautDuProjetTelephone]);
   /* SUR TÉLÉPHONE, « PUBLIER » ET « OUTILS » MONTENT DU BAS (refonte du 13/11/2026). */
@@ -2827,7 +2830,8 @@ export function App() {
             lieu de le retarder. */}
         {/* L'ASSISTANT GLOBAL, le robot en bas à droite de tous les écrans. Son
             filet est muet : s'il tombe, l'application continue sans lui. */}
-        {state.monRole === 'admin' ? (
+        {/* PAS PENDANT LA MISE EN ROUTE (20/11/2026) : resté ouvert, le volet passait devant la discussion. */}
+        {state.monRole === 'admin' && !demarrageOuvert ? (
           <Filet zone="Assistant global" muet>
             {/* PARTOUT, COMMUNICATION ET MARKETING COMPRIS (carte « Jarvis : volet, voix et rapidité », 16/11/2026) :
                 le volet du chef d'orchestre s'ouvre par le bouton du bord sur tous les écrans. */}

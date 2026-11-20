@@ -1,4 +1,4 @@
-import { TEXTE_PROJET_ARCHIVE, projetFigeParLArchive } from '@beluga/shared';
+import { TEXTE_PROJET_ARCHIVE, auMoinsUnMoteurEnLigne, projetFigeParLArchive } from '@beluga/shared';
 import http from 'node:http';
 import { chercherDesFichiers, lireLaCorbeille, lireLeDossier, mettreALaCorbeille, projetsRanges, rangerLesFichiers, renommerUnFichier, restaurerUnFichier } from './fichiers-ranges.js';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -4130,6 +4130,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
           throw new Error(`« ${verdict.nom} » ne sera pas entendu quand vous l’appellerez. Essayez plutôt ${verdict.suggestions.map((n) => `« ${n} »`).join(', ')}.`);
         }
         patch.assistantNom = verdict.nom;
+        patch.assistantMotsDuModele = verdict.formes;
       }
       const settings = store.saveSettings(patch as any);
       bus.emit({ type: 'settings', settings });
@@ -4256,7 +4257,26 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'installation.bibliotheque':
       return importerUneBibliothequeProposee(cmd.source);
 
+    case 'installation.paroles': {
+      const { parolesDeLaMiseEnRoute } = await import('./mise-en-route.js');
+      return parolesDeLaMiseEnRoute(cmd.langue);
+    }
+
     case 'installation.etape': {
+      /*
+       * L'ÉTAT DU SERVEUR FAIT FOI (mise en route en discussion, 20/11/2026) : une étape indispensable ne se note
+       * « faite » que si ce qu'elle règle existe vraiment — un compte de moteur, un nom d'assistant, GitHub relié.
+       */
+      if (cmd.issue === 'faite') {
+        if (cmd.etape === 'moteurs') {
+          if (!auMoinsUnMoteurEnLigne(await listEngines(), cachedQuotas())) throw new Error('Reliez d’abord un moteur : aucun n’est encore prêt.');
+        }
+        if (cmd.etape === 'assistant' && !store.getSettings().assistantNom.trim()) throw new Error('Donnez d’abord un nom à l’assistant.');
+        if (cmd.etape === 'projet') {
+          const { etatGitHub } = await import('./installation-commandes.js');
+          if (!(await etatGitHub()).connecte) throw new Error('Reliez d’abord GitHub : c’est par lui que vos projets se récupèrent.');
+        }
+      }
       const settings = noterUneEtape(cmd.etape, cmd.issue);
       bus.emit({ type: 'settings', settings });
       return { settings };

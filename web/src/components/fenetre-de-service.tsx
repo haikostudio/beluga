@@ -664,7 +664,8 @@ function PageDeService({
   const tete = useTeteReduite();
   const page = (
     <div
-      className="fixed inset-y-0 right-0 z-30 flex flex-col bg-bg left-[var(--zone-principale-gauche,0px)]"
+      /* Part sous la bande orange de l'extension (`--hauteur-banniere`, 0 sans elle) : elle reste au-dessus de tout. */
+      className="fixed bottom-0 right-0 top-[var(--hauteur-banniere,0px)] z-30 flex flex-col bg-bg left-[var(--zone-principale-gauche,0px)]"
       data-page-de-service={repere}
       data-fenetre-de-service={repere}
       data-fenetre-de-service-forme="page"

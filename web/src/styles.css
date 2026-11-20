@@ -209,6 +209,7 @@
     /* LA BANNIÈRE D'UNE EXTENSION EN RETARD (20/11/2026, choix de l'utilisateur) : l'orange du témoin, texte presque noir lisible. */
     --banniere-a-faire: 28 92% 55%;
     --banniere-a-faire-texte: 0 0% 7%;
+    --banniere-a-faire-bouton-texte: 0 0% 100%;
     /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
        seule teinte ajoutée depuis, réservée au badge d'état d'un agent
        (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
@@ -443,6 +444,7 @@
     /* LA BANNIÈRE D'UNE EXTENSION EN RETARD (20/11/2026, choix de l'utilisateur) : l'orange du témoin, texte presque noir lisible. */
     --banniere-a-faire: 28 92% 48%;
     --banniere-a-faire-texte: 0 0% 7%;
+    --banniere-a-faire-bouton-texte: 0 0% 100%;
     --pret: 0 0% 36%;
     --pret-fond: 0 0% 0% / 0.05;
     --pret-trait: 0 0% 0% / 0.2;
@@ -1685,6 +1687,7 @@ html[data-clavier-ouvert] [data-composer] {
   --temoin-redemarrage: 28 92% 55%;
   --banniere-a-faire: 28 92% 55%;
   --banniere-a-faire-texte: 0 0% 7%;
+  --banniere-a-faire-bouton-texte: 0 0% 100%;
   /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
      seule teinte ajoutée depuis, réservée au badge d'état d'un agent
      (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
@@ -1879,6 +1882,23 @@ img[src^="/api/"]:not([data-image-chargee]) {
    que soit le thème ; hors de toute zone, elle retombe sur `--bg`. */
 .fond-de-zone {
   background-color: hsl(var(--fond-zone, var(--bg)));
+}
+
+/* LA BANNIÈRE DE L'EXTENSION TOUCHE LE BORD DU HAUT : C'EST ELLE QUI COMPTE L'HEURE (carte « Bande orange cachée sur
+   téléphone », 20/11/2026). Elle réserve `--zone-sure-haut` dans son rembourrage (`banniere-extension.tsx`) ; la
+   barre du haut, en dessous, ne la recompte donc pas (`--zone-sure-entete: 0px`, MEM-4715 — sinon un trou de la
+   hauteur de l'heure). La bande sous l'heure, fixe et opaque contre le flou d'iOS, RESTE mais prend l'orange : sans
+   cela elle recouvrait la bannière (z-30). `--zone-sure-haut` elle-même ne bouge pas : tiroirs, feuilles, bandeaux et
+   messages fixes la lisent pour rester sous l'heure. Contrôle : `scripts/verif-extension-et-jarvis-en-voix.mjs`.
+   SOUS ELLE, L'AIR ET NON L'HEURE (carte « Bande orange de l'extension, retouches », 20/11/2026, capture #7b8b8 :
+   au téléphone, ☰ et la fusée touchaient la bande) : la barre du haut part de `--marge-sous-banniere`, posée par
+   la bannière (8 px au téléphone, 0 sur ordinateur). Les pages fixes (`Drawer` page, page de service) partent de
+   `--hauteur-banniere` et prennent cette même marge à la place de la zone sûre. */
+[data-app-racine]:has(> [data-banniere-extension]) {
+  --zone-sure-entete: var(--marge-sous-banniere, 0px);
+}
+[data-app-racine]:has(> [data-banniere-extension]) [data-bande-sous-l-heure] {
+  background-color: hsl(var(--banniere-a-faire));
 }
 
 /* LE LÉGER FOND DES COLONNES DU TABLEAU (demande du 12/10/2026), aussi celles
@@ -2481,4 +2501,13 @@ svg.lucide[stroke-width='2'] {
   [data-tete-collante][data-tete-reduite] [data-ombre-de-tete] {
     opacity: 1;
   }
+}
+
+/* LA MISE EN ROUTE OCCUPE L'ÉCRAN SEULE (20/11/2026) : le bouton du bord de Jarvis et le rond du terminal flottent
+   au-dessus de tout (`z-[56]`) et se posaient sur la discussion (sur téléphone, contre les choix ; le rond, contre
+   « Valider »). Tant que `assistant-demarrage.tsx` pose `data-mise-en-route` sur <html>, ils s'effacent : la mise en
+   route a son propre terminal, en bas, et la voix vient après. */
+html[data-mise-en-route] [data-languette-jarvis],
+html[data-mise-en-route] [data-rond-seul] {
+  display: none !important;
 }

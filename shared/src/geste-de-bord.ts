@@ -55,6 +55,13 @@ export interface ZoneDuBord {
  */
 export interface OptionsDuBord {
   sansBas?: boolean;
+  /**
+   * SUR TÉLÉPHONE, LES CÔTÉS SEULEMENT (décision de l'utilisateur du 20/11/2026, carte « Bande orange de l'extension,
+   * retouches » : « on puisse le mettre uniquement dans le côté gauche ou droit, en dessous du header et au-dessus du
+   * footer »). Remplace « côtés ou haut » du 17/11/2026 : ni haut ni bas, un lâcher n'importe où va au côté le plus
+   * proche, et la course reste dans la zone du contenu (entre l'en-tête et le menu du bas, mesurée par l'écran).
+   */
+  cotesSeulement?: boolean;
 }
 
 /** Le bord le plus proche d'un point de la fenêtre. À égalité, les côtés passent avant le haut et le bas. */
@@ -62,9 +69,9 @@ export function bordLePlusProche(x: number, y: number, largeur: number, hauteur:
   const distances: [BordDeLEcran, number][] = [
     ['gauche', x],
     ['droite', largeur - x],
-    ['haut', y],
   ];
-  if (!options.sansBas) distances.push(['bas', hauteur - y]);
+  if (!options.cotesSeulement) distances.push(['haut', y]);
+  if (!options.sansBas && !options.cotesSeulement) distances.push(['bas', hauteur - y]);
   let meilleur = distances[0]!;
   for (const d of distances) if (d[1] < meilleur[1]) meilleur = d;
   return meilleur[0];
@@ -125,7 +132,8 @@ export function boiteDuBoutonDeBord(place: PlaceAuBord, zone: ZoneDuBord, largeu
 }
 
 /**
- * Une place relue de la préférence du compte ; abîmée ou absente, la place par défaut. Avec `sansBas` (téléphone), une
+ * Une place relue de la préférence du compte ; abîmée ou absente, la place par défaut. Avec `cotesSeulement`
+ * (téléphone), une place retenue en haut revient sur le côté le plus proche, en haut de sa course. Avec `sansBas`, une
  * place retenue AU BAS avant la règle est ramenée sur le côté le plus proche (gauche pour la moitié gauche du bas,
  * droite sinon), tout en bas de sa course : là où elle était, au plus près.
  */
@@ -135,7 +143,9 @@ export function placeAuBordLue(brute: unknown, options: OptionsDuBord = {}): Pla
   const bords: BordDeLEcran[] = ['gauche', 'droite', 'haut', 'bas'];
   if (!v.bord || !bords.includes(v.bord)) return PLACE_AU_BORD_PAR_DEFAUT;
   const f = typeof v.fraction === 'number' && Number.isFinite(v.fraction) && v.fraction >= 0 && v.fraction <= 1 ? v.fraction : FRACTION_PAR_DEFAUT;
-  if (options.sansBas && v.bord === 'bas') return { bord: f < 0.5 ? 'gauche' : 'droite', fraction: 1 };
+  if ((options.sansBas || options.cotesSeulement) && v.bord === 'bas') return { bord: f < 0.5 ? 'gauche' : 'droite', fraction: 1 };
+  /* Avec les côtés seulement, une place retenue EN HAUT revient sur le côté le plus proche, tout en haut de sa course. */
+  if (options.cotesSeulement && v.bord === 'haut') return { bord: f < 0.5 ? 'gauche' : 'droite', fraction: 0 };
   return { bord: v.bord, fraction: f };
 }
 

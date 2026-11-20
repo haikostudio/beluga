@@ -7,7 +7,8 @@
  * `data-conges-jarvis` : une maquette qui les avait perdus a été refusée). Son icône : TROIS barres de même largeur,
  * petite, moyenne, petite — le dessin des ondes de la voix (`ondes-de-voix.tsx`). On le GLISSE librement : au lâcher
  * il se colle au bord le plus proche (gauche, droite, haut, bas) et garde sa place, une pour l'ordinateur, une pour le
- * téléphone (préférences du compte, règle pure `shared/src/geste-de-bord.ts`). Le TOUCHER ouvre SEULEMENT la BULLE
+ * téléphone (préférences du compte, règle pure `shared/src/geste-de-bord.ts`). SUR TÉLÉPHONE (20/11/2026), les CÔTÉS
+ * SEULEMENT, dans la zone du contenu : sous la barre d'en-tête affichée, au-dessus du menu du bas. Le TOUCHER ouvre SEULEMENT la BULLE
  * VOCALE et Jarvis écoute (carte « Raccourcis libres et Jarvis vocal », 17/11/2026) ; pendant la conversation, il
  * l'arrête ; volet ouvert, il le referme ; Voix désactivée, il ouvre le volet en texte (`voix-assistant.tsx`).
  *
@@ -95,6 +96,26 @@ function hautDuChampDuBas(hauteur: number): number | null {
 }
 
 /**
+ * LE BAS DE LA BARRE D'EN-TÊTE AFFICHÉE (téléphone) : la plus basse des barres visibles qui touchent le haut de
+ * l'écran — celle du tableau, ou celle d'une page ouverte par-dessus. Une barre cachée, vide ou hors de l'écran ne
+ * compte pas ; une barre dans une feuille ou une fenêtre (qui passe par-dessus le bouton) non plus. 0 sans barre.
+ */
+function basDeLEnteteAffichee(hauteur: number): number {
+  let bas = 0;
+  for (const barre of document.querySelectorAll<HTMLElement>('[data-entete-de-zone]')) {
+    if (barre.closest('[role="dialog"]:not([data-page-de-zone]), [data-feuille-du-bas], [data-volet-de-jarvis], [inert]')) continue;
+    const r = barre.getBoundingClientRect();
+    if (r.height <= 0 || r.width <= 0 || r.top > hauteur / 3 || r.bottom <= 0) continue;
+    const vue = getComputedStyle(barre);
+    if (vue.visibility === 'hidden' || vue.display === 'none') continue;
+    bas = Math.max(bas, r.bottom);
+  }
+  const banniere = document.querySelector('[data-banniere-extension]')?.getBoundingClientRect();
+  if (banniere && banniere.height > 0) bas = Math.max(bas, banniere.bottom);
+  return bas;
+}
+
+/**
  * Les bords de la zone où le bouton se pose, et le « sol » du bord du bas. SUR TÉLÉPHONE (17/11/2026, capture #1106 :
  * posé au ras du bas, le bouton était à moitié caché sous le champ d'écriture et la barre d'accueil, impossible à
  * reprendre), le sol est le PLUS HAUT de : le menu du bas, le champ d'écriture d'une conversation, la zone sûre du bas.
@@ -115,7 +136,9 @@ function useZoneDuBord(telephone: boolean): { zone: ZoneDuBord; sol: number; lar
       if (champ !== null) sol = Math.min(sol, champ - 12);
     }
     sol = Math.round(sol);
-    const haut = Math.round(Math.max(repere ? repere.bottom : 0, telephone ? 56 : 64) + 8);
+    /* SUR TÉLÉPHONE, LA COURSE COMMENCE SOUS LA BARRE D'EN-TÊTE AFFICHÉE (20/11/2026) : son bas réel compte l'heure,
+       la bande orange de l'extension (dépliée ou non) et l'en-tête d'une page ouverte par-dessus. */
+    const haut = Math.round(Math.max(repere ? repere.bottom : 0, telephone ? Math.max(56, basDeLEnteteAffichee(hauteur)) : 64) + 8);
     return { zone: { haut, bas: sol - 12, gauche: 12, droite: largeur - 12 }, sol, largeur, hauteur };
   }, [telephone]);
   const [mesure, setMesure] = React.useState(lire);
@@ -128,11 +151,14 @@ function useZoneDuBord(telephone: boolean): { zone: ZoneDuBord; sol: number; lar
     mesurer();
     const veille = window.setInterval(mesurer, 1000);
     window.addEventListener('resize', mesurer);
+    // La bande orange de l'extension qui paraît, se déplie ou part déplace l'en-tête.
+    window.addEventListener('beluga:hauteur-banniere', mesurer);
     // Le clavier qui monte réduit la vue visible sans toujours changer `innerHeight` (iOS).
     window.visualViewport?.addEventListener('resize', mesurer);
     return () => {
       window.clearInterval(veille);
       window.removeEventListener('resize', mesurer);
+      window.removeEventListener('beluga:hauteur-banniere', mesurer);
       window.visualViewport?.removeEventListener('resize', mesurer);
     };
   }, [lire]);
@@ -178,8 +204,9 @@ const SANS_CIBLE = () => null;
 export function JarvisNatif(p: ProprietesJarvisNatif) {
   const { zone, sol, largeur, hauteur } = useZoneDuBord(p.telephone);
   const [brute, retenir] = usePref<unknown>(p.telephone ? CLE_BORD_TELEPHONE : CLE_BORD_ORDINATEUR, null);
-  /* SUR TÉLÉPHONE, JAMAIS EN BAS (17/11/2026) : côtés et haut seulement ; une place ancienne au bas revient sur un côté. */
-  const options = React.useMemo(() => ({ sansBas: p.telephone }), [p.telephone]);
+  /* SUR TÉLÉPHONE, LES CÔTÉS SEULEMENT (décision du 20/11/2026, qui remplace « côtés ou haut » du 17/11/2026) : gauche
+     ou droite, entre l'en-tête et le menu du bas ; une place ancienne en haut ou en bas revient sur un côté. */
+  const options = React.useMemo(() => ({ cotesSeulement: p.telephone }), [p.telephone]);
   const retenue = placeAuBordLue(brute, options);
 
   /* LE GLISSER : le SEUL de l'application (`usePointerDrag`). Pendant le geste, le bouton se colle déjà au bord le plus

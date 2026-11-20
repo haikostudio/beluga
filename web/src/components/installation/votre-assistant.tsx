@@ -36,8 +36,14 @@ export interface EtatDeVotreAssistant {
 export function SectionVotreAssistant({
   surEtat,
   versLesMoteurs,
+  sansVoix = false,
 }: {
   surEtat?: (etat: EtatDeVotreAssistant) => void;
+  /**
+   * LA VOIX HORS DE LA MISE EN ROUTE (décision du 20/11/2026) : elle demande un compte ChatGPT qu'on n'a pas
+   * forcément sous la main ; elle se propose ensuite par l'encadré « Parlez à … à voix haute ».
+   */
+  sansVoix?: boolean;
   /** Mener à la page « Les moteurs » (assistant de démarrage) ; sans elle, la page des comptes des réglages. */
   versLesMoteurs?: () => void;
 }) {
@@ -218,7 +224,7 @@ export function SectionVotreAssistant({
         </p>
       </div>
 
-      <BlocAssistantVocal nom={nomRetenu} versLesMoteurs={versLesMoteurs} />
+      {sansVoix ? null : <BlocAssistantVocal nom={nomRetenu} versLesMoteurs={versLesMoteurs} />}
     </div>
   );
 }

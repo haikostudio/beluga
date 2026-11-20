@@ -3113,6 +3113,11 @@ export const Settings = z.object({
    */
   assistantNom: z.string().default(''),
   /**
+   * LES MOTS DU NOM TELS QUE LE MODÈLE DE RÉVEIL LES ÉCRIT (« Beluga » → ['béluga'], 20/11/2026) : posés par le démon
+   * avec `assistantNom`, ils forment la grammaire du réveil (`motsDEcouteDuNom`). Vide : les mots normalisés du nom.
+   */
+  assistantMotsDuModele: z.array(z.string()).default([]),
+  /**
    * ANCIEN MOT DE RÉVEIL saisi à part (« Dis Jarvis »). Plus saisi depuis le 17/11/2026 : il ne sert qu'à reprendre
    * le nom d'une installation d'avant (`nomTireDuReveil`).
    */

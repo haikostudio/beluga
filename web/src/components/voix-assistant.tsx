@@ -10,6 +10,7 @@ import {
   demandeDeVeille,
   nomDeLAssistant,
   phraseDAppel,
+  phraseEcoutee,
   retourEnVeilleDu,
   attenteDuMotPermise,
   attenteRouverteSansGeste,
@@ -275,7 +276,7 @@ export function VoixAssistant() {
    */
   const attente = useAttenteDuMot(
     microOuvert && attenteDuMotPermise({ visible: pageVisible, conversation: conversationAllumee }),
-    motReveil,
+    phraseEcoutee(state.settings),
     surReveil,
   );
   /* Dans le navigateur et l'application installée depuis Safari, quitter l'écran hors conversation REFERME le micro

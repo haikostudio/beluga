@@ -38,7 +38,9 @@ import {
   catalogueDesCommandes,
   outilServiALaVoix,
   verdictDeLaCommande,
+  motsANEntendre,
   motsInconnus,
+  vocabulaireParForme,
   nomDeLAssistant,
   nomNettoye,
   nomsProches,
@@ -131,6 +133,18 @@ export interface VerdictDuNom {
   entendu: boolean;
   inconnus: string[];
   suggestions: string[];
+  /**
+   * LES MOTS DU NOM TELS QUE LE MODÈLE LES ÉCRIT (« Beluga » → ['béluga']) : la grammaire du réveil doit les donner
+   * sous CETTE forme, sinon la reconnaissance les ignore. Vide quand le nom n'est pas entendu.
+   */
+  formes: string[];
+}
+
+/** Le vocabulaire rangé par forme normalisée, gardé tant que le modèle lu ne change pas. */
+let vocabulaireNormalise: { source: Set<string>; parForme: Map<string, string> } | null = null;
+function vocabulaireRange(mots: Set<string>): Map<string, string> {
+  if (vocabulaireNormalise?.source !== mots) vocabulaireNormalise = { source: mots, parForme: vocabulaireParForme(mots) };
+  return vocabulaireNormalise.parForme;
 }
 
 /**
@@ -139,7 +153,7 @@ export interface VerdictDuNom {
  */
 export async function verifierLeNomDeLAssistant(saisi: string): Promise<VerdictDuNom> {
   const nom = nomNettoye(saisi);
-  if (!nom) return { nom: '', entendu: false, inconnus: [], suggestions: nomsProches('') };
+  if (!nom) return { nom: '', entendu: false, inconnus: [], suggestions: nomsProches(''), formes: [] };
   const { vocabulaireDuReveil } = await import('./modele-de-reveil.js');
   let mots: Set<string>;
   try {
@@ -147,9 +161,11 @@ export async function verifierLeNomDeLAssistant(saisi: string): Promise<VerdictD
   } catch (err) {
     throw new Error(`Impossible de vérifier ce nom pour l’instant : ${(err as Error).message}. Le nom actuel est gardé.`);
   }
-  const connu = (mot: string) => mots.has(mot);
+  const parForme = vocabulaireRange(mots);
+  const connu = (mot: string) => parForme.has(mot);
   const inconnus = motsInconnus(nom, connu);
-  return { nom, entendu: inconnus.length === 0, inconnus, suggestions: inconnus.length ? nomsProches(nom, 3, connu) : [] };
+  const formes = inconnus.length ? [] : motsANEntendre(nom).map((m) => parForme.get(m) ?? m);
+  return { nom, entendu: inconnus.length === 0, inconnus, suggestions: inconnus.length ? nomsProches(nom, 3, connu) : [], formes };
 }
 
 export function agentAssistantGlobal(neuf = false): Agent | null {

@@ -13,6 +13,7 @@ import {
   type FenetreChat,
 } from '@beluga/shared';
 import { Chat } from '@/components/chat';
+import { ParlezAVoixHaute } from '@/components/installation/parlez-a-voix-haute';
 import { IconeTroisBarres } from '@/components/ondes-de-voix';
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { SilhouetteConversation } from '@/components/silhouettes';
@@ -177,6 +178,9 @@ function VoletDeLAssistantGlobal() {
           </div>
         ) : (
           <>
+            {/* LA VOIX SE PROPOSE ICI (20/11/2026) : le volet n'existe que sans voix (DEC-541), l'encadré seulement
+                sans compte ChatGPT relié. */}
+            <ParlezAVoixHaute className="mx-4 mt-3" />
             {vide ? (
               <p className="px-4 pt-3 text-[13px] leading-snug text-muted" data-assistant-accueil>
                 {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, réseaux sociaux, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}

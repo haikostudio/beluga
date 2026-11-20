@@ -1,15 +1,21 @@
 import * as React from 'react';
-import { ArrowLeft, Check, FolderPlus, Loader2 } from '@/components/ui/icones';
+import { Check, FolderPlus, Loader2 } from '@/components/ui/icones';
 import {
   auMoinsUnMoteurEnLigne,
   etapePassable,
-  etapesDeLAssistant,
-  prochaineEtape,
+  etapesDeLaDiscussion,
+  moteursDeLAssistant,
+  nomDeLAssistant,
+  paroleAvecPrenom,
+  questionEnCours,
+  type EngineId,
   type EtapeDeLAssistant,
   type EtatDeLAssistant,
+  type ParolesDeLaMiseEnRoute,
 } from '@beluga/shared';
-import { Button, ZoneDefilement, TELEPHONE_ENTRE_SECTIONS } from '@/components/ui';
-import { BoutonRelireLesMoteurs, ListeDesMoteurs } from '@/components/assistant-moteurs';
+import { Badge, Button, ZoneDefilement } from '@/components/ui';
+import { BoutonRelireLesMoteurs, CarteMoteur } from '@/components/assistant-moteurs';
+import { IconeMoteur } from '@/components/icone-moteur';
 import {
   LigneDEtat,
   SectionCompetences,
@@ -24,341 +30,530 @@ import {
   type EtatDeLInstallation,
 } from '@/components/installation/sections';
 import { SectionVotreAssistant, type EtatDeVotreAssistant } from '@/components/installation/votre-assistant';
+import { OrbeDeLAgent } from '@/components/installation/orbe-de-l-agent';
 import { BarreDuTerminal, TerminalACote } from '@/components/installation/travail';
 import { useVoileAffiche } from '@/lib/barre-de-l-heure';
+import { useTravailDInstallation } from '@/lib/travail-installation';
 import { client } from '@/lib/client';
 import { SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
-import { t } from '@/lib/langue';
+import { t, useLangueGenerale } from '@/lib/langue';
 
 /*
- * L'ASSISTANT DE PREMIER DÉMARRAGE — une installation neuve, page par page.
+ * LA MISE EN ROUTE EN DISCUSSION (carte « Assistant d'installation et Jarvis », 20/11/2026, maquette #8f0b) —
+ * remplace l'assistant en dix pages.
  *
- * Celui qui vient d'installer Beluga Build a créé son compte sur la page
- * d'installation (servie par le démon, ouverte par le lien d'installation). Il
- * arrive ici : neuf pages, dans l'ordre où elles servent. La première ne règle
- * rien — elle dit ce qu'est Beluga Build. DEUX SONT OBLIGATOIRES — les
- * moteurs, sans lesquels aucune tâche ne part, et GitHub, sans lequel aucun
- * projet ne se récupère ni ne se sauvegarde. Chaque autre page se passe
- * (« Plus tard ») et se retrouve, à l'identique, dans Réglages, page
- * « Installation » : ce sont les mêmes composants (`installation/sections.tsx`).
+ * Celui qui vient d'installer Beluga Build a créé son compte sur la page d'installation (servie par le démon). Il
+ * arrive ici : un écran plein, une DISCUSSION avec l'agent « Beluga » (le nom réglé de l'assistant). Pas de champ
+ * d'écriture en bas : seulement l'ORBE de l'agent (celui de l'appel en direct d'ProjetA, en gris) et « <nom> · à vous »
+ * quand une réponse est attendue. On répond DANS les bulles : choix, boutons, petits champs.
  *
- * DES PAGES, PAS DES TIROIRS : l'assistant occupe l'écran entier, une page à la
- * fois, avec la liste des pages à gauche pour savoir où l'on en est. Sur
- * téléphone, la liste laisse la place à « page 3 sur 9 », et la flèche de la
- * barre d'en-tête remonte d'un cran.
+ * 1. LA PREMIÈRE QUESTION EST ÉCRITE D'AVANCE : quel moteur ? Rien ne peut parler avant qu'un moteur soit relié.
+ *    Le moteur choisi s'installe et se connecte dans la bulle (`CarteMoteur`, la mécanique des réglages).
+ * 2. DÈS QU'UN MOTEUR RÉPOND, il écrit les paroles de Beluga pour la suite, en un appel court
+ *    (`installation.paroles`, `server/src/mise-en-route.ts`). Ses paroles remplacent les textes écrits d'avance ;
+ *    s'il tarde ou tombe, ceux-ci restent : la discussion n'attend jamais un modèle plus de quelques secondes.
+ * 3. L'ÉTAT DU SERVEUR FAIT FOI (`Settings.assistant`, ordre `etapesDeLaDiscussion`) : le modèle ne fait que dire
+ *    les choses. Moteur, nom de l'assistant et GitHub restent indispensables — l'écran garde « Valider » éteint, et
+ *    le démon refuse de les noter « faites » sans eux. Tout le reste se repousse (« Plus tard ») et se retrouve dans
+ *    Réglages › Installation : ce sont les MÊMES sections (`installation/sections.tsx`).
  *
- * CE QUI SE PASSE SUR LE SERVEUR, EN BAS. L'assistant installe lui-même les
- * moteurs et les fonctions : une barre collée en bas de l'écran montre le
- * serveur au travail, sans que personne ait à s'y connecter
- * (`installation/travail.tsx`). Elle ne s'ouvre que pendant une installation
- * (et sur un échec) ; le reste du temps, elle tient sur une ligne.
+ * L'ORBE : il respire quand c'est à vous, s'accélère quand Beluga réfléchit (paroles en route, réponse en cours
+ * d'enregistrement) et laisse monter la fumée quand il écrit (chaque lettre posée donne une impulsion).
  *
- * OÙ L'ON EN EST VIT DANS LA BASE (`Settings.assistant`, règle pure
- * `shared/src/installation.ts`) : un rechargement, un autre appareil, et l'on
- * reprend à la première page pas encore vue. La dernière page quittée referme
- * l'assistant pour de bon.
+ * CE QUI SE PASSE SUR LE SERVEUR, EN BAS : la barre du terminal reste SOUS l'orbe, dans le flux — elle ne recouvre
+ * jamais un bouton.
  */
 
-interface Page {
-  titre: string;
-  intro: string;
-  /** CE QUE CETTE PAGE RÈGLE, en une phrase directe, posée en tête d'écran. */
-  but: string;
-}
+/** Combien de temps une question attend les paroles du moteur avant de prendre son texte écrit d'avance. */
+const ATTENTE_DES_PAROLES_MS = 20_000;
+/** Lettres posées par seconde quand Beluga écrit. */
+const LETTRES_PAR_SECONDE = 90;
 
-/** Le titre et l'introduction d'une page, dans la langue affichée. */
-function pageDe(etape: EtapeDeLAssistant): Page {
+/** Ce que Beluga dit à chaque étape quand le moteur n'a rien écrit (ou pas encore) : dans les cinq langues. */
+function paroleEcriteDAvance(etape: EtapeDeLAssistant, nom: string): string {
   switch (etape) {
-    case 'bienvenue':
-      return {
-        titre: t('Bienvenue dans Beluga Build'),
-        intro: t('Avant de régler quoi que ce soit, voici ce que vous venez d’installer.'),
-        but: t('Rien à régler ici : trois minutes pour comprendre comment Beluga Build travaille.'),
-      };
-    case 'copie':
-      return {
-        titre: t('Votre propre Beluga'),
-        intro: t('Faites de cette installation votre copie : un dépôt privé à votre nom, pour sauvegarder vos modifications de Beluga Build et récupérer, quand vous le voulez, les nouveautés de la version d’origine. Le projet Beluga Build est déjà sur votre tableau.'),
-        but: t('Vous créez votre dépôt privé : vos changements de Beluga Build y sont sauvegardés.'),
-      };
     case 'moteurs':
-      return {
-        titre: t('Les moteurs'),
-        intro: t('Beluga Build fait travailler des assistants installés sur ce serveur. Il en faut au moins un pour lancer une tâche : choisissez celui que vous préférez, les autres pourront venir plus tard.'),
-        but: t('Vous branchez l’assistant qui fera le travail. Sans lui, aucune tâche ne peut partir.'),
-      };
-    case 'domaine':
-      return {
-        titre: t('Le nom de domaine'),
-        intro: t('L’adresse à laquelle vous ouvrez Beluga Build, et le nom sous lequel vos projets recevront la leur.'),
-        but: t('Vous choisissez l’adresse de Beluga Build et celle de vos futurs projets.'),
-      };
-    case 'projet':
-      return {
-        titre: t('GitHub et votre premier projet'),
-        intro: t('Beluga Build travaille dans des dépôts de code. Reliez d’abord GitHub ; vous pourrez ensuite ajouter un premier projet : un dépôt qui existe déjà, ou un projet neuf.'),
-        but: t('Vous reliez GitHub, puis vous ajoutez le premier projet sur lequel travailler.'),
-      };
+      return t('Pour commencer, quel moteur voulez-vous utiliser ? C’est lui qui fera le travail, et qui me donnera la parole.');
+    case 'bienvenue':
+      return t('Me voilà ! Beluga Build est un tableau de tâches que des agents réalisent sur votre serveur. Il apprend de chaque projet, et son code se modifie comme n’importe quel projet. On fait les réglages ensemble ?');
     case 'assistant':
-      return {
-        titre: t('Votre assistant'),
-        intro: t('L’assistant vous parle et vous écoute. Donnez-lui un nom, et dites-lui comment vous appeler.'),
-        but: t('Vous donnez un nom à l’assistant : c’est aussi le mot qui l’appelle.'),
-      };
+      return t('Comment dois-je vous appeler ? Et gardez-vous le nom « {v0} » pour moi ? C’est aussi le mot qui m’appellera à voix haute.', { v0: nom });
+    case 'domaine':
+      return t('À quelle adresse voulez-vous ouvrir Beluga Build ? Vos projets recevront la leur sous le même nom. L’adresse provisoire marche très bien en attendant.');
+    case 'projet':
+      return t('Reliez maintenant GitHub : c’est par lui que vos projets se récupèrent et se sauvegardent. Ensuite, ajoutez votre premier projet si vous le voulez.');
+    case 'copie':
+      return t('Voulez-vous faire de cette installation votre propre copie ? Un dépôt privé à votre nom garde vos changements et vous laisse récupérer les nouveautés.');
     case 'courriels':
-      return {
-        titre: t('Les courriels'),
-        intro: t('Beluga Build peut écrire à vos clients et vous envoyer un point chaque matin. Rien ne part tant que ces réglages sont vides.'),
-        but: t('Vous réglez l’envoi des courriels. Sans ce réglage, rien ne part.'),
-      };
+      return t('Je peux écrire à vos clients et vous envoyer un point chaque matin. On règle l’envoi des courriels maintenant ou plus tard ?');
     case 'espace-client':
-      return {
-        titre: t('L’espace client'),
-        intro: t('Vos clients peuvent déposer leurs demandes et suivre leur avancement dans un espace à eux.'),
-        but: t('Vous ouvrez, si vous le voulez, un espace où vos clients déposent leurs demandes.'),
-      };
+      return t('Vos clients peuvent avoir un espace à eux pour déposer leurs demandes et suivre leur avancement. On l’ouvre ?');
     case 'competences':
-      return {
-        titre: t('Les compétences'),
-        intro: t('Une compétence est un mode d’emploi que les assistants suivent. Votre installation part sans aucune : cochez les bibliothèques publiques qui vous intéressent, vos propres compétences s’écriront ensuite au fil du travail.'),
-        but: t('Vous choisissez les modes d’emploi que vos assistants sauront suivre dès le départ.'),
-      };
+      return t('Une compétence est un mode d’emploi que vos agents suivent. Vous partez sans aucune : choisissez-en dans les bibliothèques publiques, les vôtres s’écriront au fil du travail.');
     case 'facultatif':
-      return {
-        titre: t('Les fonctions en plus'),
-        intro: t('Rien de ce qui suit n’est nécessaire pour travailler. Chaque fonction s’ajoute quand vous en avez besoin.'),
-        but: t('Un tour des fonctions en plus : aucune n’est nécessaire pour commencer.'),
-      };
+      return t('Dernière étape : quelques fonctions en plus, aucune n’est nécessaire. Tout se retrouve ensuite dans les réglages.');
   }
 }
+
+type EtatDesParoles = { statut: 'attente' | 'ecriture' | 'pretes' | 'echec'; paroles: ParolesDeLaMiseEnRoute };
+
+/**
+ * LES PAROLES DU MOTEUR : demandées une fois dès qu'un moteur répond, gardées pour la séance. Le démon les garde
+ * aussi : un rechargement ne repaie rien.
+ */
+function useParoles(moteurPret: boolean): EtatDesParoles {
+  const [langue] = useLangueGenerale();
+  const [etat, setEtat] = React.useState<EtatDesParoles>({ statut: 'attente', paroles: {} });
+  React.useEffect(() => {
+    if (!moteurPret || etat.statut !== 'attente') return;
+    setEtat({ statut: 'ecriture', paroles: {} });
+    client
+      .call<{ ok: boolean; paroles?: ParolesDeLaMiseEnRoute }>({ type: 'installation.paroles', langue }, 120_000)
+      .then((r) => setEtat(r.ok && r.paroles ? { statut: 'pretes', paroles: r.paroles } : { statut: 'echec', paroles: {} }))
+      .catch(() => setEtat({ statut: 'echec', paroles: {} }));
+  }, [moteurPret, etat.statut, langue]);
+  return etat;
+}
+
+/** Une impulsion par lettre posée, qui retombe d'elle-même : c'est le niveau que lit l'orbe à chaque image. */
+function useImpulsions() {
+  const pic = React.useRef(0);
+  const dernier = React.useRef(0);
+  const niveau = React.useCallback(() => {
+    const ecoule = performance.now() - dernier.current;
+    return pic.current * Math.exp(-ecoule / 260);
+  }, []);
+  const tic = React.useCallback(() => {
+    const actuel = niveau();
+    pic.current = Math.min(0.6, actuel * 0.9 + 0.14);
+    dernier.current = performance.now();
+  }, [niveau]);
+  return { niveau, tic };
+}
+
+const mouvementReduit = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant }) {
   useVoileAffiche();
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
   const relais = useEtatDuRelais();
-  const etapes = etapesDeLAssistant(state.offreHebergee);
-  const premiere = prochaineEtape(assistant, state.offreHebergee);
-  const [vue, setVue] = React.useState<EtapeDeLAssistant>(premiere === 'fin' ? 'facultatif' : premiere);
-  const [envoi, setEnvoi] = React.useState<'faite' | 'passee' | null>(null);
-
-  const rang = etapes.indexOf(vue);
-  const page = pageDe(vue);
+  const hebergee = state.offreHebergee;
+  const etapes = etapesDeLaDiscussion(hebergee);
+  const enCours = questionEnCours(assistant, hebergee);
+  const nom = nomDeLAssistant(state.settings);
+  const prenom = state.monCompte?.prenom ?? '';
   const moteurPret = auMoinsUnMoteurEnLigne(state.engines, state.quotas);
   const githubRelie = Boolean(etat?.github?.connecte);
+  const paroles = useParoles(moteurPret);
+  const { niveau, tic } = useImpulsions();
+  const travail = useTravailDInstallation();
+
+  const [envoi, setEnvoi] = React.useState<'faite' | 'passee' | null>(null);
   const [assistantPret, setAssistantPret] = React.useState(false);
   const surEtatDeLAssistant = React.useCallback((e: EtatDeVotreAssistant) => setAssistantPret(e.pret), []);
-  const peutContinuer = vue === 'moteurs' ? moteurPret : vue === 'projet' ? githubRelie : vue === 'assistant' ? assistantPret : true;
 
-  /** Une page est atteignable dès qu'elle a été vue, ou que c'est la prochaine. */
-  const atteignable = (etape: EtapeDeLAssistant) =>
-    Boolean(assistant.etapes[etape]) || etape === premiere || etape === vue;
+  /* Les bulles déjà écrites pendant cette séance : elles ne se réécrivent pas à chaque rendu. Celles des étapes
+     vues avant un rechargement s'affichent d'un coup. */
+  const ecrites = React.useRef<Set<string>>(new Set(Object.keys(assistant.etapes).concat('ouverture')));
+  const [, forcer] = React.useReducer((n: number) => n + 1, 0);
+  const finiDEcrire = React.useCallback((cle: string) => {
+    if (ecrites.current.has(cle)) return;
+    ecrites.current.add(cle);
+    forcer();
+  }, []);
 
-  const quitter = async (issue: 'faite' | 'passee') => {
+  /* Une question attend les paroles du moteur, quelques secondes au plus. */
+  const [delaiEcoule, setDelaiEcoule] = React.useState(false);
+  React.useEffect(() => {
+    if (paroles.statut !== 'ecriture') return;
+    const minuterie = window.setTimeout(() => setDelaiEcoule(true), ATTENTE_DES_PAROLES_MS);
+    return () => window.clearTimeout(minuterie);
+  }, [paroles.statut]);
+  const attendLesParoles = enCours !== 'moteurs' && enCours !== 'fin' && paroles.statut === 'ecriture' && !delaiEcoule;
+
+  const parole = (etape: EtapeDeLAssistant) => paroleAvecPrenom(paroles.paroles[etape] || paroleEcriteDAvance(etape, nom), prenom);
+
+  const peutValider =
+    enCours === 'moteurs' ? moteurPret : enCours === 'projet' ? githubRelie : enCours === 'assistant' ? assistantPret : true;
+
+  const repondre = async (issue: 'faite' | 'passee') => {
+    if (enCours === 'fin') return;
     setEnvoi(issue);
     try {
-      await client.call({ type: 'installation.etape', etape: vue, issue });
-      const suivante = etapes[rang + 1];
-      if (suivante) setVue(suivante);
-      else client.pushToast('success', t('Installation terminée. Tout se retrouve dans Réglages, page « Installation ».'));
-    } catch {
-      client.pushToast('error', t('L’étape n’a pas pu être enregistrée.'));
+      await client.call({ type: 'installation.etape', etape: enCours, issue });
+      const reste = etapes.slice(etapes.indexOf(enCours) + 1).some((e) => !assistant.etapes[e]);
+      if (!reste) client.pushToast('success', t('Installation terminée. Tout se retrouve dans Réglages, page « Installation ».'));
+    } catch (err) {
+      client.pushToast('error', (err as Error)?.message || t('L’étape n’a pas pu être enregistrée.'));
     } finally {
       setEnvoi(null);
     }
   };
 
+  /* Les étapes déjà passées, puis la question en cours. */
+  const visibles = etapes.slice(0, enCours === 'fin' ? etapes.length : etapes.indexOf(enCours) + 1);
+  const ouvertureEcrite = ecrites.current.has('ouverture');
+  const enEcriture = !attendLesParoles && enCours !== 'fin' && !ecrites.current.has(enCours);
+  /* Un outil s'installe sur le serveur : Beluga travaille, ce n'est pas à vous. */
+  const humeur = envoi || attendLesParoles || travail?.etat === 'en-cours' ? 'thinking' : enEcriture ? 'speaking' : 'idle';
+  const aVous = humeur === 'idle' && enCours !== 'fin';
+
+  /* La mise en route occupe l'écran seule : le bouton du bord et le rond du terminal s'effacent (`styles.css`). */
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-mise-en-route', '');
+    return () => document.documentElement.removeAttribute('data-mise-en-route');
+  }, []);
+
+  /* Le fil descend tout seul à chaque nouvelle bulle. */
+  const finDuFil = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    // Après la mise en page : le terminal qui s'ouvre réduit le fil, le bas de la question (« Valider ») reste en vue.
+    const minuterie = window.setTimeout(
+      () => finDuFil.current?.scrollIntoView({ block: 'end', behavior: mouvementReduit() ? 'auto' : 'smooth' }),
+      220,
+    );
+    return () => window.clearTimeout(minuterie);
+  }, [enCours, attendLesParoles, enEcriture, ouvertureEcrite, travail?.etat]);
+
   return (
     <TerminalACote.Provider value>
     <div
       data-assistant-demarrage="1"
-      data-etape={vue}
-      /* SOUS les fenêtres (`z-50`) et les messages passagers : la fenêtre
-         d'ajout de projet et les connexions de compte s'ouvrent par-dessus. */
+      data-etape={enCours}
+      data-paroles={paroles.statut}
+      /* SOUS les fenêtres (`z-50`) et les messages passagers : la fenêtre d'ajout de projet et les connexions de
+         compte s'ouvrent par-dessus. */
       className="fixed inset-0 z-[45] flex flex-col bg-bg"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <header className="flex h-12 shrink-0 items-center gap-2 px-3 sm:px-5">
-        {rang > 0 ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            data-assistant-retour
-            title={t('Page précédente')}
-            onClick={() => setVue(etapes[rang - 1])}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        ) : null}
-        <span className="text-[14.5px] font-medium text-text">{t('Mise en route de Beluga Build')}</span>
-        <span className="flex-1" />
-        <span className="sr-only" data-assistant-avancement>
-          {t('Page {n} sur {total}', { n: String(rang + 1), total: String(etapes.length) })}
-        </span>
-      </header>
+      <ZoneDefilement className="min-h-0 flex-1" fond="hsl(var(--bg))">
+        <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 px-4 pb-6 pt-8 sm:pt-12" data-fil-de-mise-en-route>
+          <BulleDeBeluga
+            cle="ouverture"
+            texte={t('Bonjour ! Je suis {v0}. Je vais mettre Beluga Build en route avec vous, une question à la fois.', { v0: nom })}
+            ecrire={!ecrites.current.has('ouverture')}
+            tic={tic}
+            fini={finiDEcrire}
+          />
+          {ouvertureEcrite
+            ? visibles.map((etape) => {
+                const issue = assistant.etapes[etape];
+                const courante = etape === enCours;
+                if (courante && attendLesParoles) return <BulleQuiReflechit key={etape} />;
+                const ecrite = ecrites.current.has(etape);
+                return (
+                  <React.Fragment key={etape}>
+                    <BulleDeBeluga cle={etape} texte={parole(etape)} ecrire={courante && !ecrite} tic={tic} fini={finiDEcrire} />
+                    {issue ? (
+                      <BulleDeLaPersonne etape={etape} issue={issue} nom={nom} prenom={prenom} />
+                    ) : courante && ecrite ? (
+                      <CarteDeQuestion
+                        etape={etape}
+                        envoi={envoi}
+                        peutValider={peutValider}
+                        repondre={repondre}
+                        raison={
+                          enCours === 'moteurs' && !moteurPret
+                            ? t('Il faut au moins un moteur prêt pour continuer.')
+                            : enCours === 'projet' && !githubRelie
+                              ? t('Reliez GitHub pour continuer : c’est par lui que vos projets se récupèrent et se sauvegardent.')
+                              : enCours === 'assistant' && !assistantPret
+                                ? t('Donnez votre prénom et un nom que l’assistant entendra pour continuer.')
+                                : null
+                        }
+                      >
+                        <ContenuDeLaQuestion
+                          etape={etape}
+                          etat={etat}
+                          relire={relire}
+                          githubRelie={githubRelie}
+                          surEtatDeLAssistant={surEtatDeLAssistant}
+                          partage={Boolean(relais?.joint)}
+                        />
+                      </CarteDeQuestion>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })
+            : null}
+          <div ref={finDuFil} />
+        </div>
+      </ZoneDefilement>
 
-      {/* LA TÊTE DE L'ÉTAPE, TOUJOURS EN HAUT, HORS DU DÉFILEMENT : où l'on en
-          est, le titre, et ce que cette page règle en une phrase — l'intro
-          détaillée reste au début du contenu. */}
-      <div className="flex shrink-0" data-assistant-tete>
-        {/* Le même retrait que la liste des pages : la tête s'aligne sur le contenu. */}
-        <div className="hidden w-60 shrink-0 sm:block" />
-        <div className="min-w-0 flex-1 px-4 pb-3 pt-1 sm:px-8">
-        <div className="mx-auto w-full max-w-xl">
-          <p className="text-[12px] uppercase tracking-wide text-faint">
-            {t('Étape {n} sur {total}', { n: String(rang + 1), total: String(etapes.length) })}
-            {' · '}
-            {etapePassable(vue) ? t('facultative') : t('nécessaire')}
-          </p>
-          <h1 className="mt-1 text-[20px] font-semibold tracking-tight text-text">{page.titre}</h1>
-          <p className="mt-1 text-[14.5px] leading-relaxed text-text" data-assistant-but>{page.but}</p>
-        </div>
-        </div>
+      {/* L'AGENT, EN BAS : l'orbe à la place du champ d'écriture, et ce qu'il fait en ce moment. */}
+      <div className="flex shrink-0 flex-col items-center gap-1.5 pb-3 pt-2" data-pied-de-mise-en-route>
+        <OrbeDeLAgent level={niveau} mood={humeur} className="w-20 sm:w-28" />
+        <p className="flex items-center gap-1.5 text-[13px]" data-a-vous={aVous ? '1' : '0'}>
+          <span className="font-medium text-text">{nom}</span>
+          <span className="text-faint">·</span>
+          {aVous ? (
+            <span style={{ color: 'hsl(var(--cadre-question))' }}>{t('à vous')}</span>
+          ) : humeur === 'thinking' ? (
+            <span className="text-muted">{t('réfléchit…')}</span>
+          ) : humeur === 'speaking' ? (
+            <span className="text-muted">{t('écrit…')}</span>
+          ) : (
+            <span className="text-muted">{t('c’est prêt')}</span>
+          )}
+        </p>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        {/* LA LISTE DES PAGES : où l'on en est, d'un coup d'œil. La page affichée
-            porte la couleur de l'élément choisi ; une page faite, sa coche. */}
-        <nav className="hidden w-60 shrink-0 flex-col gap-0.5 px-3 py-4 sm:flex" aria-label="pages-de-la-mise-en-route">
-          {etapes.map((etape, index) => {
-            const issue = assistant.etapes[etape];
-            const choisie = etape === vue;
-            return (
-              <button
-                key={etape}
-                type="button"
-                data-assistant-page={etape}
-                data-issue={issue ?? 'a-voir'}
-                disabled={!atteignable(etape)}
-                onClick={() => setVue(etape)}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13.5px] transition-colors disabled:opacity-40',
-                  choisie ? 'bg-raised font-medium text-teinte' : 'text-muted hover:bg-raised hover:text-text',
-                )}
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[11.5px]">
-                  {issue === 'faite' ? <Check className="h-3 w-3" /> : index + 1}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{pageDe(etape).titre}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <ZoneDefilement className="min-h-0 flex-1 px-4 py-4 sm:px-8 sm:py-6" fond="hsl(var(--bg))">
-          <div className="mx-auto w-full max-w-xl pb-6">
-            <p className="text-[14px] leading-relaxed text-muted">{page.intro}</p>
-            <div className="mt-5">
-              {vue === 'bienvenue' ? (
-                <PageDeBienvenue etat={etat} relire={relire} hebergee={state.offreHebergee} />
-              ) : vue === 'copie' ? (
-                <SectionCopie etat={etat} relire={relire} />
-              ) : vue === 'moteurs' ? (
-                <div className="space-y-3">
-                  <ListeDesMoteurs />
-                  <BoutonRelireLesMoteurs />
-                </div>
-              ) : vue === 'domaine' ? (
-                <SectionDomaine etat={etat} relire={relire} />
-              ) : vue === 'projet' ? (
-                <div className={cn('space-y-6', TELEPHONE_ENTRE_SECTIONS)}>
-                  <SectionGitHub etat={etat} relire={relire} />
-                  {/* Le premier projet N'APPARAÎT qu'une fois GitHub relié : sans lui, rien à récupérer. */}
-                  {githubRelie ? <PremierProjet /> : null}
-                </div>
-              ) : vue === 'assistant' ? (
-                <SectionVotreAssistant surEtat={surEtatDeLAssistant} versLesMoteurs={() => setVue('moteurs')} />
-              ) : vue === 'courriels' ? (
-                <SectionCourriels etat={etat} relire={relire} />
-              ) : vue === 'espace-client' ? (
-                <SectionEspaceClient etat={etat} relire={relire} />
-              ) : vue === 'competences' ? (
-                <SectionCompetences etat={etat} relire={relire} />
-              ) : (
-                <>
-                  <SectionFacultatif etat={etat} relire={relire} />
-                  {/* L'ACCORD DU PARTAGE DE L'ADRESSE se demande ici, à l'installation
-                      (décision du 20/10/2026) ; il se change ensuite dans les réglages. */}
-                  {relais?.joint ? (
-                    <div className="mt-6 space-y-2" data-assistant-partage>
-                      <p className="text-[14px] font-medium text-text">{t('Ce que l’équipe Beluga reçoit')}</p>
-                      <SectionPartage />
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </div>
-        </ZoneDefilement>
-
-      </div>
-
-      <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: `var(--pied-natif, calc(max(0.75rem, env(safe-area-inset-bottom)) + var(--marche-du-bas, 0px)))` }}>
-        <span className="min-w-0 flex-1 text-[13px] text-faint">
-          {vue === 'moteurs' && !moteurPret ? t('Il faut au moins un moteur prêt pour continuer.') : null}
-          {vue === 'projet' && !githubRelie ? t('Reliez GitHub pour continuer : c’est par lui que vos projets se récupèrent et se sauvegardent.') : null}
-          {vue === 'assistant' && !assistantPret ? t('Donnez votre prénom et un nom que l’assistant entendra pour continuer.') : null}
-        </span>
-        {etapePassable(vue) ? (
-          <Button variant="ghost" size="md" data-assistant-plus-tard disabled={envoi !== null} onClick={() => void quitter('passee')}>
-            {envoi === 'passee' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-            {t('Plus tard')}
-          </Button>
-        ) : null}
-        <Button variant="default" size="md" data-assistant-continuer disabled={!peutContinuer || envoi !== null} onClick={() => void quitter('faite')}>
-          {envoi === 'faite' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {rang === etapes.length - 1 ? t('Terminer') : t('Continuer')}
-        </Button>
-      </footer>
-
-      {/* CE QUI SE PASSE SUR LE SERVEUR : un terminal qui s'ouvre SOUS
-          l'interface, tout en bas, comme à l'arrière-plan. En s'ouvrant il
-          REMONTE l'écran : les boutons restent au-dessus de lui, jamais dessous. */}
+      {/* CE QUI SE PASSE SUR LE SERVEUR : collé sous l'orbe, dans le flux — en s'ouvrant il remonte l'écran, il ne
+          recouvre jamais un bouton. */}
       <BarreDuTerminal />
+      {travail ? null : <div className="shrink-0" style={{ height: 'var(--pied-natif, calc(env(safe-area-inset-bottom) + var(--marche-du-bas, 0px)))' }} />}
     </div>
     </TerminalACote.Provider>
   );
 }
 
 /**
- * LA PREMIÈRE PAGE NE RÈGLE RIEN : elle dit ce qu'on vient d'installer. Trois
- * idées, parce qu'elles changent la façon de s'en servir — l'outil apprend, il
- * se façonne, et il n'est pas un logiciel libre qu'on se contente de suivre.
- * Elle porte aussi l'état de la mémoire, posée par l'installation elle-même.
+ * UNE BULLE DE BELUGA. Écrite lettre à lettre la première fois (chaque lettre fait monter la fumée de l'orbe),
+ * d'un coup ensuite ou si moins d'animations est demandé.
  */
-function PageDeBienvenue({ etat, relire, hebergee }: { etat: EtatDeLInstallation | null; relire: () => Promise<void>; hebergee: boolean }) {
+function BulleDeBeluga({
+  cle,
+  texte,
+  ecrire,
+  tic,
+  fini,
+}: {
+  cle: string;
+  texte: string;
+  ecrire: boolean;
+  tic: () => void;
+  fini: (cle: string) => void;
+}) {
+  const [montre, setMontre] = React.useState(ecrire && !mouvementReduit() ? 0 : texte.length);
+  React.useEffect(() => {
+    if (!ecrire) return;
+    if (mouvementReduit()) {
+      setMontre(texte.length);
+      fini(cle);
+      return;
+    }
+    let pose = 0;
+    let derniere = performance.now();
+    let raf = 0;
+    const pas = (maintenant: number) => {
+      const avance = Math.max(1, Math.round(((maintenant - derniere) / 1000) * LETTRES_PAR_SECONDE));
+      derniere = maintenant;
+      pose = Math.min(texte.length, pose + avance);
+      setMontre(pose);
+      tic();
+      if (pose >= texte.length) {
+        fini(cle);
+        return;
+      }
+      raf = requestAnimationFrame(pas);
+    };
+    raf = requestAnimationFrame(pas);
+    return () => cancelAnimationFrame(raf);
+    // Le texte d'une bulle ne change plus une fois son écriture partie.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ecrire]);
+  const affiche = ecrire ? texte.slice(0, montre) : texte;
   return (
-    <div className="space-y-5" data-page-de-bienvenue>
-      <Idee titre={t('Un outil qui grandit avec vous')}>
-        {t('Beluga Build part vide, et il apprend. Chaque projet que vous développez enrichit sa mémoire — ce qu’il sait de vos projets — et ses compétences — les façons de faire qui ont marché. Plus vous vous en servez, plus ses agents travaillent juste.')}
-      </Idee>
-      {hebergee ? null : (
-        <Idee titre={t('Un outil que vous façonnez')}>
-          {t('Le code de Beluga Build est sur ce serveur, et il se modifie comme n’importe lequel de vos projets : depuis le projet « Beluga Build » de votre tableau, vous demandez un changement à un agent, et c’est votre propre version qui évolue. Une page de cette mise en route peut en faire une copie à votre nom.')}
-        </Idee>
-      )}
-      <Idee titre={t('Une base, pas un logiciel libre')}>
-        {t('Beluga Build n’est pas un outil open source. C’est un outil mis à la disposition de tous, pour que chacun parte d’une base déjà aboutie et conçoive son propre outil de développement.')}
-      </Idee>
-      <SectionMemoire etat={etat} relire={relire} />
+    <div className="flex justify-start" data-bulle-de-beluga={cle}>
+      <p className="max-w-[92%] whitespace-pre-wrap rounded-2xl rounded-bl-md bg-surface px-3.5 py-2.5 text-[14.5px] leading-relaxed text-text">
+        {affiche}
+        {ecrire && montre < texte.length ? <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-faint align-middle" /> : null}
+      </p>
     </div>
   );
 }
 
-function Idee({ titre, children }: { titre: string; children: React.ReactNode }) {
+/** Beluga réfléchit (les paroles du moteur sont en route) : une silhouette de bulle, jamais un vide. */
+function BulleQuiReflechit() {
   return (
-    <section className="rounded-lg bg-raised px-3.5 py-3">
-      <h2 className="text-[14.5px] font-medium text-text">{titre}</h2>
-      <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{children}</p>
-    </section>
+    <div className="flex justify-start" data-bulle-qui-reflechit>
+      <span className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-surface px-3.5 py-3.5">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-faint" style={{ animationDelay: `${i * 180}ms` }} />
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/** Ce que la personne a répondu, en une bulle à droite. */
+function BulleDeLaPersonne({
+  etape,
+  issue,
+  nom,
+  prenom,
+}: {
+  etape: EtapeDeLAssistant;
+  issue: 'faite' | 'passee';
+  nom: string;
+  prenom: string;
+}) {
+  const state = useApp();
+  let texte: string;
+  if (issue === 'passee') texte = t('Plus tard.');
+  else if (etape === 'moteurs') {
+    const prets = moteursDeLAssistant(state.engines, state.quotas).filter((m) => m.etape === 'pret').map((m) => m.label);
+    texte = prets.length ? t('{v0} est relié.', { v0: prets.join(', ') }) : t('C’est relié.');
+  } else if (etape === 'bienvenue') texte = t('On y va !');
+  else if (etape === 'assistant') texte = prenom ? t('Appelez-moi {v0}, et vous serez {v1}.', { v0: prenom, v1: nom }) : t('Vous serez {v0}.', { v0: nom });
+  else texte = t('C’est réglé.');
+  return (
+    <div className="flex justify-end" data-bulle-de-la-personne={etape} data-issue={issue}>
+      <p className="max-w-[85%] rounded-2xl rounded-br-md bg-raised px-3.5 py-2 text-[14.5px] leading-relaxed text-text">{texte}</p>
+    </div>
   );
 }
 
 /**
- * LE PREMIER PROJET. La fenêtre d'ajout existe déjà dans la colonne des
- * projets : on la fait ouvrir, par-dessus l'assistant, plutôt que d'en écrire
- * une seconde qui dériverait de la première.
+ * LA QUESTION POSÉE : un cadre de question (le jaune des réponses attendues), son contenu, puis son pied —
+ * « Plus tard » quand c'est permis, et « Valider ».
+ */
+function CarteDeQuestion({
+  etape,
+  envoi,
+  peutValider,
+  repondre,
+  raison,
+  children,
+}: {
+  etape: EtapeDeLAssistant;
+  envoi: 'faite' | 'passee' | null;
+  peutValider: boolean;
+  repondre: (issue: 'faite' | 'passee') => void;
+  raison: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="cadre-de-question rounded-2xl bg-surface" data-question={etape}>
+      <div className="px-3.5 pb-1 pt-3.5 sm:px-4">{children}</div>
+      <footer className="flex flex-wrap items-center gap-2 px-3.5 pb-3.5 pt-3 sm:px-4">
+        <span className="min-w-0 flex-1 text-[12.5px] leading-snug text-faint">{raison}</span>
+        {etapePassable(etape) ? (
+          <Button variant="ghost" size="md" data-assistant-plus-tard disabled={envoi !== null} onClick={() => repondre('passee')}>
+            {envoi === 'passee' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            {t('Plus tard')}
+          </Button>
+        ) : null}
+        <Button variant="default" size="md" data-assistant-continuer disabled={!peutValider || envoi !== null} onClick={() => repondre('faite')}>
+          {envoi === 'faite' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          {etape === 'bienvenue' ? t('C’est parti') : etape === 'facultatif' ? t('Terminer') : t('Valider')}
+        </Button>
+      </footer>
+    </section>
+  );
+}
+
+function ContenuDeLaQuestion({
+  etape,
+  etat,
+  relire,
+  githubRelie,
+  surEtatDeLAssistant,
+  partage,
+}: {
+  etape: EtapeDeLAssistant;
+  etat: EtatDeLInstallation | null;
+  relire: () => Promise<void>;
+  githubRelie: boolean;
+  surEtatDeLAssistant: (e: EtatDeVotreAssistant) => void;
+  partage: boolean;
+}) {
+  switch (etape) {
+    case 'moteurs':
+      return <ChoixDuMoteur />;
+    case 'bienvenue':
+      return <SectionMemoire etat={etat} relire={relire} />;
+    case 'assistant':
+      return <SectionVotreAssistant surEtat={surEtatDeLAssistant} sansVoix />;
+    case 'domaine':
+      return <SectionDomaine etat={etat} relire={relire} />;
+    case 'projet':
+      return (
+        <div className="space-y-5">
+          <SectionGitHub etat={etat} relire={relire} />
+          {/* Le premier projet N'APPARAÎT qu'une fois GitHub relié : sans lui, rien à récupérer. */}
+          {githubRelie ? <PremierProjet /> : null}
+        </div>
+      );
+    case 'copie':
+      return <SectionCopie etat={etat} relire={relire} />;
+    case 'courriels':
+      return <SectionCourriels etat={etat} relire={relire} />;
+    case 'espace-client':
+      return <SectionEspaceClient etat={etat} relire={relire} />;
+    case 'competences':
+      return <SectionCompetences etat={etat} relire={relire} />;
+    case 'facultatif':
+      return (
+        <>
+          <SectionFacultatif etat={etat} relire={relire} />
+          {/* L'ACCORD DU PARTAGE DE L'ADRESSE se demande ici, à l'installation (décision du 20/10/2026). */}
+          {partage ? (
+            <div className="mt-6 space-y-2" data-assistant-partage>
+              <p className="text-[14px] font-medium text-text">{t('Ce que l’équipe Beluga reçoit')}</p>
+              <SectionPartage />
+            </div>
+          ) : null}
+        </>
+      );
+  }
+}
+
+/**
+ * LE CHOIX DU MOTEUR : les moteurs du registre en lignes à choisir ; le moteur choisi déplie ses deux gestes
+ * (installer l'outil, connecter un compte) dans la bulle. Un moteur déjà prêt est choisi d'office.
+ */
+function ChoixDuMoteur() {
+  const state = useApp();
+  const moteurs = moteursDeLAssistant(state.engines, state.quotas);
+  const pret = moteurs.find((m) => m.etape === 'pret');
+  const [choisi, setChoisi] = React.useState<EngineId | null>(pret?.id ?? null);
+  React.useEffect(() => {
+    if (!choisi && pret) setChoisi(pret.id);
+  }, [choisi, pret]);
+  const moteur = moteurs.find((m) => m.id === choisi);
+  return (
+    <div className="space-y-3" data-choix-du-moteur>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {moteurs.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            data-choix-moteur={m.id}
+            aria-pressed={m.id === choisi}
+            onClick={() => setChoisi(m.id)}
+            className={cn(
+              'flex h-11 items-center gap-2 rounded-lg px-3 text-left text-[14px] transition-colors',
+              m.id === choisi ? 'bg-raised font-medium text-text' : 'bg-bg text-muted hover:bg-raised hover:text-text',
+            )}
+          >
+            <IconeMoteur engine={m.id} className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{m.label}</span>
+            {m.etape === 'pret' ? <Check className="h-3.5 w-3.5 shrink-0 text-success" /> : null}
+          </button>
+        ))}
+      </div>
+      {moteur ? (
+        <div className="space-y-2" data-moteur-choisi={moteur.id}>
+          <CarteMoteur moteur={moteur} />
+          <BoutonRelireLesMoteurs />
+        </div>
+      ) : (
+        <p className="text-[13px] text-muted">{t('Choisissez un moteur : vous pourrez en ajouter d’autres plus tard.')}</p>
+      )}
+      {moteur && moteur.etape !== 'pret' && moteurs.some((m) => m.etape === 'pret') ? (
+        <Badge tone="success">{t('Un autre moteur est déjà prêt.')}</Badge>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * LE PREMIER PROJET. La fenêtre d'ajout existe déjà dans la colonne des projets : on la fait ouvrir, par-dessus
+ * la mise en route, plutôt que d'en écrire une seconde qui dériverait de la première.
  */
 function PremierProjet() {
   const state = useApp();
@@ -371,12 +566,7 @@ function PremierProjet() {
       ) : (
         <LigneDEtat fait={false}>{t('Aucun projet inscrit.')}</LigneDEtat>
       )}
-      <Button
-        variant="subtle"
-        size="md"
-        data-ajouter-premier-projet
-        onClick={() => window.dispatchEvent(new Event('beluga:ajouter-projet'))}
-      >
+      <Button variant="subtle" size="md" data-ajouter-premier-projet onClick={() => window.dispatchEvent(new Event('beluga:ajouter-projet'))}>
         <FolderPlus className="h-3.5 w-3.5" />
         {nombre ? t('Ajouter un autre projet') : t('Ajouter mon premier projet')}
       </Button>

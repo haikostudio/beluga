@@ -2556,9 +2556,13 @@ function FeuilleDeTiroir({
           /* La page s'arrête sous la barre d'état et au-dessus de la barre
              d'accueil du téléphone, et laisse sa place au clavier. Sous le haut
              commun, elle commence à son bas, qui a déjà compté la barre d'état. */
+          /* SOUS LA BANDE ORANGE DE L'EXTENSION (20/11/2026, captures #4734 #7842) : la page part de son bas — elle
+             passait par-dessus, la bande ne restait visible qu'au-dessus de la colonne. La bande a compté l'heure :
+             la page ne garde que l'air sous elle (`--marge-sous-banniere`), sans bande les deux valent 0 / la zone sûre. */
+          top: 'var(--hauteur-banniere, 0px)',
           ...(sousLeHaut ? { top: 'var(--bas-du-haut-telephone, 0px)' } : null),
           ...(boite ? { top: boite.top, left: boite.left, width: boite.width, height: boite.height, right: 'auto', bottom: 'auto' } : null),
-          paddingTop: sousLeHaut || boite ? 0 : 'var(--zone-sure-haut, 0px)',
+          paddingTop: sousLeHaut || boite ? 0 : 'var(--marge-sous-banniere, var(--zone-sure-haut, 0px))',
           paddingBottom: 'calc(var(--marge-bas-hors-clavier, 0px) + var(--clavier, 0px))',
           /* La page a compté la marche du bas : son contenu ne la recompte pas. */
           ['--marche-du-bas' as string]: '0px',

@@ -339,6 +339,7 @@ export * from './gabarit-courriel.js';
 export * from './phrases-courriel.js';
 export * from './porte-client.js';
 export * from './installation.js';
+export * from './mise-en-route.js';
 export * from './appareil-notifications.js';
 export * from './hauteur-application.js';
 export * from './hauteur-du-clavier.js';

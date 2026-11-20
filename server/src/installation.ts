@@ -13,6 +13,8 @@ import {
   formeDeCodeValide,
   nettoyerIdentite,
   type IdentiteDInstallation,
+  MOTS_DU_MODELE_D_UNE_INSTALLATION_NEUVE,
+  NOM_D_UNE_INSTALLATION_NEUVE,
 } from '@beluga/shared';
 import { CONFIG, DEMON_D_ESSAI, PREMIER_DEMARRAGE_REEL, ROOT } from './config.js';
 import { creerCompte, nombreDAdministrateurs } from './comptes.js';
@@ -141,7 +143,11 @@ export function preparerLeCodeDInstallation(): string | null {
   // noter une seule fois, au même moment que le code.
   const assistant = getSettings().assistant;
   if (assistant.statut !== 'a-faire' && !Object.keys(assistant.etapes).length) {
-    saveSettings({ assistant: { statut: 'a-faire', etapes: {} } });
+    // Une installation neuve s'appelle « Beluga » tant qu'on ne la renomme pas (les anciennes gardent leur repli).
+    const nomDeDepart = getSettings().assistantNom
+      ? {}
+      : { assistantNom: NOM_D_UNE_INSTALLATION_NEUVE, assistantMotsDuModele: [...MOTS_DU_MODELE_D_UNE_INSTALLATION_NEUVE] };
+    saveSettings({ assistant: { statut: 'a-faire', etapes: {} }, ...nomDeDepart });
   }
   if (getMeta(CLE_DU_CODE)) return null;
   const code = tirerUnCode();

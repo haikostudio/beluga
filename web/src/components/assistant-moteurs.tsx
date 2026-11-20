@@ -157,7 +157,7 @@ function BadgeEtape({ moteur }: { moteur: MoteurDeLAssistant }) {
  * l'ordre, celle qui reste à faire ouverte : on ne cache pas l'installation à
  * qui vient de connecter un compte, il doit pouvoir revenir en arrière.
  */
-function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
+export function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
   const state = useApp();
   const pret = moteur.etape === 'pret';
 

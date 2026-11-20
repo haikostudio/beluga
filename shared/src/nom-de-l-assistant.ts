@@ -16,6 +16,14 @@
 import { normaliserParole } from './reveil-vocal.js';
 
 export const NOM_DE_L_ASSISTANT_PAR_DEFAUT = 'Jarvis';
+/**
+ * LE NOM D'UNE INSTALLATION NEUVE (carte « Assistant d'installation et Jarvis », 20/11/2026) : « Beluga », posé
+ * explicitement au premier démarrage réel. Le défaut ci-dessus (« Jarvis ») reste le repli des installations d'avant,
+ * qui n'ont jamais réglé de nom : elles ne sont pas renommées. Le modèle de réveil l'écrit « béluga » (vérifié par
+ * test sur le vrai modèle).
+ */
+export const NOM_D_UNE_INSTALLATION_NEUVE = 'Beluga';
+export const MOTS_DU_MODELE_D_UNE_INSTALLATION_NEUVE: readonly string[] = ['béluga'];
 /** Au-delà, un nom n'est plus un nom. */
 export const NOM_DE_L_ASSISTANT_MAX = 30;
 /** Le prénom d'une personne, borné comme tout champ court. */
@@ -54,6 +62,19 @@ export function nomDeLAssistant(reglages?: { assistantNom?: string | null; voixR
 /** La phrase qui appelle l'assistant, attendue par le micro sur l'appareil : « Dis <nom> ». */
 export function phraseDAppel(nom: string): string {
   return `Dis ${(nom || NOM_DE_L_ASSISTANT_PAR_DEFAUT).trim()}`;
+}
+
+/**
+ * LA PHRASE QUE LE MICRO ÉCOUTE, écrite comme le modèle de réveil l'écrit : « Dis béluga » pour le nom « Beluga ».
+ * Le modèle garde les accents ; un mot donné sans eux à sa grammaire serait ignoré. Les formes viennent du démon
+ * (`assistantMotsDuModele`), et ne valent que si elles correspondent mot pour mot au nom réglé.
+ */
+export function phraseEcoutee(reglages?: { assistantNom?: string | null; voixReveil?: string | null; assistantMotsDuModele?: string[] | null } | null): string {
+  const nom = nomDeLAssistant(reglages);
+  const formes = (reglages?.assistantMotsDuModele ?? []).filter(Boolean);
+  const mots = motsANEntendre(nom);
+  const accordees = formes.length === mots.length && formes.every((f, i) => normaliserParole(f) === mots[i]);
+  return phraseDAppel(accordees ? formes.join(' ') : nom);
 }
 
 /** Le titre de la conversation de l'assistant, tel que le démon le donne à son agent. L'écran le traduit lui-même. */
@@ -127,6 +148,22 @@ export function nomsProches(saisi: string, combien = 3, connu?: (mot: string) =>
     return (cible && n[0] === cible[0] ? 0 : 10) + distance(n, cible) + Math.abs(n.length - cible.length) / 10;
   };
   return [...candidats].sort((a, b) => score(a) - score(b) || a.localeCompare(b)).slice(0, combien);
+}
+
+/**
+ * LE VOCABULAIRE DU MODÈLE, RANGÉ PAR FORME NORMALISÉE (carte « Assistant d'installation et Jarvis », 20/11/2026) :
+ * le modèle garde les accents (« béluga »), la saisie et la grammaire les comparent sans (« beluga »). Comparer une
+ * forme normalisée au vocabulaire brut refusait tout nom accentué. À forme égale, le mot écrit sans accent l'emporte.
+ */
+export function vocabulaireParForme(mots: Iterable<string>): Map<string, string> {
+  const parForme = new Map<string, string>();
+  for (const mot of mots) {
+    const forme = normaliserParole(mot);
+    if (!forme || forme.includes(' ')) continue;
+    const deja = parForme.get(forme);
+    if (!deja || mot === forme) parForme.set(forme, mot);
+  }
+  return parForme;
 }
 
 /** Le prénom d'une personne tel qu'il sera enregistré : espaces resserrés, borné ; vide = aucun prénom. */

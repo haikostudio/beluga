@@ -21,6 +21,7 @@ import { setMicroOuvertGlobal, useEtatVocalGlobal } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
 import { CerveauDeLaVoix, VoixDuDirect } from '@/components/reglages/voix-du-direct';
 import { SectionVotreAssistant } from '@/components/installation/votre-assistant';
+import { ParlezAVoixHaute } from '@/components/installation/parlez-a-voix-haute';
 import { t } from '@/lib/langue';
 
 /**
@@ -86,6 +87,8 @@ export function VoiceSection({ open: _open }: { open: boolean }) {
 
   return (
     <section>
+      {/* LA VOIX SE PROPOSE ICI, hors de la mise en route (20/11/2026) : seulement sans compte ChatGPT relié. */}
+      <ParlezAVoixHaute className="mb-6" />
       <div className="mb-6" data-reglages-votre-assistant>
         <SectionVotreAssistant />
       </div>
