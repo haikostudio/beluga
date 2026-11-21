@@ -53,6 +53,8 @@ export const CHAMPS_HORS_AUTO = [
   'depenseDuFil',
   'relaiDe',
   'accord',
+  /* Une commande du terminal ou une suppression sur un ordinateur : seul le propriétaire tranche, jamais Auto. */
+  'accordOrdinateur',
   'veille',
   'placeDuMedia',
   'choixDeVersion',

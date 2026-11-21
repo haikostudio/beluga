@@ -105,7 +105,7 @@ export interface VerdictDEnvoi {
 const PASSE: VerdictDEnvoi = { refusee: false };
 
 const CONSEIL_D_ENVOI =
-  'Le dépôt public de Beluga Build se LIT (les nouveautés en viennent) mais ne reçoit jamais rien d’une installation. Envoie ton travail sur le dépôt de cette installation (« origin »), et pour écrire à l’équipe Beluga, passe par « Contacter l’équipe Beluga » dans les réglages.';
+  'Le dépôt public de Beluga Build se LIT (les nouveautés en viennent) mais ne reçoit jamais rien d’une installation. Envoie ton travail sur le dépôt de cette installation (« origin »).';
 
 function instructionsDe(commande: string): string[] {
   return commande

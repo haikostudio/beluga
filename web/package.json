@@ -2,7 +2,7 @@
   "name": "@beluga/web",
   "version": "1.0.0",
   "private": true,
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",

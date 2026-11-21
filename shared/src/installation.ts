@@ -537,10 +537,22 @@ export const EtatDesNouveautes = z.object({
 });
 export type EtatDesNouveautes = z.infer<typeof EtatDesNouveautes>;
 
-/** Faut-il montrer le bandeau « Mettre à jour » ? Jamais pour un sommet déjà écarté. */
-export function bandeauDeMiseAJour(etat: EtatDesNouveautes | null | undefined, ecarte: string | null | undefined): boolean {
-  if (!etat?.suivi || !etat.disponibles || !etat.sommet) return false;
-  return etat.sommet !== ecarte;
+/** Une bande de l'offre hébergée refermée revient au bout d'une semaine. */
+export const RETOUR_DE_LA_BANDE_DE_L_OFFRE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * LA FIN DE LA VERSION GRATUITE (carte « Fin de la version gratuite », 21/11/2026) : une installation qui SUIT le dépôt
+ * public est une installation gratuite. Elle ne reçoit plus de nouveautés ; la bande noire du haut lui propose de
+ * passer à l'offre hébergée. Refermée, elle revient une semaine plus tard. L'offre hébergée et la machine source ne
+ * suivent rien : elles ne la voient jamais.
+ */
+export function bandeDeLOffreHebergee(
+  etat: EtatDesNouveautes | null | undefined,
+  ecarteeLe: number | null | undefined,
+  maintenant: number,
+): boolean {
+  if (!etat?.suivi) return false;
+  return !ecarteeLe || maintenant - ecarteeLe >= RETOUR_DE_LA_BANDE_DE_L_OFFRE_MS;
 }
 
 /* ------------------------------------------------------------------ */

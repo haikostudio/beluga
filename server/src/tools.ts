@@ -1101,6 +1101,21 @@ export const TOOL_DEFS: ToolDef[] = [
               hauteur: { type: 'number', description: 'Nature « page » : sa hauteur réelle, en pixels (120 à 1400)' },
               consigne: { type: 'string', description: 'Nature « image » : la description de l’image' },
               texte: { type: 'string', description: 'Nature « voix » : la phrase à faire entendre' },
+              zone: { type: 'string', description: 'La zone de l’écran que montre la piste (« volet du dossier marketing ») : toutes les pistes d’un appel montrent la MÊME zone — une fournée = un seul choix' },
+              depuis: {
+                type: 'object',
+                description:
+                  'Nature « page », À PRÉFÉRER : le relevé de l’ÉCRAN RÉEL de Beluga, retouché seulement là où ça change. « adresse » (ce qui suit « # »), « selecteur » (la zone photographiée seule ; absent : tout l’écran), « attendre », « theme », « largeur »/« hauteur » de la fenêtre (1440×900 par défaut), « remplacer » : [{ selecteur, html }] — l’élément entier est remplacé par ce HTML aux VRAIES classes de l’application ; une icône s’écrit <svg data-lucide="nom"></svg>.',
+                properties: {
+                  adresse: { type: 'string' },
+                  selecteur: { type: 'string' },
+                  attendre: { type: 'string' },
+                  theme: { type: 'string', enum: ['sombre', 'clair'] },
+                  largeur: { type: 'number' },
+                  hauteur: { type: 'number' },
+                  remplacer: { type: 'array', items: { type: 'object', properties: { selecteur: { type: 'string' }, html: { type: 'string' } } } },
+                },
+              },
             },
           },
         },

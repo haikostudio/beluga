@@ -25,6 +25,9 @@ import {
 } from '@beluga/shared';
 import {
   ActionTiroir,
+  CLASSE_TROIS_POINTS_AU_SURVOL,
+  DropdownMenuSeparator,
+  ouvrirLeMenuDe,
   Button,
   Drawer,
   DropdownMenu,
@@ -428,10 +431,13 @@ export function MenuDuMedia({
   cardId,
   media: donne,
   inscrire,
+  auSurvol = false,
   className,
 }: {
   cardId: string;
   media: MediaDuSuivi;
+  /** Posé en calque sur la boîte d'un média (`useHoteDuMenuDuMedia`) : les trois points ne paraissent qu'au survol. */
+  auSurvol?: boolean;
   /**
    * UN MÉDIA DU FIL ENCORE INCONNU DE LA PRODUCTION (`id` vide) : le premier
    * geste qui a besoin de sa ligne (valider, réglages, retouche) l'inscrit
@@ -545,12 +551,15 @@ export function MenuDuMedia({
     gestes: 'data-media-mouvement',
   };
 
+  const aRedemander = (!creation || media.genre === 'son') && !!agentId && !!piece;
+  const aDesRetouches = (!!pose && !!media.attachmentId && media.genre !== 'son') || (creation && operations.length > 0) || aRedemander;
+
   return (
     <>
       <MenuActions
         titre={t('Options du média')}
         repere={`media-${media.id || media.attachmentId}`}
-        className={cn('bg-surface/85', className)}
+        className={cn('bg-surface/85', auSurvol && MENU_DU_MEDIA_AU_SURVOL, className)}
         taille="icon-sm"
         fermerSi={glisserVersUnePiste}
         onOuvert={(ouvert) => {
@@ -597,6 +606,9 @@ export function MenuDuMedia({
                 {t('Ajouter à la piste')}
               </ActionTiroir>
             ) : null}
+            {/* TROIS GROUPES SÉPARÉS D'UN TRAIT (MEM-7808) : le garder (valider, poser sur une piste), le refaire (fond,
+                retouches, consigne), puis le voir (réglages, téléchargement). Rien n'y détruit. */}
+            {(validerDansLeMenu || pose) && aDesRetouches ? <DropdownMenuSeparator /> : null}
             {/* LE FOND, SANS AGENT NI FRAIS, pour un fichier de la création : remplacé partout où il est posé. */}
             {pose && media.attachmentId && media.genre !== 'son' ? (
               <ActionTiroir
@@ -619,7 +631,7 @@ export function MenuDuMedia({
                   </ActionTiroir>
                 ))
               : null}
-            {(!creation || media.genre === 'son') && agentId && piece ? (
+            {aRedemander && agentId && piece ? (
               <ActionTiroir
                 icone={<MessageSquarePlus className="h-4 w-4" />}
                 onClick={() => {
@@ -631,6 +643,7 @@ export function MenuDuMedia({
                 {t('Redemander avec une consigne')}
               </ActionTiroir>
             ) : null}
+            {validerDansLeMenu || pose || aDesRetouches ? <DropdownMenuSeparator /> : null}
             <ActionTiroir
               icone={enCours === 'inscription' ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
               onClick={() => void apresInscription(fermer, () => setReglages(true))}
@@ -831,12 +844,44 @@ export function MenuDeLaPiece({ cardId, attachmentId, className }: { cardId: str
   const conversationDuStudio = React.useContext(ContexteConversationDuStudio);
   if (!cardId || !media) return null;
   const creation = carteDeMedia(cartes[cardId]) && !conversationDuStudio;
+  return <CalqueDuMenuDeLaPiece cardId={cardId} media={media} creation={creation} className={className} />;
+}
+
+function CalqueDuMenuDeLaPiece({ cardId, media, creation, className }: { cardId: string; media: MediaDuSuivi; creation: boolean; className?: string }) {
+  const hote = useHoteDuMenuDuMedia();
   return (
-    <div className={cn('absolute right-1 top-1 z-[1] flex items-center gap-1', className)}>
+    <div ref={hote} className={cn('absolute right-1 top-1 z-[1] flex items-center gap-1', className)}>
       {creation ? <BoutonValider cardId={cardId} media={media} /> : media.retenuLe ? <MarqueDansLeSuivi /> : null}
-      <MenuDuMedia cardId={cardId} media={media} />
+      <MenuDuMedia cardId={cardId} media={media} auSurvol />
     </div>
   );
+}
+
+/**
+ * LES TROIS POINTS D'UN MÉDIA PARAISSENT AU SURVOL DE SON IMAGE, ET SON CLIC DROIT OUVRE LE MÊME MENU (MEM-7808). Le
+ * menu se pose en calque sur la boîte du média (son parent) : on marque cette boîte `data-hote-du-media` pour le survol
+ * et on y écoute le clic droit, sans toucher aux nombreux écrans qui la dessinent.
+ */
+const MENU_DU_MEDIA_AU_SURVOL = cn(CLASSE_TROIS_POINTS_AU_SURVOL, '[[data-hote-du-media]:hover_&]:opacity-100');
+
+function useHoteDuMenuDuMedia(): React.RefObject<HTMLDivElement> {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const calque = ref.current;
+    const hote = calque?.parentElement;
+    if (!calque || !hote) return;
+    hote.setAttribute('data-hote-du-media', '');
+    const surClicDroit = (event: MouseEvent) => {
+      const bouton = calque.querySelector<HTMLElement>('[data-menu-actions]');
+      if (bouton) ouvrirLeMenuDe(bouton, event);
+    };
+    hote.addEventListener('contextmenu', surClicDroit);
+    return () => {
+      hote.removeEventListener('contextmenu', surClicDroit);
+      hote.removeAttribute('data-hote-du-media');
+    };
+  });
+  return ref;
 }
 
 /** La carte dont le fil est affiché : les pièces des messages y trouvent leur menu « … ». */
@@ -907,11 +952,32 @@ export function MenuDuMediaDuFil({
   if (!cardId || !carte) return null;
   const montre = media ?? virtuel;
   if (!montre) return null;
+  return <CalqueDuMenuDuFil cardId={cardId} attachmentId={attachmentId} media={media} montre={montre} inscrire={inscrire} agent={agentDeLaCarte} className={className} />;
+}
+
+function CalqueDuMenuDuFil({
+  cardId,
+  attachmentId,
+  media,
+  montre,
+  inscrire,
+  agent,
+  className,
+}: {
+  cardId: string;
+  attachmentId: string;
+  media: MediaDuSuivi | null | undefined;
+  montre: MediaDuSuivi;
+  inscrire: () => Promise<MediaDuSuivi>;
+  agent: string | null;
+  className?: string;
+}) {
+  const hote = useHoteDuMenuDuMedia();
   return (
-    <div className={cn('absolute right-0.5 top-0.5 z-[1] flex items-center gap-1', className)} data-menu-du-media-du-fil={attachmentId} data-menu-du-media-inscrit={media ? '' : undefined}>
+    <div ref={hote} className={cn('absolute right-0.5 top-0.5 z-[1] flex items-center gap-1', className)} data-menu-du-media-du-fil={attachmentId} data-menu-du-media-inscrit={media ? '' : undefined}>
       {media?.retenuLe ? <MarqueDansLeSuivi /> : null}
-      <ContexteAgentDuFil.Provider value={agentDeLaCarte}>
-        <MenuDuMedia cardId={cardId} media={montre} inscrire={media ? undefined : inscrire} />
+      <ContexteAgentDuFil.Provider value={agent}>
+        <MenuDuMedia cardId={cardId} media={montre} inscrire={media ? undefined : inscrire} auSurvol />
       </ContexteAgentDuFil.Provider>
     </div>
   );

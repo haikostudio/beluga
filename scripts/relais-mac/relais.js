@@ -43,6 +43,17 @@
 //  - `installer_connect` : migration d'un Mac équipé de « Beluga Relais » vers Beluga Connect (archive vérifiée par
 //    empreinte, signature et équipe Apple) ; l'ancien relais continue tant que Beluga Connect ne l'a pas arrêté.
 
+// PILOTER LE MAC DEPUIS BELUGA (21/11/2026, version 4) : les gestes de l'outil « ordinateur » des agents. Le DÉMON
+// décide des droits (Réglages › Extension › l'ordinateur) et de l'accord de la personne pour le terminal et toute
+// suppression ; ce relais ne fait que jouer, et garde ses propres bornes :
+//  - `fermer_application` (nom cherché dans la liste installée, comme l'ouverture) ;
+//  - `reglage` : volume, sourdine, luminosité (un cran), mode sombre, Wi-Fi, veille de l'écran — rien d'autre ;
+//  - `piloter` : un AppleScript adressé à UNE application nommée, refusé s'il lance une commande du système ;
+//  - `ecran_capturer` / `ecran_cliquer` / `ecran_taper` / `ecran_touche` : l'écran principal entier, en FRACTIONS de
+//    la capture ; la frappe est refusée quand le Terminal est au premier plan (le terminal passe par l'accord) ;
+//  - `terminal` : la commande accordée, jouée par zsh dans le dossier personnel, bornée en temps, sortie tronquée ;
+//  - `supprimer` : met un fichier ou un dossier À LA CORBEILLE (jamais d'effacement définitif).
+
 ObjC.import('Foundation');
 ObjC.import('CoreGraphics');
 ObjC.import('AppKit');
@@ -57,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 3;
+const VERSION_DU_RELAIS = 4;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -487,7 +498,14 @@ function quitterEtRouvrirChrome() {
     delay(2);
   }
   delay(1);
-  relancerLeNavigateur('chrome');
+  /* CHROME REVIENT AVEC SES ONGLETS (21/11/2026, « Mettre à jour » de Beluga Connect) : quitté proprement, il ne rouvre
+     sa session que si la personne l'a réglé ainsi ; `--restore-last-session` la rouvre dans tous les cas. */
+  try {
+    sh(`/usr/bin/open -b ${q(NAVIGATEURS.chrome)} --args --restore-last-session`);
+  } catch (e) {
+    journal(`réouverture avec la session impossible (${e}) : ouverture simple`);
+    relancerLeNavigateur('chrome');
+  }
 }
 
 function mettreAJourLExtension(config, a) {
@@ -741,6 +759,202 @@ function installerConnect(config, a) {
   }
 }
 
+// --- Piloter le Mac : applications, réglages, écran, terminal (version 4) ---------------------------------------
+
+const TERMINAUX = ['com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'net.kovidgoyal.kitty', 'com.mitchellh.ghostty', 'io.alacritty'];
+
+function lireFichierTexte(chemin) {
+  const t = $.NSString.stringWithContentsOfFileEncodingError(chemin, $.NSUTF8StringEncoding, null);
+  return t && !t.isNil() ? t.js : '';
+}
+
+function ecrireFichierTexte(chemin, texte) {
+  $.NSString.alloc.initWithUTF8String(String(texte)).writeToFileAtomicallyEncodingError(chemin, true, $.NSUTF8StringEncoding, null);
+}
+
+function base64DuFichier(chemin) {
+  const d = $.NSData.dataWithContentsOfFile(chemin);
+  if (!d || d.isNil()) throw new Error('capture introuvable');
+  return d.base64EncodedStringWithOptions(0).js;
+}
+
+/** Trouver une application installée par son nom (sans accents ni casse) ; refusée sinon. */
+function applicationNommee(demandee) {
+  const nom = String(demandee || '').replace(/\.app$/i, '').trim();
+  if (!nom || nom.length > 80 || /[\/\u0000-\u001f"\\]/.test(nom)) throw new Error('nom d’application refusé');
+  const installees = applicationsInstallees();
+  const trouvee = Object.keys(installees).find((a) => sansAccents(a) === sansAccents(nom));
+  if (!trouvee) throw new Error(`aucune application « ${nom} » sur ce Mac`);
+  return { nom: trouvee, chemin: installees[trouvee] };
+}
+
+function fermerUneApplication(demandee) {
+  const a = applicationNommee(demandee);
+  const bundle = $.NSBundle.bundleWithPath(a.chemin);
+  const id = bundle && !bundle.isNil() ? ObjC.unwrap(bundle.bundleIdentifier) : '';
+  const ouvertes = id ? ObjC.unwrap($.NSRunningApplication.runningApplicationsWithBundleIdentifier(id)) || [] : [];
+  if (!ouvertes.length) return { fermee: a.nom, deja: true };
+  for (const r of ouvertes) r.terminate;
+  return { fermee: a.nom };
+}
+
+function changerUnReglage(r, v) {
+  const se = () => Application('System Events');
+  switch (r) {
+    case 'volume':
+      app.setVolume(null, { outputVolume: Math.max(0, Math.min(100, Number(v) || 0)) });
+      return { volume: app.getVolumeSettings().outputVolume };
+    case 'sourdine':
+      app.setVolume(null, { outputMuted: v === true });
+      return { sourdine: app.getVolumeSettings().outputMuted };
+    case 'luminosite':
+      if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas donnée');
+      se().keyCode(v === 'plus' ? 144 : 145);
+      return { luminosite: v };
+    case 'mode_sombre':
+      se().appearancePreferences.darkMode = v === true;
+      return { modeSombre: se().appearancePreferences.darkMode() };
+    case 'wifi': {
+      const port = sh(`/usr/sbin/networksetup -listallhardwareports | awk '/Wi-Fi|AirPort/{getline; print $2; exit}'`).trim();
+      if (!/^en\d+$/.test(port)) throw new Error('aucune carte Wi-Fi sur ce Mac');
+      sh(`/usr/sbin/networksetup -setairportpower ${port} ${v === true ? 'on' : 'off'}`);
+      return { wifi: v === true };
+    }
+    case 'veille_ecran':
+      sh('/usr/bin/pmset displaysleepnow');
+      return { veille: true };
+    default:
+      throw new Error('réglage inconnu');
+  }
+}
+
+/** Un AppleScript adressé à UNE application nommée : jamais de commande du système par ce chemin. */
+function piloterUneApplication(nomDemande, script) {
+  const a = applicationNommee(nomDemande);
+  const texte = String(script || '');
+  if (!texte.trim() || texte.length > 4000) throw new Error('script vide ou trop long');
+  if (/do\s+shell\s+script|run\s+script|load\s+script|store\s+script|osascript|do\s+script/i.test(texte)) throw new Error('script refusé : il lance une commande');
+  const fichier = `${DOSSIER}/pilotage.applescript`;
+  ecrireFichierTexte(fichier, `tell application "${a.nom}"\n${texte}\nend tell\n`);
+  try {
+    const sortie = sh(`/usr/bin/osascript ${q(fichier)} 2>&1`);
+    return { application: a.nom, resultat: String(sortie || '').slice(0, 8000) };
+  } finally {
+    sh(`rm -f ${q(fichier)}`);
+  }
+}
+
+function ecranPrincipal() {
+  const f = $.NSScreen.mainScreen.frame;
+  return { largeur: f.size.width, hauteur: f.size.height };
+}
+
+function exigerLEcran(pourAgir) {
+  if (macVerrouille()) throw new Error('le Mac est verrouillé');
+  if (pourAgir && accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas donnée sur ce Mac');
+}
+
+function capturerLEcran() {
+  exigerLEcran(false);
+  if (ecranAccorde() === false) throw new Error('l’autorisation « Enregistrement de l’écran » n’est pas donnée sur ce Mac');
+  const fichier = `${DOSSIER}/ecran.jpg`;
+  sh(`/usr/sbin/screencapture -x -m -t jpg ${q(fichier)} && /usr/bin/sips -Z 1600 -s formatOptions 70 ${q(fichier)} >/dev/null`);
+  try {
+    const e = ecranPrincipal();
+    return { jpeg: base64DuFichier(fichier), largeur: e.largeur, hauteur: e.hauteur };
+  } finally {
+    sh(`rm -f ${q(fichier)}`);
+  }
+}
+
+function pointDeLEcran(fx, fy) {
+  if (!(fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1)) return null;
+  const e = ecranPrincipal();
+  return { x: Math.round(Math.min(e.largeur - 1, fx * e.largeur)), y: Math.round(Math.min(e.hauteur - 1, fy * e.hauteur)) };
+}
+
+function premierPlanEstUnTerminal() {
+  const devant = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+  const id = devant && !devant.isNil() ? ObjC.unwrap(devant.bundleIdentifier) : '';
+  return TERMINAUX.indexOf(id) >= 0;
+}
+
+function cliquerSurLEcran(a) {
+  exigerLEcran(true);
+  const p = pointDeLEcran(a.x, a.y);
+  if (!p) throw new Error('point hors de l’écran : refusé');
+  const [bas, haut] = a.droit ? [3, 4] : [1, 2];
+  const fois = a.double ? 2 : 1;
+  for (let i = 1; i <= fois; i++) {
+    const ev = $.CGEventCreateMouseEvent(null, bas, $.CGPointMake(p.x, p.y), a.droit ? 1 : 0);
+    $.CGEventSetIntegerValueField(ev, 1, i);
+    $.CGEventPost(0, ev);
+    delay(0.04);
+    const ev2 = $.CGEventCreateMouseEvent(null, haut, $.CGPointMake(p.x, p.y), a.droit ? 1 : 0);
+    $.CGEventSetIntegerValueField(ev2, 1, i);
+    $.CGEventPost(0, ev2);
+    delay(0.06);
+  }
+  return { texte: 'Cliqué.' };
+}
+
+const TOUCHES_DE_L_ECRAN = { entree: 36, effacer: 51, tab: 48, echap: 53, espace: 49, haut: 126, bas: 125, gauche: 123, droite: 124, suppr: 117, debut: 115, fin: 119, page_haut: 116, page_bas: 121 };
+const MODIFICATEURS = { cmd: 'command down', maj: 'shift down', option: 'option down', ctrl: 'control down' };
+
+function taperSurLEcran(texte) {
+  exigerLEcran(true);
+  if (premierPlanEstUnTerminal()) throw new Error('le Terminal est au premier plan : une commande passe par le geste « terminal » et l’accord de la personne');
+  Application('System Events').keystroke(String(texte || ''));
+  return {};
+}
+
+function toucheSurLEcran(a) {
+  exigerLEcran(true);
+  if (premierPlanEstUnTerminal()) throw new Error('le Terminal est au premier plan : une commande passe par le geste « terminal » et l’accord de la personne');
+  const avec = (Array.isArray(a.modificateurs) ? a.modificateurs : []).map((m) => MODIFICATEURS[m]).filter(Boolean);
+  const se = Application('System Events');
+  const code = TOUCHES_DE_L_ECRAN[a.touche];
+  if (code !== undefined) se.keyCode(code, avec.length ? { using: avec } : {});
+  else if (/^[a-z0-9]$/i.test(String(a.touche || ''))) se.keystroke(String(a.touche).toLowerCase(), avec.length ? { using: avec } : {});
+  else throw new Error('touche inconnue');
+  return {};
+}
+
+/**
+ * UNE COMMANDE ACCORDÉE PAR LA PERSONNE : écrite dans un fichier, jouée par zsh (profil chargé) depuis le dossier
+ * personnel, coupée après `delai` secondes. Sortie et erreurs réunies, lues depuis un fichier (jamais par la sortie de
+ * doShellScript, qui coupe et réécrit les fins de ligne), tronquée à la fin.
+ */
+function jouerAuTerminal(a) {
+  const commande = String(a.commande || '');
+  if (!commande.trim() || commande.length > 4000) throw new Error('commande vide ou trop longue');
+  const delai = Math.max(5, Math.min(600, Number(a.delai) || 120));
+  const script = `${DOSSIER}/commande.zsh`;
+  const sortie = `${DOSSIER}/commande.sortie`;
+  ecrireFichierTexte(script, commande);
+  const debut = Date.now();
+  let code;
+  try {
+    code = Number(sh(`cd "$HOME" && /usr/bin/perl -e 'alarm shift; exec @ARGV' ${delai} /bin/zsh -l ${q(script)} > ${q(sortie)} 2>&1 < /dev/null; echo $?`).trim());
+    const texte = lireFichierTexte(sortie);
+    const coupee = texte.length > 20000;
+    return { code, sortie: coupee ? texte.slice(-20000) : texte, coupee, secondes: Math.round((Date.now() - debut) / 1000), tempsDepasse: code === 142 };
+  } finally {
+    sh(`rm -f ${q(script)} ${q(sortie)}`);
+  }
+}
+
+/** Mettre À LA CORBEILLE (récupérable), jamais effacer : NSFileManager.trashItemAtURL. */
+function mettreALaCorbeille(brut) {
+  let chemin = String(brut || '').trim();
+  if (chemin.startsWith('~/')) chemin = `${$.NSHomeDirectory().js}${chemin.slice(1)}`;
+  if (!chemin.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(chemin) || /[\u0000-\u001f]/.test(chemin)) throw new Error('chemin refusé');
+  if (!existe(chemin)) throw new Error(`rien à cet endroit : ${chemin}`);
+  const ok = $.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError($.NSURL.fileURLWithPath(chemin), null, null);
+  if (!ok) throw new Error(`« ${chemin} » ne part pas à la corbeille`);
+  return { corbeille: chemin };
+}
+
 function jouerSurLOrdinateur(commande) {
   const a = commande.args || {};
   switch (commande.geste) {
@@ -764,6 +978,24 @@ function jouerSurLOrdinateur(commande) {
       return { nom: nomDuMac() };
     case 'ouvrir_reglage':
       return ouvrirUnReglage(a.reglage);
+    case 'fermer_application':
+      return fermerUneApplication(a.nom);
+    case 'reglage':
+      return changerUnReglage(a.reglage, a.valeur);
+    case 'piloter':
+      return piloterUneApplication(a.application, a.script);
+    case 'ecran_capturer':
+      return capturerLEcran();
+    case 'ecran_cliquer':
+      return cliquerSurLEcran(a);
+    case 'ecran_taper':
+      return taperSurLEcran(a.texte);
+    case 'ecran_touche':
+      return toucheSurLEcran(a);
+    case 'terminal':
+      return jouerAuTerminal(a);
+    case 'supprimer':
+      return mettreALaCorbeille(a.chemin);
     default:
       return undefined;
   }

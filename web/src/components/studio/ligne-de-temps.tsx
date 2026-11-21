@@ -52,6 +52,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
   ListeDeroulante,
@@ -811,7 +812,23 @@ export function LigneDeTemps({
         {/* Les noms des pistes restent fixes : seule la durée défile. */}
         <div className={largeurDesNoms}>
           {composition.pistes.map((p, rang) => (
-            <div key={p.id} className="group relative flex items-center gap-0.5 pl-2 pr-1 text-[11.5px] text-muted" style={{ height: HAUTEUR_PISTE }} data-studio-nom-piste={p.id} data-studio-type-piste={p.genre}>
+            <div
+              key={p.id}
+              className="group relative flex items-center gap-0.5 pl-2 pr-1 text-[11.5px] text-muted"
+              style={{ height: HAUTEUR_PISTE }}
+              /* À LA SOURIS, LE CLIC DROIT SUR LA TÊTE D'UNE PISTE OUVRE LE MÊME MENU que l'appui long au doigt (MEM-7808). */
+              onContextMenu={(e) => {
+                if (renommage?.pisteId === p.id) return;
+                e.preventDefault();
+                const avaler = (relache: PointerEvent) => {
+                  if (relache.button === 2) relache.stopPropagation();
+                };
+                document.addEventListener('pointerup', avaler, { capture: true, once: true });
+                setMenuPiste(p.id);
+              }}
+              data-studio-nom-piste={p.id}
+              data-studio-type-piste={p.genre}
+            >
               {renommage?.pisteId === p.id ? (
                 <Input
                   autoFocus
@@ -851,22 +868,30 @@ export function LigneDeTemps({
                   <DropdownMenuTrigger asChild>
                     <span className="pointer-events-none absolute inset-0" aria-hidden />
                   </DropdownMenuTrigger>
+                  {/* RENOMMER, PUIS L'ORDRE, PUIS RETIRER — seul en dernier, en rouge (MEM-7808). Une piste déjà en tête
+                      (ou en queue) ne propose pas d'aller plus loin. */}
                   <DropdownMenuContent align="start" data-studio-menu-piste={p.id}>
                     <DropdownMenuItem onSelect={() => setRenommage({ pisteId: p.id, valeur: p.nomChoisi ?? nomDeLaPiste(composition.pistes, p) })} data-studio-menu-piste-renommer>
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Pencil />
                       {t('Renommer')}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={rang === 0} onSelect={() => onOperation({ op: 'piste-proprietes', pisteId: p.id, position: rang - 1 })}>
-                      <ChevronUp className="h-3.5 w-3.5" />
-                      {t('Faire passer devant')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled={rang === composition.pistes.length - 1} onSelect={() => onOperation({ op: 'piste-proprietes', pisteId: p.id, position: rang + 1 })}>
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      {t('Faire passer derrière')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => onOperation({ op: 'piste-supprimer', pisteId: p.id })} data-studio-menu-piste-supprimer>
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {t('Retirer la piste « {nom} »', { nom: nomDeLaPiste(composition.pistes, p) })}
+                    {composition.pistes.length > 1 ? <DropdownMenuSeparator /> : null}
+                    {rang > 0 ? (
+                      <DropdownMenuItem onSelect={() => onOperation({ op: 'piste-proprietes', pisteId: p.id, position: rang - 1 })}>
+                        <ChevronUp />
+                        {t('Faire passer devant')}
+                      </DropdownMenuItem>
+                    ) : null}
+                    {rang < composition.pistes.length - 1 ? (
+                      <DropdownMenuItem onSelect={() => onOperation({ op: 'piste-proprietes', pisteId: p.id, position: rang + 1 })}>
+                        <ChevronDown />
+                        {t('Faire passer derrière')}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem danger onSelect={() => onOperation({ op: 'piste-supprimer', pisteId: p.id })} data-studio-menu-piste-supprimer>
+                      <Trash2 />
+                      {t('Retirer la piste')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

@@ -1,3 +1,4 @@
+import { FenetreDAccordOrdinateur } from '@/components/fenetre-d-accord-ordinateur';
 import { EVENEMENT_OUVRIR_UN_AGENT, allerALEcranDeLAgentDeService } from '@/lib/ouvrir-un-agent';
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
@@ -2147,8 +2148,23 @@ export function App() {
         }}
       >
         <Celebrations />
-        {/* LA BANNIÈRE ORANGE D'UNE EXTENSION CHROME EN RETARD (20/11/2026) : au-dessus de TOUT, colonne et entête compris. */}
-        <BanniereExtension />
+        {/* LA BANDE DU HAUT (`bande-du-haut.tsx`) : au-dessus de TOUT, colonne et entête compris. L'orange d'une
+            extension Chrome en retard passe avant ; sinon, sur une installation gratuite, la bande noire de l'offre
+            hébergée (carte « Fin de la version gratuite », 21/11/2026), muette pendant la mise en route. */}
+        <BanniereExtension
+          sinon={
+            demarrageOuvert ? null : (
+              <Filet zone="Bande de l'offre hébergée" muet>
+                <BandeauMiseAJour
+                  onOuvrirLaPage={() => {
+                    setSettingsPage('mise-a-jour');
+                    setSettingsOpen(true);
+                  }}
+                />
+              </Filet>
+            )
+          }
+        />
         {/* LA FENÊTRE DES OUTILS DE CRÉATION, dans le projet affiché. */}
         <FenetreDeService
           open={!!fenetreDeCreation}
@@ -2477,7 +2493,13 @@ export function App() {
                   droit de la zone, sous la barre (`BandeDeZone`). Le téléphone les range dans ses trois points. */}
               {telephone ? (
                 <div ref={setCibleDesGestes} data-gestes-de-page="barre" data-rangee-de-boutons className={CLASSE_CIBLE_DES_GESTES} />
-              ) : null}
+              ) : (
+                /* SUR ORDINATEUR, LE COIN DE LA ZONE EST DANS LA BARRE (21/11/2026, #d8bc) : gestes et chevron des options
+                   à droite du fil, plus aucune bande sous la barre qui ne porte qu'un chevron. */
+                <div className={carteAffichee ? 'hidden' : 'contents'}>
+                  <BandeDeZone enLigne vue={vueDuFond} onCibleDesGestes={setCibleDesGestes} registre={registreDuCoin} cibleDuBas={principalOrdinateur} />
+                </div>
+              )}
               {/* SUR ORDINATEUR, LA CLOCHE VIT DANS LE PIED DE LA COLONNE, à côté des réglages (demande du 12/10/2026) ;
                   sur téléphone, elle est dans les trois points, et l'agent se pose juste avant eux (03/11/2026). */}
               {/* L'ASSISTANT N'A PLUS D'ENTRÉE DANS L'ENTÊTE (16/11/2026) : le bouton du bord est sa seule entrée. */}
@@ -2496,16 +2518,7 @@ export function App() {
             <CibleDuBasDePage.Provider value={basDePage}>
             {/* LA BANDE DE LA ZONE (13/11/2026) : le seul coin haut droit, qui reçoit les gestes et les options de la
                 page — plus aucune rangée de boutons en haut à gauche, plus aucune liste en haut des services. */}
-            {!telephone ? (
-              <div className={carteAffichee ? 'hidden' : 'contents'}>
-                <BandeDeZone
-                  vue={vueDuFond}
-                  onCibleDesGestes={setCibleDesGestes}
-                  registre={registreDuCoin}
-                  cibleDuBas={principalOrdinateur}
-                />
-              </div>
-            ) : null}
+            {/* (La bande sous la barre a rejoint la barre elle-même, 21/11/2026.) */}
             {/* LE MORCEAU DE L'ÉCRAN EST ENCORE EN ROUTE : sa silhouette tient la place, au lieu de
                 laisser toute la zone du milieu vide le temps du téléchargement. */}
             {/* LES ONGLETS INSTANTANÉS : l'écran de la vue affichée, et ceux des onglets ouverts gardés montés, cachés. */}
@@ -2757,6 +2770,8 @@ export function App() {
           </PanneauALaDemande>
         </Filet>
         <Toasts />
+        {/* Une commande du terminal ou une suppression sur un ordinateur relié attend l'accord de son propriétaire. */}
+        <FenetreDAccordOrdinateur />
         {/* Dans l'application installée, un lien vers un fichier s'ouvre ICI,
             dans une fenêtre refermable — il ne remplace plus tout l'écran. */}
         <VisionneuseDeLien />
@@ -2778,22 +2793,9 @@ export function App() {
             {state.settings?.assistant ? <AssistantDemarrage assistant={state.settings.assistant} /> : null}
           </PanneauALaDemande>
         </Filet>
-        {/* LE DÉPÔT PUBLIC DE BELUGA BUILD A DU NOUVEAU : un bandeau en haut, au
-            centre. Il ne montre rien sur une installation qui ne le suit pas,
-            et se tait pendant la mise en route. */}
         {/* L'ACCORD DU PARTAGE DE L'ADRESSE, demandé une fois aux installations
             déjà en place (`question-du-partage.tsx`). */}
         {demarrageOuvert ? null : <QuestionDuPartage />}
-        {demarrageOuvert ? null : (
-          <Filet zone="Bandeau de mise à jour" muet>
-            <BandeauMiseAJour
-              onOuvrirLaPage={() => {
-                setSettingsPage('mise-a-jour');
-                setSettingsOpen(true);
-              }}
-            />
-          </Filet>
-        )}
         {/* UNE ZONE ATTEND SES DONNÉES DEPUIS PLUS DE QUATRE SECONDES : le
             bandeau le dit, au lieu de laisser croire à une panne. Il se déduit
             des silhouettes affichées, donc vaut pour tous les écrans. */}

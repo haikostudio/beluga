@@ -47,16 +47,17 @@ export function retirerLesPropositionsOrphelines(cardId: string): number {
   const agentsTouches = new Set<string>();
   for (const { ref, message, proposal } of lues) {
     if (!aRetirer.has(proposal.id)) continue;
-    const base = parMessage.get(message.id) ?? message;
     const decided = TaskProposal.parse({
       ...(store.decideProposal(proposal.id, 'refused') ?? { ...proposal, decision: 'refused', decidedAt: Date.now() }),
       retireeAuRendu: true,
     });
     store.saveProposal(message.id, carte.projectId, decided);
-    parMessage.set(message.id, { ...base, proposals: base.proposals.map((p) => (p.id === proposal.id ? decided : p)) });
+    // Relu à l'écriture : seule CETTE proposition change dans le message (`appliquerDecisionAuMessage`).
+    const ecrit = store.appliquerDecisionAuMessage(message.id, decided);
+    if (ecrit) parMessage.set(message.id, ecrit);
     agentsTouches.add(ref.agentId);
   }
-  for (const message of parMessage.values()) bus.emit({ type: 'message.upsert', message: store.saveMessage(message) });
+  for (const message of parMessage.values()) bus.emit({ type: 'message.upsert', message });
   for (const agentId of agentsTouches) {
     const ligne = store.saveMessage({ id: store.newId(), agentId, role: 'system', content: LIGNE_PROPOSITION_RETIREE, createdAt: store.now() } as Message);
     bus.emit({ type: 'message.upsert', message: ligne });
@@ -64,6 +65,17 @@ export function retirerLesPropositionsOrphelines(cardId: string): number {
   bus.emit({ type: 'attention', ...store.signalAttention() });
   log.info(`carte ${cardId} rendue : ${aRetirer.size} proposition(s) en suspens retirée(s)`);
   return aRetirer.size;
+}
+
+/**
+ * LES MESSAGES DÉSACCORDÉS DE LA TABLE `proposals` (21/11/2026) : une décision effacée du message par une réécriture
+ * concurrente y est recopiée depuis la table — décision, carte, heure —, sans jamais créer de carte (MEM-0354).
+ */
+export function resynchroniserLesDecisions(): number {
+  const reecrits = store.resynchroniserLesDecisionsDesMessages();
+  for (const message of reecrits) bus.emit({ type: 'message.upsert', message });
+  if (reecrits.length) bus.emit({ type: 'attention', ...store.signalAttention() });
+  return reecrits.length;
 }
 
 /** LE BALAYAGE DE RATTRAPAGE : les cartes DÉJÀ rendues qui gardent des propositions en suspens du même projet. */

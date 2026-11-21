@@ -81,7 +81,7 @@ import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
 import { noterLEcran, noterUneLatence, noterUnePanne } from './usage-installation.js';
-import { entetesDeSecurite, mimeDuFichier, requeteEnHttps, scriptDeSuivi, validationNonBloquante } from '@beluga/shared';
+import { entetesDeSecurite, filtreDePaiementLu, mimeDuFichier, requeteEnHttps, scriptDeSuivi, validationNonBloquante } from '@beluga/shared';
 import {
   FICHIERS_FICHE_OCTETS_MAX,
   PROJET_DU_COFFRE,
@@ -2034,26 +2034,11 @@ export function createHttpServer(): http.Server {
         const { etatDuRelaisIci } = await import('./relais-installations.js');
         return json(res, 200, etatDuRelaisIci());
       }
-      if (route === '/api/relais/ticket' && req.method === 'POST') {
-        const { envoyerUnTicket } = await import('./relais-installations.js');
-        let lu: { titre?: unknown; message?: unknown } = {};
-        try {
-          lu = JSON.parse((await readBody(req, 16384)).toString('utf8') || '{}');
-        } catch {
-          return json(res, 400, { ok: false, raison: 'Demande illisible.' });
-        }
-        const r = await envoyerUnTicket(String(lu.titre ?? ''), String(lu.message ?? ''));
-        return json(res, r.ok ? 200 : 502, r);
-      }
-      if (route === '/api/relais/mes-tickets') {
-        const { lireMesTickets } = await import('./relais-installations.js');
-        return json(res, 200, await lireMesTickets());
-      }
       if (route === '/api/relais/installations') {
         const { installationsRecues, relaisRecepteurIci } = await import('./relais-installations.js');
         if (!relaisRecepteurIci()) return json(res, 404, { error: 'Cette machine ne reçoit pas les installations.' });
         const filtre = url.searchParams.get('filtre');
-        return json(res, 200, installationsRecues(filtre === 'payants' || filtre === 'open-source' ? filtre : 'tous'));
+        return json(res, 200, installationsRecues(filtreDePaiementLu(filtre)));
       }
 
       /*

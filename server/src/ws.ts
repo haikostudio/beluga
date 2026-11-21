@@ -116,6 +116,7 @@ import { evenementPourCollaborateur, refusDeLaCommande, reponsePourLeCollaborate
 import { compteParId } from './comptes.js';
 import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes, tacheDeMiseAJour } from './installation-copie.js';
 import { lancerUnTravail, recetteDuGenre, travailDInstallation } from './installation-travaux.js';
+import { propositionDuCentral, recetteDuTransfert } from './transfert-vers-l-offre.js';
 import { envoyerUnCourrielDEssai, sortieDirecteGardee } from './envoi-des-courriels.js';
 import { controlesDeLEnvoiDirect, poserLesReglagesDuDomaine } from './courriels-du-domaine.js';
 import {
@@ -3143,6 +3144,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const question = message.questions.find((q) => q.id === cmd.questionId);
       if (!question) throw new Error('question introuvable');
       if (question.answer) return { already: true };
+      /* UNE DEMANDE D'ACCORD D'UN ORDINATEUR (terminal, suppression) ne se tranche que par son propriétaire. */
+      if (question.accordOrdinateur && question.accordOrdinateur.compteId !== compte.id) {
+        throw new Error('Seul le propriétaire de cet ordinateur peut accepter ou refuser ce geste.');
+      }
 
       const updated = store.saveMessage({
         ...message,
@@ -3434,7 +3439,19 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * clic, commande rejouée à la reconnexion) passaient tous deux la garde
        * ci-dessus et créaient deux cartes. La proposition est donc réservée
        * AVANT toute attente, et libérée quoi qu'il arrive.
+       *
+       * …ET LA TABLE `proposals` FAIT FOI (21/11/2026) : un message dont la
+       * décision a été effacée par une réécriture concurrente montrait encore
+       * « À valider », et un nouveau clic aurait créé un doublon. Une décision
+       * déjà enregistrée là est recopiée dans le message, sans nouvelle carte.
        */
+      const dejaTranchee = store.decisionEnregistree(proposal.id);
+      if (dejaTranchee && dejaTranchee.decision !== 'pending') {
+        const resynchro = store.appliquerDecisionAuMessage(message.id, TaskProposal.parse({ ...proposal, decision: dejaTranchee.decision, cardId: dejaTranchee.cardId, decidedAt: dejaTranchee.decidedAt }));
+        if (resynchro) bus.emit({ type: 'message.upsert', message: resynchro });
+        bus.emit({ type: 'attention', ...store.signalAttention() });
+        return { already: true, ...(dejaTranchee.cardId ? { cardId: dejaTranchee.cardId } : {}) };
+      }
       if (decisionsEnCours.has(proposal.id)) return { already: true };
       decisionsEnCours.add(proposal.id);
       try {
@@ -3553,11 +3570,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       (await import('./service-securite.js')).apresDecisionDeProposition(proposal.id, cmd.accept ? cardId : undefined);
 
       // La décision est mémorisée SUR LE TABLEAU : elle survit au rechargement.
-      const updatedMessage = store.saveMessage({
-        ...message,
-        proposals: message.proposals.map((p) => (p.id === cmd.proposalId ? decided : p)),
-      });
-      bus.emit({ type: 'message.upsert', message: updatedMessage });
+      // Le message est RELU à l'écriture, jamais repris de la copie lue avant les
+      // attentes : une décision voisine prise entre-temps n'est pas effacée.
+      const updatedMessage = store.appliquerDecisionAuMessage(message.id, decided);
+      if (updatedMessage) bus.emit({ type: 'message.upsert', message: updatedMessage });
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
@@ -3592,11 +3608,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         ...(accorde?.avertissement ? { avertissement: accorde.avertissement } : {}),
       });
       store.saveProposal(message.id, agent.projectId, updated);
-      const updatedMessage = store.saveMessage({
-        ...message,
-        proposals: message.proposals.map((p) => (p.id === cmd.proposalId ? updated : p)),
-      });
-      bus.emit({ type: 'message.upsert', message: updatedMessage });
+      // Relu à l'écriture : la copie d'avant l'attente du catalogue effacerait une décision voisine.
+      const updatedMessage = store.appliquerDecisionAuMessage(message.id, updated);
+      if (updatedMessage) bus.emit({ type: 'message.upsert', message: updatedMessage });
       return { ok: true, run };
     }
 
@@ -3614,6 +3628,13 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const proposal = message.proposals.find((p) => p.id === cmd.proposalId);
       if (!proposal) throw new Error('proposition introuvable');
       if (proposal.decision !== 'pending') return { already: true };
+      // La table fait foi : une décision effacée du message par une réécriture concurrente n'envoie pas un second message.
+      const dejaTranchee = store.decisionEnregistree(proposal.id);
+      if (dejaTranchee && dejaTranchee.decision !== 'pending') {
+        const resynchro = store.appliquerDecisionAuMessage(message.id, TaskProposal.parse({ ...proposal, decision: dejaTranchee.decision, cardId: dejaTranchee.cardId, decidedAt: dejaTranchee.decidedAt }));
+        if (resynchro) bus.emit({ type: 'message.upsert', message: resynchro });
+        return { already: true };
+      }
       if (decisionsEnCours.has(proposal.id)) return { already: true };
       decisionsEnCours.add(proposal.id);
       let reservee = true;
@@ -3638,9 +3659,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
               : { ...proposal, decision: 'pending' as const, decidedAt: undefined },
           );
           store.saveProposal(message.id, agent.projectId, fiche);
-          const relu = store.getMessage(message.id) ?? message;
-          const ecrit = store.saveMessage({ ...relu, proposals: relu.proposals.map((p) => (p.id === proposal.id ? fiche : p)) });
-          bus.emit({ type: 'message.upsert', message: ecrit });
+          const ecrit = store.appliquerDecisionAuMessage(message.id, fiche);
+          if (ecrit) bus.emit({ type: 'message.upsert', message: ecrit });
           bus.emit({ type: 'attention', ...store.signalAttention() });
         };
         /*
@@ -4207,6 +4227,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // La tâche de mise à jour encore ouverte : la page « Mise à jour » y mène.
       return { etat: await nouveautes(cmd.forcer === true), tache: tacheDeMiseAJour() };
 
+    case 'installation.offre': {
+      if (!(await nouveautes(false)).suivi) return { ok: false, raison: 'Cette installation n’est pas une installation gratuite.' };
+      return propositionDuCentral();
+    }
+
+    case 'installation.transfert': {
+      if (!(await nouveautes(false)).suivi) return { ok: false, erreur: 'Cette installation n’est pas une installation gratuite.' };
+      return lancerUnTravail('transfert', recetteDuTransfert(cmd.jeton));
+    }
+
     case 'installation.nouveautes.appliquer': {
       const recuperation = await recupererLesNouveautes();
       if (!recuperation.ok) return recuperation;
@@ -4603,6 +4633,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const { delierUnOrdinateur } = await import('./ordinateurs.js');
       if (!(await delierUnOrdinateur(compte.id, cmd.id))) throw new Error('Cet ordinateur n’est plus relié.');
       return { ok: true };
+    }
+    case 'ordinateur.droits': {
+      const { changerUnDroit } = await import('./ordinateurs.js');
+      const droits = changerUnDroit(compte.id, cmd.id, cmd.droit, cmd.actif);
+      if (!droits) throw new Error('Cet ordinateur n’est plus relié.');
+      return { ok: true, droits };
     }
     case 'ordinateur.etat': {
       const { ordinateursDuCompte, ordinateurRetenu, dernierOrdinateur } = await import('./ordinateurs.js');

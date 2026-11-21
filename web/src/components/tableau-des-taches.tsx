@@ -14,6 +14,8 @@ import { LIBELLE_ETAT_D_AGENT, type Card, type EtatDAgentEnListe } from '@beluga
 import { BadgeDEtatDAgent, DateDeLAgent, IconeDEtatDAgent, useCartesParDate, useLignesDAgents, type Ligne } from '@/components/liste-des-agents';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { Silhouette } from '@/components/silhouettes';
+import { MenuCarte } from '@/components/card-menu';
+import { BoutonTroisPoints } from '@/components/ui';
 import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
@@ -36,6 +38,9 @@ export function TableauDesTaches({
   const lignes = useLignesDAgents(source.cartes);
   const [taille, setTaille] = React.useState(TACHES_PAR_PAGE);
   const projets = React.useMemo(() => new Map(state.projects.map((p) => [p.id, p])), [state.projects]);
+  /* LA LIGNE DONT LE MENU EST OUVERT : par ses trois points (au survol) ou par le clic droit, le même menu, au même
+     endroit — celui de la carte dans la colonne de gauche (`MenuCarte`). */
+  const [menuDe, setMenuDe] = React.useState<string | null>(null);
   const colonnes = React.useMemo<ColonneDuTableauCommun<Ligne>[]>(
     () => [
       {
@@ -92,8 +97,15 @@ export function TableauDesTaches({
         valeur: (l) => l.activite,
         rendu: (l) => <DateDeLAgent at={l.activite} courte />,
       },
+      {
+        cle: 'menu',
+        libelle: '',
+        largeur: 44,
+        droite: true,
+        rendu: (l) => <MenuDeLaTache ligne={l} ouvert={menuDe === l.carte.id} changer={(o) => setMenuDe(o ? l.carte.id : null)} />,
+      },
     ],
-    [projectId, projets],
+    [projectId, projets, menuDe],
   );
   /* LA SUITE AVANT LE PIED (16/11/2026, capture #39779) : « Charger les tâches plus anciennes » et l'erreur se posent
      entre les lignes et la barre de pagination, qui reste ainsi collée au bas de l'écran même en bout de liste. */
@@ -129,6 +141,7 @@ export function TableauDesTaches({
           colonnes={colonnes}
           cle={(l) => l.carte.id}
           onLigne={(l) => onOuvrir(l.carte)}
+          onClicDroit={(l) => setMenuDe(l.carte.id)}
           triInitial={{ colonne: 'activite', sens: 'desc' }}
           taille={taille}
           onTaille={setTaille}
@@ -139,5 +152,22 @@ export function TableauDesTaches({
       )}
       {source.enAttente && source.erreur ? <p className="text-[13px] text-faint">{source.erreur}</p> : null}
     </section>
+  );
+}
+
+/**
+ * LES TROIS POINTS D'UNE LIGNE DE TÂCHE : un simple bouton tant que le menu n'a jamais été ouvert (rien de lourd par
+ * ligne), puis le menu de la carte, gardé monté — ses fenêtres (renommer, supprimer, confirmer un déplacement qui
+ * dépense) vivent dans le même composant et partiraient avec lui.
+ */
+function MenuDeLaTache({ ligne, ouvert, changer }: { ligne: Ligne; ouvert: boolean; changer: (ouvert: boolean) => void }) {
+  const [monte, setMonte] = React.useState(false);
+  if (ouvert && !monte) setMonte(true);
+  const bouton = <BoutonTroisPoints ouvert={ouvert} className="-my-1 ml-auto" data-menu-de-tache={ligne.carte.id} />;
+  if (!monte) return React.cloneElement(bouton, { onClick: (event: React.MouseEvent) => { event.stopPropagation(); changer(true); } });
+  return (
+    <span className="flex justify-end" onClick={(event) => event.stopPropagation()}>
+      <MenuCarte card={ligne.carte} open={ouvert} onOpenChange={changer} agentActif={ligne.auTravail} declencheur={bouton} />
+    </span>
   );
 }

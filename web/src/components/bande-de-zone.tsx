@@ -50,7 +50,14 @@ export function BandeDeZone({
   onCibleDesGestes,
   registre,
   cibleDuBas,
+  enLigne = false,
 }: {
+  /**
+   * DANS LA BARRE DU HAUT, À DROITE DU FIL (carte « Extension, rapport SEO-GEO et menus », 21/11/2026, capture #d8bc) :
+   * la bande ne prend plus aucune hauteur à elle — une rangée qui ne portait qu'un chevron empilait un entête vide
+   * au-dessus des volets. Ses gestes et son chevron rejoignent la ligne du titre.
+   */
+  enLigne?: boolean;
   vue: VueCentrale;
   /** L'emplacement du geste principal, en bas de la zone. */
   cibleDuBas: HTMLElement | null;
@@ -58,6 +65,13 @@ export function BandeDeZone({
   registre: RegistreDuMenuDuHaut;
   onCibleDesGestes: (noeud: HTMLElement | null) => void;
 }) {
+  if (enLigne)
+    return (
+      <div className="flex shrink-0 items-center gap-1.5 empty:hidden" data-bande-de-zone={vue} data-coin-de-zone data-coin-en-ligne>
+        <div ref={onCibleDesGestes} data-gestes-de-page="barre" data-rangee-de-boutons className="flex shrink-0 items-center gap-1.5 empty:hidden" />
+        <ChevronDesOptions registre={registre} gestes={AUCUN_GESTE} cibleDuBas={cibleDuBas} />
+      </div>
+    );
   return (
     <div className="bande-de-zone relative shrink-0" data-bande-de-zone={vue}>
       {/* LE COIN HAUT DROIT : les gestes que la page pose elle-même, puis le chevron de ses options. */}

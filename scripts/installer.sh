@@ -2,10 +2,15 @@
 #
 # INSTALLER BELUGA BUILD SUR UN SERVEUR NEUF — UNE SEULE COMMANDE.
 #
-#   curl -fsSL https://raw.githubusercontent.com/haikostudio/beluga/main/scripts/installer.sh | sudo bash
+#   sudo bash installer.sh --archive beluga-<version>.tar.gz
 #
-# Sur un serveur Debian ou Ubuntu tout juste livré, ce script fait tout ce qui
-# séparait « le dépôt est public » de « l'application répond » :
+# Beluga Build est un service HÉBERGÉ (fin de la version gratuite, 21/11/2026) :
+# ce script est lancé par l'agent d'hôte du site central, sur le serveur qu'il
+# vient de louer pour un client, avec l'archive de la version à poser. Sans
+# --archive ni --depot, il refuse : il n'y a plus de dépôt public où puiser.
+#
+# Sur un serveur Debian ou Ubuntu tout juste livré, il fait tout ce qui sépare
+# « l'archive est là » de « l'application répond » :
 #
 #   1. les outils dont Beluga Build dépend (Node 22, git, de quoi compiler,
 #      le serveur web Caddy, l'outil GitHub, le terminal partagé) ;
@@ -32,16 +37,16 @@
 #   --sans-question     ne rien demander (adresse provisoire si --domaine manque)
 #   --dossier <chemin>  où installer (défaut : /opt/beluga)
 #   --compte <nom>      le compte système du service (défaut : beluga)
-#   --depot <adresse>   le dépôt à télécharger (défaut : le dépôt public)
+#   --depot <adresse>   un dépôt à télécharger (accès requis : il est privé)
 #   --branche <nom>     la branche (défaut : main)
-#   --archive <fichier> installer depuis une archive .tar.gz au lieu du dépôt
+#   --archive <fichier> installer depuis une archive .tar.gz (le cas ordinaire)
 #   --a-blanc           dire tout ce qui serait fait, sans rien changer
 #
 set -euo pipefail
 
 DOSSIER=/opt/beluga
 COMPTE=beluga
-DEPOT=https://github.com/haikostudio/beluga.git
+DEPOT=""
 BRANCHE=main
 DOMAINE="${BELUGA_DOMAINE:-}"
 ARCHIVE=""
@@ -61,7 +66,7 @@ while [ $# -gt 0 ]; do
     --branche) BRANCHE="${2:-}"; shift 2 ;;
     --archive) ARCHIVE="${2:-}"; shift 2 ;;
     --a-blanc) A_BLANC=1; shift ;;
-    -h|--help|--aide) sed -n '2,38p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help|--aide) sed -n '2,43p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Option inconnue : $1 (--aide pour la liste)" >&2; exit 2 ;;
   esac
 done
@@ -242,6 +247,7 @@ elif [ -d "$DOSSIER/.git" ]; then
     fi
   fi
 elif [ -z "$(ls -A "$DOSSIER" 2>/dev/null)" ]; then
+  [ -n "$DEPOT" ] || arret "Beluga Build est un service hébergé : son code n'est plus public. L'installation se fait avec --archive, par l'équipe Beluga."
   dire "téléchargement depuis $DEPOT."
   sous_compte git clone --quiet --branch "$BRANCHE" "$DEPOT" "$DOSSIER"
 else

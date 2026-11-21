@@ -9,12 +9,10 @@ conversation de cadrage**, à moindre coût, avant qu'un clic ne confie le trava
 complet** qui analyse et exécute lui-même, et un **démon** qui fait réellement tourner tout ça sur le
 serveur.
 
-> **Une base à faire vôtre, pour un usage non commercial.** Beluga Build est distribué sous
-> [licence PolyForm Noncommercial 1.0.0](LICENSE.md) : chacun peut l'installer, s'en servir, le
-> modifier et en garder sa propre copie, tant que l'usage n'est pas commercial. Il part vide et
-> **grandit avec vos projets** — sa mémoire et ses compétences s'enrichissent à chaque tâche menée à
-> bien — et il se modifie comme n'importe lequel de vos projets : l'assistant de démarrage crée
-> **votre copie privée** sur votre GitHub et pose le projet « Beluga Build » sur votre tableau.
+> **Un service hébergé, payant.** Beluga Build se loue sur [belugabuild.com](https://belugabuild.com) :
+> chaque client reçoit son propre serveur, préparé et tenu à jour par l'équipe Beluga. Il part vide
+> et **grandit avec vos projets** — sa mémoire et ses compétences s'enrichissent à chaque tâche menée
+> à bien. Ce dépôt est privé ; son code n'est ni distribué ni installable hors de l'offre hébergée.
 
 ## Ce qui fait tourner le tout
 
@@ -64,109 +62,35 @@ démon, chacun avec son propre coffre d'identifiants (un dossier par compte).
 - **Aucune publication ni aucun redémarrage du serveur ne se déclenche sans un geste explicite** de
   l'utilisateur (bouton « Publier maintenant » ou instruction claire).
 
-## Installation sur un serveur neuf
+## Un serveur par client
 
-Il vous faut un serveur **Debian ou Ubuntu** que vous administrez (un VPS de 4 Go de mémoire suffit
-pour commencer), et c'est tout : la commande ci-dessous installe le reste.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/haikostudio/beluga/main/scripts/installer.sh | sudo bash
-```
-
-Elle pose question une seule fois — **votre nom de domaine**, si vous en avez un — puis :
-
-1. installe ce dont Beluga Build dépend (Node 22, git, le serveur web Caddy, l'outil GitHub, le
-   terminal partagé) ;
-2. crée un compte système dédié, `beluga`, et télécharge le code dans `/opt/beluga` ;
-3. construit l'application et installe sa **mémoire « par le sens »** — le modèle qui lui permet de
-   retrouver ce qu'il a appris (environ 800 Mo sur le disque) ;
-4. lui donne une **adresse sécurisée** : votre nom de domaine s'il mène déjà au serveur, sinon une
-   adresse provisoire tirée de son adresse IP ;
-5. pose de quoi envoyer des courriels depuis le serveur lui-même (écoute locale seulement) ;
-6. démarre l'application comme un service, relancé seul au redémarrage du serveur ;
-7. affiche un **lien d'installation**.
-
-Ouvrez ce lien : il mène droit à la création de **votre compte**, sans rien à recopier. Il ne sert
-qu'une fois ; tant que le compte n'existe pas, personne ne peut le créer sans lui. C'est la dernière
-fois que vous avez besoin du terminal : un **assistant de démarrage** prend le relais, page par page —
-à gauche ce que vous réglez, à droite un terminal où vous voyez le serveur travailler.
+Chaque serveur de l'offre hébergée est monté par l'agent d'hôte du site central (dépôt belugabuild) :
+il y installe ce dépôt à partir d'une archive de version (`scripts/installer.sh --archive`), pose
+`BELUGA_HEBERGE=1` dans `/etc/beluga.env`, puis le tient à jour. Le client arrive ensuite sur un
+**assistant de démarrage**, page par page.
 
 | Page | Ce qu'elle règle | Obligatoire |
 | --- | --- | --- |
 | Bienvenue | Ce qu'est Beluga Build, et l'état de sa mémoire | — |
 | Les moteurs | Installer d'un bouton, puis connecter, au moins un assistant (Claude Code, Codex, Cursor…) | oui |
-| Le nom de domaine | L'adresse définitive, le nom sous lequel vos projets recevront la leur, et qui gère ce nom | non |
+| Le nom de domaine | L'adresse définitive, le nom sous lequel les projets recevront la leur | non |
 | GitHub et premier projet | Relier GitHub, ajouter un dépôt existant ou créer un projet | non |
-| Votre propre Beluga | Créer votre copie privée sur votre GitHub, et poser le projet « Beluga Build » sur votre tableau | non |
-| Les courriels | Par où ils partent (ce serveur, un service de courriel, Resend), l'expéditeur, un essai réel | non |
-| L'espace client | Le nom et l'adresse de l'espace où vos clients déposent leurs demandes | non |
+| Les courriels | Par où ils partent, l'expéditeur, un essai réel | non |
+| L'espace client | Le nom et l'adresse de l'espace où les clients déposent leurs demandes | non |
 | Les compétences | Les bibliothèques publiques de modes d'emploi à importer | non |
 | Les fonctions en plus | Dictée et voix, installées d'un bouton | non |
 
 Chaque page facultative se passe (« Plus tard ») et se retrouve à l'identique dans **Réglages → page
-« Installation »**. Une installation neuve part **vide** : aucun projet, aucune compétence, aucune
-mémoire, aucune adresse réglée — et une fonction dont le réglage manque reste éteinte.
+« Installation »**.
 
-**Les adresses de vos projets.** Chez Hetzner, Cloudflare, Infomaniak, OVH et Gandi, Beluga Build crée
-lui-même l'adresse de chaque projet, avec un jeton que vous rangez dans son coffre-fort. Chez tout
-autre fournisseur, une règle « tous les noms » (`*.exemple.com` vers votre serveur), posée une fois,
-suffit — sans rien lui confier.
-
-**Les courriels.** L'assistant propose d'abord l'envoi par le serveur lui-même et le met à l'épreuve
-par un vrai courriel. Beaucoup d'hébergeurs bloquent cet envoi : l'essai le dit, et n'importe quel
-service de courriel (le vôtre, Brevo, Mailgun, Gmail, Resend…) prend alors le relais.
-
-**Les nouveautés.** Quand la version d'origine avance, un bandeau « Mettre à jour » le signale ; rien
-ne s'applique sans vous. Sur votre copie personnelle, une tâche est posée dans le projet « Beluga
-Build » : un agent rapproche les nouveautés de vos modifications, et vous décidez de la mise en ligne.
-
-### Ce que l'installation change sur votre serveur
-
-- des paquets système (Node, Caddy, l'outil GitHub, de quoi compiler, tmux, dnsutils, et postfix
-  réglé pour n'écouter que la machine elle-même) ;
-- le compte `beluga`, avec les **droits d'administration sans mot de passe**
-  (`/etc/sudoers.d/90-beluga-beluga`). Beluga Build administre le serveur pour vous — il crée les
-  dossiers et les services de vos projets, écrit leurs adresses dans le serveur web — et ses agents
-  travaillent sous ce compte : installez-le sur une machine que vous lui réservez ;
-- `/opt/beluga` (le code et, sous `data/`, vos données) et `/home/beluga/projets` (vos projets) ;
-- `/etc/caddy/Caddyfile` et `/etc/caddy/beluga.d/` (l'adresse), `/etc/beluga.env` (deux réglages),
-  et les unités `beluga.service`, `beluga-watchdog.*`, `beluga-releve-projets.*`.
-
-Pour voir tout ce qu'elle ferait sans rien changer, téléchargez-la puis lancez-la à blanc :
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/haikostudio/beluga/main/scripts/installer.sh -o installer.sh
-sudo bash installer.sh --a-blanc
-```
-
-Autres options : `--domaine beluga.exemple.com` (ne pas poser la question), `--sans-question`,
-`--dossier`, `--compte`, `--branche`. La même commande, relancée plus tard, **met Beluga Build à
-jour** : elle retélécharge le code, le reconstruit et redémarre le service, sans toucher à vos données
-ni à votre adresse. Dès que l'installation est devenue **votre copie** (ou que vous y avez modifié
-quoi que ce soit), elle ne touche plus au code : vos modifications ne sont jamais écrasées, et les
-nouveautés se récupèrent depuis l'application.
-
-### Installation à la main
-
-Sur une machine déjà équipée (Node ≥ 22, git, un reverse-proxy), sous un compte ordinaire — jamais
-`root`, les moteurs le refusent :
-
-```bash
-git clone https://github.com/haikostudio/beluga.git
-cd beluga
-npm install
-npm run build                              # shared, puis server, puis web
-sudo scripts/installer-services.sh         # pose le service sous le compte propriétaire du dossier
-node scripts/code-installation.mjs         # affiche le code d'installation (--lien : le lien prêt à cliquer)
-```
-
-L'application écoute en local (`127.0.0.1:7070`) : à vous de placer un reverse-proxy devant elle.
-`sudo scripts/installer-services.sh --a-blanc` dit ce que le script ferait, sans rien changer.
+**Les anciennes installations gratuites.** Celles posées avant le 21/11/2026 continuent de tourner
+mais ne reçoivent plus de nouveautés : la page « Mise à jour » de leurs réglages devient « Passer à
+l'offre hébergée » et leur propose de transférer tout leur espace vers un serveur hébergé.
 
 ### Commandes de secours
 
-À lancer sur le serveur, sous le compte du service (`sudo -u beluga …` après l'installation
-automatique), depuis le dossier de l'installation :
+À lancer sur le serveur, sous le compte du service (`sudo -u beluga …`), depuis le dossier de
+l'installation :
 
 ```bash
 node scripts/code-installation.mjs --lien  # un nouveau lien d'installation, tant qu'aucun compte n'existe
@@ -190,7 +114,7 @@ disque : plusieurs comptes du même moteur travaillent en parallèle, avec un su
 ## Vos données restent chez vous
 
 Tout ce qui vous appartient (base de données, coffre-fort, projets, cartes, historiques) vit sous
-`data/`, un dossier **jamais suivi par git** (`.gitignore`) : cloner ou publier ce dépôt ne partage
+`data/`, un dossier **jamais suivi par git** (`.gitignore`) : le code ne transporte
 jamais vos données. Les identifiants de moteurs LLM (`~/.claude`, `~/.codex`…) et les secrets
 applicatifs restent eux aussi hors du dépôt, lus depuis le disque du serveur ou des variables
 d'environnement (`/etc/beluga.env`).
@@ -208,8 +132,8 @@ git de chaque projet.
   proposées, la valeur par défaut ne pouvant jamais rien détruire. Rejouer le même import ne crée
   aucun doublon — les lignes déjà présentes sont simplement laissées de côté.
 
-C'est le moyen recommandé pour déménager une installation d'un serveur à un autre, ou pour garder une
-sauvegarde indépendante du disque.
+C'est le moyen recommandé pour garder une sauvegarde indépendante du disque. Un client qui quitte
+l'offre hébergée récupère ses données et ses projets — pas le logiciel.
 
 ## Ce qui ne voyage pas avec le code
 
@@ -219,13 +143,4 @@ installation existante, ni compétence, ni mémoire de projet : tout cela se cr�
 
 ## Licence
 
-Beluga Build est distribué sous [licence PolyForm Noncommercial 1.0.0](LICENSE.md), détenue par
-Haiko Studio.
-
-- **Permis, sans rien demander** : installer, utiliser, modifier et garder sa propre copie de
-  Beluga Build pour tout usage non commercial — usage personnel, associations, écoles, recherche,
-  organismes publics.
-- **Soumis à accord** : tout usage commercial (le revendre, s'en servir pour un service payant ou
-  pour le travail d'une entreprise). Pour un usage commercial, écrivez à salut@haiko.studio.
-
-Ce résumé n'est qu'une aide à la lecture : seul le texte anglais de la licence fait foi.
+Copyright © 2026 Haiko Studio. Tous droits réservés — voir [LICENSE.md](LICENSE.md).

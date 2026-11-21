@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy, EllipsisVertical, Loader2 } from '@/components/ui/icones';
+import { Check, Copy, EllipsisVertical, Link2, Link2Off, Loader2, RefreshCw } from '@/components/ui/icones';
 import { adresseBelugaPassParDefaut, type EtatBelugaPass } from '@beluga/shared';
 import {
   Button,
@@ -12,6 +12,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
   Label,
@@ -184,16 +185,22 @@ export function PageBelugaPass() {
       <DropdownMenuContent align="end">
         {etat.existe ? (
           <DropdownMenuItem onSelect={() => setConfirmerNouvelle(true)} data-belugapass-relier-a-nouveau>
+            <RefreshCw className="text-muted" />
             {t('Relier à nouveau')}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem onSelect={() => setFenetreAdresse(true)} data-belugapass-autre-adresse>
+          <Link2 className="text-muted" />
           {t('Autre adresse de Beluga Pass')}
         </DropdownMenuItem>
         {etat.existe ? (
-          <DropdownMenuItem onSelect={() => setConfirmerDelier(true)} className="text-danger" data-belugapass-delier>
-            {t('Délier')}
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem danger onSelect={() => setConfirmerDelier(true)} data-belugapass-delier>
+              <Link2Off />
+              {t('Délier')}
+            </DropdownMenuItem>
+          </>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -82,6 +82,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  BoutonTroisPoints,
+  ouvrirLeMenuAuClicDroit,
   DansUneFenetreDeService,
   Input,
   Textarea,
@@ -207,7 +210,7 @@ export function CoffreFort({
   const [dossiersArchives, setDossiersArchives] = React.useState<DossierCoffre[]>([]);
   const [ouverts, setOuverts] = React.useState<ReadonlySet<string>>(new Set());
   /** Le dossier en cours d'édition : `null` = aucun, `{ dossier: null }` = un dossier neuf. */
-  const [edition, setEdition] = React.useState<{ dossier: DossierCoffre | null; parentId?: string | null } | null>(null);
+  const [edition, setEdition] = React.useState<{ dossier: DossierCoffre | null; parentId?: string | null; retirer?: boolean } | null>(null);
   /* Le tiroir des archives : une COUCHE de plus, pas une autre liste à la
      place de celle-ci. Sa recherche est la sienne — partager celle du fond
      ferait disparaître des lignes derrière, sans raison visible. */
@@ -607,6 +610,7 @@ export function CoffreFort({
                     if (ficheEnVolet) setFiche(null);
                   }}
                   onModifier={(dossier) => setEdition({ dossier })}
+                  onRetirer={(dossier) => setEdition({ dossier, retirer: true })}
                   onSousDossier={(dossier) => setEdition({ dossier: null, parentId: dossier.id })}
                 />
               </div>
@@ -622,6 +626,7 @@ export function CoffreFort({
                   onBascule={bascule}
                   onToutBasculer={toutBasculer}
                   onModifier={(dossier) => setEdition({ dossier })}
+                  onRetirer={(dossier) => setEdition({ dossier, retirer: true })}
                   onSousDossier={(dossier) => {
                     // Le parent s'ouvre : le sous-dossier neuf s'y montrera dès sa création.
                     setOuverts((avant) => new Set(avant).add(dossier.id));
@@ -814,6 +819,7 @@ function BrancheDeDossier({
   onBascule,
   onToutBasculer,
   onModifier,
+  onRetirer,
   onSousDossier,
   onOuvrir,
 }: {
@@ -824,6 +830,7 @@ function BrancheDeDossier({
   onBascule: (id: string) => void;
   onToutBasculer: (ids: readonly string[], ouvrir: boolean) => void;
   onModifier: (dossier: DossierCoffre) => void;
+  onRetirer: (dossier: DossierCoffre) => void;
   onSousDossier: (dossier: DossierCoffre) => void;
   onOuvrir: (acces: AccesCoffre) => void;
 }) {
@@ -842,6 +849,7 @@ function BrancheDeDossier({
       toutOuvert={toutOuvert}
       onToutBasculer={branche ? () => onToutBasculer(branche, !toutOuvert) : undefined}
       onModifier={() => onModifier(dossier)}
+      onRetirer={() => onRetirer(dossier)}
       onSousDossier={() => onSousDossier(dossier)}
     >
       {noeud.enfants.map((enfant) => (
@@ -854,6 +862,7 @@ function BrancheDeDossier({
           onBascule={onBascule}
           onToutBasculer={onToutBasculer}
           onModifier={onModifier}
+          onRetirer={onRetirer}
           onSousDossier={onSousDossier}
           onOuvrir={onOuvrir}
         />
@@ -881,6 +890,7 @@ function ColonnesDuCoffre({
   onOuvrir,
   onChoisirUnDossier,
   onModifier,
+  onRetirer,
   onSousDossier,
   fiche,
 }: {
@@ -897,6 +907,7 @@ function ColonnesDuCoffre({
   /** Choisir un dossier referme le volet de détail. */
   onChoisirUnDossier?: () => void;
   onModifier: (dossier: DossierCoffre) => void;
+  onRetirer: (dossier: DossierCoffre) => void;
   onSousDossier: (dossier: DossierCoffre) => void;
 }) {
   const [chemin, setChemin] = React.useState<string[]>([]);
@@ -944,7 +955,8 @@ function ColonnesDuCoffre({
               return (
                 <div
                   key={noeud.dossier.id}
-                  className={cn('group/dossier flex items-center rounded-lg transition-colors', choisi ? 'bg-ligne-active text-text' : 'text-text hover:bg-raised')}
+                  onContextMenu={ouvrirLeMenuAuClicDroit}
+                  className={cn('group/ligne flex items-center rounded-lg transition-colors', choisi ? 'bg-ligne-active text-text' : 'text-text hover:bg-raised')}
                   data-coffre-dossier={noeud.dossier.id}
                   data-ouvert={choisi ? 'oui' : 'non'}
                 >
@@ -969,26 +981,9 @@ function ColonnesDuCoffre({
                   </button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        title={t('Actions du dossier')}
-                        aria-label="Actions du dossier"
-                        data-coffre-dossier-actions
-                        className="mr-1 flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-faint opacity-0 transition-opacity hover:text-text focus-visible:opacity-100 group-hover/dossier:opacity-100 data-[state=open]:opacity-100"
-                      >
-                        <EllipsisVertical className="h-4 w-4" />
-                      </button>
+                      <BoutonTroisPoints title={t('Actions du dossier')} aria-label="Actions du dossier" data-coffre-dossier-actions className="mr-1 w-6" />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
-                      <DropdownMenuItem onSelect={() => onSousDossier(noeud.dossier)} data-coffre-dossier-sous-dossier>
-                        <FolderPlus className="h-3.5 w-3.5" />
-                        {t('Nouveau sous-dossier')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => onModifier(noeud.dossier)} data-coffre-dossier-modifier>
-                        <Pencil className="h-3.5 w-3.5" />
-                        {t('Modifier le dossier')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
+                    <MenuDuDossier onSousDossier={() => onSousDossier(noeud.dossier)} onModifier={() => onModifier(noeud.dossier)} onRetirer={() => onRetirer(noeud.dossier)} />
                   </DropdownMenu>
                 </div>
               );
@@ -1037,6 +1032,38 @@ function ColonnesDuCoffre({
  * archives, le bouton le restaure AVEC ses fiches.
  * Le texte replié reste dans un `span` : jamais de `line-clamp` dans un `button`.
  */
+/**
+ * LE MENU D'UN DOSSIER, le même au clic droit et aux trois points du survol, dans la liste comme dans les colonnes :
+ * créer dedans, le modifier, puis le retirer — seul en dernier, après un trait, en rouge (MEM-7808).
+ */
+function MenuDuDossier({ onSousDossier, onModifier, onRetirer }: { onSousDossier?: () => void; onModifier?: () => void; onRetirer?: () => void }) {
+  return (
+    <DropdownMenuContent align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
+      {onSousDossier ? (
+        <DropdownMenuItem onSelect={onSousDossier} data-coffre-dossier-sous-dossier>
+          <FolderPlus />
+          {t('Nouveau sous-dossier')}
+        </DropdownMenuItem>
+      ) : null}
+      {onModifier ? (
+        <DropdownMenuItem onSelect={onModifier} data-coffre-dossier-modifier>
+          <Pencil />
+          {t('Modifier le dossier')}
+        </DropdownMenuItem>
+      ) : null}
+      {onRetirer ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem danger onSelect={onRetirer} data-coffre-dossier-retirer>
+            <Trash2 />
+            {t('Retirer le dossier')}
+          </DropdownMenuItem>
+        </>
+      ) : null}
+    </DropdownMenuContent>
+  );
+}
+
 function LigneDeDossier({
   dossier,
   libelle,
@@ -1048,6 +1075,7 @@ function LigneDeDossier({
   onToutBasculer,
   onModifier,
   onSousDossier,
+  onRetirer,
   onRestaurer,
   children,
 }: {
@@ -1065,12 +1093,13 @@ function LigneDeDossier({
   onToutBasculer?: () => void;
   onModifier?: () => void;
   onSousDossier?: () => void;
+  onRetirer?: () => void;
   onRestaurer?: () => void;
   children?: React.ReactNode;
 }) {
   return (
     <div data-coffre-dossier={dossier.id} data-ouvert={ouvert ? 'oui' : 'non'}>
-      <div className="flex items-center gap-1 rounded-xl transition-colors hover:bg-raised">
+      <div className="group/ligne flex items-center gap-1 rounded-xl transition-colors hover:bg-raised" onContextMenu={onSousDossier || onModifier ? ouvrirLeMenuAuClicDroit : undefined}>
         {/* LE NOMBRE D'ACCÈS SUIT LE NOM, et l'icône « tout ouvrir / tout
             fermer » les suit : la ligne se coupe donc en deux boutons de
             bascule — le nom et son nombre, puis le reste de la ligne — pour ne
@@ -1121,30 +1150,9 @@ function LigneDeDossier({
         {onSousDossier || onModifier ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                title={t('Actions du dossier')}
-                aria-label="Actions du dossier"
-                data-coffre-dossier-actions
-                className="mr-2 flex h-[34px] sm:h-7 w-[34px] sm:w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </button>
+              <BoutonTroisPoints title={t('Actions du dossier')} aria-label="Actions du dossier" data-coffre-dossier-actions className="mr-2 h-[34px] w-[34px] rounded-lg sm:h-7 sm:w-7" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
-              {onSousDossier ? (
-                <DropdownMenuItem onSelect={onSousDossier} data-coffre-dossier-sous-dossier>
-                  <FolderPlus className="h-3.5 w-3.5" />
-                  {t('Nouveau sous-dossier')}
-                </DropdownMenuItem>
-              ) : null}
-              {onModifier ? (
-                <DropdownMenuItem onSelect={onModifier} data-coffre-dossier-modifier>
-                  <Pencil className="h-3.5 w-3.5" />
-                  {t('Modifier le dossier')}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
+            <MenuDuDossier onSousDossier={onSousDossier} onModifier={onModifier} onRetirer={onRetirer} />
           </DropdownMenu>
         ) : null}
         {onRestaurer ? (
@@ -1176,7 +1184,8 @@ function FicheDossier({
   onClose,
   onListe,
 }: {
-  edition: { dossier: DossierCoffre | null; parentId?: string | null } | null;
+  /** `retirer` : seule la confirmation s'ouvre (« Retirer le dossier » du menu de la ligne), sans la fiche. */
+  edition: { dossier: DossierCoffre | null; parentId?: string | null; retirer?: boolean } | null;
   /** Les dossiers actifs : de quoi choisir le parent. */
   dossiers: DossierCoffre[];
   onClose: () => void;
@@ -1245,7 +1254,7 @@ function FicheDossier({
 
   return (
     <>
-      <Drawer open={edition !== null} onClose={onClose} empile adresse="dossier-coffre">
+      <Drawer open={edition !== null && !edition.retirer} onClose={onClose} empile adresse="dossier-coffre">
         <DialogTitle className="min-w-0 truncate px-3 pb-2">
           {dossier ? dossier.nom : parent ? t('Nouveau sous-dossier') : t('Nouveau dossier')}
         </DialogTitle>
@@ -1324,8 +1333,11 @@ function FicheDossier({
       </Drawer>
 
       <ConfirmDialog
-        open={aSupprimer}
-        onClose={() => setASupprimer(false)}
+        open={aSupprimer || !!edition?.retirer}
+        onClose={() => {
+          setASupprimer(false);
+          if (edition?.retirer) onClose();
+        }}
         title={t('Retirer ce dossier ?')}
         description={t(
           'Le dossier, ses sous-dossiers et toutes leurs fiches partent aux archives ensemble : ils se restaurent pendant six mois, puis ils sont effacés pour de bon.',

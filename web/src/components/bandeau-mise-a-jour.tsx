@@ -1,28 +1,29 @@
 import * as React from 'react';
-import { X } from '@/components/ui/icones';
-import { bandeauDeMiseAJour, type EtatDesNouveautes } from '@beluga/shared';
-import { Button } from '@/components/ui';
+import { Info } from '@/components/ui/icones';
+import { bandeDeLOffreHebergee, type EtatDesNouveautes } from '@beluga/shared';
+import { BandeDuHaut } from '@/components/bande-du-haut';
 import { client } from '@/lib/client';
 import { installationEnDirect, useNouveautes } from '@/lib/travail-installation';
 import { t } from '@/lib/langue';
 
 /*
- * LE BANDEAU « METTRE À JOUR » — en haut, au centre, quand le dépôt public de
- * Beluga Build porte du nouveau.
+ * LA BANDE DE L'OFFRE HÉBERGÉE — tout en haut, sur une installation GRATUITE (carte « Fin de la version gratuite »,
+ * 21/11/2026). Beluga devient un service hébergé : une installation qui suivait le dépôt public ne reçoit plus de
+ * nouveautés, et cette bande — la même que celle de l'extension, pleine largeur, en noir puisque c'est une
+ * information (`bande-du-haut.tsx`) — la mène à la page « Passer à l'offre hébergée » des réglages.
  *
- * Il ne paraît que sur une installation qui SUIT ce dépôt (`etat.suivi`) : sur
- * un dépôt de travail privé, le démon répond qu'il ne suit rien et l'écran ne
- * montre rien. Il ne lance RIEN : son bouton ouvre la page « Mise à jour » des
- * réglages, d'où l'on lance la mise à jour (`page-mise-a-jour.tsx`). La croix
- * l'écarte jusqu'à la nouveauté SUIVANTE — c'est le sommet du dépôt public qui
- * est retenu, pas une date.
+ * Elle ne paraît que sur une installation qui SUIT le dépôt public (`etat.suivi`) : la machine source et l'offre
+ * hébergée ne la voient jamais. La croix l'écarte une semaine (`bandeDeLOffreHebergee`, shared).
+ *
+ * Elle est montée par `BanniereExtension` (`sinon`) : l'orange d'un geste nécessaire passe avant elle.
  */
 
-const CLE = 'beluga-nouveautes-ecartees';
+const CLE = 'beluga-offre-hebergee-ecartee-le';
 
-function sommetEcarte(): string | null {
+function ecarteeLe(): number | null {
   try {
-    return localStorage.getItem(CLE);
+    const brut = Number(localStorage.getItem(CLE));
+    return Number.isFinite(brut) && brut > 0 ? brut : null;
   } catch {
     return null;
   }
@@ -30,7 +31,7 @@ function sommetEcarte(): string | null {
 
 export function BandeauMiseAJour({ onOuvrirLaPage }: { onOuvrirLaPage: () => void }) {
   const nouveautes = useNouveautes();
-  const [ecarte, setEcarte] = React.useState<string | null>(sommetEcarte);
+  const [ecartee, setEcartee] = React.useState<number | null>(ecarteeLe);
 
   // Ce que le démon sait déjà : il regarde le dépôt public toutes les heures.
   React.useEffect(() => {
@@ -40,41 +41,29 @@ export function BandeauMiseAJour({ onOuvrirLaPage }: { onOuvrirLaPage: () => voi
       .catch(() => undefined);
   }, []);
 
-  if (!bandeauDeMiseAJour(nouveautes, ecarte)) return null;
+  if (!bandeDeLOffreHebergee(nouveautes, ecartee, Date.now())) return null;
 
   const ecarter = () => {
-    const sommet = nouveautes?.sommet ?? '';
+    const maintenant = Date.now();
     try {
-      localStorage.setItem(CLE, sommet);
+      localStorage.setItem(CLE, String(maintenant));
     } catch {
-      /* stockage indisponible : le bandeau reviendra au prochain chargement */
+      /* stockage indisponible : la bande reviendra au prochain chargement */
     }
-    setEcarte(sommet);
+    setEcartee(maintenant);
   };
 
   return (
-    <div
-      /* AU-DESSUS de l'écran qui barre la route faute de moteur (`z-[45]`), SOUS
-         les fenêtres (`z-50`) : une mise à jour se récupère même sans moteur
-         prêt, et un bandeau visible mais recouvert ne se cliquerait pas. */
-      className="pointer-events-none fixed inset-x-0 z-[46] flex justify-center px-3"
-      style={{ top: 'max(0.5rem, var(--zone-sure-haut, 0px))' }}
-    >
-      <div
-        data-bandeau-mise-a-jour
-        role="status"
-        className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-raised py-1.5 pl-4 pr-1.5 shadow-lg"
-      >
-        <span className="min-w-0 truncate text-[13.5px] text-text">
-          {t('Une nouvelle mise à jour de Beluga est disponible.')}
-        </span>
-        <Button variant="default" size="sm" data-mettre-a-jour onClick={onOuvrirLaPage}>
-          {t('Mettre à jour')}
-        </Button>
-        <Button variant="ghost" size="icon-sm" data-ecarter-la-mise-a-jour title={t('Plus tard')} onClick={ecarter}>
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </div>
+    <BandeDuHaut
+      genre="information"
+      data-bandeau-mise-a-jour
+      data-bande-offre-hebergee
+      icone={<Info className="size-4" />}
+      texte={t('Beluga devient un service hébergé : la version gratuite ne reçoit plus de nouveautés. Transférez votre espace en un clic.')}
+      texteCourt={t('Fin de la version gratuite.')}
+      bouton={{ libelle: t('Voir l’offre'), onClick: onOuvrirLaPage, reperes: { 'data-voir-l-offre': '' } }}
+      onFermer={ecarter}
+      libelleFermer={t('Plus tard')}
+    />
   );
 }

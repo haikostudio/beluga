@@ -41,30 +41,13 @@
  */
 import * as React from 'react';
 import type { AvisDeMiseAJour, RetardDExtension } from '@beluga/shared';
-import { Check, ChevronDown, Loader2, TriangleAlert } from '@/components/ui/icones';
+import { Check, TriangleAlert } from '@/components/ui/icones';
+import { BandeDuHaut } from '@/components/bande-du-haut';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
-import { cn } from '@/lib/utils';
 
 type Retard = RetardDExtension & { enCours: boolean };
-
-/** L'air entre la bande et les boutons du haut, au téléphone (le même que sous l'heure sans bande). */
-const MARGE_SOUS_LA_BANDE_TELEPHONE = '0.5rem';
-const EVENEMENT_HAUTEUR_BANNIERE = 'beluga:hauteur-banniere';
-
-function poserLaHauteur(hauteur: number | null, telephone: boolean) {
-  const racine = document.documentElement.style;
-  const avant = racine.getPropertyValue('--hauteur-banniere');
-  if (hauteur === null) {
-    racine.removeProperty('--hauteur-banniere');
-    racine.removeProperty('--marge-sous-banniere');
-  } else {
-    racine.setProperty('--hauteur-banniere', `${Math.round(hauteur)}px`);
-    racine.setProperty('--marge-sous-banniere', telephone ? MARGE_SOUS_LA_BANDE_TELEPHONE : '0px');
-  }
-  if (avant !== racine.getPropertyValue('--hauteur-banniere')) window.dispatchEvent(new Event(EVENEMENT_HAUTEUR_BANNIERE));
-}
 
 const ouvrirLaPageExtension = () => window.dispatchEvent(new CustomEvent('beluga:ouvrir-reglages', { detail: { page: 'extension' } }));
 
@@ -122,30 +105,17 @@ function marquerVu(a: AvisDeMiseAJour) {
   }
 }
 
-export function BanniereExtension() {
+/**
+ * La bande de l'extension, et l'ARBITRE des bandes du haut : l'orange d'un geste nécessaire passe avant tout, puis
+ * l'avis d'une mise à jour faite seule (huit secondes), puis `sinon` — la bande d'information d'à côté (l'offre
+ * hébergée). Une seule bande à la fois.
+ */
+export function BanniereExtension({ sinon }: { sinon?: React.ReactNode } = {}) {
   const [retards, setRetards] = React.useState<Retard[]>([]);
   const [avis, setAvis] = React.useState<AvisDeMiseAJour[]>([]);
   const [vus, setVus] = React.useState<Set<string>>(() => avisVus());
   const [envoi, setEnvoi] = React.useState<string | null>(null);
-  const [deplie, setDeplie] = React.useState(false);
   const telephone = useTelephone();
-  const [bande, setBande] = React.useState<HTMLDivElement | null>(null);
-
-  /* LA HAUTEUR DE LA BANDE, pour que les pages fixes partent sous elle (voir l'en-tête). */
-  React.useLayoutEffect(() => {
-    if (!bande) {
-      poserLaHauteur(null, telephone);
-      return;
-    }
-    const mesurer = () => poserLaHauteur(bande.getBoundingClientRect().height, telephone);
-    mesurer();
-    const observateur = new ResizeObserver(mesurer);
-    observateur.observe(bande);
-    return () => {
-      observateur.disconnect();
-      poserLaHauteur(null, telephone);
-    };
-  }, [bande, telephone]);
 
   const relire = React.useCallback(async () => {
     try {
@@ -177,32 +147,24 @@ export function BanniereExtension() {
 
   if (!r && avisAMontrer) {
     return (
-      <div
-        ref={setBande}
+      <BandeDuHaut
+        genre="information"
         data-banniere-extension="information"
-        role="status"
-        className="flex shrink-0 items-center gap-3 bg-raised px-4 pb-2 pt-[calc(var(--zone-sure-haut,0px)+0.5rem)] text-[13px] text-text sm:pb-1.5 sm:pt-[calc(var(--zone-sure-haut,0px)+0.375rem)]"
-      >
-        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-coche text-white" aria-hidden>
-          <Check className="size-2.5" strokeWidth={3.5} />
-        </span>
-        <p data-banniere-extension-texte className={cn('min-w-0 flex-1', telephone ? 'leading-snug' : 'truncate')}>
-          {telephone
+        icone={
+          <span className="flex size-4 items-center justify-center rounded-full bg-coche text-white">
+            <Check className="size-2.5" strokeWidth={3.5} />
+          </span>
+        }
+        texte={
+          telephone
             ? t('Extension de « {nom} » mise à jour (version {v}).', { nom: avisAMontrer.nom, v: avisAMontrer.version })
-            : t('L’extension Beluga de « {nom} » a été mise à jour en arrière-plan (version {v}). Rien à faire.', { nom: avisAMontrer.nom, v: avisAMontrer.version })}
-        </p>
-        <button
-          type="button"
-          data-banniere-extension-ok
-          onClick={() => fermerLAvis(avisAMontrer)}
-          className="inline-flex h-7 shrink-0 items-center rounded-md bg-text px-3 text-[13px] font-medium text-bg transition-opacity hover:opacity-90"
-        >
-          {t('OK')}
-        </button>
-      </div>
+            : t('L’extension Beluga de « {nom} » a été mise à jour en arrière-plan (version {v}). Rien à faire.', { nom: avisAMontrer.nom, v: avisAMontrer.version })
+        }
+        bouton={{ libelle: t('OK'), onClick: () => fermerLAvis(avisAMontrer), reperes: { 'data-banniere-extension-ok': '' } }}
+      />
     );
   }
-  if (!r) return null;
+  if (!r) return <>{sinon ?? null}</>;
   const occupe = r.enCours || envoi === r.chromeId;
 
   const agir = async () => {
@@ -234,55 +196,23 @@ export function BanniereExtension() {
     }
   };
 
-  const libelle = occupe ? t('Mise à jour…') : libelleDuGeste(r);
   const autres = retards.filter((x) => x.geste !== 'aucun').length - 1;
 
   return (
-    <div
-      ref={setBande}
+    <BandeDuHaut
+      genre="avertissement"
       data-banniere-extension={r.raison}
       data-banniere-geste={r.geste}
-      data-banniere-deplie={telephone && deplie ? '' : undefined}
-      role="status"
-      /* Le haut réserve la zone sûre (heure de l'iPhone) : 0 partout ailleurs, donc rien ne change hors iPhone. */
-      className={cn(
-        'flex shrink-0 gap-3',
-        telephone && deplie ? 'items-start' : 'items-center',
-        'bg-[hsl(var(--banniere-a-faire))] px-4 pb-2 pt-[calc(var(--zone-sure-haut,0px)+0.5rem)] text-[13px] text-[hsl(var(--banniere-a-faire-texte))] sm:pb-1.5 sm:pt-[calc(var(--zone-sure-haut,0px)+0.375rem)]',
-      )}
-    >
-      <TriangleAlert className={cn('size-4 shrink-0', telephone && deplie && 'mt-[6px]')} aria-hidden />
-      <p data-banniere-extension-texte className={cn('min-w-0 flex-1', telephone && deplie ? 'pt-[5px] leading-snug' : 'truncate')}>
-        {texteDuRetard(r, telephone)}
-        {autres > 0 ? <span className="opacity-70"> {t('(et {n} autre)', { n: autres })}</span> : null}
-      </p>
-      {telephone ? (
-        /* LE CHEVRON QUI DÉPLIE LE MESSAGE (téléphone) : un bouton à part, le texte replié n'est jamais dedans. */
-        <button
-          type="button"
-          data-banniere-extension-deplier
-          aria-expanded={deplie}
-          aria-label={deplie ? 'Replier le message' : 'Afficher tout le message'}
-          onClick={() => setDeplie((v) => !v)}
-          className="-mx-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-[hsl(var(--banniere-a-faire-texte)/0.1)]"
-        >
-          <ChevronDown className={cn('size-4 transition-transform', deplie && 'rotate-180')} aria-hidden />
-        </button>
-      ) : null}
-      <button
-        type="button"
-        data-banniere-extension-bouton
-        disabled={occupe}
-        onClick={() => void agir()}
-        className={cn(
-          'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-opacity',
-          /* Fond presque noir, texte BLANC dans les douze palettes (décision de l'utilisateur, 20/11/2026). */
-          'bg-[hsl(var(--banniere-a-faire-texte))] text-[hsl(var(--banniere-a-faire-bouton-texte))] hover:opacity-90 disabled:opacity-80',
-        )}
-      >
-        {occupe ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-        {libelle}
-      </button>
-    </div>
+      icone={<TriangleAlert className="size-4" />}
+      texte={texteDuRetard(r, false)}
+      texteCourt={texteDuRetard(r, true)}
+      suite={autres > 0 ? t('(et {n} autre)', { n: autres }) : undefined}
+      bouton={{
+        libelle: occupe ? t('Mise à jour…') : libelleDuGeste(r),
+        occupe,
+        onClick: () => void agir(),
+        reperes: { 'data-banniere-extension-bouton': '' },
+      }}
+    />
   );
 }

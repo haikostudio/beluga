@@ -1838,7 +1838,11 @@ export function startScheduler(): NodeJS.Timeout {
   /* LES PROPOSITIONS ORPHELINES DES CARTES DÉJÀ RENDUES, UNE FOIS (15/11/2026, `propositions-orphelines.ts`) : une
      carte rangée avant la règle gardait son cadre orange pour des propositions que son travail avait couvertes. */
   void import('./propositions-orphelines.js')
-    .then(({ rattraperLesPropositionsOrphelines }) => {
+    .then(({ rattraperLesPropositionsOrphelines, resynchroniserLesDecisions }) => {
+      /* …ET LES DÉCISIONS EFFACÉES D'UN MESSAGE PAR UNE RÉÉCRITURE CONCURRENTE (21/11/2026) y sont recopiées depuis
+         la table `proposals`, AVANT le retrait : une proposition déjà acceptée ne passe plus pour orpheline. */
+      const resynchronisees = resynchroniserLesDecisions();
+      if (resynchronisees) log.info(`rattrapage : ${resynchronisees} message(s) resynchronisé(s) sur leurs décisions`);
       const retirees = rattraperLesPropositionsOrphelines();
       if (retirees) log.info(`rattrapage : ${retirees} proposition(s) orpheline(s) retirée(s)`);
     })

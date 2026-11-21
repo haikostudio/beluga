@@ -12,6 +12,9 @@
 import crypto from 'node:crypto';
 import {
   ORDINATEURS_MAX,
+  droitsDeLOrdinateur,
+  type DroitDOrdinateur,
+  type DroitsDOrdinateur,
   nomGenerique,
   nomProposeDepuisLaPlateforme,
   normaliserLeNomDOrdinateur,
@@ -28,11 +31,12 @@ interface LigneOrdinateur {
   compte_id: string;
   nom: string;
   cree_le: number;
+  droits: string | null;
 }
 
 function lignesDuCompte(compteId: string): LigneOrdinateur[] {
   return getDb()
-    .prepare('SELECT id, compte_id, nom, cree_le FROM ordinateurs WHERE compte_id = ? AND revoque_le IS NULL ORDER BY cree_le')
+    .prepare('SELECT id, compte_id, nom, cree_le, droits FROM ordinateurs WHERE compte_id = ? AND revoque_le IS NULL ORDER BY cree_le')
     .all(compteId) as LigneOrdinateur[];
 }
 
@@ -40,7 +44,7 @@ function lignesDuCompte(compteId: string): LigneOrdinateur[] {
 export function ligneDOrdinateur(compteId: string, id: string | null | undefined): LigneOrdinateur | null {
   if (!id) return null;
   return (
-    (getDb().prepare('SELECT id, compte_id, nom, cree_le FROM ordinateurs WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').get(id, compteId) as
+    (getDb().prepare('SELECT id, compte_id, nom, cree_le, droits FROM ordinateurs WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').get(id, compteId) as
       | LigneOrdinateur
       | undefined) ?? null
   );
@@ -77,6 +81,25 @@ export async function delierUnOrdinateur(compteId: string, id: string): Promise<
   getDb().prepare('UPDATE ordinateurs SET revoque_le = ? WHERE id = ? AND compte_id = ?').run(Date.now(), id, compteId);
   bus.emit({ type: 'extension.change' });
   return true;
+}
+
+/**
+ * LES DROITS DE BELUGA SUR UN ORDINATEUR (carte « Piloter le Mac depuis Beluga ») : relus en base à CHAQUE geste
+ * (`outil-ordinateur.ts`), si bien qu'un droit coupé dans Beluga ferme la porte aussitôt.
+ */
+export function droitsDUnOrdinateur(compteId: string, id: string): DroitsDOrdinateur | null {
+  const ligne = ligneDOrdinateur(compteId, id);
+  return ligne ? droitsDeLOrdinateur(ligne.droits) : null;
+}
+
+/** Allumer ou éteindre un droit, sur l'ordinateur d'un compte seulement. */
+export function changerUnDroit(compteId: string, id: string, droit: DroitDOrdinateur, actif: boolean): DroitsDOrdinateur | null {
+  const ligne = ligneDOrdinateur(compteId, id);
+  if (!ligne) return null;
+  const droits = { ...droitsDeLOrdinateur(ligne.droits), [droit]: actif };
+  getDb().prepare('UPDATE ordinateurs SET droits = ? WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').run(JSON.stringify(droits), id, compteId);
+  bus.emit({ type: 'extension.change' });
+  return droits;
 }
 
 /** Le nom d'un ordinateur change quand le vrai nom du Mac arrive et que l'actuel n'était qu'un nom par défaut. */
@@ -132,6 +155,7 @@ export function ordinateursAssembles(
       nom: l.nom,
       repere: repereDOrdinateur(l.nom),
       creeLe: l.cree_le,
+      droits: droitsDeLOrdinateur(l.droits),
       navigateurs: navigateurs
         .filter((n) => n.ordinateurId === l.id)
         .map((n) => ({

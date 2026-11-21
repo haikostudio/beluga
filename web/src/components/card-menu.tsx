@@ -16,6 +16,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -182,9 +183,9 @@ export function MenuCarte({
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           ) : (
-            // Un point d'ancrage sans surface : le menu sort du coin haut-droit
+            // Un point d’ancrage sans surface : le menu sort SOUS le coin droit (comme sous les trois points du survol)
             // de la carte, sans rien ajouter à ce qu'on lit.
-            <span aria-hidden className="pointer-events-none absolute right-1 top-1 block h-0 w-0" />
+            <span aria-hidden className="pointer-events-none absolute bottom-0 right-1 block h-0 w-0" />
           )}
         </DropdownMenuTrigger>
 
@@ -204,31 +205,77 @@ export function MenuCarte({
           }}
         >
           {enTete}
+          {/*
+           * LE MENU D'UNE CARTE, EN TROIS GROUPES (carte « Extension, rapport SEO-GEO et menus », 21/11/2026 : « les
+           * menus contextuels […] il faut les revoir pour simplifier ») — le même au clic droit, à l'appui long et aux
+           * trois points du survol :
+           *   1. la carte elle-même : marquer comme non lu, renommer ;
+           *   2. où elle va : son statut, un autre projet (seulement s'il en existe un où elle peut aller — plus
+           *      d'entrée éteinte qu'on ne peut pas choisir), les archives ;
+           *   3. la détruire : supprimer, seul, en rouge, toujours en dernier après un trait.
+           */}
           {nonLuPossible && !sansNonLu ? (
             <DropdownMenuItem
               data-menu-non-lu={card.id}
               onSelect={() => client.send({ type: 'card.unread', cardId: card.id })}
             >
-              <CircleDot className="h-3.5 w-3.5 text-termine" />
+              <CircleDot className="text-termine" />
               {t('Marquer comme non lu')}
             </DropdownMenuItem>
           ) : null}
 
           <DropdownMenuItem data-menu-renommer={card.id} onSelect={() => setRenommage(true)}>
-            <PencilLine className="h-3.5 w-3.5" />
+            <PencilLine className="text-muted" />
             {t('Renommer')}
           </DropdownMenuItem>
 
-          {archivable ? (
-            <DropdownMenuItem onSelect={() => client.moveCard(card, 'archived')}>
-              <Archive className="h-3.5 w-3.5" />  {t('Archiver la carte')}
-</DropdownMenuItem>
-          ) : null}
+          <DropdownMenuSeparator />
 
+          {/* LE STATUT EN UNE LIGNE (13/11/2026, maquette #16ff3) : la colonne actuelle, puis toutes les colonnes en
+              sous-menu. Une colonne refusée au clic est éteinte avec son motif ; ce qui dépense demande d'abord
+              confirmation, comme le dépôt à la souris. Sortir d'« Archivé » ou d'« À déployer » reste un GESTE
+              HUMAIN : ce sous-menu en est un. */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-menu-statut={card.column}>
+              <ArrowRightLeft className="text-muted" />
+              <span className="flex-1">{t('Statut : {v0}', { v0: t(COLUMN_LABELS[card.column]) })}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {COLUMN_KEYS.map((column) => {
+                const actuelle = column === card.column;
+                const possible =
+                  actuelle || column === reprise || (column === 'archived' ? archivable : cibles.includes(column));
+                return (
+                  <DropdownMenuItem
+                    key={column}
+                    data-passer-en={actuelle ? undefined : column}
+                    data-statut-actuel={actuelle ? '' : undefined}
+                    data-sortir-archive={card.column === 'archived' && column === reprise ? card.id : undefined}
+                    disabled={!possible}
+                    title={possible ? undefined : t('Ce passage n’est pas possible depuis « {v0} ».', { v0: t(COLUMN_LABELS[card.column]) })}
+                    className={cn(actuelle && 'text-teinte data-[highlighted]:text-teinte')}
+                    onSelect={() => {
+                      if (actuelle) return;
+                      if (column === 'archived' || column === reprise) void client.moveCard(card, column);
+                      else deplacerVers(column);
+                    }}
+                  >
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                      {actuelle ? <Check className="h-4 w-4" /> : null}
+                    </span>
+                    {t(COLUMN_LABELS[column])}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+
+          {/* CHANGER DE PROJET n'apparaît que s'il y a un projet où aller : une entrée éteinte qu'on ne peut pas choisir
+              encombrait le menu (photo de la revue du 21/11/2026). Le motif reste lisible dans la page de la carte. */}
           {departPossible.possible && destinations.length ? (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger data-menu-changer-de-projet="">
-                <FolderInput className="h-3.5 w-3.5" />
+                <FolderInput className="text-muted" />
                 <span className="flex-1">{t('Déplacer vers un autre projet')}</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -263,61 +310,20 @@ export function MenuCarte({
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-          ) : (
-            <DropdownMenuItem
-              data-menu-changer-de-projet=""
-              disabled
-              title={departPossible.raison ?? t('Aucun autre projet où déplacer cette carte.')}
-            >
-              <FolderInput className="h-3.5 w-3.5" />
-              <span className="flex-1">{t('Déplacer vers un autre projet')}</span>
+          ) : null}
+
+          {archivable ? (
+            <DropdownMenuItem data-menu-archiver-carte={card.id} onSelect={() => client.moveCard(card, 'archived')}>
+              <Archive className="text-muted" />
+              {t('Archiver la carte')}
             </DropdownMenuItem>
-          )}
+          ) : null}
 
-          {/* LE STATUT EN UNE LIGNE, AU-DESSUS DE « SUPPRIMER » (13/11/2026, maquette #16ff3) : la colonne actuelle,
-              puis toutes les colonnes en sous-menu. Une colonne refusée au clic est éteinte avec son motif ; ce qui
-              dépense demande d'abord confirmation, comme le dépôt à la souris. Sortir d'« Archivé » ou d'« À
-              déployer » reste un GESTE HUMAIN : ce sous-menu en est un. */}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger data-menu-statut={card.column}>
-              <ArrowRightLeft className="h-3.5 w-3.5" />
-              <span className="flex-1">{t('Statut : {v0}', { v0: t(COLUMN_LABELS[card.column]) })}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {COLUMN_KEYS.map((column) => {
-                const actuelle = column === card.column;
-                const possible =
-                  actuelle || column === reprise || (column === 'archived' ? archivable : cibles.includes(column));
-                return (
-                  <DropdownMenuItem
-                    key={column}
-                    data-passer-en={actuelle ? undefined : column}
-                    data-statut-actuel={actuelle ? '' : undefined}
-                    data-sortir-archive={card.column === 'archived' && column === reprise ? card.id : undefined}
-                    disabled={!possible}
-                    title={possible ? undefined : t('Ce passage n’est pas possible depuis « {v0} ».', { v0: t(COLUMN_LABELS[card.column]) })}
-                    className={cn(actuelle && 'text-teinte data-[highlighted]:text-teinte')}
-                    onSelect={() => {
-                      if (actuelle) return;
-                      if (column === 'archived' || column === reprise) void client.moveCard(card, column);
-                      else deplacerVers(column);
-                    }}
-                  >
-                    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                      {actuelle ? <Check className="h-3.5 w-3.5" /> : null}
-                    </span>
-                    {t(COLUMN_LABELS[column])}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <DropdownMenuSeparator />
 
-          <DropdownMenuItem
-            className="text-danger data-[highlighted]:text-danger"
-            onSelect={() => setConfirmSuppression(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />  {t('Supprimer la carte')}
+          <DropdownMenuItem danger data-menu-supprimer-carte={card.id} onSelect={() => setConfirmSuppression(true)}>
+            <Trash2 />
+            {t('Supprimer la carte')}
           </DropdownMenuItem>
           {enPied}
         </DropdownMenuContent>

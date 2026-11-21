@@ -28,7 +28,7 @@
  */
 import * as React from 'react';
 import { ArrowRightLeft, CheckSquare, Inbox, MessageSquare, Paperclip } from '@/components/ui/icones';
-import { ActionTiroir, Badge, GroupeTiroir, MenuActions, Pastille } from '@/components/ui';
+import { ActionTiroir, Badge, CLASSE_TROIS_POINTS_AU_SURVOL, DropdownMenuSeparator, MenuActions, Pastille, ouvrirLeMenuAuClicDroit } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
@@ -141,10 +141,12 @@ export function VignetteDemande({
           /* LE CADRE D'UNE CARTE BELUGA : fond `raised`, tour `border`, et le
              survol qui éclaircit le tour — le même geste que sur le tableau.
              Au-dessus de l'onglet (`z-10`), dont il mange le haut arrondi. */
-          'relative z-10 rounded-xl bg-surface transition-colors hover:bg-raised',
+          'group/ligne relative z-10 rounded-xl bg-surface transition-colors hover:bg-raised',
           jauge.total ? 'rounded-b-none' : null,
           tenue && 'ring-1 ring-accent/50',
         )}
+        /* LE CLIC DROIT OUVRE LE MENU DES TROIS POINTS, au même endroit (MEM-7808). */
+        onContextMenu={ouvrirLeMenuAuClicDroit}
         data-cadre-vignette
       >
         {/* CE QUI M'ATTEND SE VOIT SANS OUVRIR LA FICHE : des messages que je
@@ -264,23 +266,15 @@ export function VignetteDemande({
             </span>
           ) : null}
           <span onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-          <MenuActions titre={demande.titre} repere="vignette" className="text-faint">
+          {/* LE MENU D'UNE DEMANDE, au clic droit et aux trois points du survol (MEM-7808) : la carte Beluga d'abord,
+              puis le rangement, après un trait. Aucun titre de groupe : un trait suffit. */}
+          <MenuActions titre={demande.titre} repere="vignette" className={cn('text-faint', CLASSE_TROIS_POINTS_AU_SURVOL)}>
             {(fermer) => (
               <>
-                <GroupeTiroir titre={t('Ranger')}>
-                  <ActionTiroir
-                    icone={<Inbox className="h-3.5 w-3.5" />}
-                    onClick={() => {
-                      gestes.onArchiver(demande.id, !rangee);
-                      fermer();
-                    }}
-                    data-archiver-vignette={demande.id}
-                  >
-                    {rangee ? t('Ressortir') : t('Archiver')}
-                  </ActionTiroir>
-                  {gestes.onCarte ? (
+                {gestes.onCarte ? (
+                  <>
                     <ActionTiroir
-                      icone={<ArrowRightLeft className="h-3.5 w-3.5" />}
+                      icone={<ArrowRightLeft className="h-4 w-4" />}
                       onClick={() => {
                         gestes.onCarte?.(demande.id);
                         fermer();
@@ -289,8 +283,19 @@ export function VignetteDemande({
                     >
                       {demande.carteId ? t('Voir la carte Beluga') : t('En faire une carte Beluga')}
                     </ActionTiroir>
-                  ) : null}
-                </GroupeTiroir>
+                    <DropdownMenuSeparator />
+                  </>
+                ) : null}
+                <ActionTiroir
+                  icone={<Inbox className="h-4 w-4" />}
+                  onClick={() => {
+                    gestes.onArchiver(demande.id, !rangee);
+                    fermer();
+                  }}
+                  data-archiver-vignette={demande.id}
+                >
+                  {rangee ? t('Ressortir') : t('Archiver')}
+                </ActionTiroir>
               </>
             )}
           </MenuActions>

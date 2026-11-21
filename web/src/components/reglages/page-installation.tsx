@@ -12,8 +12,9 @@ import {
   SectionMemoire,
   useEtatDeLInstallation,
 } from '@/components/installation/sections';
-import { SectionContacterLEquipe, SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
+import { SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
+import { useNouveautes } from '@/lib/travail-installation';
 import { t } from '@/lib/langue';
 import { SectionVotreAssistant } from '@/components/installation/votre-assistant';
 import { Button } from '@/components/ui';
@@ -30,6 +31,7 @@ export function PageInstallation() {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
   const relais = useEtatDuRelais();
+  const nouveautes = useNouveautes();
   const remises = etapesRemisesAPlusTard(state.settings?.assistant as EtatDeLAssistant | undefined, state.offreHebergee);
 
   return (
@@ -75,8 +77,10 @@ export function PageInstallation() {
           </Button>
         </div>
       </Groupe>
-      {/* Les mises à jour ont leur page à elles (« Mise à jour », `page-mise-a-jour.tsx`). */}
-      {state.offreHebergee ? null : (
+      {/* Les mises à jour ont leur page à elles (« Mise à jour », `page-mise-a-jour.tsx`). « Votre propre Beluga » (une
+          copie du logiciel sur son GitHub) n'existe plus sur une installation gratuite : Beluga n'est plus distribué
+          (fin de la version gratuite, 21/11/2026), la page « Mise à jour » y propose l'offre hébergée. */}
+      {state.offreHebergee || nouveautes?.suivi ? null : (
         <Groupe titre={t('Votre propre Beluga')}>
           <SectionCopie etat={etat} relire={relire} />
         </Groupe>
@@ -96,20 +100,13 @@ export function PageInstallation() {
       <Groupe titre={t('Les fonctions en plus')}>
         <SectionFacultatif etat={etat} relire={relire} />
       </Groupe>
-      {/* L'ÉQUIPE BELUGA : seulement sur une installation qui la joint. L'offre
-          hébergée garde le signe de vie, mais ses utilisateurs écrivent par leur
-          espace client, pas par un ticket open source. */}
+      {/* L'ÉQUIPE BELUGA : seulement sur une installation qui la joint. Plus aucun
+          ticket ne part d'une installation (fin de la version gratuite, 21/11/2026) :
+          le support passe par l'espace client de l'offre hébergée. */}
       {relais?.joint ? (
-        <>
-          <Groupe titre={t('Ce que l’équipe Beluga reçoit')}>
-            <SectionPartage />
-          </Groupe>
-          {relais.hebergee ? null : (
-            <Groupe titre={t('Contacter l’équipe Beluga')}>
-              <SectionContacterLEquipe />
-            </Groupe>
-          )}
-        </>
+        <Groupe titre={t('Ce que l’équipe Beluga reçoit')}>
+          <SectionPartage />
+        </Groupe>
       ) : null}
     </div>
   );

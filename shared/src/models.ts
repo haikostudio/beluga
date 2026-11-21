@@ -1986,6 +1986,22 @@ export const AgentQuestion = z.object({
    * soumises, écrite par le démon dès le clic (`trancherLAccordDEtape`).
    */
   accord: AccordDEtape.optional(),
+  /*
+   * LA DEMANDE D'ACCORD D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga », 21/11/2026) : une commande du
+   * terminal ou une suppression sur un ordinateur relié. L'écran l'ouvre en FENÊTRE D'ACCORD par-dessus Beluga, chez
+   * le seul compte propriétaire de l'ordinateur (`shared/src/droits-d-ordinateur.ts`).
+   */
+  accordOrdinateur: z
+    .object({
+      genre: z.enum(['terminal', 'suppression']),
+      compteId: z.string(),
+      ordinateurId: z.string(),
+      ordinateurNom: z.string(),
+      phrase: z.string(),
+      commande: z.string(),
+      supprime: z.boolean(),
+    })
+    .optional(),
   /**
    * LA SPHÈRE DE LUMIÈRE (agent créatif, 24/10/2026) : la bulle montre une
    * sphère éclairée qu'on oriente à la souris ou au doigt — libre, ou aimantée

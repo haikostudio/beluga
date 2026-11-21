@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  EllipsisVertical,
   File,
   Folder,
   FolderOpen,
@@ -15,6 +14,7 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  Copy,
 } from '@/components/ui/icones';
 import {
   cransDansLeDisque,
@@ -38,6 +38,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  BoutonTroisPoints,
+  ouvrirLeMenuAuClicDroit,
   Gauge,
   Tooltip,
   ZoneDefilement,
@@ -397,19 +400,32 @@ function MenuDUnElement({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="shrink-0" title={t('Options')} aria-label="Options" data-menu-element={chemin}>
-          <EllipsisVertical className="h-3.5 w-3.5" />
-        </Button>
+        <BoutonTroisPoints className="h-8 w-8" data-menu-element={chemin} />
       </DropdownMenuTrigger>
+      {/* LE MÊME MENU AU CLIC DROIT DE LA LIGNE ET AUX TROIS POINTS DU SURVOL (MEM-7808) : où il est, puis ce qu'on en
+          fait faire. Rien n'y détruit : le ménage passe par une carte, qu'on lance soi-même. */}
       <DropdownMenuContent align="end">
         {onOuvrirDossier ? (
           <DropdownMenuItem onSelect={onOuvrirDossier} data-ouvrir-dossier>
-            <FolderSearch className="h-3.5 w-3.5 text-muted" />
+            <FolderSearch />
             {t('Ouvrir son dossier')}
           </DropdownMenuItem>
         ) : null}
+        <DropdownMenuItem
+          onSelect={() => {
+            void navigator.clipboard?.writeText(chemin).then(
+              () => client.pushToast('success', t('Chemin copié.')),
+              () => client.pushToast('error', t('Le chemin n’a pas pu être copié.')),
+            );
+          }}
+          data-copier-chemin={chemin}
+        >
+          <Copy />
+          {t('Copier le chemin')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onMenage} data-demander-menage={chemin}>
-          <Sparkles className="h-3.5 w-3.5 text-muted" />
+          <Sparkles />
           {t('Demander à un agent de faire le ménage')}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -516,7 +532,7 @@ export function LesPlusLourds({ onParcourir }: { onParcourir: (chemin: string) =
           {etat.elements.map((element) => {
             const variation = formaterVariation(element.variation);
             return (
-              <div key={element.chemin} className={cn(CLASSE_LIGNE_DE_GROUPE, 'px-2 py-1.5 sm:px-2.5')} data-element-lourd={element.chemin}>
+              <div key={element.chemin} className={cn(CLASSE_LIGNE_DE_GROUPE, 'group/ligne px-2 py-1.5 sm:px-2.5')} onContextMenu={ouvrirLeMenuAuClicDroit} data-element-lourd={element.chemin}>
                 <div className="flex items-center gap-2.5">
                   <button
                     type="button"
@@ -995,7 +1011,7 @@ export function ExplorateurDuServeur({ chemin, onChemin, onClose }: { chemin: st
                         const ouvrable = entree.genre === 'dossier';
                         const Icone = entree.genre === 'dossier' ? Folder : entree.genre === 'lien' ? Link2 : File;
                         return (
-                          <div key={entree.chemin} className={cn(CLASSE_LIGNE_DE_GROUPE, 'px-2 py-1 sm:px-2.5')} data-entree-explorateur={entree.chemin} data-genre={entree.genre}>
+                          <div key={entree.chemin} className={cn(CLASSE_LIGNE_DE_GROUPE, 'group/ligne px-2 py-1 sm:px-2.5')} onContextMenu={ouvrirLeMenuAuClicDroit} data-entree-explorateur={entree.chemin} data-genre={entree.genre}>
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"

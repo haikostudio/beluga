@@ -3808,21 +3808,109 @@ export function DropdownMenuContent({
   );
 }
 
+/*
+ * LES MENUS D'ACTIONS D'UN ÉLÉMENT SE RESSEMBLENT TOUS (carte « Extension, rapport SEO-GEO et menus », 21/11/2026 :
+ * « les menus contextuels, clic droit ou trois points au survol, il faut les revoir pour simplifier ») : une icône
+ * de 16 px devant CHAQUE entrée, quel que soit l'écran ; les gestes rangés en groupes séparés d'un trait fin ; le
+ * geste qui détruit (supprimer, retirer, délier) en DERNIER, après un trait, en rouge (`danger`).
+ */
+const CLASSE_ICONE_DE_MENU = '[&>svg]:h-4 [&>svg]:w-4 [&>svg]:shrink-0';
+
 export function DropdownMenuItem({
   className,
+  danger = false,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Item>) {
+}: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Item> & {
+  /** Le geste qui détruit ou retire : en rouge, posé en dernier après un `DropdownMenuSeparator`. */
+  danger?: boolean;
+}) {
   return (
     <DropdownPrimitive.Item
       className={cn(
         'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[highlighted]:bg-raised data-[disabled]:cursor-default data-[disabled]:opacity-50',
+        CLASSE_ICONE_DE_MENU,
         /* SUR TÉLÉPHONE, UNE LIGNE DE MENU A LA HAUTEUR D'UNE LIGNE DE FEUILLE (`LIGNE_DE_FEUILLE`). */
         LIGNE_DE_FEUILLE,
+        danger && 'text-danger data-[highlighted]:bg-danger/10 data-[highlighted]:text-danger',
         className,
       )}
+      data-menu-danger={danger ? '' : undefined}
       {...props}
     />
   );
+}
+
+/**
+ * LES TROIS POINTS QUI PARAISSENT AU SURVOL D'UNE LIGNE (même carte) : ils ouvrent EXACTEMENT le menu du clic droit de
+ * cette ligne, au même endroit. Invisibles au repos à la souris (la ligne reste légère), visibles au clavier, tant que
+ * leur menu est ouvert, et toujours sur un écran sans survol. La ligne porte `group/ligne`.
+ */
+export const CLASSE_TROIS_POINTS_AU_SURVOL =
+  'opacity-0 transition-opacity group-hover/ligne:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[ouvert]:opacity-100 [@media(hover:none)]:opacity-100 motion-reduce:transition-none';
+
+export const BoutonTroisPoints = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { ouvert?: boolean }
+>(function BoutonTroisPoints({ className, ouvert, title, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      title={title ?? t('Autres actions')}
+      aria-label={props['aria-label'] ?? t('Autres actions')}
+      data-ouvert={ouvert ? '' : undefined}
+      data-trois-points=""
+      className={cn(
+        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-fond-survol hover:text-text data-[state=open]:bg-fond-survol data-[state=open]:text-text',
+        CLASSE_TROIS_POINTS_AU_SURVOL,
+        className,
+      )}
+      {...props}
+    >
+      <EllipsisVertical className="h-4 w-4" />
+    </button>
+  );
+});
+
+/**
+ * LE CLIC DROIT D'UNE LIGNE OUVRE LE MENU DE SES TROIS POINTS, au même endroit (carte « Extension, rapport SEO-GEO et
+ * menus », MEM-7808) : à poser en `onContextMenu` sur la ligne (`group/ligne`). On retrouve dans la ligne son bouton
+ * `[data-trois-points]` (`BoutonTroisPoints`) ou `[data-menu-actions]` (`MenuActions`) et on l'ouvre : un seul menu,
+ * deux gestes. Un champ de saisie garde son menu natif (copier, coller). Le relâché du bouton droit est avalé : il
+ * choisirait sinon l'entrée posée sous le pointeur (compétence « clic-droit-radix-qui-choisit-une-ligne »).
+ */
+export const EVENEMENT_OUVRIR_LE_MENU = 'beluga:ouvrir-le-menu';
+
+export function ouvrirLeMenuAuClicDroit(event: React.MouseEvent<HTMLElement>): void {
+  const bouton = event.currentTarget.querySelector<HTMLElement>('[data-trois-points], [data-menu-actions]');
+  if (bouton) ouvrirLeMenuDe(bouton, event);
+}
+
+/** La même ouverture, quand on tient déjà le bouton du menu (une ligne qui en porte plusieurs, un écouteur natif). */
+export function ouvrirLeMenuDe(bouton: HTMLElement, event: Pick<MouseEvent, 'target' | 'preventDefault' | 'stopPropagation'>): void {
+  const cible = event.target instanceof Element ? event.target : null;
+  if (cible?.closest('input, textarea, [contenteditable="true"]')) return;
+  if ((bouton as HTMLButtonElement).disabled) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const avaler = (relache: Event) => {
+    if ((relache as PointerEvent).button !== 2) return;
+    relache.stopPropagation();
+    relache.preventDefault();
+  };
+  document.addEventListener('pointerup', avaler, { capture: true, once: true });
+  document.addEventListener('mouseup', avaler, { capture: true, once: true });
+  window.setTimeout(() => {
+    document.removeEventListener('pointerup', avaler, true);
+    document.removeEventListener('mouseup', avaler, true);
+  }, 900);
+  if (bouton.getAttribute('data-state') === 'open') return;
+  if (bouton.hasAttribute('data-menu-actions')) {
+    bouton.dispatchEvent(new CustomEvent(EVENEMENT_OUVRIR_LE_MENU));
+    return;
+  }
+  /* Un déclencheur Radix s'ouvre à l'appui du bouton principal, pas au clic. */
+  bouton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse', isPrimary: true }));
 }
 
 /* ------------------------- Menu DANS le menu ----------------------- *
@@ -3850,6 +3938,7 @@ export function DropdownMenuSubTrigger({
         /* LE MÊME DESSIN QU'UNE ENTRÉE ORDINAIRE (13/11/2026 : « Déplacer vers un autre projet » n'avait ni le même
            retrait, ni le même arrondi, ni la même couleur que ses voisines) : seul le chevron dit « il y a une suite ». */
         'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[disabled]:cursor-default data-[disabled]:opacity-50',
+        CLASSE_ICONE_DE_MENU,
         LIGNE_DE_FEUILLE,
         'data-[highlighted]:bg-raised data-[state=open]:bg-raised',
         className,
@@ -3857,7 +3946,10 @@ export function DropdownMenuSubTrigger({
       {...props}
     >
       {children}
-      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+      {/* Enveloppé : la taille commune des icônes de menu (16 px) ne grossit pas le chevron. */}
+      <span className="flex shrink-0 text-faint">
+        <ChevronRight className="h-3.5 w-3.5" />
+      </span>
     </DropdownPrimitive.SubTrigger>
   );
 }
@@ -3915,7 +4007,7 @@ export function DropdownMenuLabel({ className, ...props }: React.HTMLAttributes<
 }
 
 export function DropdownMenuSeparator() {
-  return <DropdownPrimitive.Separator className="my-1 h-px bg-border" />;
+  return <DropdownPrimitive.Separator className="mx-1 my-1 h-px bg-faint/25" />;
 }
 
 /* ------------------------- Le bouton groupé ------------------------ *
@@ -5059,11 +5151,22 @@ export function MenuActions({
     boutons[suivant]?.focus();
   };
 
+  /* LE CLIC DROIT DE LA LIGNE QUI PORTE CE MENU l'ouvre aussi (`ouvrirLeMenuAuClicDroit`). */
+  const bouton = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    const el = bouton.current;
+    if (!el) return;
+    const ouvrirIci = () => setOuvert(true);
+    el.addEventListener(EVENEMENT_OUVRIR_LE_MENU, ouvrirIci);
+    return () => el.removeEventListener(EVENEMENT_OUVRIR_LE_MENU, ouvrirIci);
+  }, [setOuvert]);
+
   return (
     <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
       <span className="relative inline-flex shrink-0">
         <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
           <Button
+            ref={bouton}
             variant="ghost"
             size={taille}
             title={titre}

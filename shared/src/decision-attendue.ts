@@ -21,6 +21,7 @@
 import { DemandeEnAttente, demandeAlerte, demandeOuverte } from './attention.js';
 import type { SourceDeDecision } from './issue-de-decision.js';
 import type { GesteAttendu } from './attente-de-geste.js';
+import type { AccordDOrdinateur } from './droits-d-ordinateur.js';
 
 /** Une décision attendue, et l'endroit d'où elle vient. */
 export interface DecisionAttendue extends DemandeEnAttente {
@@ -52,6 +53,13 @@ export interface DecisionAttendue extends DemandeEnAttente {
   url?: string;
   /** D'où elle vient : c'est ce qui dit quel geste l'écran rend derrière. */
   source?: SourceDeDecision;
+  /** La question elle-même, quand l'écran y répond hors du fil (fenêtre d'accord d'un ordinateur). */
+  questionId?: string;
+  /**
+   * UNE DEMANDE D'ACCORD D'UN ORDINATEUR (terminal, suppression) : l'écran l'ouvre en FENÊTRE D'ACCORD par-dessus
+   * Beluga, chez le seul compte propriétaire (`shared/src/droits-d-ordinateur.ts`).
+   */
+  accordOrdinateur?: AccordDOrdinateur;
   /**
    * LE GESTE ATTENDU, quand la décision vient du parcours d'une carte. C'est
    * lui qui donne son ICÔNE au repère (`nature-attention.ts`) : générer un

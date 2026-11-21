@@ -49,6 +49,13 @@ export function ApercuAuSurvol<L>({
       className="min-w-0"
       onMouseMove={(event) => {
         if (!actif || !finePointe) return;
+        /* PAS D'APERÇU PAR-DESSUS UN MENU (21/11/2026) : sur les trois points d'une ligne, ou tant qu'un menu est
+           ouvert, l'aperçu se tait — il passait sous le menu de la ligne. */
+        if ((event.target as HTMLElement).closest('[data-trois-points]') || document.querySelector('[role="menu"]')) {
+          annuler();
+          if (survol) setSurvol(null);
+          return;
+        }
         const cible = (event.target as HTMLElement).closest<HTMLElement>('[data-ligne-de-tableau]');
         const cle = cible?.getAttribute('data-ligne-de-tableau') || null;
         if (!cle || !cible) {
@@ -69,6 +76,10 @@ export function ApercuAuSurvol<L>({
         }, 300);
       }}
       onMouseLeave={() => {
+        annuler();
+        setSurvol(null);
+      }}
+      onContextMenu={() => {
         annuler();
         setSurvol(null);
       }}

@@ -394,27 +394,23 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 /*
- * LE PANNEAU NE VIT QUE DANS LES GROUPES DES AGENTS (1.0.6). Chaque onglet d'un groupe porte SON panneau
- * (`setOptions({ tabId, path, enabled })`), aucun panneau global : essayé dans un vrai Chromium, un panneau global
- * (`side_panel.default_path`) reste affiché sur un onglet désactivé, alors qu'un panneau d'onglet se masque hors du
- * groupe et revient au retour. Revers mesuré : un panneau d'onglet ne s'ouvre que par un geste de la personne et ne
- * suit pas tout seul d'un onglet à l'autre — d'où, à CHAQUE geste (icône, clic droit, clic ou touche dans le
- * panneau), son ouverture sur tous les onglets des groupes qui ne l'ont pas encore (`ouvrirSurLesOngletsPermis`).
- * EXCEPTION : le clic sur l'icône ou le clic droit l'ouvre sur l'onglet courant pour une nouvelle demande ; cet
- * onglet le garde jusqu'à ce qu'on le quitte — ou pour de bon s'il rejoint le groupe d'un nouvel agent.
- * Ne JAMAIS désactiver un onglet permis : `enabled: false` détruit son panneau, qui ne revient qu'au prochain geste.
+ * LE PANNEAU EST CELUI DE LA FENÊTRE, ET IL RESTE OUVERT D'UN ONGLET À L'AUTRE (1.0.13, carte « Extension, rapport
+ * SEO-GEO et menus », 21/11/2026 — revient sur DEC-509 à la demande de l'utilisateur : « le volet se ferme à chaque
+ * changement d'onglet »). UN SEUL panneau GLOBAL (`setOptions({ path, enabled: true })` sans onglet), ouvert par un
+ * geste de la personne (icône, clic droit, « Y aller ») sur sa fenêtre (`sidePanel.open({ windowId })`) : Chrome le
+ * garde affiché quel que soit l'onglet choisi, jusqu'à ce qu'on le ferme. Le panneau suit l'onglet actif lui-même
+ * (message « onglet » → `suivreLOnglet`, qui choisit l'agent de l'onglet).
+ * PLUS AUCUN PANNEAU PROPRE À UN ONGLET : un réglage par onglet (`tabId`) masque le panneau global sur cet onglet —
+ * c'est exactement ce qui le faisait disparaître. `ongletsPermis` et `panneauxPermis` restent vides (le panneau
+ * n'a plus rien à « étendre »).
  */
+const CHEMIN_DU_PANNEAU = 'panneau.html';
 const ouvertsALaMain = new Set();
-/** Les onglets qui ont droit au panneau, tenus en mémoire : un geste doit les connaître SANS attendre. */
+/** Gardé pour les panneaux d'une version précédente qui le lisent encore : toujours vide. */
 const ongletsPermis = new Set();
 let ongletActifAvant = null;
 
-/** Le chemin du panneau d'un onglet : le panneau y lit son onglet, et le service worker sait où il est ouvert. */
-function cheminDuPanneau(tabId) {
-  return `panneau.html?onglet=${tabId}`;
-}
-
-/** Les onglets où un panneau est réellement ouvert : ceux dont le panneau s'est relié (`?onglet=` de son adresse). */
+/** Les onglets où un panneau est réellement ouvert : un panneau d'onglet (`?onglet=`) d'une version précédente. */
 function ongletsAvecPanneau() {
   const ids = new Set();
   for (const p of panneaux) {
@@ -424,14 +420,10 @@ function ongletsAvecPanneau() {
   return ids;
 }
 
-/** Le panneau d'un geste : il se garde pour les panneaux déjà ouverts (qui ouvrent eux-mêmes les autres). */
 function publierLesOnglets() {
-  return chrome.storage.session
-    .set({ panneauxPermis: [...ongletsPermis], panneauxOuverts: [...ongletsAvecPanneau()] })
-    .catch(() => {});
+  return chrome.storage.session.set({ panneauxPermis: [], panneauxOuverts: [...ongletsAvecPanneau()] }).catch(() => {});
 }
 
-/* Gardés en session : un service worker endormi puis réveillé ne retire pas le panneau qu'on vient d'ouvrir. */
 function garderLesOuvertsALaMain() {
   return chrome.storage.session.set({ ouvertsALaMain: [...ouvertsALaMain] });
 }
@@ -442,41 +434,29 @@ async function groupesDesAgents() {
   return new Set(Object.entries(espace.groupes).filter(([agentId, g]) => Number.isInteger(g) && !espace.privees[agentId]).map(([, g]) => g));
 }
 
-async function poserLePanneau(tab, groupes) {
-  if (!tab || !Number.isInteger(tab.id)) return;
-  const permis = (tab.groupId >= 0 && groupes.has(tab.groupId)) || ouvertsALaMain.has(tab.id);
-  if (permis) ongletsPermis.add(tab.id);
-  else ongletsPermis.delete(tab.id);
-  /* Reposer le même chemin ne recharge pas un panneau ouvert (vérifié) : on peut le faire à chaque écriture. */
-  await chrome.sidePanel.setOptions(permis ? { tabId: tab.id, path: cheminDuPanneau(tab.id), enabled: true } : { tabId: tab.id, enabled: false }).catch(() => {});
-}
-
+/** Le panneau global de toutes les fenêtres : posé au réveil, jamais retiré. */
 async function poserLesPanneaux() {
-  const groupes = await groupesDesAgents();
-  const tabs = await chrome.tabs.query({}).catch(() => []);
-  const vivants = new Set(tabs.map((t) => t.id));
-  for (const id of [...ongletsPermis]) if (!vivants.has(id)) ongletsPermis.delete(id);
-  for (const tab of tabs) await poserLePanneau(tab, groupes);
+  await chrome.sidePanel.setOptions({ path: CHEMIN_DU_PANNEAU, enabled: true }).catch(() => {});
   await publierLesOnglets();
 }
 
+/** Gardée pour les appels existants : un onglet n'a plus de réglage à lui. */
+async function poserLePanneau() {}
+
 /**
- * DANS UN GESTE de la personne (aucun await avant) : le panneau s'ouvre sur `tabId` s'il est donné, puis sur chaque
- * onglet permis qui n'en a pas encore. Plusieurs `sidePanel.open` dans le même geste sont acceptés par Chrome.
+ * DANS UN GESTE de la personne (aucun await avant) : le panneau de la fenêtre de `tabId` s'ouvre (`windowId` connu
+ * par l'onglet : la fenêtre au premier plan sinon).
  */
-function ouvrirSurLesOngletsPermis(tabId) {
-  const ouverts = ongletsAvecPanneau();
-  const cibles = [...(Number.isInteger(tabId) ? [tabId] : []), ...[...ongletsPermis].filter((id) => id !== tabId && !ouverts.has(id))];
-  for (const id of cibles) chrome.sidePanel.open({ tabId: id }).catch(() => {});
+function ouvrirSurLesOngletsPermis(tabId, windowId) {
+  if (Number.isInteger(windowId)) chrome.sidePanel.open({ windowId }).catch(() => {});
+  else if (Number.isInteger(tabId)) chrome.sidePanel.open({ tabId }).catch(() => {});
 }
 
-/** Le clic de la personne : le panneau s'ouvre ICI, dans le geste (avant tout await). */
+/** Le clic de la personne : le panneau de SA fenêtre s'ouvre ici, dans le geste (avant tout await). */
 function ouvrirALaMain(tab) {
   ouvertsALaMain.add(tab.id);
-  ongletsPermis.add(tab.id);
   void garderLesOuvertsALaMain();
-  chrome.sidePanel.setOptions({ tabId: tab.id, path: cheminDuPanneau(tab.id), enabled: true }).catch(() => {});
-  ouvrirSurLesOngletsPermis(tab.id);
+  ouvrirSurLesOngletsPermis(tab.id, tab.windowId);
   void publierLesOnglets();
 }
 
@@ -505,13 +485,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  /* L'onglet ouvert à la main qu'on quitte sans être entré dans un groupe perd le panneau. */
-  const quitte = ongletActifAvant;
+  /* LE PANNEAU RESTE OUVERT (1.0.13) : changer d'onglet ne retire plus rien, le panneau suit l'onglet choisi. */
   ongletActifAvant = tabId;
-  if (quitte !== null && quitte !== tabId && ouvertsALaMain.delete(quitte)) {
-    void garderLesOuvertsALaMain();
-    void groupesDesAgents().then(async (g) => poserLePanneau(await chrome.tabs.get(quitte).catch(() => null), g));
-  }
   void agentDeLOnglet(tabId).then((agentId) => diffuser({ type: 'onglet', tabId, agentId }));
   void regardEnChange();
 });

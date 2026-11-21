@@ -12,7 +12,7 @@
  */
 
 export const REGLE_DE_LA_MAQUETTE_REALISTE =
-  "MAQUETTE RÉALISTE : pars de l'écran ACTUEL (capture de la page réelle, classes réelles des composants) ; ne montre que la ZONE qui change, à sa TAILLE RÉELLE (« largeur » / « hauteur » de la piste, mêmes tailles de texte que le produit), jamais l'application entière rapetissée ; vrais contenus du projet, jamais de faux texte ni de blocs gris. Dans Beluga, la page reçoit d'office la vraie police et les jetons du thème : écris « hsl(var(--text)) », « hsl(var(--raised)) »… Relis l'image rendue et refais-la si un texte est illisible ou si un élément n'existe pas dans le produit.";
+  "MAQUETTE RÉALISTE : pars TOUJOURS de l'écran RÉEL. Dans Beluga, donne à la piste « depuis » (adresse de l'écran, « selecteur » de la zone, « remplacer » : seulement les éléments qui changent, en HTML aux VRAIES classes de l'application, icônes en <svg data-lucide=\"nom\"></svg>) : l'outil ouvre la vraie application, fige l'écran, pose tes retouches et photographie la zone — tout le reste est l'écran actuel, au pixel près. À défaut (autre projet, écran introuvable), une page « html » qui reprend la ZONE qui change à sa TAILLE RÉELLE (« largeur » / « hauteur »), avec la vraie police et les jetons posés d'office (« hsl(var(--text)) », « hsl(var(--raised)) »…), jamais l'application entière rapetissée, vrais contenus du projet. UNE FOURNÉE = UN SEUL CHOIX : toutes les pistes d'un appel montrent la même « zone ». Relis l'image rendue et REFAIS-LA si un texte est illisible, si un élément n'existe pas dans le produit, si un libellé passe sur deux lignes ou si un bouton est recouvert.";
 
 /** Bornes de la taille d'une page de maquette, en pixels CSS (photographiée en double densité). */
 export const TAILLE_DE_MAQUETTE = {

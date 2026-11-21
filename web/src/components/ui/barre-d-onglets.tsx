@@ -104,6 +104,23 @@ export function BarreDOnglets<C extends string | number>({
   attributs?: Record<string, string | undefined>;
 }) {
   const references = React.useRef(new Map<C, HTMLElement | null>());
+  const barre = React.useRef<HTMLDivElement | null>(null);
+  /*
+   * L'ONGLET CHOISI RESTE DANS LA PARTIE VISIBLE (carte « Extension, rapport SEO-GEO et menus », 21/11/2026, #a678) :
+   * la barre garde la largeur de son conteneur et défile de côté à l'intérieur ; un onglet choisi à moitié caché y est
+   * ramené — SEULEMENT s'il dépasse, au bord le plus proche (le dernier calé à droite). Jamais `scrollIntoView` : il
+   * ferait aussi défiler la page ou le volet qui porte la barre.
+   */
+  React.useEffect(() => {
+    const b = barre.current;
+    const el = references.current.get(valeur);
+    if (!b || !el || b.scrollWidth <= b.clientWidth) return;
+    const gauche = el.getBoundingClientRect().left - b.getBoundingClientRect().left + b.scrollLeft;
+    const droite = gauche + el.getBoundingClientRect().width;
+    const marge = 4;
+    if (gauche < b.scrollLeft) b.scrollTo({ left: Math.max(0, gauche - marge), behavior: 'smooth' });
+    else if (droite > b.scrollLeft + b.clientWidth) b.scrollTo({ left: droite - b.clientWidth + marge, behavior: 'smooth' });
+  }, [valeur]);
   /* LE CLAVIER, comme une vraie rangée d'onglets : flèches gauche/droite, Début, Fin. */
   const auClavier = (event: React.KeyboardEvent, rang: number) => {
     const actifs = onglets.filter((o) => !o.desactive);
@@ -121,6 +138,7 @@ export function BarreDOnglets<C extends string | number>({
   };
   return (
     <div
+      ref={barre}
       role="tablist"
       aria-label={libelle}
       className={cn(

@@ -2893,6 +2893,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
           texte: question.question,
           projectName: enrichir.nomProjet(row.projectId),
           lieuTitre: enrichir.lieuTitre(row.cardId ?? undefined, row.agentId),
+          /* La fenêtre d'accord d'un ordinateur y répond hors du fil (`fenetre-d-accord-ordinateur.tsx`). */
+          ...(question.accordOrdinateur ? { questionId: question.id, accordOrdinateur: question.accordOrdinateur } : {}),
         });
       }
     } catch {
@@ -3764,6 +3766,81 @@ export function decideProposal(proposalId: string, decision: 'accepted' | 'refus
     .prepare('UPDATE proposals SET decision = ?, data = ?, decided_at = ? WHERE id = ?')
     .run(decision, JSON.stringify(proposal), proposal.decidedAt, proposalId);
   return proposal;
+}
+
+/**
+ * UNE DÉCISION NE RÉÉCRIT QUE SA PROPOSITION (carte « Carte créée qui se repropose », 21/11/2026). Deux propositions
+ * d'un même message validées presque ensemble : chaque `proposal.decide` réécrivait le message ENTIER depuis la copie
+ * lue avant ses attentes (catalogue des moteurs, création de la carte), et la seconde effaçait la décision de la
+ * première — la carte existait, sa proposition se réaffichait « À valider ». Ici, la relecture du message et son
+ * écriture tiennent dans UNE transaction synchrone : aucune autre décision ne peut s'intercaler. Rend le message à
+ * jour (pour `message.upsert`), ou null s'il n'existe plus ou ne porte pas la proposition.
+ */
+export function appliquerDecisionAuMessage(messageId: string, proposal: TaskProposal): Message | null {
+  const db = getDb();
+  return db.transaction((): Message | null => {
+    const message = getMessage(messageId);
+    if (!message || !message.proposals.some((p) => p.id === proposal.id)) return null;
+    return saveMessage({ ...message, proposals: message.proposals.map((p) => (p.id === proposal.id ? proposal : p)) });
+  })();
+}
+
+/** LA DÉCISION ENREGISTRÉE DANS LA TABLE `proposals` — la source fiable, qu'une réécriture du message ne peut pas effacer. */
+export function decisionEnregistree(proposalId: string): TaskProposal | null {
+  const row = getDb().prepare('SELECT data FROM proposals WHERE id = ?').get(proposalId) as { data: string } | undefined;
+  if (!row) return null;
+  try {
+    return TaskProposal.parse(JSON.parse(row.data));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LE RATTRAPAGE DES MESSAGES DÉSACCORDÉS : une proposition tranchée dans la table `proposals` mais encore « en
+ * attente » (ou sans sa carte) dans son message reçoit la décision, la carte et l'heure de la table. Rien d'autre ne
+ * change (titre, description retenus restent ceux du message) et AUCUNE carte ne naît (MEM-0354). Idempotent.
+ * Rend les messages réécrits.
+ */
+export function resynchroniserLesDecisionsDesMessages(): Message[] {
+  const db = getDb();
+  const lignes = db
+    .prepare(
+      `SELECT p.id AS proposalId, p.message_id AS messageId, p.data AS data
+         FROM proposals p
+         JOIN messages m ON m.id = p.message_id
+         JOIN json_each(m.data, '$.proposals') e ON json_extract(e.value, '$.id') = p.id
+        WHERE p.decision != 'pending'
+          AND (json_extract(e.value, '$.decision') IS NOT p.decision
+               OR (json_extract(p.data, '$.cardId') IS NOT NULL AND json_extract(e.value, '$.cardId') IS NULL))`,
+    )
+    .all() as { proposalId: string; messageId: string; data: string }[];
+  const reecrits = new Map<string, Message>();
+  for (const ligne of lignes) {
+    let enTable: TaskProposal;
+    try {
+      enTable = TaskProposal.parse(JSON.parse(ligne.data));
+    } catch {
+      continue;
+    }
+    const ecrit = db.transaction((): Message | null => {
+      const message = getMessage(ligne.messageId);
+      const actuelle = message?.proposals.find((p) => p.id === ligne.proposalId);
+      if (!message || !actuelle) return null;
+      // Seul l'écart « message en attente, table tranchée » (ou la carte manquante) se répare : une décision déjà
+      // différente dans le message n'est pas réécrite à l'aveugle.
+      if (actuelle.decision !== 'pending' && actuelle.decision !== enTable.decision) return null;
+      const reparee = TaskProposal.parse({
+        ...actuelle,
+        decision: enTable.decision,
+        ...(enTable.cardId ? { cardId: enTable.cardId } : {}),
+        ...(enTable.decidedAt ? { decidedAt: enTable.decidedAt } : {}),
+      });
+      return saveMessage({ ...message, proposals: message.proposals.map((p) => (p.id === reparee.id ? reparee : p)) });
+    })();
+    if (ecrit) reecrits.set(ecrit.id, ecrit);
+  }
+  return [...reecrits.values()];
 }
 
 export interface ReferenceProposition {

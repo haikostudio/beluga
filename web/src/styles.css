@@ -210,6 +210,8 @@
     --banniere-a-faire: 28 92% 55%;
     --banniere-a-faire-texte: 0 0% 7%;
     --banniere-a-faire-bouton-texte: 0 0% 100%;
+    --banniere-info: 0 0% 7%;
+    --banniere-info-texte: 0 0% 100%;
     /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
        seule teinte ajoutée depuis, réservée au badge d'état d'un agent
        (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
@@ -445,6 +447,8 @@
     --banniere-a-faire: 28 92% 48%;
     --banniere-a-faire-texte: 0 0% 7%;
     --banniere-a-faire-bouton-texte: 0 0% 100%;
+    --banniere-info: 0 0% 7%;
+    --banniere-info-texte: 0 0% 100%;
     --pret: 0 0% 36%;
     --pret-fond: 0 0% 0% / 0.05;
     --pret-trait: 0 0% 0% / 0.2;
@@ -1688,6 +1692,8 @@ html[data-clavier-ouvert] [data-composer] {
   --banniere-a-faire: 28 92% 55%;
   --banniere-a-faire-texte: 0 0% 7%;
   --banniere-a-faire-bouton-texte: 0 0% 100%;
+  --banniere-info: 0 0% 7%;
+  --banniere-info-texte: 0 0% 100%;
   /* LE VERT DE CE QUI EST PRÊT (demande du 01/11/2026, capture #ca0c) : la
      seule teinte ajoutée depuis, réservée au badge d'état d'un agent
      (`badge-etape.tsx`, ton « pret ») et au rond de statut de la colonne
@@ -1894,11 +1900,17 @@ img[src^="/api/"]:not([data-image-chargee]) {
    au téléphone, ☰ et la fusée touchaient la bande) : la barre du haut part de `--marge-sous-banniere`, posée par
    la bannière (8 px au téléphone, 0 sur ordinateur). Les pages fixes (`Drawer` page, page de service) partent de
    `--hauteur-banniere` et prennent cette même marge à la place de la zone sûre. */
-[data-app-racine]:has(> [data-banniere-extension]) {
+[data-app-racine]:has(> [data-bande-du-haut]) {
   --zone-sure-entete: var(--marge-sous-banniere, 0px);
 }
-[data-app-racine]:has(> [data-banniere-extension]) [data-bande-sous-l-heure] {
+/* LA BANDE SOUS L'HEURE PREND LA COULEUR DE LA BANDE AFFICHÉE (carte « Fin de la version gratuite », 21/11/2026) : elle
+   restait orange sous une bande d'information grise. Orange pour un avertissement, noir pour une information
+   (`bande-du-haut.tsx`). */
+[data-app-racine]:has(> [data-bande-du-haut='avertissement']) [data-bande-sous-l-heure] {
   background-color: hsl(var(--banniere-a-faire));
+}
+[data-app-racine]:has(> [data-bande-du-haut='information']) [data-bande-sous-l-heure] {
+  background-color: hsl(var(--banniere-info));
 }
 
 /* LE LÉGER FOND DES COLONNES DU TABLEAU (demande du 12/10/2026), aussi celles

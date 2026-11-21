@@ -1108,6 +1108,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('installation.installer'), genre: z.string().max(40) }),
   z.object({ type: z.literal('installation.copie'), nom: z.string().max(100).optional() }),
   z.object({ type: z.literal('installation.nouveautes'), forcer: z.boolean().optional() }),
+  /* LA FIN DE LA VERSION GRATUITE (21/11/2026) : la formule que le central conseille, puis le transfert de l'espace
+     vers l'offre hébergée (`shared/src/transfert-vers-l-offre.ts`). */
+  z.object({ type: z.literal('installation.offre') }),
+  z.object({ type: z.literal('installation.transfert'), jeton: z.string().min(16).max(200) }),
   /**
    * Récupérer les nouveautés du dépôt public. `lancer` : en plus de poser la tâche
    * de mise à jour, l'agent part tout de suite (le geste de l'utilisateur). Ce
@@ -1333,6 +1337,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ordinateur.creer'), nom: z.string().max(80) }),
   z.object({ type: z.literal('ordinateur.renommer'), id: z.string(), nom: z.string().max(80) }),
   z.object({ type: z.literal('ordinateur.delier'), id: z.string() }),
+  /* Allumer ou éteindre un droit de Beluga sur un ordinateur (Réglages › Extension › l'ordinateur). */
+  z.object({ type: z.literal('ordinateur.droits'), id: z.string(), droit: z.enum(['applications', 'reglages', 'pilotage_apps', 'ecran', 'terminal']), actif: z.boolean() }),
   z.object({ type: z.literal('ordinateur.etat'), agentId: z.string().optional(), cardId: z.string().optional() }),
   z.object({ type: z.literal('ordinateur.choisir'), agentId: z.string().optional(), cardId: z.string().optional(), ordinateurId: z.string().nullable() }),
   z.object({ type: z.literal('extension.delier'), id: z.string() }),

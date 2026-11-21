@@ -8,9 +8,11 @@
  *    réception, et l'adresse de la machine n'est jamais gardée ;
  *  - l'adresse de courriel de l'administrateur ne part QUE s'il l'a acceptée
  *    (`partageDuCourriel` = « oui ») ; un refus laisse l'installation anonyme ;
- *  - les TICKETS arrivent chez l'auteur comme des demandes de son espace client,
- *    marquées « Open source », et ses réponses reviennent dans l'installation ;
- *  - tickets et statistiques se filtrent entre payants et non payants.
+ *  - les TICKETS arrivaient chez l'auteur comme des demandes de son espace client ;
+ *    depuis la fin de la version gratuite (21/11/2026), plus aucun n'est reçu :
+ *    une installation gratuite n'a plus que le passage à l'offre hébergée. Ceux
+ *    déjà reçus restent lisibles, avec leurs réponses ;
+ *  - les statistiques se filtrent entre installations payantes et gratuites.
  *
  * L'adresse du relais n'est JAMAIS celle de l'application de l'auteur : elle
  * vit sous le domaine public de Beluga Build et ne relaie que `/relais/*`.
@@ -30,11 +32,14 @@ export const ROUTES_DU_RELAIS = {
 /** Un signe de vie par jour : c'est lui qui dit si l'installation sert encore. */
 export const PERIODE_DU_SIGNE_DE_VIE_MS = 24 * 60 * 60 * 1000;
 
-/** Le compte (client, suspendu, sans mot de passe connu) qui signe les tickets reçus. */
-export const COMPTE_DES_TICKETS = { identifiant: 'relais-open-source', nomAffiche: 'Open source' } as const;
+/**
+ * Le compte (client, suspendu, sans mot de passe connu) qui signe les tickets reçus.
+ * Son IDENTIFIANT est gardé tel quel : c'est par lui que la base retrouve le compte
+ * des anciens tickets. Il ne s'affiche jamais.
+ */
+export const COMPTE_DES_TICKETS = { identifiant: 'relais-open-source', nomAffiche: 'Version gratuite' } as const;
 
-/** L'étiquette posée sur chaque demande venue d'une installation. */
-export const ETIQUETTE_OPEN_SOURCE = 'Open source';
+/* Les anciens tickets portent l'étiquette « Version gratuite » (migration 185 de la base). */
 
 /** Un compte qui n'est que le porte-voix du relais : jamais une personne. */
 export function estLeCompteDesTickets(identifiant: string | null | undefined): boolean {
@@ -112,15 +117,26 @@ export interface InstallationRecue {
   tickets: number;
 }
 
-export const FILTRES_DE_PAIEMENT = ['tous', 'payants', 'open-source'] as const;
+export const FILTRES_DE_PAIEMENT = ['tous', 'payants', 'gratuites'] as const;
 export type FiltreDePaiement = (typeof FILTRES_DE_PAIEMENT)[number];
 
-/** Payants d'un côté, open source de l'autre — une seule règle pour les écrans. */
+/** Le filtre lu dans une adresse : l'ancien nom (« open-source ») vaut « gratuites ». */
+export function filtreDePaiementLu(brut: string | null | undefined): FiltreDePaiement {
+  if (brut === 'payants') return 'payants';
+  if (brut === 'gratuites' || brut === 'open-source') return 'gratuites';
+  return 'tous';
+}
+
+/** Payantes d'un côté, gratuites de l'autre — une seule règle pour les écrans. */
 export function filtrerParPaiement<T extends { payant: boolean }>(lignes: readonly T[], filtre: FiltreDePaiement): T[] {
   if (filtre === 'payants') return lignes.filter((l) => l.payant);
-  if (filtre === 'open-source') return lignes.filter((l) => !l.payant);
+  if (filtre === 'gratuites') return lignes.filter((l) => !l.payant);
   return [...lignes];
 }
+
+/** Ce que rend le relais à une installation qui écrit encore un ticket. */
+export const REFUS_DES_TICKETS =
+  'La version gratuite de Beluga n’a plus de support : passez à l’offre hébergée depuis Réglages › Mise à jour.';
 
 export type UsageDUneInstallation = 'quotidien' | 'hebdomadaire' | 'occasionnel' | 'eteint';
 

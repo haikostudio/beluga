@@ -11,6 +11,7 @@
  */
 import { minusculesSansAccents } from './mots.js';
 import type { EtatDuRelais } from './relais-mac.js';
+import type { DroitsDOrdinateur } from './droits-d-ordinateur.js';
 
 /** Au plus vingt ordinateurs par compte. */
 export const ORDINATEURS_MAX = 20;
@@ -130,6 +131,8 @@ export interface Ordinateur {
   /** Le repère court (« mac-mini-du-bureau ») : celui que « /ordinateur:… » écrit. */
   repere: string;
   creeLe: number;
+  /** Ce que Beluga a le droit d'y faire (`droits-d-ordinateur.ts`) ; absent : les défauts. */
+  droits?: DroitsDOrdinateur;
   navigateurs: NavigateurDOrdinateur[];
   programme: ProgrammeDuMac | null;
 }

@@ -1,13 +1,15 @@
 import * as React from 'react';
-import { Download, EllipsisVertical, Loader2, Monitor, Plus } from '@/components/ui/icones';
+import { ChevronLeft, ChevronRight, Download, EllipsisVertical, Eye, Link2, Link2Off, Loader2, Monitor, Pause, PencilLine, Play, Plus, Repeat, ShieldCheck, ShieldOff, Trash2 } from '@/components/ui/icones';
 import {
   LIBELLE_DU_NAVIGATEUR,
   VERSION_EXTENSION_CHROME,
   autorisationsDonnees,
+  droitsDeLOrdinateur,
   ordinateurEnLigne,
   programmeEnLigne,
   ordinateurVuLe,
   type EtatDeLExtension,
+  type DroitDOrdinateur,
   type ModeDeSite,
   type NavigateurDOrdinateur,
   type Ordinateur,
@@ -25,9 +27,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
   Label,
+  Switch,
 } from '@/components/ui';
 import { LigneDeReglage, RubriqueDeReglages } from '@/components/modeles';
 import { client } from '@/lib/client';
@@ -52,6 +56,8 @@ export function PageExtension() {
   const [aNommer, setANommer] = React.useState<{ ordinateur: Ordinateur | null } | null>(null);
   /* L'assistant d'installation : ouvert par « Télécharger », « Ajouter » ou « Relier… » d'un ordinateur. */
   const [assistant, setAssistant] = React.useState<OuvertureDeLAssistant | null>(null);
+  /* LA PAGE D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga ») : ouverte au clic sur sa ligne, au même endroit. */
+  const [ouvert, setOuvert] = React.useState<string | null>(null);
 
   const lire = React.useCallback(async () => {
     try {
@@ -76,6 +82,11 @@ export function PageExtension() {
       setEnCours(null);
     }
   };
+
+  const ordinateurOuvert = ouvert && etat ? etat.ordinateurs.find((o) => o.id === ouvert) ?? null : null;
+  if (ordinateurOuvert && etat) {
+    return <PageDUnOrdinateur ordinateur={ordinateurOuvert} ordinateurs={etat.ordinateurs} onChoisir={setOuvert} onRetour={() => setOuvert(null)} relire={lire} />;
+  }
 
   return (
     <div className="flex flex-col gap-7" data-page-extension>
@@ -129,6 +140,7 @@ export function PageExtension() {
               ordinateur={o}
               version={etat.version}
               occupe={enCours === o.id}
+              onOuvrir={() => setOuvert(o.id)}
               onRenommer={() => setANommer({ ordinateur: o })}
               onRelier={() => setAssistant({ ordinateurId: o.id })}
               onDelier={() => setADelier(o)}
@@ -253,6 +265,7 @@ function LigneDOrdinateur({
   ordinateur,
   version,
   occupe,
+  onOuvrir,
   onRenommer,
   onRelier,
   onDelier,
@@ -262,6 +275,7 @@ function LigneDOrdinateur({
   ordinateur: Ordinateur;
   version: string;
   occupe: boolean;
+  onOuvrir: () => void;
   onRenommer: () => void;
   onRelier: () => void;
   onDelier: () => void;
@@ -272,6 +286,14 @@ function LigneDOrdinateur({
   const ancienne = ordinateur.navigateurs.some((n) => n.genre === 'chrome' && versionPlusAncienne(n.version, version));
   return (
     <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" data-ordinateur={ordinateur.id} data-en-ligne={allume ? 'oui' : 'non'}>
+      {/* UN CLIC SUR LA LIGNE ouvre la page de l'ordinateur : ses droits, ce qui est toujours demandé, ses autorisations. */}
+      <button
+        type="button"
+        onClick={onOuvrir}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left hover:opacity-90"
+        title={t('Ce que Beluga peut faire sur cet ordinateur')}
+        data-ouvrir-ordinateur={ordinateur.id}
+      >
       <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-raised text-muted">
         <Monitor className="h-4 w-4" />
         <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${allume ? 'bg-success' : 'bg-faint'}`} data-pastille-ordinateur />
@@ -291,6 +313,8 @@ function LigneDOrdinateur({
           </span>
         ) : null}
       </div>
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" disabled={occupe} title={t('Options')} data-options-ordinateur>
@@ -298,23 +322,30 @@ function LigneDOrdinateur({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {/* Le modèle commun des menus : l'élément, puis ce qu'on y relie, puis ce qu'on retire — en rouge, en dernier. */}
           <DropdownMenuItem onSelect={onRenommer} data-renommer-ordinateur>
+            <PencilLine className="text-muted" />
             {t('Renommer')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onRelier} data-relier-ordinateur>
+            <Link2 className="text-muted" />
             {t('Relier un navigateur ou le programme du Mac')}
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {ordinateur.navigateurs.map((n) => (
             <DropdownMenuItem key={n.id} onSelect={() => onDelierNavigateur(n)} data-delier-navigateur={n.id}>
+              <Link2Off className="text-muted" />
               {t('Délier {navigateur}', { navigateur: LIBELLE_DU_NAVIGATEUR[n.genre] })}
             </DropdownMenuItem>
           ))}
           {ordinateur.programme ? (
             <DropdownMenuItem onSelect={onDelierProgramme} data-delier-relais>
+              <Link2Off className="text-muted" />
               {t('Délier le programme du Mac')}
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem onSelect={onDelier} className="text-danger" data-delier>
+          <DropdownMenuItem danger onSelect={onDelier} data-delier>
+            <Trash2 />
             {t('Délier l’ordinateur')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -400,10 +431,13 @@ function LigneDeSite({ site, occupe, agir }: { site: SiteDuChrome; occupe: boole
             .filter((m) => m !== site.mode)
             .map((m) => (
               <DropdownMenuItem key={m} onSelect={() => agir(m)} data-mode-site={m}>
+                {m === 'autorise' ? <ShieldCheck className="text-muted" /> : m === 'lecture_seule' ? <Eye className="text-muted" /> : <ShieldOff className="text-muted" />}
                 {t(CLES_DU_MODE[m])}
               </DropdownMenuItem>
             ))}
-          <DropdownMenuItem onSelect={() => agir(null)} data-retirer-site>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem danger onSelect={() => agir(null)} data-retirer-site>
+            <Trash2 />
             {t('Retirer')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -431,15 +465,220 @@ function LigneDeRoutine({ routine, occupe, agir }: { routine: RoutineChrome; occ
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => agir({ actif: !routine.actif })}>{routine.actif ? t('Mettre en pause') : t('Reprendre')}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => agir({ actif: !routine.actif })}>
+            {routine.actif ? <Pause className="text-muted" /> : <Play className="text-muted" />}
+            {routine.actif ? t('Mettre en pause') : t('Reprendre')}
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => agir({ frequence: routine.reglage.frequence === 'semaine' ? 'mois' : 'semaine' })}>
+            <Repeat className="text-muted" />
             {routine.reglage.frequence === 'semaine' ? t('Passer à chaque mois') : t('Passer à chaque semaine')}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => agir({ supprimer: true })} data-supprimer-routine>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem danger onSelect={() => agir({ supprimer: true })} data-supprimer-routine>
+            <Trash2 />
             {t('Supprimer')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* La page d'un ordinateur : ce que Beluga a le droit d'y faire          */
+/* ------------------------------------------------------------------ */
+
+/** Les droits, dans l'ordre de la page, avec leur libellé et leur explication (textes d'écran, traduits). */
+function lignesDesDroits(): { droit: DroitDOrdinateur; libelle: string; detail: string }[] {
+  return [
+    { droit: 'applications', libelle: t('Ouvrir et fermer des applications'), detail: t('Lancer Xcode, le Finder, Musique… et les refermer.') },
+    { droit: 'reglages', libelle: t('Changer les réglages'), detail: t('Volume, luminosité, mode sombre, Wi‑Fi, mise en veille de l’écran.') },
+    { droit: 'pilotage_apps', libelle: t('Piloter vos applications'), detail: t('Créer un rendez‑vous dans Calendrier, préparer un courriel dans Mail. Le Mac demande une fois l’accord par application.') },
+    { droit: 'ecran', libelle: t('Voir l’écran et cliquer'), detail: t('Regarder l’écran, cliquer et taper dans n’importe quel logiciel.') },
+    { droit: 'terminal', libelle: t('Terminal'), detail: t('Taper des commandes. Chacune vous est demandée avant de partir.') },
+  ];
+}
+
+/**
+ * LA PAGE D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga », 21/11/2026, maquette #3eb73) : elle remplace la
+ * liste, dans la fenêtre des réglages, à droite du menu. « ‹ Vos ordinateurs » ramène à la liste ; un bouton par
+ * ordinateur passe de l'un à l'autre. Cinq droits à interrupteur (tout allumé sauf le terminal à la liaison), ce qui
+ * est TOUJOURS demandé (suppressions, commandes), puis les deux autorisations que macOS exige sur le Mac lui-même.
+ */
+function PageDUnOrdinateur({
+  ordinateur,
+  ordinateurs,
+  onChoisir,
+  onRetour,
+  relire,
+}: {
+  ordinateur: Ordinateur;
+  ordinateurs: Ordinateur[];
+  onChoisir: (id: string) => void;
+  onRetour: () => void;
+  relire: () => Promise<void>;
+}) {
+  const [envoi, setEnvoi] = React.useState<DroitDOrdinateur | null>(null);
+  /* L'état affiché tout de suite au clic ; le serveur le confirme (relecture), un refus le rétablit. */
+  const [local, setLocal] = React.useState<Partial<Record<DroitDOrdinateur, boolean>>>({});
+  React.useEffect(() => setLocal({}), [ordinateur.id]);
+  /* La page remplace la liste dans la MÊME zone qui défile : elle s'ouvre par son haut, pas là où la liste en était. */
+  const racine = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => racine.current?.scrollIntoView({ block: 'start' }), [ordinateur.id]);
+  const droits = { ...droitsDeLOrdinateur(ordinateur.droits), ...local };
+  const allume = ordinateurEnLigne(ordinateur);
+  const estUnMac = !!ordinateur.programme;
+
+  const changer = async (droit: DroitDOrdinateur, actif: boolean) => {
+    setEnvoi(droit);
+    setLocal((l) => ({ ...l, [droit]: actif }));
+    try {
+      await client.call({ type: 'ordinateur.droits', id: ordinateur.id, droit, actif });
+      await relire();
+    } catch (err: any) {
+      setLocal((l) => {
+        const { [droit]: _, ...reste } = l;
+        return reste;
+      });
+      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
+    } finally {
+      setEnvoi(null);
+    }
+  };
+
+  return (
+    <div ref={racine} className="flex scroll-mt-4 flex-col gap-7" data-page-ordinateur={ordinateur.id}>
+      <div className="flex flex-col gap-3">
+        <button type="button" onClick={onRetour} className="flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text" data-retour-ordinateurs>
+          <ChevronLeft className="h-4 w-4" />
+          {t('Vos ordinateurs')}
+        </button>
+        <div className="flex flex-col gap-0.5 px-1">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <h3 className="min-w-0 truncate text-[17px] font-semibold text-text" data-nom-ordinateur-ouvert>
+              {ordinateur.nom}
+            </h3>
+            <EtatDeLOrdinateur allume={allume} />
+          </div>
+          <p className="text-[12.5px] text-muted">{detailDOrdinateur(ordinateur)}</p>
+        </div>
+        {ordinateurs.length > 1 ? (
+          <div className="flex flex-wrap gap-1.5 px-1" data-choix-ordinateur>
+            {ordinateurs.map((o) => (
+              <Button key={o.id} variant={o.id === ordinateur.id ? 'default' : 'subtle'} size="md" onClick={() => onChoisir(o.id)} data-aller-ordinateur={o.id} aria-pressed={o.id === ordinateur.id}>
+                <FormeDEtat allume={ordinateurEnLigne(o)} />
+                <span className="max-w-[180px] truncate">{o.nom}</span>
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <RubriqueDeReglages
+        titre={estUnMac ? t('Ce que Beluga peut faire sur ce Mac') : t('Ce que Beluga peut faire sur cet ordinateur')}
+        description={
+          estUnMac
+            ? t('Un droit éteint est refusé à l’agent, même s’il le demande.')
+            : t('Le programme de cet ordinateur n’est pas encore installé : ces droits s’appliqueront dès qu’il le sera (Beluga Connect sur Mac, bientôt sur Windows).')
+        }
+      >
+        {lignesDesDroits().map((l) => (
+          <LigneDeReglage
+            key={l.droit}
+            libelle={l.libelle}
+            detail={l.detail}
+            controle={
+              <Switch
+                checked={droits[l.droit]}
+                attente={envoi === l.droit}
+                onCheckedChange={(actif) => void changer(l.droit, actif)}
+                aria-label={l.libelle}
+                data-droit={l.droit}
+                data-actif={droits[l.droit] ? 'oui' : 'non'}
+              />
+            }
+          />
+        ))}
+      </RubriqueDeReglages>
+
+      <RubriqueDeReglages titre={t('Toujours demandé')} description={t('Ces gestes attendent votre accord dans une fenêtre de Beluga, quels que soient les réglages.')}>
+        <LigneDeReglage
+          libelle={t('Supprimer un fichier, un dossier ou une application')}
+          detail={t('Redemandé à chaque fois, même pendant une carte déjà autorisée.')}
+          controle={<span className="text-[13px] text-muted">{t('À chaque fois')}</span>}
+        />
+        <LigneDeReglage
+          libelle={t('Commandes du terminal')}
+          detail={t('Une par une, ou pour toute une carte jusqu’à la fin de son travail.')}
+          controle={<span className="text-[13px] text-muted">{t('À chaque fois')}</span>}
+        />
+      </RubriqueDeReglages>
+
+      {estUnMac ? <AutorisationsDeMacOS ordinateur={ordinateur} /> : null}
+    </div>
+  );
+}
+
+/** Allumé : un ROND vert ; éteint : un CARRÉ gris — l'état se lit par la forme, pas seulement par la couleur. */
+function FormeDEtat({ allume }: { allume: boolean }) {
+  /* Le vert FIXE des coches (`coche`, comme l'assistant d'installation) : `success` est gris dans les palettes monochromes. */
+  return allume ? <span className="h-2 w-2 shrink-0 rounded-full bg-coche" aria-hidden /> : <span className="h-2 w-2 shrink-0 bg-faint" aria-hidden />;
+}
+
+function EtatDeLOrdinateur({ allume }: { allume: boolean }) {
+  return (
+    <span className={`flex shrink-0 items-center gap-1.5 text-[12.5px] ${allume ? 'text-coche' : 'text-muted'}`} data-etat-ordinateur={allume ? 'allume' : 'eteint'}>
+      <FormeDEtat allume={allume} />
+      {allume ? t('Allumé') : t('Éteint')}
+    </span>
+  );
+}
+
+/** Les deux autorisations que macOS exige SUR LE MAC : affichées, et le bon réglage s'ouvre à distance. */
+function AutorisationsDeMacOS({ ordinateur }: { ordinateur: Ordinateur }) {
+  const [ouverture, setOuverture] = React.useState<'accessibilite' | 'ecran' | null>(null);
+  const a = ordinateur.programme?.autorisations ?? null;
+  const rouvrir = async (reglage: 'accessibilite' | 'ecran') => {
+    setOuverture(reglage);
+    try {
+      await client.call({ type: 'relaisMac.reglage', ordinateurId: ordinateur.id, reglage });
+      client.pushToast('success', t('Le réglage s’est ouvert sur le Mac.'));
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
+    } finally {
+      setOuverture(null);
+    }
+  };
+  const lignes: { cle: 'accessibilite' | 'ecran'; titre: string; pour: string }[] = [
+    { cle: 'accessibilite', titre: t('Contrôler la souris et le clavier'), pour: t('À donner sur le Mac : nécessaire pour cliquer, taper et changer la luminosité.') },
+    { cle: 'ecran', titre: t('Voir l’écran'), pour: t('À donner sur le Mac : nécessaire pour « Voir l’écran et cliquer ».') },
+  ];
+  return (
+    <RubriqueDeReglages titre={t('Autorisations de macOS')} description={t('Apple exige un clic sur le Mac lui‑même, une seule fois. Beluga ouvre le bon réglage à distance.')}>
+      {lignes.map((l) => {
+        const donnee = a?.[l.cle] === true;
+        return (
+          <div key={l.cle} className="flex flex-col gap-2 rounded-xl px-3.5 py-3 sm:flex-row sm:items-center sm:gap-4" data-autorisation-mac={l.cle} data-donnee={donnee ? 'oui' : 'non'}>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[14px] text-text">{l.titre}</span>
+              {donnee ? null : <span className="text-[12.5px] text-important">{l.pour}</span>}
+            </div>
+            <div className="shrink-0">
+              {donnee ? (
+                <span className="flex items-center gap-1.5 text-[13px] text-coche">
+                  <span className="h-2 w-2 rounded-full bg-coche" aria-hidden />
+                  {t('Donnée')}
+                </span>
+              ) : (
+                <Button variant="default" size="md" onClick={() => void rouvrir(l.cle)} disabled={!!ouverture || !programmeEnLigne(ordinateur.programme)} data-ouvrir-sur-le-mac={l.cle}>
+                  {ouverture === l.cle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('Ouvrir sur le Mac')}
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </RubriqueDeReglages>
   );
 }

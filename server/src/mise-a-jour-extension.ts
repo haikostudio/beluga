@@ -37,6 +37,15 @@ const paquets = new Map<string, { appareilRelais: string; zip: Buffer; expireLe:
 const retours = new Map<string, (version: string | null) => void>();
 /** Les mises à jour en cours, pour ne pas en lancer deux sur le même Chrome. */
 const enCours = new Set<string>();
+/**
+ * L'ÉTAPE D'UNE MISE À JOUR EN COURS, lue par la fenêtre de Beluga Connect (carte « Extension, rapport SEO-GEO et
+ * menus », 21/11/2026) pour cocher ses trois étapes en direct : « telechargement » (le paquet part vers le Mac),
+ * « relance » (fichiers remplacés, l'extension se recharge ou Chrome se rouvre). Absente : rien en cours.
+ */
+const phases = new Map<string, 'telechargement' | 'relance'>();
+export function phaseDeLaMiseAJour(chromeId: string): 'telechargement' | 'relance' | null {
+  return phases.get(chromeId) ?? null;
+}
 
 /** Le relais demande le paquet préparé pour lui : le zip, ou rien (jeton inconnu, expiré, ou d'un autre relais). */
 export function paquetPreparePour(appareilRelais: string, jeton: string, maintenant = Date.now()): Buffer | null {
@@ -206,6 +215,7 @@ export async function mettreAJourLExtension(compteId: string, chromeId: string, 
     return { ok: false, texte: 'Le programme du Mac est trop ancien pour mettre l’extension à jour : rejouez une fois sa commande d’installation (Réglages › Extension).' };
   }
   enCours.add(chromeId);
+  phases.set(chromeId, 'telechargement');
   bus.emit({ type: 'extension.change' });
   try {
     const { jeton, empreinte } = await preparerLePaquet(relais.appareilId);
@@ -224,6 +234,7 @@ export async function mettreAJourLExtension(compteId: string, chromeId: string, 
       },
       150_000,
     );
+    phases.set(chromeId, 'relance');
     if (facon === 'extension') {
       const { demanderAuChrome } = await import('./extension-chrome.js');
       await demanderAuChrome(chromeId, 'se_recharger', {}, 15_000).catch(() => {});
@@ -248,6 +259,7 @@ export async function mettreAJourLExtension(compteId: string, chromeId: string, 
     return { ok: false, texte: `Mise à jour impossible : ${texte}` };
   } finally {
     enCours.delete(chromeId);
+    phases.delete(chromeId);
     retours.delete(chromeId);
     bus.emit({ type: 'extension.change' });
   }

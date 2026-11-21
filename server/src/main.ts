@@ -36,7 +36,7 @@ import { archiverLesCartesEnLigneRestees } from './archive.js';
 import { rattraperLesBranchesPerdues } from './rattrapage-branches-perdues.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
 import { poserLesVerrousDeLaMachine, verrouillerLesDistants } from './depot-public.js';
-import { signalerLInstallation, surveillerLesTelechargements } from './relais-installations.js';
+import { signalerLInstallation } from './relais-installations.js';
 import { demarrerLaMesureDUsage } from './usage-installation.js';
 import { ensureSelfProject, rangerLeProjetDeLOutilSiHebergee, detacherLeProjetDuDepotPublic, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
@@ -232,7 +232,6 @@ async function main(): Promise<void> {
   // Le signe de vie quotidien vers l'équipe Beluga, et, chez elle, le relevé des téléchargements.
   signalerLInstallation();
   demarrerLaMesureDUsage();
-  surveillerLesTelechargements();
   // Chez l'auteur : le lot de compétences des serveurs clients, refait et déposé au central la nuit.
   planifierLeDepotDuLot();
 

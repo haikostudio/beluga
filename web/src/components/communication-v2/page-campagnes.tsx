@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Image as ImageIcon, Plus, RotateCcw, Trash2 } from '@/components/ui/icones';
+import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon, Plus, RotateCcw, Trash2 } from '@/components/ui/icones';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui';
+import { BoutonTroisPoints, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui';
 import { SilhouetteMarketing } from '@/components/silhouettes';
 import { PageV2 as PageEnPlace } from './page-v2';
 import { Apercu, Badge2, EcranVide, PastilleReseau, TableauDeCommunication, TitreDeLigne, dateCourteLocale, nombreLisible, type ColonneDeTableau } from '@/components/communication-v2/socle/pieces';
@@ -79,6 +79,8 @@ function ListeDesCampagnesV2() {
       rendu: (c) => <EtatDeLaCampagne campagne={c} />,
     },
     { cle: 'avancement', titre: t('Visuels faits'), valeur: (c) => (c.visuels?.prevus ? c.visuels.faits / c.visuels.prevus : 0), rendu: () => null },
+    /* LES TROIS POINTS DU SURVOL ouvrent le menu du clic droit, posé sous eux (`ouvrirLeMenuDeLaLigne`). */
+    { cle: 'menu', titre: '', largeur: 44, droite: true, rendu: () => <BoutonTroisPoints className="-my-1 ml-auto" onClick={ouvrirLeMenuDeLaLigne} data-v2-trois-points="" /> },
   ];
   /* UN SEUL BOUTON EN BAS, « CRÉER UNE NOUVELLE CAMPAGNE » (demande du 10/11/2026, carte « Volet des campagnes comme un
      plan ») : plus de champ du chef, plus de « Suivant : Connexion », plus de bouton en haut — ordinateur comme
@@ -129,14 +131,17 @@ function ListeDesCampagnesV2() {
         <ApercuAuSurvol lire={(id) => donnees.campagnes.find((c) => c.id === id)} rendu={(c) => <ApercuDeCampagne campagne={c} />} actif={vue === 'tableau'}>
         <MenuAuClicDroit
           lire={(id) => donnees.campagnes.find((c) => c.id === id) ?? null}
-          entree={(c) => ({
-            libelle: t('Supprimer'),
-            icone: <Trash2 className="h-3.5 w-3.5" />,
-            danger: true,
-            raison: c.agentAuTravail ? t('L’agent de cette campagne travaille : attendez qu’il ait fini pour la supprimer.') : null,
-            faire: () => setASupprimer(c),
-            repere: 'data-v2-menu-supprimer',
-          })}
+          entrees={(c) => [
+            { libelle: t('Ouvrir la campagne'), icone: <ExternalLink className="text-muted" />, raison: null, faire: () => aller('campagnes', c.id), repere: 'data-v2-menu-ouvrir' },
+            {
+              libelle: t('Supprimer'),
+              icone: <Trash2 />,
+              danger: true,
+              raison: c.agentAuTravail ? t('L’agent de cette campagne travaille : attendez qu’il ait fini pour la supprimer.') : null,
+              faire: () => setASupprimer(c),
+              repere: 'data-v2-menu-supprimer',
+            },
+          ]}
           repere="campagnes"
         >
           {/* LES CAMPAGNES EN CARTES (12/11/2026, capture #aacc : les rangées serrées étaient illisibles). Le concept de
@@ -273,7 +278,7 @@ function CorbeilleDesCampagnes({ campagnes }: { campagnes: CampagneALaCorbeille[
       {ouverte ? (
         <MenuAuClicDroit
           lire={(id) => campagnes.find((c) => c.id === id) ?? null}
-          entree={(c) => ({ libelle: t('Restaurer'), icone: <RotateCcw className="h-3.5 w-3.5" />, raison: null, faire: () => void restaurer(c.id), repere: 'data-v2-menu-restaurer' })}
+          entrees={(c) => [{ libelle: t('Restaurer'), icone: <RotateCcw className="text-muted" />, raison: null, faire: () => void restaurer(c.id), repere: 'data-v2-menu-restaurer' }]}
           repere="corbeille"
         >
           <ul className="flex min-w-0 flex-col overflow-hidden rounded-xl bg-surface" data-v2-liste-corbeille>
@@ -309,13 +314,23 @@ interface EntreeDuMenu {
 const APPUI_LONG_MS = 500;
 
 /**
+ * LES TROIS POINTS D'UNE LIGNE OUVRENT LE MENU DU CLIC DROIT, sous eux : ils rejouent un clic droit à leur coin bas
+ * gauche, que la zone (`MenuAuClicDroit`) reçoit comme les autres — un seul chemin, un seul menu.
+ */
+function ouvrirLeMenuDeLaLigne(event: React.MouseEvent<HTMLButtonElement>) {
+  event.stopPropagation();
+  const boite = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: boite.right - 190, clientY: boite.bottom + 4, button: 2 }));
+}
+
+/**
  * LE MENU AU CLIC DROIT D'UNE LIGNE DE CAMPAGNE, sur le modèle du menu des médias (`MenuDesMedias`) : un seul écouteur
  * pour la zone, qui lit l'identifiant sur `[data-communication-ligne]` ; le menu se pose au point du clic sur une ancre
  * invisible portée dans `body` ; au doigt, un appui long de 500 ms l'ouvre et le doigt levé n'ouvre pas la campagne ;
  * le relâché du clic droit est avalé (compétence « clic-droit-radix-qui-choisit-une-ligne »). Le clic simple garde son
  * rôle : il ouvre la campagne.
  */
-function MenuAuClicDroit<L>({ lire, entree, repere, children }: { lire: (id: string) => L | null; entree: (ligne: L) => EntreeDuMenu; repere: string; children: React.ReactNode }) {
+function MenuAuClicDroit<L>({ lire, entrees, repere, children }: { lire: (id: string) => L | null; entrees: (ligne: L) => EntreeDuMenu[]; repere: string; children: React.ReactNode }) {
   const [menu, setMenu] = React.useState<{ id: string; x: number; y: number } | null>(null);
   const ouvertA = React.useRef(0);
   const appui = React.useRef<{ x: number; y: number; minuterie: number } | null>(null);
@@ -336,7 +351,7 @@ function MenuAuClicDroit<L>({ lire, entree, repere, children }: { lire: (id: str
     if (Date.now() - ouvertA.current < 500) e.preventDefault();
   };
   const ligne = menu ? lire(menu.id) : null;
-  const e = ligne ? entree(ligne) : null;
+  const liste = ligne ? entrees(ligne) : null;
   return (
     <div
       className="contents"
@@ -378,7 +393,7 @@ function MenuAuClicDroit<L>({ lire, entree, repere, children }: { lire: (id: str
       onPointerCancel={lacher}
     >
       {children}
-      {menu && e
+      {menu && liste
         ? createPortal(
             <DropdownMenu open onOpenChange={(o) => !o && setMenu(null)} modal={false}>
               <DropdownMenuTrigger asChild>
@@ -393,21 +408,27 @@ function MenuAuClicDroit<L>({ lire, entree, repere, children }: { lire: (id: str
                   if (boutonDroit || Date.now() - ouvertA.current < 600) event.preventDefault();
                 }}
               >
-                <span className="block" {...(e.raison ? { title: e.raison, 'data-v2-raison-eteint': e.raison } : {})}>
-                  <DropdownMenuItem
-                    disabled={!!e.raison}
-                    onPointerUp={garde}
-                    onSelect={() => {
-                      setMenu(null);
-                      e.faire();
-                    }}
-                    className={cn(e.danger && 'text-danger data-[highlighted]:text-danger')}
-                    {...{ [e.repere]: e.raison ? 'eteint' : 'pret' }}
-                  >
-                    {e.icone}
-                    {e.libelle}
-                  </DropdownMenuItem>
-                </span>
+                {liste.map((e, rang) => (
+                  <React.Fragment key={e.repere}>
+                    {/* Le geste qui détruit vient en dernier, après un trait (le modèle commun des menus). */}
+                    {e.danger && rang > 0 ? <DropdownMenuSeparator /> : null}
+                    <span className="block" {...(e.raison ? { title: e.raison, 'data-v2-raison-eteint': e.raison } : {})}>
+                      <DropdownMenuItem
+                        disabled={!!e.raison}
+                        danger={e.danger}
+                        onPointerUp={garde}
+                        onSelect={() => {
+                          setMenu(null);
+                          e.faire();
+                        }}
+                        {...{ [e.repere]: e.raison ? 'eteint' : 'pret' }}
+                      >
+                        {e.icone}
+                        {e.libelle}
+                      </DropdownMenuItem>
+                    </span>
+                  </React.Fragment>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>,
             document.body,

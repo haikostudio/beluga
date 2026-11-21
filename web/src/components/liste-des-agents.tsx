@@ -83,6 +83,7 @@ import {
   construireFragment,
 } from '@beluga/shared';
 import {
+  BoutonTroisPoints,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -454,7 +455,8 @@ export function LigneAgent({
           </span>
           {/* DANS LA COLONNE, PAS DE BADGE : la date courte au bout du titre, la bulle dit le reste. */}
           {compacte ? (
-            <span className="flex shrink-0 group-data-[bande]/colonne:hidden">
+            /* AU SURVOL, LA DATE CÈDE SA PLACE AUX TROIS POINTS du menu (posés par-dessus, `BoutonTroisPoints`). */
+            <span className={cn('flex shrink-0 group-data-[bande]/colonne:hidden', !tactile && 'group-hover/ligne:invisible', !tactile && menuOuvert && 'invisible')}>
               <DateDeLAgent at={ligne.activite} courte />
             </span>
           ) : null}
@@ -480,7 +482,7 @@ export function LigneAgent({
          le trait des questions, jusqu'à la réponse — ouvrir la carte n'enlève que
          le gras du titre. Un `outline` : il ne décale pas la ligne d'un pixel. */
       className={cn(
-        'relative flex items-center rounded-lg',
+        'group/ligne relative flex items-center rounded-lg',
         etat === 'a-vous' && 'contour-de-question',
         /* UN AGENT DÉJÀ MIS EN LIGNE S'EFFACE À 60 % (demande du 31/10/2026) — sauf la carte ouverte, qui reste lisible. */
         etat === 'en-ligne' && !ouverte && !zoneEnCours && !rangee && 'opacity-60',
@@ -517,6 +519,19 @@ export function LigneAgent({
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform motion-reduce:transition-none', filles.ouvert && 'rotate-90')} />
           )}
         </button>
+      ) : null}
+      {/* LES TROIS POINTS DU SURVOL ouvrent le menu du clic droit, au même endroit (coin haut droit de la ligne). Au
+          doigt, l'appui long reste le geste : pas de bouton sur un écran tactile. */}
+      {!tactile ? (
+        <BoutonTroisPoints
+          ouvert={menuOuvert}
+          className={cn('absolute top-1/2 h-6 w-6 -translate-y-1/2 bg-raised group-data-[bande]/colonne:hidden [@media(hover:none)]:hidden', filles ? 'right-7' : 'right-1.5')}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMenu(!menuOuvert);
+          }}
+          data-menu-agent={carte.id}
+        />
       ) : null}
       {menuOuvert || menuMonte ? (
         <MenuCarte card={carte} ancrage="invisible" open={menuOuvert} onOpenChange={onMenu} agentActif={ligne.auTravail} />

@@ -110,7 +110,7 @@ function basDeLEnteteAffichee(hauteur: number): number {
     if (vue.visibility === 'hidden' || vue.display === 'none') continue;
     bas = Math.max(bas, r.bottom);
   }
-  const banniere = document.querySelector('[data-banniere-extension]')?.getBoundingClientRect();
+  const banniere = document.querySelector('[data-bande-du-haut]')?.getBoundingClientRect();
   if (banniere && banniere.height > 0) bas = Math.max(bas, banniere.bottom);
   return bas;
 }

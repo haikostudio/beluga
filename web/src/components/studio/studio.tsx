@@ -74,6 +74,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
@@ -1187,16 +1188,18 @@ export function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="sm:w-[200px]">
-                <DropdownMenuItem className="gap-2.5" onSelect={() => setRenommer(true)} data-studio-renommer>
-                  <Pencil className="h-3.5 w-3.5 text-muted" />
+                <DropdownMenuItem onSelect={() => setRenommer(true)} data-studio-renommer>
+                  <Pencil className="text-muted" />
                   {t('Renommer')}
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2.5" disabled={agentTravaille} onSelect={() => void dupliquer()} data-studio-dupliquer>
-                  <Copy className="h-3.5 w-3.5 text-muted" />
+                <DropdownMenuItem disabled={agentTravaille} onSelect={() => void dupliquer()} data-studio-dupliquer>
+                  <Copy className="text-muted" />
                   {t('Dupliquer')}
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2.5" disabled={agentTravaille} onSelect={() => setSupprimer(true)} data-studio-supprimer>
-                  <Trash2 className="h-3.5 w-3.5 text-muted" />
+                {/* SUPPRIMER SEUL EN DERNIER, APRÈS UN TRAIT, EN ROUGE (MEM-7808). */}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem danger disabled={agentTravaille} onSelect={() => setSupprimer(true)} data-studio-supprimer>
+                  <Trash2 />
                   {t('Supprimer')}
                 </DropdownMenuItem>
               </DropdownMenuContent>

@@ -23,7 +23,13 @@ const AIR_AU_DESSUS_DE_JARVIS = 12;
  * droit, dans le coin du rond. Tant que l'un d'eux est ouvert, le rond se pose au-dessus de lui ET de sa pile de bulles,
  * jamais dessous. Relevé quatre fois par seconde seulement pendant qu'une surface de Jarvis existe.
  */
-function useBasAuDessusDeJarvis(): number | null {
+/**
+ * …ET AU-DESSUS DU PIED D'UN VOLET (carte « Extension, rapport SEO-GEO et menus », 21/11/2026) : le bouton pleine
+ * largeur d'un pied de volet (`[data-pied-du-volet]`) passait sous le rond au coin bas droit. Un pied visible qui
+ * occupe la colonne du rond, près du bas de l'écran, le fait remonter au-dessus de lui : rien ne recouvre jamais un
+ * bouton de pied.
+ */
+function useBasAuDessusDeJarvis(coin = 16, largeur = 48): number | null {
   const [bas, setBas] = React.useState<number | null>(null);
   React.useEffect(() => {
     const relever = () => {
@@ -35,6 +41,13 @@ function useBasAuDessusDeJarvis(): number | null {
         haut = Math.min(haut, boite.top);
         const pile = surface.querySelector<HTMLElement>('[data-bulles-du-direct]')?.getBoundingClientRect();
         if (pile && pile.height > 0) haut = Math.min(haut, pile.top);
+      }
+      const gaucheDuRond = window.innerWidth - coin - largeur;
+      for (const pied of document.querySelectorAll<HTMLElement>('[data-pied-du-volet]')) {
+        const boite = pied.getBoundingClientRect();
+        if (boite.width <= 0 || boite.height <= 0) continue;
+        if (boite.right <= gaucheDuRond || boite.bottom < window.innerHeight - 160) continue;
+        haut = Math.min(haut, boite.top);
       }
       const suivant = Number.isFinite(haut) ? Math.max(0, Math.round(window.innerHeight - haut + AIR_AU_DESSUS_DE_JARVIS)) : null;
       setBas((b) => (b === suivant ? b : suivant));
@@ -48,7 +61,7 @@ function useBasAuDessusDeJarvis(): number | null {
 
 /** UN ROND DU COIN, posé seul à `coin` px du bord droit. `toujours` reste lu par ses appelants (il tourne). */
 export function RondDeLaRangee({ coin, children }: { toujours?: boolean; coin: number; children: React.ReactNode }) {
-  const auDessus = useBasAuDessusDeJarvis();
+  const auDessus = useBasAuDessusDeJarvis(coin);
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div

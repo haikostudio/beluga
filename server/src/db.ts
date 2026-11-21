@@ -5640,6 +5640,35 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS archivage_mouvements_par_projet ON archivage_mouvements(project_id, quand);
     `,
   },
+  {
+    id: 185,
+    name: 'droits-des-ordinateurs',
+    siTable: ['ordinateurs'],
+    /*
+     * LES DROITS DE BELUGA SUR CHAQUE ORDINATEUR (carte « Piloter le Mac depuis Beluga », 21/11/2026) : un JSON
+     * { applications, reglages, pilotage_apps, ecran, terminal } réglé depuis Réglages › Extension. NULL vaut les
+     * défauts (tout allumé sauf le terminal, `defautsDUnOrdinateur`) : les ordinateurs déjà reliés les reçoivent sans
+     * rien réécrire. Additif.
+     */
+    sql: `
+      ALTER TABLE ordinateurs ADD COLUMN droits TEXT;
+    `,
+  },
+  {
+    id: 186,
+    name: 'tickets-de-la-version-gratuite',
+    siTable: ['demandes', 'users'],
+    /*
+     * LA FIN DE LA VERSION GRATUITE (carte « Fin de la version gratuite », 21/11/2026) : les anciens tickets des
+     * installations portaient l'étiquette « Open source » et le compte qui les signe le nom « Open source ».
+     * Les deux deviennent « Version gratuite » ; l'IDENTIFIANT du compte (`relais-open-source`) reste, c'est par lui
+     * que la base le retrouve (`COMPTE_DES_TICKETS`).
+     */
+    sql: `
+      UPDATE demandes SET data = replace(data, '"Open source"', '"Version gratuite"') WHERE data LIKE '%"Open source"%';
+      UPDATE users SET nom_affiche = 'Version gratuite' WHERE identifiant = 'relais-open-source' AND nom_affiche = 'Open source';
+    `,
+  },
 ];
 
 export function openDb(): DB {

@@ -158,7 +158,15 @@ export function Tableau<L>({
   grille,
   sansMenuDeTri = false,
   apresLesLignes,
+  onClicDroit,
 }: {
+  /**
+   * LE CLIC DROIT SUR UNE LIGNE (carte « Extension, rapport SEO-GEO et menus », 21/11/2026) : il ouvre le MÊME menu que
+   * les trois points du survol de cette ligne — la page pose ces trois points dans une colonne à elle et tient l'état
+   * « menu ouvert ». Le tableau ne fait qu'avaler le menu du navigateur et le relâchement du bouton droit, qui
+   * choisirait sinon l'entrée posée sous le curseur (compétence « clic-droit-radix-qui-choisit-une-ligne »).
+   */
+  onClicDroit?: (ligne: L) => void;
   /**
    * CE QUI SUIT LES LIGNES, AVANT LE PIED (16/11/2026, « Tableaux de bord », capture #39779) : un bouton « charger la
    * suite », une erreur. Posé SOUS le tableau, il gardait le pied collé à distance du bas de l'écran en bout de liste ;
@@ -315,6 +323,17 @@ export function Tableau<L>({
   const basDuPied = useBasDeLaZoneQuiDefile(noeudDuPied);
   const reserveDroite = useReserveDesBoutonsFlottants(noeudDuPied, !telephone);
   const montrerLePied = lignes.length > 0 && (pied === 'toujours' || (pied === 'si-besoin' && (triees.length > TAILLES_DE_PAGE[0] || nbFiltres > 0)));
+
+  const clicDroitSur = onClicDroit
+    ? (ligne: L) => (event: React.MouseEvent) => {
+        event.preventDefault();
+        const avaler = (relache: PointerEvent) => {
+          if (relache.button === 2) relache.stopPropagation();
+        };
+        document.addEventListener('pointerup', avaler, { capture: true, once: true });
+        onClicDroit(ligne);
+      }
+    : null;
 
   const ouvrirLaLigne = onLigne
     ? (ligne: L) => (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -558,6 +577,7 @@ export function Tableau<L>({
                 tabIndex={onLigne ? 0 : undefined}
                 onClick={ouvrir ?? undefined}
                 onKeyDown={ouvrir ?? undefined}
+                onContextMenu={clicDroitSur?.(ligne)}
                 className={cn(
                   'flex min-w-0 flex-col overflow-hidden rounded-2xl bg-surface text-[13px] text-text transition-colors',
                   onLigne && 'cursor-pointer hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teinte/40',
@@ -608,6 +628,7 @@ export function Tableau<L>({
               tabIndex={onLigne ? 0 : undefined}
               onClick={ouvrir ?? undefined}
               onKeyDown={ouvrir ?? undefined}
+              onContextMenu={clicDroitSur?.(ligne)}
               className={cn(
                 /* Une rangée empilée ne coupe pas non plus son texte : il passe à la ligne (adresse longue d'un site). */
                 'flex min-w-0 items-center gap-2.5 border-b border-faint/10 px-2 py-2 text-[13px] leading-snug text-text [overflow-wrap:anywhere] [&>.flex-1:empty]:hidden [&_.truncate]:overflow-visible [&_.truncate]:whitespace-normal',
@@ -758,6 +779,7 @@ export function Tableau<L>({
                 <tr
                   onClick={ouvrir ?? undefined}
                   onKeyDown={ouvrir ?? undefined}
+                  onContextMenu={clicDroitSur?.(ligne)}
                   tabIndex={onLigne ? 0 : undefined}
                   className={cn(
                     'group/ligne text-text',

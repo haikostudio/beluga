@@ -268,10 +268,9 @@ export function accepterPropositionsDeLaNuit(
 
     const decided: TaskProposal = { ...proposal, labels, decision: 'accepted', cardId: card.id, decidedAt: Date.now() };
     store.saveProposal(messageId, card.projectId, decided);
-    const updatedMessage = store.saveMessage({
-      ...message,
-      proposals: message.proposals.map((p) => (p.id === proposal.id ? decided : p)),
-    });
+    // Relu à l'écriture : seule CETTE proposition change dans le message (`appliquerDecisionAuMessage`).
+    const updatedMessage = store.appliquerDecisionAuMessage(messageId, decided);
+    if (!updatedMessage) continue;
     parMessage.set(messageId, updatedMessage);
     bus.emit({ type: 'message.upsert', message: updatedMessage });
   }

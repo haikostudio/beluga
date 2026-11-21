@@ -934,21 +934,21 @@ export async function commandeDeLEspaceClient(
             espace.nonLusDesDemandes(client.projets, compte.id),
             fil.nonLus,
           );
-          const openSource = estLeCompteDesTickets(client.identifiant);
+          const versionGratuite = estLeCompteDesTickets(client.identifiant);
           return {
             ...compteVisible(client),
             actif: client.actif,
             derniereEntree: client.derniereEntree,
             fil,
             compteurs,
-            openSource,
+            versionGratuite,
             // Ce que le client VOIT, à l'identique : toutes les demandes de ses
             // projets. Montrer autre chose ici, c'est se tromper sur son écran.
-            // Le compte des tickets open source n'est l'écran de personne : il
+            // Le compte des anciens tickets de la version gratuite n'est l'écran de personne : il
             // ne montre que les tickets qu'il porte.
             demandes: client.projets
               .flatMap((projectId) => espace.demandesAffichees(projectId, compte.id))
-              .filter((d) => !openSource || d.auteurId === client.id),
+              .filter((d) => !versionGratuite || d.auteurId === client.id),
           };
         }),
       };
@@ -1029,7 +1029,7 @@ export async function commandeDeLEspaceClient(
               fil.dernier ?? 0,
             ) || undefined,
             interactions: joursDInteractions(echanges, periode.debut, periode.fin),
-            openSource: estLeCompteDesTickets(client.identifiant),
+            versionGratuite: estLeCompteDesTickets(client.identifiant),
           };
         });
       return { fiches: fichesRangees(fiches), debut: periode.debut, fin: periode.fin, jours: periode.jours };

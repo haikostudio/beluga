@@ -421,7 +421,7 @@ export function AccueilMessagerie({
   onOuvrirClient: (clientId: string) => void;
   /** Ouvrir une demande chez son client. */
   onOuvrirDemande?: (clientId: string, demandeId: string) => void;
-  /** Les options de la page : la gestion des comptes, le filtre payants / open source. */
+  /** Les options de la page : la gestion des comptes. */
   action?: React.ReactNode;
 }) {
   const [masques, setMasques] = React.useState<Set<string>>(() => new Set());
@@ -491,8 +491,8 @@ export function AccueilMessagerie({
       data-accueil-messagerie={fiches.length}
       data-periode-jours={periode.jours}
     >
-      {/* LA PÉRIODE, LA RECHERCHE ET LA BASCULE MONTENT DANS LA RANGÉE DU TITRE ; « Gérer les comptes » et le filtre
-          payants / open source sont des lignes du menu d'options. */}
+      {/* LA PÉRIODE, LA RECHERCHE ET LA BASCULE MONTENT DANS LA RANGÉE DU TITRE ; « Gérer les comptes » est une
+          ligne du menu d’options. */}
       <RechercheDuService valeur={recherche} onChange={setRecherche} placeholder={t('Rechercher une demande…')} data-messagerie-recherche />
       <BasculeDePage>
         <BasculeTableauCartes repere="vue-de-la-messagerie" valeur={vue} onChange={setVue} />

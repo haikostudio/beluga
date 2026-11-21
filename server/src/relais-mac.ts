@@ -597,7 +597,7 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
   const r = relais().find((x) => x.id === appareilId);
   const ordinateur = r?.ordinateurId ? ligneDOrdinateur(compteId, r.ordinateurId) : null;
   const chromes = r?.ordinateurId ? await chromesDeLOrdinateur(compteId, r.ordinateurId) : [];
-  const { retardsDuCompte } = await import('./mise-a-jour-extension.js');
+  const { retardsDuCompte, phaseDeLaMiseAJour } = await import('./mise-a-jour-extension.js');
   const retards = await retardsDuCompte(compteId);
   const a = archiveDeConnect();
   return {
@@ -607,6 +607,8 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
       version: c.version,
       aJour: versionAuMoins(c.version, VERSION_EXTENSION_CHROME),
       enCours: retards.find((x) => x.chromeId === c.id)?.enCours ?? false,
+      /* L'étape de la mise à jour en cours, pour les trois étapes cochées de la fenêtre de Beluga Connect. */
+      phase: phaseDeLaMiseAJour(c.id),
       attente: c.agentsAuTravail > 0 ? 'agent' : null,
     })),
     versionExtension: VERSION_EXTENSION_CHROME,

@@ -17,7 +17,7 @@
  * belugabuild, `installer_version`) pose `BELUGA_HEBERGE=1` dans
  * `/etc/beluga.env`, et le retire quand le client récupère son installation.
  * Ce démon lisait seulement `BELUGA_OFFRE` : tout serveur Beluga Cloud se
- * déclarait donc « open source » au relais. Les deux noms sont acceptés, aucun
+ * déclarait donc « gratuit » au relais. Les deux noms sont acceptés, aucun
  * ne se retire d'un seul côté.
  */
 

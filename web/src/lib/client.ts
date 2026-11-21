@@ -3890,6 +3890,9 @@ if (import.meta.env.MODE !== 'production') {
      * rejouent les deux réponses appauvries qu'une reconnexion peut produire —
      * ni l'une ni l'autre ne doit changer l'apparence.
      */
+    // Les décisions attendues, telles que le démon les diffuse : permet de juger la FENÊTRE D'ACCORD d'un ordinateur
+    // (terminal, suppression) sans faire tourner un agent ni toucher un vrai Mac (carte « Piloter le Mac depuis Beluga »).
+    decisions: (decisions: DecisionAttendue[]) => client.handleEssai({ type: 'attention', byProject: {}, decisions } as never),
     reconnexion: (options?: { sansReglages?: boolean; sansProjets?: boolean }) => {
       const etat = client.lireEtat();
       if (!etat.settings) return false;

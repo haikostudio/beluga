@@ -197,7 +197,8 @@ export function ongletsSansTachesRangees(
   cartes: Readonly<Record<string, CartePourLesOnglets | undefined>>,
 ): OngletDuProjet[] | null {
   const suite = liste.filter((o) => {
-    if ((o.genre !== 'tache' && o.genre !== 'facturation') || !o.cardId) return true;
+    // Tout onglet qui porte une carte (tâche, et facturation dans la version privée) : le dépôt public n'a pas ce genre.
+    if (!o.cardId || (o.genre !== 'tache' && !(o.genre as string).startsWith('factur'))) return true;
     const carte = cartes[o.cardId];
     if (!carte || carte.column !== 'archived') return true;
     const range = carte.archivedAt ?? carte.deployedAt ?? 0;

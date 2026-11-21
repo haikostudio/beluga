@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FileText, X } from '@/components/ui/icones';
+import { ArrowLeft, FileText, X } from '@/components/ui/icones';
 import { ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 
@@ -47,6 +47,9 @@ export function PanneauDuVolet({
   children,
   pied,
   gestes,
+  onRetour,
+  libelleRetour,
+  sousEntete,
   ...reste
 }: {
   titre: string;
@@ -58,11 +61,28 @@ export function PanneauDuVolet({
   pied?: React.ReactNode;
   /** LES GESTES DE L'ENTÊTE, posés avant la croix : copier, télécharger (le plan, 18/11/2026). */
   gestes?: React.ReactNode;
+  /** UNE SOUS-VUE DU VOLET (le référencement dans le dossier marketing, 21/11/2026) : une flèche de retour remplace l'icône. */
+  onRetour?: () => void;
+  libelleRetour?: string;
+  /** CE QUI RESTE SOUS L'ENTÊTE, hors de la zone qui défile (une barre d'onglets). */
+  sousEntete?: React.ReactNode;
 } & Record<`data-${string}`, string | undefined>) {
   return (
     <div className="flex h-full min-h-0 flex-col" {...reste}>
       <div className="flex shrink-0 items-center gap-2 px-5 pb-2 pt-3">
-        <FileText className="h-4 w-4 text-muted" />
+        {onRetour ? (
+          <button
+            type="button"
+            onClick={onRetour}
+            title={libelleRetour ?? t('Retour')}
+            className="-ml-2 flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text sm:h-8 sm:w-8"
+            data-retour-du-volet
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+        ) : (
+          <FileText className="h-4 w-4 text-muted" />
+        )}
         <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{titre}</span>
         {gestes ? <div className="flex shrink-0 items-center gap-1" data-gestes-du-volet>{gestes}</div> : null}
         <button
@@ -75,9 +95,11 @@ export function PanneauDuVolet({
           <X className="h-4 w-4" />
         </button>
       </div>
+      {sousEntete ? <div className="shrink-0 px-5 pb-2">{sousEntete}</div> : null}
       <ZoneDefilement className="px-5 pb-6">{children}</ZoneDefilement>
       {pied ? (
-        <div className="shrink-0 px-5 pb-4 pt-2" data-pied-du-volet>
+        /* LE PIED D'UN VOLET EST PLEINE LARGEUR (21/11/2026) : son bouton prend toute la place, jamais deux côte à côte. */
+        <div className="shrink-0 px-5 pb-4 pt-2 [&>button]:w-full" data-pied-du-volet>
           {pied}
         </div>
       ) : null}

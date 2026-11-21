@@ -37,7 +37,13 @@ import {
   MAX_PISTES_D_EXEMPLE,
   NATURES_D_EXEMPLE,
   avecLeStyleDuProduit,
+  avecLesIconesReelles,
   enteteDeMaquette,
+  refusDeFourneeMelangee,
+  releveLu,
+  SCRIPT_DU_RELEVE,
+  type ReleveDemande,
+  type TraceDIcone,
   jetonsDuTheme,
   lettreDuRang,
   nomDeLExemple,
@@ -45,7 +51,9 @@ import {
   type PieceDUnLotDExemples,
   type ThemeDeMaquette,
 } from '@beluga/shared';
-import { ROOT } from './config.js';
+import crypto from 'node:crypto';
+import { CONFIG, ROOT } from './config.js';
+import { getDb } from './db.js';
 
 type NatureDExemple = (typeof NATURES_D_EXEMPLE)[number];
 import * as store from './store.js';
@@ -68,6 +76,10 @@ export interface PisteDExemple {
   consigne?: string;
   texte?: string;
   voix?: string;
+  /** La zone de l'écran que montre la piste : toutes les pistes d'un appel montrent la même (une fournée = un choix). */
+  zone?: string;
+  /** Nature « page » : le relevé de l'écran réel, à retoucher (`releveLu`). */
+  depuis?: ReleveDemande | { refus: string };
 }
 
 export interface ResultatDExemples {
@@ -129,6 +141,8 @@ export function pistesLues(brut: unknown): PisteDExemple[] {
       consigne: typeof p?.consigne === 'string' ? p.consigne.trim().slice(0, 2000) : undefined,
       texte: typeof p?.texte === 'string' ? p.texte.trim().slice(0, 600) : undefined,
       voix: typeof p?.voix === 'string' ? p.voix.trim() : undefined,
+      zone: typeof p?.zone === 'string' ? p.zone.trim().slice(0, 120) : undefined,
+      ...(p?.depuis && typeof p.depuis === 'object' ? { depuis: releveLu(p.depuis) } : {}),
     }))
     .filter((p) => p.titre);
 }
@@ -171,6 +185,70 @@ export function styleDuProduit(theme: ThemeDeMaquette, racine = ROOT): string {
   return entete;
 }
 
+/** Le tracé réel d'une icône Lucide (`node_modules/lucide-react`), lu une fois. */
+const tracesLus = new Map<string, TraceDIcone | null>();
+function traceDeLucide(nom: string): TraceDIcone | null {
+  if (tracesLus.has(nom)) return tracesLus.get(nom)!;
+  let trace: TraceDIcone | null = null;
+  try {
+    const texte = fs.readFileSync(path.join(ROOT, 'node_modules', 'lucide-react', 'dist', 'esm', 'icons', `${nom}.js`), 'utf8');
+    const brut = /createLucideIcon\("[^"]+",\s*(\[[\s\S]*?\])\);/.exec(texte)?.[1];
+    /* Un tableau de littéraux (balises et attributs) : relu en JSON après avoir mis les clés entre guillemets. */
+    if (brut) trace = JSON.parse(brut.replace(/([{,]\s*)([a-zA-Z][\w-]*)\s*:/g, '$1"$2":')) as TraceDIcone;
+  } catch {
+    trace = null;
+  }
+  tracesLus.set(nom, trace);
+  return trace;
+}
+
+/**
+ * LE RELEVÉ DE L'ÉCRAN RÉEL (méthode prouvée au cadrage de la carte « Extension, rapport SEO-GEO et menus »,
+ * 21/11/2026) : une session d'une heure posée HACHÉE puis retirée, la vraie application ouverte sur son adresse,
+ * l'écran FIGÉ (la racine React clonée : sinon React redessine et efface les retouches), les ronds flottants et la bande
+ * du haut masqués, les retouches posées aux VRAIES classes (la feuille compilée est déjà chargée), puis la photo de la
+ * zone seule ou de l'écran entier.
+ */
+async function releverLEcran(navigateur: import('playwright').Browser, r: ReleveDemande, fichier: string): Promise<string | { refus: string }> {
+  const jeton = crypto.randomBytes(24).toString('hex');
+  const hache = crypto.createHash('sha256').update(jeton).digest('hex');
+  const db = getDb();
+  let admin: string | null = null;
+  try {
+    admin = (db.prepare("SELECT id FROM users WHERE role = 'admin' AND actif = 1 ORDER BY cree_le LIMIT 1").get() as { id?: string } | undefined)?.id ?? null;
+  } catch {
+    admin = null;
+  }
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label, user_id) VALUES (?, ?, ?, ?, ?)').run(hache, Date.now(), Date.now() + 3600_000, 'maquette-relevee', admin);
+  const contexte = await navigateur.newContext({ viewport: { width: r.largeur, height: r.hauteur }, deviceScaleFactor: 2, colorScheme: r.theme === 'clair' ? 'light' : 'dark', serviceWorkers: 'block' });
+  try {
+    await contexte.addCookies([{ name: 'beluga_session', value: jeton, domain: 'localhost', path: '/' }]);
+    const page = await contexte.newPage();
+    await page.goto(`http://localhost:${CONFIG.port}/#${r.adresse}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    const pret = await page.waitForSelector(r.attendre, { state: 'visible', timeout: 25_000 }).then(() => true, () => false);
+    if (!pret) return { refus: `l’écran « #${r.adresse} » n’a pas montré « ${r.attendre} » : vérifie l’adresse et le sélecteur (zone introuvable)` };
+    await page.waitForTimeout(900);
+    const retouches = r.remplacer.map((x) => ({ selecteur: x.selecteur, html: avecLesIconesReelles(x.html, traceDeLucide) }));
+    const manquants = (await page.evaluate(`(${SCRIPT_DU_RELEVE})(${JSON.stringify({ theme: r.theme, retouches })})`)) as string[];
+    if (manquants.length) return { refus: `retouche impossible : ${manquants.map((m) => `« ${m} »`).join(', ')} n’existe pas sur l’écran réel` };
+    await page.evaluate('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => undefined);
+    await page.waitForTimeout(300);
+    if (r.selecteur) {
+      const zone = page.locator(r.selecteur).first();
+      if (!(await zone.count())) return { refus: `la zone « ${r.selecteur} » a disparu après les retouches` };
+      await zone.screenshot({ path: fichier });
+    } else {
+      await page.screenshot({ path: fichier, fullPage: false });
+    }
+    return fichier;
+  } catch (err: any) {
+    return { refus: `le relevé de l’écran a échoué (${String(err?.message ?? err).slice(0, 160)})` };
+  } finally {
+    await contexte.close().catch(() => {});
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(hache);
+  }
+}
+
 /** Une page HTML photographiée par le Chrome du système, à la taille réelle demandée par sa piste. */
 async function photographierLesPages(pistes: PisteDExemple[], dossier: string, theme: ThemeDeMaquette = 'sombre'): Promise<(string | { refus: string })[]> {
   const entete = styleDuProduit(theme);
@@ -179,8 +257,12 @@ async function photographierLesPages(pistes: PisteDExemple[], dossier: string, t
   try {
     const sorties: (string | { refus: string })[] = [];
     for (const [i, piste] of pistes.entries()) {
+      if (piste.depuis) {
+        sorties.push('refus' in piste.depuis ? { refus: piste.depuis.refus } : await releverLEcran(navigateur, piste.depuis, path.join(dossier, `exemple-${i + 1}.png`)));
+        continue;
+      }
       if (!piste.html?.trim()) {
-        sorties.push({ refus: 'il manque « html » : la page entière qui montre cette piste' });
+        sorties.push({ refus: 'il manque « html » (la page entière) ou « depuis » (le relevé de l’écran réel, à retoucher)' });
         continue;
       }
       const page = await navigateur.newPage({ viewport: { width: piste.largeur ?? LARGEUR_PAGE, height: piste.hauteur ?? HAUTEUR_PAGE }, deviceScaleFactor: 2 });
@@ -432,6 +514,9 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
   }
   const pistes = pistesLues(args.pistes);
   if (!pistes.length) return { ok: false, text: `Il faut « pistes » : 1 à ${MAX_PISTES_D_EXEMPLE} pistes, chacune avec son « titre » (et « html », « consigne » ou « texte » selon la nature).` };
+  /* UNE FOURNÉE = UN SEUL CHOIX (21/11/2026) : des pistes de zones différentes feraient une question « tout mélangé ». */
+  const melange = refusDeFourneeMelangee(pistes);
+  if (melange) return { ok: false, text: melange };
   const card = ctx.cardId ? store.getCard(ctx.cardId) : null;
   if (card?.parcours?.realisationSouhaitee) {
     return { ok: false, text: 'Cette carte est en mode caméra : son questionnaire illustré a déjà ses exemples. N’ajoute pas de question d’exemples.' };

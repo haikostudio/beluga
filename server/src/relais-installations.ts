@@ -7,11 +7,10 @@ import zlib from 'node:zlib';
 import {
   ADRESSE_DU_RELAIS,
   COMPTE_DES_TICKETS,
-  ETIQUETTE_OPEN_SOURCE,
+  REFUS_DES_TICKETS,
   LectureDesReponses,
   ROUTES_DU_RELAIS,
   SigneDeVie,
-  TicketDuRelais,
   PERIODE_DU_SIGNE_DE_VIE_MS,
   agentEstUnRobot,
   colonneClose,
@@ -264,6 +263,11 @@ export async function appelerLeRelais<T>(route: string, corps: unknown): Promise
   }
 }
 
+/** L'adresse de l'administrateur, seulement s'il a accepté de la partager. */
+export function courrielPartageIci(): string | undefined {
+  return courrielAPartager(identiteDInstallation().partageDuCourriel, courrielDeLAdministrateur());
+}
+
 /** Envoie le signe de vie du jour. Le premier rend le secret qui signera la suite. */
 export async function envoyerLeSigneDeVie(): Promise<{ ok: boolean; raison?: string }> {
   const identite = lireIdentite();
@@ -291,7 +295,7 @@ export function identiteAuRelais(): { id: string; secret?: string } {
 }
 
 /** Le secret de l'installation, demandé au relais s'il manque encore. */
-async function secretAssure(): Promise<{ id: string; secret: string } | { raison: string }> {
+export async function secretAssure(): Promise<{ id: string; secret: string } | { raison: string }> {
   let identite = lireIdentite();
   if (!identite.secret) {
     const r = await envoyerLeSigneDeVie();
@@ -299,24 +303,6 @@ async function secretAssure(): Promise<{ id: string; secret: string } | { raison
     identite = lireIdentite();
   }
   return identite.secret ? { id: identite.id, secret: identite.secret } : { raison: 'Le relais n’a pas reconnu cette installation.' };
-}
-
-/** « Contacter l'équipe Beluga » : le ticket part, l'équipe le reçoit dans son espace client. */
-export async function envoyerUnTicket(titre: string, message: string): Promise<{ ok: boolean; raison?: string }> {
-  const cle = await secretAssure();
-  if ('raison' in cle) return { ok: false, raison: cle.raison };
-  const ticket = TicketDuRelais.safeParse({ installation: cle.id, secret: cle.secret, titre, message });
-  if (!ticket.success) return { ok: false, raison: 'Un titre et un message sont nécessaires.' };
-  const r = await appelerLeRelais<{ id: string }>(ROUTES_DU_RELAIS.ticket, ticket.data);
-  return r.ok ? { ok: true } : { ok: false, raison: r.raison };
-}
-
-/** Les tickets de cette installation, réponses de l'équipe comprises. */
-export async function lireMesTickets(): Promise<{ ok: boolean; tickets: TicketRendu[]; raison?: string }> {
-  const identite = lireIdentite();
-  if (!identite.secret) return { ok: true, tickets: [] };
-  const r = await appelerLeRelais<{ tickets: TicketRendu[] }>(ROUTES_DU_RELAIS.reponses, { installation: identite.id, secret: identite.secret });
-  return r.ok ? { ok: true, tickets: r.reponse.tickets ?? [] } : { ok: false, tickets: [], raison: r.raison };
 }
 
 /** Ce que l'écran des réglages dit du relais, sur cette installation. */
@@ -457,58 +443,13 @@ export function recevoirUnSigneDeVie(brut: string, contexte: ContexteDAppel): Re
   return { statut: 200, corps: secretRendu ? { secret: secretRendu } : {} };
 }
 
-/** Le projet qui porte les tickets : celui de l'application elle-même. */
-function projetDesTickets(): string | null {
-  return store.listProjects(true).find((p) => p.isSelf)?.id ?? null;
-}
-
-/** Le compte « Open source » qui signe les tickets : un client suspendu, que personne ne peut ouvrir. */
-function compteDesTickets(projectId: string) {
-  const existant = compteParIdentifiant(COMPTE_DES_TICKETS.identifiant);
-  if (existant) return existant;
-  const { compte } = creerCompte(
-    { identifiant: COMPTE_DES_TICKETS.identifiant, role: 'client', nomAffiche: COMPTE_DES_TICKETS.nomAffiche, projets: [projectId] },
-    store.listProjects(true).map((p) => p.id),
-  );
-  // Le mot de passe tiré n'est gardé nulle part : le compte ne s'ouvre jamais.
-  return suspendreCompte(compte.id, true);
-}
-
-/** Un ticket reçu devient une demande « Open source » de l'espace client. */
-export function recevoirUnTicket(brut: string, contexte: ContexteDAppel): ReponseDuRelais {
-  const maintenant = Date.now();
-  if (agentEstUnRobot(contexte.userAgent)) return REFUS(403, 'Refusé.');
-  if (tropDAppels(contexte.ip, maintenant)) return REFUS(429, 'Trop d’appels, réessayez plus tard.');
-  const ticket = lireCorps(brut, TicketDuRelais);
-  if (!ticket) return REFUS(400, 'Ticket illisible.');
-  const connue = installationConnue(ticket.installation);
-  if (!connue || !secretJuste(connue, ticket.secret)) return REFUS(403, 'Cette installation ne se reconnaît pas.');
-  const projectId = projetDesTickets();
-  if (!projectId) return REFUS(503, 'L’équipe Beluga ne reçoit pas de tickets pour l’instant.');
-  const compte = compteDesTickets(projectId);
-  const court = ticket.installation.slice(0, 8);
-  const signature = [
-    `Installation ${court}`,
-    connue.pays ? `pays ${connue.pays}` : null,
-    connue.version ? `version ${connue.version}` : null,
-    connue.courriel ? connue.courriel : 'adresse non partagée',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const demande = espace.creerDemande(
-    { id: compte.id, nom: connue.courriel ?? `Installation ${court}`, role: 'client' },
-    {
-      projectId,
-      titre: ticket.titre,
-      description: `${ticket.message}\n\n— ${signature}`,
-      etiquettes: [ETIQUETTE_OPEN_SOURCE],
-    },
-  );
-  getDb().prepare('INSERT INTO relais_tickets (demande_id, installation, cree_le) VALUES (?, ?, ?)').run(demande.id, ticket.installation, maintenant);
-  bus.emit({ type: 'espace.demande', projectId, demande, auteurId: demande.auteurId });
-  rafraichirLesCompteursDeHaiko();
-  log.info(`relais : ticket reçu de l'installation ${court}`);
-  return { statut: 200, corps: { id: demande.id } };
+/**
+ * PLUS AUCUN TICKET N'EST REÇU (fin de la version gratuite, 21/11/2026) : le support
+ * passe par l'offre hébergée. Les tickets déjà reçus restent lisibles (`rendreLesReponses`).
+ */
+export function recevoirUnTicket(_brut: string, contexte: ContexteDAppel): ReponseDuRelais {
+  if (tropDAppels(contexte.ip, Date.now())) return REFUS(429, 'Trop d’appels, réessayez plus tard.');
+  return REFUS(410, REFUS_DES_TICKETS);
 }
 
 /** Les tickets d'une installation, tels qu'elle les relit : sa question, puis le fil. */
@@ -589,39 +530,4 @@ export function installationsRecues(filtre: FiltreDePaiement): {
     .map((t) => ({ jour: t.jour, clones: t.clones, clonesUniques: t.clones_uniques, vues: t.vues, vuesUniques: t.vues_uniques }))
     .reverse();
   return { lignes, resume: resumerLesInstallations(lignes, maintenant), telechargements };
-}
-
-/**
- * LES TÉLÉCHARGEMENTS DU DÉPÔT PUBLIC, relevés chez GitHub une fois par jour.
- * GitHub ne garde que quatorze jours, sans pays ni identité : chaque relevé
- * réécrit les jours qu'il couvre, et la base garde l'histoire au-delà.
- */
-export async function releverLesTelechargements(): Promise<void> {
-  const lire = async (genre: 'clones' | 'views') => {
-    const { stdout } = await execFileAsync('gh', ['api', `repos/haikostudio/beluga/traffic/${genre}`], { timeout: 30000 });
-    return (JSON.parse(stdout) as { [cle: string]: { timestamp: string; count: number; uniques: number }[] })[genre] ?? [];
-  };
-  try {
-    const [clones, vues] = await Promise.all([lire('clones'), lire('views')]);
-    const parJour = new Map<string, TelechargementsDuJour>();
-    const ligne = (jour: string) => parJour.get(jour) ?? { jour, clones: 0, clonesUniques: 0, vues: 0, vuesUniques: 0 };
-    for (const c of clones) parJour.set(c.timestamp.slice(0, 10), { ...ligne(c.timestamp.slice(0, 10)), clones: c.count, clonesUniques: c.uniques });
-    for (const v of vues) parJour.set(v.timestamp.slice(0, 10), { ...ligne(v.timestamp.slice(0, 10)), vues: v.count, vuesUniques: v.uniques });
-    const ecrire = getDb().prepare(
-      `INSERT INTO relais_telechargements (jour, clones, clones_uniques, vues, vues_uniques) VALUES (@jour, @clones, @clonesUniques, @vues, @vuesUniques)
-       ON CONFLICT(jour) DO UPDATE SET clones = excluded.clones, clones_uniques = excluded.clones_uniques, vues = excluded.vues, vues_uniques = excluded.vues_uniques`,
-    );
-    for (const jour of parJour.values()) ecrire.run(jour);
-  } catch (e) {
-    log.warn(`relais : téléchargements GitHub non relevés (${(e as Error).message.split('\n')[0]})`);
-  }
-}
-
-/** Sur la machine qui reçoit : le relevé GitHub au démarrage, puis chaque jour. */
-export function surveillerLesTelechargements(): void {
-  if (!relaisRecepteurIci() || DEMON_D_ESSAI) return;
-  const premier = setTimeout(() => void releverLesTelechargements(), 5 * 60 * 1000);
-  const periodique = setInterval(() => void releverLesTelechargements(), PERIODE_DU_SIGNE_DE_VIE_MS);
-  premier.unref?.();
-  periodique.unref?.();
 }

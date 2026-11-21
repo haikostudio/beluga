@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { CreditCard, Globe, UsersRound } from '@/components/ui/icones';
 import {
+  filtreDePaiementLu,
   usageDUneInstallation,
   type FiltreDePaiement,
   type InstallationRecue,
   type ResumeDesInstallations,
-  type TelechargementsDuJour,
   type UsageDUneInstallation,
 } from '@beluga/shared';
-import { CourbeParJour, Repartition, drapeau, nomDuPays } from '@/components/graphiques-statistiques';
+import { Repartition, drapeau, nomDuPays } from '@/components/graphiques-statistiques';
 import { usePref } from '@/lib/prefs';
 import { Tableau } from '@/components/ui/tableau';
 import { formatRegional, t } from '@/lib/langue';
@@ -17,7 +17,6 @@ import { cn } from '@/lib/utils';
 interface Releve {
   lignes: InstallationRecue[];
   resume: ResumeDesInstallations;
-  telechargements: TelechargementsDuJour[];
 }
 
 /**
@@ -26,11 +25,12 @@ interface Releve {
  * Chaque copie installée depuis le dépôt public se signale une fois par jour
  * (`server/src/relais-installations.ts`) : combien il y en a, d'où, en quelle
  * version, à quelle fréquence elles servent, et l'adresse de qui l'a acceptée.
- * Les téléchargements viennent de GitHub, qui n'en dit ni l'auteur ni le pays.
- * Un filtre sépare les installations payantes (offre hébergée) des open source.
+ * Un filtre sépare les installations payantes (offre hébergée) des gratuites.
  */
 export function InstallationsDeBeluga() {
-  const [filtre, setFiltre] = usePref<FiltreDePaiement>('statistiques.installations.paiement', 'tous');
+  const [filtreBrut, setFiltre] = usePref<FiltreDePaiement>('statistiques.installations.paiement', 'tous');
+  /* Un ancien réglage « open-source » vaut « gratuites ». */
+  const filtre = filtreDePaiementLu(filtreBrut);
   const [releve, setReleve] = React.useState<Releve | null>(null);
   const [panne, setPanne] = React.useState(false);
 
@@ -62,7 +62,7 @@ export function InstallationsDeBeluga() {
           [
             { id: 'tous', libelle: t('Toutes'), icone: <UsersRound className="h-3.5 w-3.5" /> },
             { id: 'payants', libelle: t('Payantes'), icone: <CreditCard className="h-3.5 w-3.5" /> },
-            { id: 'open-source', libelle: t('Open source'), icone: <Globe className="h-3.5 w-3.5" /> },
+            { id: 'gratuites', libelle: t('Version gratuite'), icone: <Globe className="h-3.5 w-3.5" /> },
           ] as const
         ).map((choix) => (
           <button
@@ -114,13 +114,6 @@ export function InstallationsDeBeluga() {
               </div>
             ))}
           </div>
-
-          <CourbeParJour
-            cle="telechargements"
-            titre={t('Téléchargements du dépôt public (GitHub)')}
-            barres
-            points={releve.telechargements.map((j) => ({ jour: j.jour, valeur: j.clones }))}
-          />
 
           <div className="grid gap-2 sm:grid-cols-3">
             <Repartition
