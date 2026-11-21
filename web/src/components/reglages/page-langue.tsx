@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 export function SectionLangue() {
   const [langue, setLangue] = useLangueGenerale();
   return (
-    <Groupe titre={t('Langue')}>
+    <Groupe titre={t('Langue')} nu>
       <div className={CLASSE_GROUPE_DE_LIGNES} role="radiogroup" aria-label="Langue" data-langue-menu>
         {LANGUES.map((item) => {
           const retenue = item.id === langue;

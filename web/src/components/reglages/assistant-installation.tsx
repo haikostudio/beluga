@@ -5,431 +5,376 @@ import {
   VERSION_EXTENSION_CHROME,
   autorisationsDonnees,
   codeDeLiaisonLisible,
+  ordinateurReconnu,
   programmeEnLigne,
+  systemeDeLAppareil,
   versionAuMoins,
   type EtatDeLExtension,
   type GenreDeNavigateur,
   type NavigateurDOrdinateur,
   type Ordinateur,
+  type SystemeDOrdinateur,
 } from '@beluga/shared';
-import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, Label, ListeDeroulante } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * L'ASSISTANT D'INSTALLATION D'UN ORDINATEUR — carte « Liaison de l'extension Chrome simplifiée » (20/11/2026),
- * d'après les six écrans validés par l'utilisateur (#2327e, #6231, #5f2d2, #b11e, #7a15d, #c86288).
+ * « CONNECTER CET ORDINATEUR » — carte « Beluga Connect : installation simplifiée » (21/11/2026), qui remplace
+ * l'assistant en fenêtre de la carte « Liaison de l'extension Chrome simplifiée » (20/11/2026).
  *
- * UNE LISTE VERTICALE, de haut en bas : un rail à gauche, une pastille par étape — VERTE cochée quand elle est faite
- * (exception assumée au monochrome, décision de l'utilisateur), anneau pour l'étape en cours, grise numérotée à venir.
- * L'étape en cours est dépliée, les faites se replient sur leur phrase de réussite en vert. Rien à « vérifier » :
- * chaque étape SE COCHE D'ELLE-MÊME d'après l'état poussé par le démon, et le parcours avance seul d'un cran.
+ * UN SEUL BOUTON, UN PARCOURS EN DIRECT déplié dans la page, sans fenêtre ni « Continuer » : le clic télécharge
+ * Beluga Connect pour le système de CET appareil (Mac, Windows ; sous Linux, une commande à coller), puis chaque étape
+ * SE COCHE D'ELLE-MÊME d'après l'état poussé par le démon — Beluga Connect ouvert et relié, autorisations de macOS
+ * (Mac seulement), Chrome prêt (extension posée et reliée par Beluga Connect). Plus aucune installation manuelle de
+ * l'extension : Beluga Connect la pose ; seul un échec montre les gestes de secours.
  *
- * Sur un Mac avec Chrome, quatre gestes : nommer l'ordinateur, « Installer sur ce Mac » (Beluga Connect), « Relier ce
- * Mac » (lien `beluga-connect://relier`, sans code), deux interrupteurs d'Apple ; Beluga Connect prépare ensuite Chrome
- * tout seul (extension ajoutée, reliée, autorisée en navigation privée). Ailleurs (PC, ou Safari) : l'extension en trois
- * gestes, puis le code de liaison — affiché d'office, renouvelé à son échéance, remplacé par « Relié avec succès ».
+ * Le dessin reste celui validé par l'utilisateur (#2327e…#c86288) : liste verticale, rail, pastilles, coche VERTE
+ * (`bg-coche`), étape en cours dépliée, étapes faites repliées sur leur phrase verte.
  *
- * Le MÊME parcours sert la page « Extension » des réglages (`AssistantDInstallation`, une fenêtre) et l'étape « Votre
- * ordinateur » de la mise en route (`ParcoursDInstallation integre`, sans fenêtre).
+ * L'ORDINATEUR VISÉ se reconnaît tout seul (`ordinateurReconnu`, shared/src/connecter-un-ordinateur.ts) : celui du
+ * navigateur courant (l'extension 1.0.14 pose son identifiant d'appareil sur la page), sinon celui dont Beluga Connect
+ * s'est relié après le code émis au clic. Aucun nom à donner : la liaison nomme l'ordinateur d'après la machine.
+ *
+ * LA LIAISON SANS CODE À TAPER : sous Windows et Linux, le fichier téléchargé porte l'adresse et le code (remorque) ;
+ * sur Mac (archive signée, intouchable), la page ouvre `beluga-connect://relier?…` quand on revient sur elle après
+ * avoir ouvert l'application, ou d'un clic sur « Relier ».
  */
 
-type Cle = 'ordinateur' | 'connect' | 'relier' | 'autorisations' | 'chrome' | 'extension' | 'liaison';
-const NOUVEL_ORDINATEUR = '__nouveau__';
+type Cle = 'telecharger' | 'ouvrir' | 'autorisations' | 'navigateur';
 /** Les noms propres : les mêmes dans toutes les langues. */
 const CONNECT = ['Beluga', 'Connect'].join(' ');
-const DOSSIER_DE_L_EXTENSION = '~/Library/Application Support/Beluga/extension-chrome';
-/** Les étapes qui, faites d'elles-mêmes, font avancer le parcours d'un cran. */
-const AVANCENT_SEULES: Cle[] = ['connect', 'relier', 'autorisations', 'chrome', 'liaison'];
 
-export interface OuvertureDeLAssistant {
-  /** Absent : le premier ordinateur ; `null` : un nouvel ordinateur, à nommer. */
-  ordinateurId?: string | null;
-  navigateur?: GenreDeNavigateur;
+/** Ce que l'appareil courant dit de lui (Mac, Windows, Linux ; `null` : téléphone, tablette). */
+export function systemeDeCetAppareil(): SystemeDOrdinateur | null {
+  if (typeof navigator === 'undefined') return null;
+  const ua = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+  return systemeDeLAppareil({ userAgent: navigator.userAgent, platform: navigator.platform, plateformeUA: ua?.platform ?? null });
 }
 
-function cetAppareilEstUnMac(): boolean {
-  return typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
+/**
+ * LE NAVIGATEUR COURANT, tel que l'extension Beluga l'annonce sur la page (`data-beluga-navigateur`, 1.0.14) :
+ * l'identifiant d'appareil de ce Chrome, ou `null` (pas d'extension, ou pas encore reliée).
+ */
+export function useNavigateurCourant(): string | null {
+  const lire = () => (typeof document === 'undefined' ? null : document.documentElement.dataset.belugaNavigateur || null);
+  const [id, setId] = React.useState<string | null>(lire);
+  React.useEffect(() => {
+    const relire = () => setId(lire());
+    const observateur = new MutationObserver(relire);
+    observateur.observe(document.documentElement, { attributes: true, attributeFilter: ['data-beluga-navigateur'] });
+    window.addEventListener('beluga:extension-presente', relire);
+    relire();
+    return () => {
+      observateur.disconnect();
+      window.removeEventListener('beluga:extension-presente', relire);
+    };
+  }, []);
+  return id;
 }
 
-/** L'ordinateur visé est-il un Mac ? Safari, un programme déjà là, son nom, ou l'appareil d'où l'on installe. */
-function estUnMac(o: Ordinateur | null, navigateur: GenreDeNavigateur, nomNouveau: string): boolean {
-  if (navigateur === 'safari' || o?.programme) return true;
-  if (o?.navigateurs.some((n) => n.genre === 'safari')) return true;
-  if (/mac|imac/i.test(o?.nom ?? nomNouveau)) return true;
-  return cetAppareilEstUnMac();
+/** Le Chrome d'un ordinateur à juger : celui en ligne d'abord, puis le plus récent. */
+function chromeDe(o: Ordinateur | null): NavigateurDOrdinateur | null {
+  return o?.navigateurs.filter((n) => n.genre === 'chrome').sort((a, b) => Number(b.enLigne) - Number(a.enLigne) || (b.vuLe ?? 0) - (a.vuLe ?? 0))[0] ?? null;
+}
+
+/** L'ordinateur a-t-il tout ce qu'il faut ? Beluga Connect en marche, autorisations (Mac), Chrome prêt. */
+export function ordinateurPret(o: Ordinateur | null): boolean {
+  if (!o) return false;
+  const p = o.programme;
+  const nav = chromeDe(o);
+  const mac = (p?.systeme ?? 'mac') === 'mac';
+  return (
+    programmeEnLigne(p) &&
+    !!p?.connect &&
+    autorisationsDonnees(p) &&
+    !!nav?.enLigne &&
+    versionAuMoins(nav.version, VERSION_EXTENSION_CHROME) &&
+    (!mac || nav.incognito === true)
+  );
+}
+
+/** L'adresse du paquet de Beluga Connect pour un système, personnalisée par le code (remorque, Windows / Linux). */
+function adresseDuPaquet(systeme: SystemeDOrdinateur, code: string | null): string {
+  if (systeme === 'mac') return '/api/connect/Beluga-Connect.zip';
+  const q = code ? `?code=${code}&base=${encodeURIComponent(window.location.origin)}` : '';
+  if (systeme === 'windows') return `/api/connect/Beluga-Connect-Windows.exe${q}`;
+  return `/api/connect/installer-linux.sh${q}`;
+}
+
+function commandeLinux(code: string): string {
+  return `curl -fsSL '${window.location.origin}${adresseDuPaquet('linux', code)}' | sh`;
+}
+
+function telechargerLeFichier(href: string, nom: string) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = nom;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function lienDeLiaison(code: string): string {
+  return `beluga-connect://relier?base=${encodeURIComponent(window.location.origin)}&code=${code}`;
+}
+
+/** Ouvrir le lien `beluga-connect://` sans quitter la page (un cadre invisible : la page ne se décharge pas). */
+function ouvrirLeLien(code: string) {
+  const cadre = document.createElement('iframe');
+  cadre.style.display = 'none';
+  cadre.src = lienDeLiaison(code);
+  document.body.appendChild(cadre);
+  window.setTimeout(() => cadre.remove(), 3_000);
+}
+
+function copier(texte: string, message: string) {
+  void navigator.clipboard?.writeText(texte).then(() => client.pushToast('success', message));
 }
 
 /* ------------------------------------------------------------------ */
 /* Le parcours                                                          */
 /* ------------------------------------------------------------------ */
 
-interface ProprietesDuParcours {
-  ouverture: OuvertureDeLAssistant;
-  etat: EtatDeLExtension | null;
-  relire: () => Promise<void>;
-  /** « Terminer » (ou fermer la fenêtre). */
-  onTerminer: () => void;
-  /** « Plus tard » à la première étape ; absent : « Annuler » ferme. */
-  onPlusTard?: () => void;
-  /** Le parcours est-il entièrement fait ? (La mise en route en fait sa condition de validation.) */
-  surFini?: (fini: boolean) => void;
-  /** Monté dans une carte de question (mise en route) : ni « Plus tard » ni « Terminer », ceux de la carte servent. */
-  integre?: boolean;
+export interface DepartDuParcours {
+  /** Change à chaque clic sur « Connecter cet ordinateur » : un nouveau départ. */
+  n: number;
+  /** `telecharger` : le clic de la page ; `relier` : arrivée depuis Beluga Connect (`?connecter=1`), lien seul. */
+  mode: 'telecharger' | 'relier' | 'attendre';
 }
 
-function useParcours({ ouverture, etat, relire, onTerminer, onPlusTard, surFini, integre }: ProprietesDuParcours) {
-  const [rang, setRang] = React.useState(0);
-  const [choix, setChoix] = React.useState<string>(NOUVEL_ORDINATEUR);
-  const [nom, setNom] = React.useState('');
-  const [navigateur, setNavigateur] = React.useState<GenreDeNavigateur>('chrome');
+export function ParcoursDeConnexion({
+  etat,
+  depart,
+  onFermer,
+  surFini,
+  integre,
+}: {
+  etat: EtatDeLExtension;
+  depart: DepartDuParcours;
+  /** « Fermer » sous le parcours fini ; absent (mise en route) : rien. */
+  onFermer?: () => void;
+  surFini?: (fini: boolean) => void;
+  /** Monté dans la mise en route : le téléchargement a son propre bouton dans la première étape. */
+  integre?: boolean;
+}) {
+  const systemeAppareil = React.useMemo(systemeDeCetAppareil, []);
+  const navigateurId = useNavigateurCourant();
+  const [code, setCode] = React.useState<{ code: string; emisLe: number; expireLe: number } | null>(null);
+  const [telechargeLe, setTelechargeLe] = React.useState<number | null>(null);
+  const [cibleId, setCibleId] = React.useState<string | null>(null);
   const [envoi, setEnvoi] = React.useState(false);
-  const [telecharge, setTelecharge] = React.useState(false);
 
-  const ordinateurs = etat?.ordinateurs ?? [];
-  const ordinateur = ordinateurs.find((o) => o.id === choix) ?? null;
-  const safariDisponible = !!etat?.safari.disponible;
-
-  /* À chaque ouverture : l'ordinateur et le navigateur demandés, sinon le premier ordinateur et Chrome. */
+  const ordinateurs = etat.ordinateurs;
+  /* Reconnu (navigateur courant, ou liaison faite avec le code du parcours), puis retenu tant que le parcours vit. */
+  const reconnu = ordinateurReconnu(ordinateurs, { navigateurId, codeEmisLe: code?.emisLe ?? null });
   React.useEffect(() => {
-    const id = ouverture.ordinateurId === null ? NOUVEL_ORDINATEUR : (ouverture.ordinateurId ?? ordinateurs[0]?.id ?? NOUVEL_ORDINATEUR);
-    setRang(0);
-    setChoix(id);
-    setNom(ordinateurs.find((o) => o.id === id)?.nom ?? (cetAppareilEstUnMac() ? 'Mac' : ''));
-    setNavigateur(ouverture.navigateur === 'safari' && safariDisponible ? 'safari' : 'chrome');
-    setTelecharge(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ouverture]);
+    if (reconnu && reconnu.id !== cibleId) setCibleId(reconnu.id);
+  }, [reconnu, cibleId]);
+  const cible = ordinateurs.find((o) => o.id === cibleId) ?? reconnu ?? null;
+  const programme = cible?.programme ?? null;
+  const systeme: SystemeDOrdinateur | null = programme?.systeme ?? systemeAppareil;
+  const mac = systeme === 'mac';
+  const nav = chromeDe(cible);
 
-  const mac = estUnMac(ordinateur, navigateur, nom);
-  const parConnect = mac && navigateur === 'chrome';
-  const etapes: Cle[] = parConnect ? ['ordinateur', 'connect', 'relier', 'autorisations', 'chrome'] : ['ordinateur', 'extension', 'liaison'];
+  const emettre = React.useCallback(async (ordinateurId: string | null) => {
+    const r = await client.call<{ code: string; expireLe: number }>({ type: 'relaisMac.code', ordinateurId: ordinateurId ?? undefined });
+    const neuf = { ...r, emisLe: Date.now() };
+    setCode(neuf);
+    return neuf;
+  }, []);
 
-  const programme = ordinateur?.programme ?? null;
-  const nav: NavigateurDOrdinateur | null =
-    ordinateur?.navigateurs.filter((n) => n.genre === navigateur).sort((a, b) => Number(b.enLigne) - Number(a.enLigne) || (b.vuLe ?? 0) - (a.vuLe ?? 0))[0] ?? null;
-  const navigateurRelie = !!nav?.enLigne;
-  const preparation = programme?.preparation ?? null;
-  const sousEtats = {
-    ajoutee: !!nav || preparation?.ajoutee === true,
-    reliee: navigateurRelie,
-    prive: nav?.incognito === true,
-  };
-
-  const faite: Record<Cle, boolean> = {
-    ordinateur: rang > 0,
-    connect: !!programme?.connect,
-    relier: programmeEnLigne(programme),
-    autorisations: autorisationsDonnees(programme),
-    chrome: navigateurRelie && versionAuMoins(nav?.version, VERSION_EXTENSION_CHROME) && nav?.incognito === true,
-    extension: rang > 1 || navigateurRelie,
-    liaison: navigateurRelie,
-  };
-  /* Une étape qu'on peut dépasser sans qu'elle soit cochée : le téléchargement de Beluga Connect est fait, l'extension
-     posée à la main (rien ne le dit au démon avant la liaison). */
-  const franchissable: Record<Cle, boolean> = { ...faite, connect: faite.connect || telecharge || programmeEnLigne(programme), extension: true };
-  const toutFait = rang > 0 && etapes.every((e) => faite[e]);
-  const courante = etapes[Math.min(rang, etapes.length - 1)]!;
-
-  React.useEffect(() => surFini?.(toutFait), [toutFait, surFini]);
-
-  /* L'ÉTAPE COCHÉE D'ELLE-MÊME (ou déjà faite en arrivant : Mac déjà relié…) fait avancer le parcours d'un cran, un
-     instant après — on voit la coche. Le minuteur ne dépend que de l'étape et de son état : un nouveau rendu
-     (redimensionnement, relecture) ne l'annule pas. */
-  const faiteCourante = faite[courante];
-  React.useEffect(() => {
-    if (!faiteCourante || rang === 0 || !AVANCENT_SEULES.includes(courante) || rang >= etapes.length - 1) return;
-    const minuteur = window.setTimeout(() => setRang((r) => (r === rang ? Math.min(r + 1, etapes.length - 1) : r)), 1100);
-    return () => window.clearTimeout(minuteur);
-  }, [faiteCourante, rang, courante, etapes.length]);
-
-  const continuer = async () => {
-    if (courante !== 'ordinateur') {
-      if (rang < etapes.length - 1) setRang(rang + 1);
-      else onTerminer();
-      return;
-    }
-    const voulu = nom.trim();
-    if (!voulu) return;
-    setEnvoi(true);
-    try {
-      if (choix === NOUVEL_ORDINATEUR) {
-        const r = await client.call<{ id: string }>({ type: 'ordinateur.creer', nom: voulu });
-        await relire();
-        setChoix(r.id);
-      } else if (ordinateur && voulu !== ordinateur.nom) {
-        await client.call({ type: 'ordinateur.renommer', id: ordinateur.id, nom: voulu });
-        await relire();
+  /* LE DÉPART : au clic, un code (pour l'ordinateur reconnu, sinon un nouveau), puis le bon fichier pour CE système.
+     Un ordinateur déjà relié dont Beluga Connect répond ne retélécharge rien : le parcours se coche tel quel. */
+  const departe = React.useCallback(
+    async (mode: DepartDuParcours['mode']) => {
+      const deja = ordinateurReconnu(ordinateurs, { navigateurId });
+      if (deja && programmeEnLigne(deja.programme)) {
+        setCibleId(deja.id);
+        setTelechargeLe(Date.now());
+        return;
       }
-      setRang(1);
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
-    } finally {
-      setEnvoi(false);
-    }
+      if (!systemeAppareil || mode === 'attendre') return;
+      setEnvoi(true);
+      try {
+        const c = await emettre(deja?.id ?? null);
+        if (mode === 'relier') {
+          ouvrirLeLien(c.code);
+          return;
+        }
+        if (systemeAppareil === 'linux') copier(commandeLinux(c.code), t('Commande copiée.'));
+        else telechargerLeFichier(adresseDuPaquet(systemeAppareil, c.code), systemeAppareil === 'mac' ? 'Beluga-Connect.zip' : 'Beluga-Connect.exe');
+        setTelechargeLe(Date.now());
+      } catch (err: any) {
+        client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
+      } finally {
+        setEnvoi(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ordinateurs, navigateurId, systemeAppareil, emettre],
+  );
+  /* Un départ ne se joue qu'UNE fois (le mode strict de React rejoue les effets : sinon deux codes, deux fichiers). */
+  const departJoue = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (departJoue.current === depart.n) return;
+    departJoue.current = depart.n;
+    void departe(depart.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depart.n]);
+
+  const relie = programmeEnLigne(programme) && !!programme?.connect;
+
+  /* Le code expire avant la liaison : un code neuf, tout seul (Mac : pour le lien ; Linux : la commande change). */
+  React.useEffect(() => {
+    if (!code || relie) return;
+    const minuteur = window.setTimeout(() => void emettre(cibleId).catch(() => undefined), Math.max(1_000, code.expireLe - Date.now() + 500));
+    return () => window.clearTimeout(minuteur);
+  }, [code, relie, cibleId, emettre]);
+
+  /* MAC : on revient sur la page après avoir ouvert Beluga Connect → le lien de liaison part tout seul. */
+  React.useEffect(() => {
+    if (!mac || !code || relie || !telechargeLe) return;
+    let dernier = 0;
+    const auRetour = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - dernier < 8_000) return;
+      dernier = Date.now();
+      ouvrirLeLien(code.code);
+    };
+    window.addEventListener('focus', auRetour);
+    document.addEventListener('visibilitychange', auRetour);
+    return () => {
+      window.removeEventListener('focus', auRetour);
+      document.removeEventListener('visibilitychange', auRetour);
+    };
+  }, [mac, code, relie, telechargeLe]);
+
+  const etapes: Cle[] = mac ? ['telecharger', 'ouvrir', 'autorisations', 'navigateur'] : ['telecharger', 'ouvrir', 'navigateur'];
+  const faite: Record<Cle, boolean> = {
+    telecharger: !!telechargeLe || relie,
+    ouvrir: relie,
+    autorisations: relie && autorisationsDonnees(programme),
+    navigateur: !!nav?.enLigne && versionAuMoins(nav.version, VERSION_EXTENSION_CHROME) && (!mac || nav.incognito === true),
   };
+  const toutFait = etapes.every((e) => faite[e]);
+  const courante = etapes.find((e) => !faite[e]) ?? null;
+  React.useEffect(() => {
+    surFini?.(toutFait);
+  }, [toutFait, surFini]);
 
-  const recommencer = () => {
-    setRang(0);
-    setChoix(NOUVEL_ORDINATEUR);
-    setNom('');
-    setTelecharge(false);
-  };
-
-  const nomVise = ordinateur?.nom ?? (nom.trim() || t('Nouvel ordinateur'));
-  const nomNav = LIBELLE_DU_NAVIGATEUR[navigateur];
-
+  const nomVise = cible?.nom ?? t('cet ordinateur');
   const titreDe = (e: Cle, fait: boolean): string => {
     switch (e) {
-      case 'ordinateur':
-        return t('Ordinateur et navigateur');
-      case 'connect':
-        return fait ? t('{v0} installé', { v0: CONNECT }) : t('Installer {v0}', { v0: CONNECT });
-      case 'relier':
-        return t('Relier ce Mac');
+      case 'telecharger':
+        return fait ? t('{v0} téléchargé', { v0: CONNECT }) : t('Télécharger {v0}', { v0: CONNECT });
+      case 'ouvrir':
+        return fait ? t('{v0} relié', { v0: CONNECT }) : t('Ouvrir {v0}', { v0: CONNECT });
       case 'autorisations':
         return t('Autoriser {v0} sur le Mac', { v0: CONNECT });
-      case 'chrome':
+      case 'navigateur':
         return t('Chrome prêt');
-      case 'extension':
-        return t('Installer l’extension dans {navigateur}', { navigateur: nomNav });
-      case 'liaison':
-        return t('Relier {navigateur} à Beluga', { navigateur: nomNav });
     }
   };
-  /** Ce qu'on lit sous le titre : la phrase de réussite (verte) quand l'étape est faite, sinon ce qui l'attend. */
-  const sousTitreDe = (e: Cle, fait: boolean): { texte: string; reussite: boolean } => {
-    if (e === 'ordinateur' && rang > 0) return { texte: `« ${nomVise} » · ${nomNav}`, reussite: false };
-    if (fait) {
-      switch (e) {
-        case 'connect':
-          return { texte: t('Installé dans vos applications.'), reussite: true };
-        case 'relier':
-          return { texte: t('Mac relié avec succès.'), reussite: true };
-        case 'autorisations':
-          return { texte: t('Les deux autorisations sont données.'), reussite: true };
-        case 'chrome':
-          return { texte: t('Extension installée, reliée et autorisée en navigation privée.'), reussite: true };
-        case 'extension':
-          return { texte: t('Extension installée.'), reussite: true };
-        case 'liaison':
-          return { texte: t('Relié avec succès.'), reussite: true };
-        default:
-          break;
-      }
-    }
+  const reussiteDe = (e: Cle): string => {
     switch (e) {
-      case 'ordinateur':
-        return { texte: t('Beluga a reconnu cet ordinateur. Donnez-lui le nom qui vous parle : c’est celui qu’on verra partout dans Beluga.'), reussite: false };
-      case 'connect':
-        return { texte: t('La petite application qui fait tout le reste.'), reussite: false };
-      case 'relier':
-        return { texte: t('Un clic, sans code à taper.'), reussite: false };
+      case 'telecharger':
+        return systeme === 'linux' ? t('Commande copiée.') : t('Le fichier est dans vos téléchargements.');
+      case 'ouvrir':
+        return t('« {nom} » est relié à Beluga.', { nom: nomVise });
       case 'autorisations':
-        return { texte: t('Deux interrupteurs, une seule fois.'), reussite: false };
-      case 'chrome':
-        return { texte: t('Fait tout seul par {v0}.', { v0: CONNECT }), reussite: false };
-      case 'extension':
-        return { texte: t('Trois gestes dans le navigateur.'), reussite: false };
-      case 'liaison':
-        return { texte: t('Un code à saisir dans l’extension.'), reussite: false };
+        return t('Les deux autorisations sont données.');
+      case 'navigateur':
+        return mac ? t('Extension installée, reliée et autorisée en navigation privée.') : t('Extension installée et reliée.');
     }
   };
-  /** Le texte d'introduction de l'étape OUVERTE (plus complet que le sous-titre replié). */
-  const introDe = (e: Cle): string => {
+  const aVenirDe = (e: Cle): string => {
     switch (e) {
-      case 'ordinateur':
-        return sousTitreDe('ordinateur', false).texte;
-      case 'connect':
-        return t('Une petite application qui relie ce Mac à Beluga, puis installe et tient à jour tout le reste, toute seule.');
-      case 'relier':
-        return t('Un clic, et {v0} se relie à votre Beluga. Aucun code à taper.', { v0: CONNECT });
+      case 'telecharger':
+        return t('La petite application qui fait tout le reste.');
+      case 'ouvrir':
+        return t('Elle se relie toute seule, sans code à taper.');
       case 'autorisations':
-        return t('Apple demande votre accord, une seule fois. {v0} vient d’ouvrir le bon réglage : activez l’interrupteur à côté de son nom.', { v0: CONNECT });
-      case 'chrome':
-        return t('{v0} prépare Chrome tout seul. Laissez Chrome ouvert, il n’y a rien à cliquer.', { v0: CONNECT });
-      case 'extension':
-        return navigateur === 'chrome'
-          ? t('L’extension s’installe sans passer par la boutique de Chrome.')
-          : t('L’application est signée : elle s’ouvre sans avertissement.');
-      case 'liaison':
-        return t('Cliquez sur l’icône Beluga dans {navigateur}, puis saisissez ce code.', { navigateur: nomNav });
+        return t('Deux interrupteurs, une seule fois.');
+      case 'navigateur':
+        return t('Fait tout seul par {v0}.', { v0: CONNECT });
     }
   };
 
   const contenuDe = (e: Cle): React.ReactNode => {
     switch (e) {
-      case 'ordinateur':
+      case 'telecharger':
+        return <EtapeTelecharger systeme={systemeAppareil} envoi={envoi} onTelecharger={() => void departe('telecharger')} />;
+      case 'ouvrir':
         return (
-          <EtapeOrdinateur
-            ordinateurs={ordinateurs}
-            choix={choix}
-            setChoix={(v) => {
-              setChoix(v);
-              setNom(ordinateurs.find((o) => o.id === v)?.nom ?? '');
-            }}
-            nom={nom}
-            setNom={setNom}
-            mac={mac}
-            navigateur={navigateur}
-            setNavigateur={setNavigateur}
-            safariDisponible={safariDisponible}
+          <EtapeOuvrir
+            systeme={systeme ?? 'mac'}
+            code={code}
+            programmeAncien={programmeEnLigne(programme) && !programme?.connect}
+            onRelier={() => code && ouvrirLeLien(code.code)}
+            onRetelecharger={() => void departe('telecharger')}
           />
         );
-      case 'connect':
-        return <EtapeConnect programme={programme} telecharge={telecharge} surTelechargement={() => setTelecharge(true)} />;
-      case 'relier':
-        return <EtapeRelier ordinateur={ordinateur} fait={faite.relier} />;
       case 'autorisations':
-        return <EtapeAutorisations ordinateur={ordinateur} />;
-      case 'chrome':
-        return <EtapeChrome ordinateur={ordinateur} nav={nav} sousEtats={sousEtats} fait={faite.chrome} />;
-      case 'extension':
-        return <EtapeExtension navigateur={navigateur} />;
-      case 'liaison':
-        return <EtapeLiaison ordinateur={ordinateur} navigateur={navigateur} />;
+        return <EtapeAutorisations ordinateur={cible} />;
+      case 'navigateur':
+        return <EtapeChrome ordinateur={cible} nav={nav} mac={mac} />;
     }
   };
 
-  const corps = (
-    <div className="flex flex-col gap-6 pb-1 pt-2" data-assistant-installation={toutFait ? 'fini' : courante} data-parcours={parConnect ? 'connect' : 'code'}>
+  return (
+    <div className="flex flex-col gap-5" data-parcours-connexion={toutFait ? 'fini' : courante ?? ''} data-systeme={systeme ?? 'aucun'} data-ordinateur-vise={cible?.id ?? ''}>
       {toutFait ? (
         <div className="flex items-start gap-4 rounded-2xl bg-coche/15 px-5 py-4" data-assistant-tout-pret>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-coche text-white">
             <Check className="size-5" strokeWidth={3} />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[15.5px] font-semibold text-text">{t('Tout est prêt sur « {nom} »', { nom: nomVise })}</p>
             <p className="mt-0.5 text-[13.5px] leading-relaxed text-muted">
-              {parConnect
-                ? t('Les agents de Beluga peuvent travailler dans Chrome et sur l’iPhone. Les mises à jour se feront toutes seules.')
-                : t('Les agents de Beluga peuvent travailler dans {navigateur}.', { navigateur: nomNav })}
+              {t('Les agents de Beluga peuvent travailler dans Chrome sur cet ordinateur. Les mises à jour se feront toutes seules.')}
             </p>
           </div>
         </div>
       ) : null}
       <ol className="flex flex-col" data-parcours-installation>
         {etapes.map((e, i) => {
-          const fait = faite[e] && (e !== 'ordinateur' || rang > 0);
-          const ouverte = !toutFait && i === rang;
+          const fait = faite[e];
+          const ouverte = !toutFait && e === courante;
           const statut = fait ? 'faite' : ouverte ? 'en-cours' : 'a-venir';
-          const sous = sousTitreDe(e, fait);
           return (
-            <li key={e} className="flex gap-4" data-etape-assistant={e} data-etat={statut} data-faite={fait ? 'oui' : 'non'}>
+            <li key={e} className="flex gap-4" data-etape-connexion={e} data-etat={statut}>
               <div className="flex flex-col items-center">
                 <RondDeLEtape statut={statut} numero={i + 1} />
                 {i < etapes.length - 1 ? <span className={cn('my-1.5 w-[2px] flex-1 rounded-full', fait ? 'bg-coche' : 'bg-faint/35')} aria-hidden /> : null}
               </div>
               <div className={cn('min-w-0 flex-1', i < etapes.length - 1 ? 'pb-5' : 'pb-1')}>
-                <h3 className={cn('pt-[3px] text-[15px] font-semibold leading-snug', statut === 'a-venir' ? 'text-muted' : 'text-text')}>{titreDe(e, fait)}</h3>
-                {ouverte && !fait ? (
-                  <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{introDe(e)}</p>
-                ) : (
-                  <p className={cn('mt-0.5 text-[13.5px] leading-relaxed', sous.reussite ? 'text-coche' : 'text-muted')}>{sous.texte}</p>
-                )}
+                <h4 className={cn('pt-[3px] text-[15px] font-semibold leading-snug', statut === 'a-venir' ? 'text-muted' : 'text-text')}>{titreDe(e, fait)}</h4>
+                <p className={cn('mt-0.5 text-[13.5px] leading-relaxed', fait ? 'text-coche' : 'text-muted')}>{fait ? reussiteDe(e) : aVenirDe(e)}</p>
                 {ouverte ? <div className="mt-4">{contenuDe(e)}</div> : null}
               </div>
             </li>
           );
         })}
       </ol>
+      {toutFait && onFermer && !integre ? (
+        <div className="flex justify-end">
+          <Button variant="subtle" size="md" className="max-sm:w-full" onClick={onFermer} data-parcours-fermer>
+            {t('Fermer')}
+          </Button>
+        </div>
+      ) : null}
     </div>
-  );
-
-  const derniere = rang >= etapes.length - 1;
-  const pied = toutFait ? (
-    <>
-      <Button variant="subtle" size="md" onClick={recommencer} data-assistant-autre-ordinateur>
-        {t('Installer un autre ordinateur')}
-      </Button>
-      <span className="flex-1" />
-      {integre ? null : (
-        <Button variant="default" size="md" onClick={onTerminer} data-assistant-terminer>
-          {t('Terminer')}
-        </Button>
-      )}
-    </>
-  ) : (
-    <>
-      {rang === 0 ? (
-        integre ? null : (
-        <Button variant="subtle" size="md" onClick={onPlusTard ?? onTerminer} data-assistant-plus-tard>
-          {onPlusTard ? t('Plus tard') : t('Annuler')}
-        </Button>
-        )
-      ) : (
-        <Button variant="subtle" size="md" onClick={() => setRang(rang - 1)} data-assistant-retour>
-          {t('Retour')}
-        </Button>
-      )}
-      <span className="flex-1" />
-      {integre && derniere ? null : (
-      <Button
-        variant="default"
-        size="md"
-        onClick={() => void continuer()}
-        disabled={envoi || (courante === 'ordinateur' ? !nom.trim() : !franchissable[courante])}
-        title={courante !== 'ordinateur' && !franchissable[courante] ? t('Beluga attend que cette étape soit faite sur « {nom} ».', { nom: nomVise }) : undefined}
-        data-assistant-continuer
-      >
-        {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        {derniere ? t('Terminer') : t('Continuer')}
-      </Button>
-      )}
-    </>
-  );
-
-  return { corps, pied };
-}
-
-/** LA FENÊTRE de la page « Extension » des réglages. */
-export function AssistantDInstallation({
-  ouverture,
-  etat,
-  onClose,
-  relire,
-}: {
-  ouverture: OuvertureDeLAssistant | null;
-  etat: EtatDeLExtension | null;
-  onClose: () => void;
-  relire: () => Promise<void>;
-}) {
-  return (
-    <Dialog open={!!ouverture} onOpenChange={(o) => !o && onClose()}>
-      {ouverture ? <FenetreDuParcours ouverture={ouverture} etat={etat} relire={relire} onClose={onClose} /> : null}
-    </Dialog>
-  );
-}
-
-function FenetreDuParcours({ ouverture, etat, relire, onClose }: { ouverture: OuvertureDeLAssistant; etat: EtatDeLExtension | null; relire: () => Promise<void>; onClose: () => void }) {
-  const { corps, pied } = useParcours({ ouverture, etat, relire, onTerminer: onClose });
-  return (
-    <DialogContent adresse="installation" className="sm:w-[min(780px,100%)]">
-      <DialogHeader>
-        <DialogTitle>{t('Installer Beluga sur un ordinateur')}</DialogTitle>
-      </DialogHeader>
-      {corps}
-      <DialogFooter className="justify-between">{pied}</DialogFooter>
-    </DialogContent>
   );
 }
 
 /**
- * LE PARCOURS SANS FENÊTRE, pour l'étape « Votre ordinateur » de la mise en route : l'état de l'extension est lu ici
- * (et relu à chaque changement poussé par le démon), les boutons du parcours se posent sous la liste.
+ * LE PARCOURS DE LA MISE EN ROUTE (étape « Votre ordinateur ») : le même, sans fenêtre ; l'état de l'extension est
+ * lu ici et relu à chaque changement poussé par le démon. Rien ne part au montage : le téléchargement attend le
+ * bouton de la première étape (sauf un ordinateur déjà reconnu, qui se coche tel quel).
  */
-export function ParcoursDInstallation({
-  onPlusTard,
-  onTerminer,
-  surFini,
-  integre,
-}: {
-  onPlusTard?: () => void;
-  onTerminer: () => void;
-  surFini?: (fini: boolean) => void;
-  integre?: boolean;
-}) {
+export function ParcoursDInstallation({ surFini }: { onPlusTard?: () => void; onTerminer?: () => void; surFini?: (fini: boolean) => void; integre?: boolean }) {
   const [etat, setEtat] = React.useState<EtatDeLExtension | null>(null);
   const lire = React.useCallback(async () => {
     try {
@@ -442,13 +387,11 @@ export function ParcoursDInstallation({
     void lire();
     return client.onExtension(() => void lire());
   }, [lire]);
-  const ouverture = React.useMemo<OuvertureDeLAssistant>(() => ({}), []);
-  const { corps, pied } = useParcours({ ouverture, etat, relire: lire, onTerminer, onPlusTard, surFini, integre });
+  const depart = React.useMemo<DepartDuParcours>(() => ({ n: 0, mode: 'attendre' }), []);
   if (!etat) return <div className="h-[280px] animate-pulse rounded-xl bg-raised" data-silhouette />;
   return (
     <div className="flex flex-col gap-3" data-parcours-integre>
-      {corps}
-      <div className="flex flex-wrap items-center gap-2">{pied}</div>
+      <ParcoursDeConnexion etat={etat} depart={depart} surFini={surFini} integre />
     </div>
   );
 }
@@ -491,7 +434,7 @@ function EnAttente({ children }: { children: React.ReactNode }) {
   return (
     <p className="mt-3 flex items-center gap-2.5 text-[13px] text-muted" data-en-attente>
       <span className="relative flex h-2 w-2 shrink-0">
-        {/* L'orange des réponses attendues : c'est à la personne (ou à son Mac) de faire le geste. */}
+        {/* L'orange des réponses attendues : c'est à la personne (ou à son ordinateur) de faire le geste. */}
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ backgroundColor: 'hsl(var(--cadre-question))' }} />
         <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: 'hsl(var(--cadre-question))' }} />
       </span>
@@ -532,130 +475,109 @@ function EtapesNumerotees({ etapes, repere }: { etapes: React.ReactNode[]; reper
   );
 }
 
-function copier(texte: string, message: string) {
-  void navigator.clipboard?.writeText(texte).then(() => client.pushToast('success', message));
-}
-
 /* ------------------------------------------------------------------ */
 /* Les étapes                                                           */
 /* ------------------------------------------------------------------ */
 
-function EtapeOrdinateur(p: {
-  ordinateurs: Ordinateur[];
-  choix: string;
-  setChoix: (v: string) => void;
-  nom: string;
-  setNom: (v: string) => void;
-  mac: boolean;
-  navigateur: GenreDeNavigateur;
-  setNavigateur: (v: GenreDeNavigateur) => void;
-  safariDisponible: boolean;
-}) {
-  const nomNav = LIBELLE_DU_NAVIGATEUR[p.navigateur];
+const LIBELLE_DU_SYSTEME: Record<SystemeDOrdinateur, string> = { mac: 'Mac', windows: 'Windows', linux: 'Linux' };
+
+function EtapeTelecharger({ systeme, envoi, onTelecharger }: { systeme: SystemeDOrdinateur | null; envoi: boolean; onTelecharger: () => void }) {
+  if (!systeme) {
+    return (
+      <Encadre repere="telecharger-ailleurs">
+        <p className="text-[13.5px] leading-relaxed text-text">{t('Ouvrez Beluga sur l’ordinateur à connecter (Mac, Windows ou Linux), puis touchez « Connecter cet ordinateur ».')}</p>
+      </Encadre>
+    );
+  }
   return (
-    <Encadre repere="ordinateur" className="flex flex-col gap-4">
-      {/* Un seul ordinateur connu : son nom suffit (maquette #2327e) ; la liste ne sert qu'à choisir parmi plusieurs. */}
-      {p.ordinateurs.length > 1 ? (
-        <div className="flex flex-col gap-1.5">
-          <Label>{t('Ordinateur à équiper')}</Label>
-          <ListeDeroulante
-            titre={t('Ordinateur à équiper')}
-            valeur={p.choix}
-            onChoisir={p.setChoix}
-            repere="assistant-ordinateur"
-            options={[...p.ordinateurs.map((o) => ({ valeur: o.id, libelle: o.nom })), { valeur: NOUVEL_ORDINATEUR, libelle: t('Un nouvel ordinateur') }]}
-          />
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="assistant-nom-ordinateur">{t('Nom de cet ordinateur')}</Label>
-        <Input id="assistant-nom-ordinateur" value={p.nom} maxLength={60} placeholder={t('Mac mini du bureau')} onChange={(e) => p.setNom(e.target.value)} data-assistant-nom-ordinateur />
+    <Encadre repere="telecharger" className="flex flex-wrap items-center gap-4">
+      <img src="/icon-192.png" alt="" className="size-12 shrink-0 rounded-xl" />
+      <div className="min-w-[10rem] flex-1">
+        <p className="text-[15px] font-semibold text-text">{CONNECT}</p>
+        <p className="text-[13px] text-muted">{t('Pour {systeme}', { systeme: LIBELLE_DU_SYSTEME[systeme] })}</p>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-coche text-white">
-          <Check className="size-3" strokeWidth={3} />
-        </span>
-        <span className="min-w-0 flex-1 text-[14px] text-text" data-assistant-compatible>
-          {p.mac ? t('Un Mac, avec {navigateur} : tout est compatible.', { navigateur: nomNav }) : t('Un ordinateur, avec {navigateur} : tout est compatible.', { navigateur: nomNav })}
-        </span>
-        {p.mac && (p.safariDisponible || p.navigateur === 'safari') ? (
-          <Button variant="ghost" size="sm" onClick={() => p.setNavigateur(p.navigateur === 'chrome' ? 'safari' : 'chrome')} data-assistant-autre-navigateur>
-            {p.navigateur === 'chrome' ? t('Plutôt Safari') : t('Plutôt Chrome')}
-          </Button>
-        ) : null}
-      </div>
+      <Button variant="default" size="md" className="max-sm:basis-full" onClick={onTelecharger} disabled={envoi} data-telecharger-connect={systeme}>
+        {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+        {systeme === 'linux' ? t('Copier la commande') : t('Télécharger')}
+      </Button>
     </Encadre>
   );
 }
 
-function EtapeConnect({ programme, telecharge, surTelechargement }: { programme: Ordinateur['programme']; telecharge: boolean; surTelechargement: () => void }) {
-  const ancien = programmeEnLigne(programme) && !programme?.connect;
+function EtapeOuvrir({
+  systeme,
+  code,
+  programmeAncien,
+  onRelier,
+  onRetelecharger,
+}: {
+  systeme: SystemeDOrdinateur;
+  code: { code: string } | null;
+  programmeAncien: boolean;
+  onRelier: () => void;
+  onRetelecharger: () => void;
+}) {
+  if (programmeAncien) {
+    return <EnAttente>{t('Ce Mac a l’ancien programme « Beluga Relais » : il passe seul à {v0} dans les minutes qui viennent.', { v0: CONNECT })}</EnAttente>;
+  }
+  if (systeme === 'linux') {
+    return (
+      <div className="flex flex-col">
+        <Encadre repere="commande-linux" className="flex flex-col gap-3">
+          <p className="text-[13.5px] leading-relaxed text-text">{t('Collez cette commande dans un terminal : {v0} s’installe et se relie tout seul.', { v0: CONNECT })}</p>
+          {code ? (
+            <code className="block select-all break-all rounded-lg bg-surface px-3 py-2.5 font-mono text-[12.5px] text-text" data-commande-linux>
+              {commandeLinux(code.code)}
+            </code>
+          ) : (
+            <div className="h-10 animate-pulse rounded-lg bg-surface" data-silhouette />
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => code && copier(commandeLinux(code.code), t('Commande copiée.'))} disabled={!code} data-copier-commande>
+              <Copy className="h-3.5 w-3.5" />
+              {t('Copier la commande')}
+            </Button>
+          </div>
+        </Encadre>
+        <EnAttente>{t('Beluga attend {v0}… l’étape se cochera d’elle-même.', { v0: CONNECT })}</EnAttente>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col">
-      <Encadre repere="connect" className="flex flex-wrap items-center gap-4">
-        <img src="/icon-192.png" alt="" className="size-12 shrink-0 rounded-xl" />
-        <div className="min-w-[10rem] flex-1">
-          <p className="text-[15px] font-semibold text-text">{CONNECT}</p>
-          <p className="text-[13px] text-muted">{t('Pour Mac · vérifiée par Apple')}</p>
-        </div>
-        <Button asChild variant="default" size="md" className="max-sm:basis-full" data-assistant-installer-connect>
-          <a href="/api/connect/Beluga-Connect.zip" download="Beluga-Connect.zip" onClick={surTelechargement}>
-            <Download className="h-3.5 w-3.5" />
-            {t('Installer sur ce Mac')}
-          </a>
-        </Button>
+      <Encadre repere={`ouvrir-${systeme}`} className="flex flex-col gap-3">
+        {systeme === 'windows' ? (
+          <EtapesNumerotees
+            repere="windows"
+            etapes={[
+              t('Ouvrez le fichier « Beluga-Connect.exe » que vous venez de télécharger.'),
+              t('Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis « Exécuter quand même ».'),
+              t('{v0} se range de lui-même et se relie à Beluga.', { v0: CONNECT }),
+            ]}
+          />
+        ) : (
+          <EtapesNumerotees
+            repere="mac"
+            etapes={[
+              t('Ouvrez le fichier téléchargé : {v0} se range dans vos applications.', { v0: CONNECT }),
+              t('Ouvrez {v0}, puis revenez sur cette page.', { v0: CONNECT }),
+              t('Chrome demande une seule fois d’ouvrir l’application : choisissez « Ouvrir {v0} ».', { v0: CONNECT }),
+            ]}
+          />
+        )}
       </Encadre>
-      <p className="mt-3 text-[13px] leading-relaxed text-muted">{t('Ensuite, ouvrez le fichier téléchargé : l’application se range d’elle-même dans vos applications.')}</p>
-      {ancien ? (
-        <EnAttente>{t('Ce Mac a l’ancien programme « Beluga Relais » : il passe seul à {v0} dans les minutes qui viennent.', { v0: CONNECT })}</EnAttente>
-      ) : telecharge ? (
-        <EnAttente>{t('Beluga attend {v0}… l’étape se cochera d’elle-même une fois le Mac relié.', { v0: CONNECT })}</EnAttente>
-      ) : null}
-    </div>
-  );
-}
-
-function EtapeRelier({ ordinateur, fait }: { ordinateur: Ordinateur | null; fait: boolean }) {
-  const [envoi, setEnvoi] = React.useState(false);
-  const [demandeLe, setDemandeLe] = React.useState<number | null>(null);
-  const [silence, setSilence] = React.useState(false);
-  React.useEffect(() => {
-    setSilence(false);
-    if (!demandeLe || fait) return;
-    const minuteur = window.setTimeout(() => setSilence(true), 25_000);
-    return () => window.clearTimeout(minuteur);
-  }, [demandeLe, fait]);
-  const relier = async () => {
-    if (!ordinateur) return;
-    setEnvoi(true);
-    try {
-      const { code } = await client.call<{ code: string; expireLe: number }>({ type: 'relaisMac.code', ordinateurId: ordinateur.id });
-      /* Le lien ouvre Beluga Connect sur ce Mac (Chrome le demande une seule fois) ; il porte l'adresse de ce Beluga. */
-      window.location.href = `beluga-connect://relier?base=${encodeURIComponent(window.location.origin)}&code=${code}`;
-      setDemandeLe(Date.now());
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
-    } finally {
-      setEnvoi(false);
-    }
-  };
-  return (
-    <div className="flex flex-col">
-      <Encadre repere="relier" className="flex flex-wrap items-center gap-4">
-        <p className="min-w-[12rem] flex-1 text-[13.5px] leading-relaxed text-text">
-          {t('Chrome vous demandera une seule fois d’ouvrir l’application : choisissez « Ouvrir {v0} ».', { v0: CONNECT })}
-        </p>
-        <Button variant="default" size="md" className="max-sm:basis-full" onClick={() => void relier()} disabled={envoi || !ordinateur} data-assistant-relier-mac>
-          {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {t('Relier ce Mac')}
+      <EnAttente>{t('Beluga attend {v0}… l’étape se cochera d’elle-même.', { v0: CONNECT })}</EnAttente>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {systeme === 'mac' ? (
+          <Button variant="subtle" size="md" className="max-sm:w-full" onClick={onRelier} disabled={!code} data-relier-maintenant>
+            {t('Relier maintenant')}
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="md" className="max-sm:w-full" onClick={onRetelecharger} data-retelecharger>
+          <Download className="h-3.5 w-3.5" />
+          {t('Télécharger de nouveau')}
         </Button>
-      </Encadre>
-      {demandeLe && !fait ? <EnAttente>{t('Beluga attend la réponse de {v0}… l’étape se cochera d’elle-même.', { v0: CONNECT })}</EnAttente> : null}
-      {silence && !fait ? (
-        <p className="mt-2 text-[13px] leading-relaxed text-muted" data-assistant-rien-ouvert>
-          {t('Rien ne s’est ouvert ? Vérifiez que {v0} est installé (étape précédente), puis cliquez de nouveau.', { v0: CONNECT })}
-        </p>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -682,7 +604,7 @@ function EtapeAutorisations({ ordinateur }: { ordinateur: Ordinateur | null }) {
   };
   return (
     <div className="flex flex-col">
-      <Encadre repere="autorisations" className="flex flex-col gap-1.5" >
+      <Encadre repere="autorisations" className="flex flex-col gap-1.5">
         {lignes.map((l) => {
           const accorde = a?.[l.cle] === true;
           return (
@@ -711,26 +633,30 @@ function EtapeAutorisations({ ordinateur }: { ordinateur: Ordinateur | null }) {
   );
 }
 
-function EtapeChrome({
-  ordinateur,
-  nav,
-  sousEtats,
-  fait,
-}: {
-  ordinateur: Ordinateur | null;
-  nav: NavigateurDOrdinateur | null;
-  sousEtats: { ajoutee: boolean; reliee: boolean; prive: boolean };
-  fait: boolean;
-}) {
+/** Le dossier fixe de l'extension, par système (affiché seulement si l'ajout à Chrome a échoué). */
+const DOSSIER_PAR_DEFAUT: Record<SystemeDOrdinateur, string> = {
+  mac: '~/Library/Application Support/Beluga/extension-chrome',
+  windows: '%LOCALAPPDATA%\\Beluga\\extension-chrome',
+  linux: '~/.local/share/beluga/extension-chrome',
+};
+
+function EtapeChrome({ ordinateur, nav, mac }: { ordinateur: Ordinateur | null; nav: NavigateurDOrdinateur | null; mac: boolean }) {
   const [envoi, setEnvoi] = React.useState<string | null>(null);
   const preparation = ordinateur?.programme?.preparation ?? null;
+  const systeme = ordinateur?.programme?.systeme ?? (mac ? 'mac' : 'windows');
   const echec = preparation?.etat === 'echec';
+  const sousEtats = {
+    ajoutee: !!nav || preparation?.ajoutee === true,
+    reliee: !!nav?.enLigne,
+    prive: nav?.incognito === true,
+  };
   const ordre: { cle: keyof typeof sousEtats; titre: string; enCours: string }[] = [
     { cle: 'ajoutee', titre: t('Extension ajoutée à Chrome'), enCours: t('Ajout de l’extension à Chrome…') },
     { cle: 'reliee', titre: t('Extension reliée à Beluga'), enCours: t('Liaison de l’extension…') },
-    { cle: 'prive', titre: t('Autorisée en navigation privée'), enCours: t('Autorisation en navigation privée…') },
+    ...(mac ? [{ cle: 'prive' as const, titre: t('Autorisée en navigation privée'), enCours: t('Autorisation en navigation privée…') }] : []),
   ];
   const premiereManquante = ordre.find((o) => !sousEtats[o.cle])?.cle ?? null;
+  const dossier = preparation?.dossier || DOSSIER_PAR_DEFAUT[systeme];
   const reessayer = async () => {
     if (!ordinateur) return;
     setEnvoi('preparer');
@@ -763,7 +689,7 @@ function EtapeChrome({
           </LigneDEtat>
         ))}
       </Encadre>
-      {fait ? null : echec ? (
+      {echec ? (
         <div className="mt-4 flex flex-col gap-3" data-assistant-secours>
           <p className="text-[13.5px] leading-relaxed text-text">{t('{v0} n’a pas pu tout faire seul. Trois clics suffisent :', { v0: CONNECT })}</p>
           {!sousEtats.ajoutee ? (
@@ -772,80 +698,88 @@ function EtapeChrome({
               etapes={[
                 t('Dans Chrome, ouvrez la page chrome://extensions et activez le « Mode développeur », en haut à droite.'),
                 t('Cliquez sur « Charger l’extension non empaquetée ».'),
-                t('Tapez Cmd + Maj + G, collez {chemin}, puis validez deux fois.', { chemin: DOSSIER_DE_L_EXTENSION }),
+                systeme === 'mac'
+                  ? t('Tapez Cmd + Maj + G, collez {chemin}, puis validez deux fois.', { chemin: dossier })
+                  : t('Collez {chemin} dans la barre du dossier, puis validez.', { chemin: dossier }),
               ]}
             />
-          ) : !sousEtats.prive && nav ? (
-            <Button variant="subtle" size="md" className="self-start" onClick={() => void ouvrirLaPage()} disabled={!!envoi} data-assistant-ouvrir-page-extension>
+          ) : !sousEtats.prive && nav && mac ? (
+            <Button variant="subtle" size="md" className="self-start max-sm:w-full" onClick={() => void ouvrirLaPage()} disabled={!!envoi} data-assistant-ouvrir-page-extension>
               {envoi === 'page' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               {t('Ouvrir la page de l’extension')}
             </Button>
           ) : null}
           <div className="flex flex-wrap gap-2">
             {!sousEtats.ajoutee ? (
-              <Button variant="subtle" size="md" onClick={() => copier(DOSSIER_DE_L_EXTENSION, t('Chemin copié.'))} data-assistant-copier-chemin>
+              <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => copier(dossier, t('Chemin copié.'))} data-assistant-copier-chemin>
                 <Copy className="h-3.5 w-3.5" />
                 {t('Copier le chemin')}
               </Button>
             ) : null}
-            <Button variant="subtle" size="md" onClick={() => void reessayer()} disabled={!!envoi} data-assistant-reessayer>
+            <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => void reessayer()} disabled={!!envoi} data-assistant-reessayer>
               {envoi === 'preparer' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               {t('Réessayer')}
             </Button>
           </div>
         </div>
       ) : (
-        <EnAttente>{t('Quelques secondes… l’étape se cochera d’elle-même.')}</EnAttente>
+        <EnAttente>{t('Laissez Chrome ouvert… l’étape se cochera d’elle-même.')}</EnAttente>
       )}
     </div>
   );
 }
 
-function EtapeExtension({ navigateur }: { navigateur: GenreDeNavigateur }) {
-  const chrome = navigateur === 'chrome';
-  return (
-    <div className="flex flex-col gap-4">
-      <Button asChild variant="default" size="md" className="self-start" data-assistant-telecharger={navigateur}>
-        <a href={chrome ? '/api/extension-chrome.zip' : '/api/extension-safari.zip'} download={chrome ? 'beluga-chrome.zip' : 'Beluga-Safari.zip'}>
-          <Download className="h-3.5 w-3.5" />
-          {chrome ? t('Télécharger Beluga pour Chrome') : t('Télécharger Beluga pour Safari')}
-        </a>
-      </Button>
-      <Encadre repere={`gestes-${navigateur}`}>
-        <EtapesNumerotees
-          repere={navigateur}
-          etapes={
-            chrome
-              ? [
-                  t('Décompressez le fichier, puis ouvrez la page chrome://extensions et activez le « Mode développeur », en haut à droite.'),
-                  t('Cliquez sur « Charger l’extension non empaquetée » et choisissez le dossier « beluga-chrome ».'),
-                  t('Épinglez l’icône Beluga près de la barre d’adresse : elle sert à l’étape suivante.'),
-                ]
-              : [
-                  t('Décompressez le fichier, glissez « Beluga » dans Applications, puis ouvrez-la une fois.'),
-                  t('Dans Safari, ouvrez Réglages → Extensions et cochez « Beluga », sur tous les sites.'),
-                  t('Gardez l’icône Beluga dans la barre de Safari : elle sert à l’étape suivante.'),
-                ]
-          }
-        />
-      </Encadre>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ */
+/* Safari : l'application signée et son code (seul geste encore à la main) */
+/* ------------------------------------------------------------------ */
 
 const heure = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /**
- * LE CODE DE LIAISON, VIVANT (20/11/2026) : demandé dès l'arrivée sur l'étape (même si un navigateur est déjà relié),
- * redemandé seul APRÈS son échéance (un code neuf tue le précédent du compte : jamais avant), et remplacé par
- * « Relié avec succès » dès qu'un navigateur de cet ordinateur se relie APRÈS son émission.
+ * BELUGA POUR SAFARI (page d'un Mac) : Safari n'accepte pas d'extension posée par une autre application ; on garde
+ * donc l'application signée à télécharger et le code de liaison — affiché d'office, renouvelé à son échéance,
+ * remplacé par « Relié avec succès » dès qu'un Safari de cet ordinateur se relie APRÈS son émission.
  */
-function EtapeLiaison({ ordinateur, navigateur }: { ordinateur: Ordinateur | null; navigateur: GenreDeNavigateur }) {
+export function FenetreSafari({ ordinateur, ouverte, onClose }: { ordinateur: Ordinateur; ouverte: boolean; onClose: () => void }) {
+  return (
+    <Dialog open={ouverte} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent adresse="installation-safari" className="sm:w-[min(620px,100%)]" data-fenetre-safari>
+        <DialogHeader>
+          <DialogTitle>{t('Beluga pour Safari')}</DialogTitle>
+        </DialogHeader>
+        {ouverte ? (
+          <div className="flex flex-col gap-5 pb-1">
+            <div className="flex flex-col gap-4">
+              <Button asChild variant="default" size="md" className="self-start max-sm:w-full" data-assistant-telecharger="safari">
+                <a href="/api/extension-safari.zip" download="Beluga-Safari.zip">
+                  <Download className="h-3.5 w-3.5" />
+                  {t('Télécharger Beluga pour Safari')}
+                </a>
+              </Button>
+              <Encadre repere="gestes-safari">
+                <EtapesNumerotees
+                  repere="safari"
+                  etapes={[
+                    t('Décompressez le fichier, glissez « Beluga » dans Applications, puis ouvrez-la une fois.'),
+                    t('Dans Safari, ouvrez Réglages → Extensions et cochez « Beluga », sur tous les sites.'),
+                    t('Cliquez sur l’icône Beluga dans Safari, puis saisissez ce code.'),
+                  ]}
+                />
+              </Encadre>
+            </div>
+            <CodeDeLiaison ordinateur={ordinateur} navigateur="safari" />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CodeDeLiaison({ ordinateur, navigateur }: { ordinateur: Ordinateur; navigateur: GenreDeNavigateur }) {
   const [code, setCode] = React.useState<{ code: string; expireLe: number; emisLe: number } | null>(null);
   const [enCours, setEnCours] = React.useState(false);
-  const ordinateurId = ordinateur?.id ?? null;
+  const ordinateurId = ordinateur.id;
   const demander = React.useCallback(async () => {
-    if (!ordinateurId) return;
     setEnCours(true);
     try {
       const r = await client.call<{ code: string; expireLe: number }>({ type: 'extension.code', ordinateurId });
@@ -860,23 +794,19 @@ function EtapeLiaison({ ordinateur, navigateur }: { ordinateur: Ordinateur | nul
     setCode(null);
     void demander();
   }, [demander]);
-  const reussi =
-    !!code &&
-    !!ordinateur?.navigateurs.some((n) => n.genre === navigateur && n.enLigne && (n.creeLe ?? 0) >= code.emisLe - 5_000);
-  /* Échéance passée sans liaison : un code neuf, tout seul. */
+  const reussi = !!code && ordinateur.navigateurs.some((n) => n.genre === navigateur && n.enLigne && (n.creeLe ?? 0) >= code.emisLe - 5_000);
   React.useEffect(() => {
     if (!code || reussi) return;
     const minuteur = window.setTimeout(() => void demander(), Math.max(1_000, code.expireLe - Date.now() + 500));
     return () => window.clearTimeout(minuteur);
   }, [code, reussi, demander]);
   const nomNav = LIBELLE_DU_NAVIGATEUR[navigateur];
-  const nom = ordinateur?.nom ?? '';
   if (reussi) {
     return (
       <Encadre repere="liaison-reussie">
         <LigneDEtat repere="liaison" etat="fait">
           <span className="text-coche">{t('Relié avec succès')}</span>
-          <span className="text-muted"> · {t('{navigateur} sur « {nom} »', { navigateur: nomNav, nom })}</span>
+          <span className="text-muted"> · {t('{navigateur} sur « {nom} »', { navigateur: nomNav, nom: ordinateur.nom })}</span>
         </LigneDEtat>
       </Encadre>
     );
@@ -893,15 +823,14 @@ function EtapeLiaison({ ordinateur, navigateur }: { ordinateur: Ordinateur | nul
       ) : (
         <div className="h-[112px] animate-pulse rounded-xl bg-raised" data-silhouette />
       )}
-      {code ? <EnAttente>{t('En attente de {navigateur} sur « {nom} »… l’étape se cochera d’elle-même.', { navigateur: nomNav, nom })}</EnAttente> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {code ? (
-          <Button variant="subtle" size="md" onClick={() => copier(code.code, t('Code copié.'))} data-copier-code>
+          <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => copier(code.code, t('Code copié.'))} data-copier-code>
             <Copy className="h-3.5 w-3.5" />
             {t('Copier le code')}
           </Button>
         ) : null}
-        <Button variant="subtle" size="md" onClick={() => void demander()} disabled={enCours} data-code-navigateur>
+        <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => void demander()} disabled={enCours} data-code-navigateur>
           {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           {t('Nouveau code')}
         </Button>

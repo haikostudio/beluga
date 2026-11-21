@@ -1305,18 +1305,70 @@ export function createHttpServer(): http.Server {
        * notarisée, téléchargée par le bouton « Installer sur ce Mac » de l'assistant, AVANT le mur (le Mac n'a pas de
        * session ; l'archive ne contient aucun secret) ; `version` sert à sa mise à jour d'elle-même.
        */
-      if (route === '/api/connect/Beluga-Connect.zip' || route === '/api/connect/version') {
-        const { archiveDeConnect } = await import('./relais-mac.js');
-        const a = archiveDeConnect();
-        if (!a) return json(res, 404, { ok: false, raison: 'Beluga Connect n’est pas encore fabriqué sur ce Beluga.' });
-        if (route === '/api/connect/version') return json(res, 200, { version: a.version, empreinte: a.empreinte, chemin: '/api/connect/Beluga-Connect.zip' });
-        res.writeHead(200, {
-          'content-type': 'application/zip',
-          'content-length': a.zip.length,
-          'content-disposition': 'attachment; filename="Beluga-Connect.zip"',
-          'cache-control': 'no-store',
-        });
-        return res.end(a.zip);
+      /*
+       * BELUGA CONNECT POUR WINDOWS ET LINUX (carte « Beluga Connect : installation simplifiée », 21/11/2026) : même
+       * porte publique. Avec `?code=` (six chiffres, émis par le parcours « Connecter cet ordinateur »), le fichier
+       * servi porte en REMORQUE l'adresse de ce Beluga et ce code : l'application se relie seule au premier lancement.
+       * Sous Linux, `installer-linux.sh` choisit l'architecture, pose le fichier et le lance (une commande à coller).
+       */
+      if (route.startsWith('/api/connect/')) {
+        const { paquetDeConnect, paquetDeLaRoute } = await import('./relais-mac.js');
+        const { baseValable, octetsDeRemorque, systemeValable } = await import('@beluga/shared');
+        const q = new URL(req.url ?? '/', 'http://x').searchParams;
+        /* L'adresse écrite dans la remorque : celle que la page a sous les yeux (`base`), si elle vise bien CET hôte ;
+           sinon celle que disent les en-têtes du relais d'entrée. */
+        const baseDeLaPage = baseValable(q.get('base'));
+        const base =
+          baseDeLaPage && new URL(baseDeLaPage).host === req.headers.host
+            ? baseDeLaPage
+            : `${req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https'}://${req.headers.host ?? ''}`;
+        const code = /^\d{6}$/.test(q.get('code') ?? '') ? q.get('code')! : null;
+        if (route === '/api/connect/version') {
+          const systeme = systemeValable(q.get('systeme')) ?? 'mac';
+          const cle = systeme === 'windows' ? 'windows' : systeme === 'linux' ? (q.get('arch') === 'arm64' ? 'linux-arm64' : 'linux-amd64') : 'mac';
+          const a = paquetDeConnect(cle);
+          if (!a) return json(res, 404, { ok: false, raison: 'Beluga Connect n’est pas encore fabriqué pour ce système sur ce Beluga.' });
+          return json(res, 200, { version: a.version, empreinte: a.empreinte, chemin: a.route });
+        }
+        if (route === '/api/connect/installer-linux.sh') {
+          if (!code || !/^https?:\/\/[A-Za-z0-9.:\[\]-]+$/.test(base)) return json(res, 400, { ok: false, raison: 'Code de liaison absent : relancez « Connecter cet ordinateur ».' });
+          const script = [
+            '#!/bin/sh',
+            '# Beluga Connect pour Linux : pose l’application dans ~/.local/share/beluga, puis la lance (elle se relie seule).',
+            'set -e',
+            'case "$(uname -m)" in x86_64|amd64) A=amd64 ;; aarch64|arm64) A=arm64 ;; *) echo "Beluga Connect : architecture $(uname -m) non prise en charge." >&2; exit 1 ;; esac',
+            'D="${XDG_DATA_HOME:-$HOME/.local/share}/beluga"',
+            'mkdir -p "$D"',
+            `curl -fsSL "${base}/api/connect/beluga-connect-linux-$A?code=${code}&base=${encodeURIComponent(base)}" -o "$D/beluga-connect.telecharge"`,
+            'chmod +x "$D/beluga-connect.telecharge"',
+            'exec "$D/beluga-connect.telecharge" --installer',
+            '',
+          ].join('\n');
+          res.writeHead(200, { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' });
+          return res.end(script);
+        }
+        const cle = paquetDeLaRoute(route);
+        if (cle) {
+          const a = paquetDeConnect(cle);
+          if (!a) return json(res, 404, { ok: false, raison: 'Beluga Connect n’est pas encore fabriqué pour ce système sur ce Beluga.' });
+          /* L'archive signée du Mac ne se touche jamais : la remorque ne vaut que pour Windows et Linux. */
+          let corps: Buffer = a.octets;
+          if (code && cle !== 'mac') {
+            try {
+              corps = Buffer.concat([a.octets, Buffer.from(octetsDeRemorque({ base, code }))]);
+            } catch {
+              /* adresse illisible : le fichier part sans remorque, la liaison passera par le lien */
+            }
+          }
+          res.writeHead(200, {
+            'content-type': a.type,
+            'content-length': corps.length,
+            'content-disposition': `attachment; filename="${cle === 'mac' ? 'Beluga-Connect.zip' : cle === 'windows' ? 'Beluga-Connect.exe' : 'beluga-connect'}"`,
+            'cache-control': 'no-store',
+          });
+          return res.end(corps);
+        }
+        return json(res, 404, { ok: false, raison: 'Paquet de Beluga Connect inconnu.' });
       }
 
       if (route.startsWith('/api/relais-mac/')) {
@@ -1359,6 +1411,9 @@ export function createHttpServer(): http.Server {
         if (route === '/api/relais-mac/attendre' && req.method === 'GET') {
           const q = new URL(req.url ?? '/', 'http://x').searchParams;
           const commande = await relaisMac.attendreUnGeste(voie.appareilId, {
+            /* Beluga Connect Windows / Linux (21/11/2026) : son système et son architecture. */
+            systeme: q.get('systeme') === 'windows' || q.get('systeme') === 'linux' ? (q.get('systeme') as 'windows' | 'linux') : undefined,
+            arch: /^[a-z0-9]{2,12}$/.test(q.get('arch') ?? '') ? q.get('arch')! : undefined,
             recopie: q.has('recopie') ? q.get('recopie') === '1' : undefined,
             verrouille: q.has('verrouille') ? q.get('verrouille') === '1' : undefined,
             /* Autorisations de macOS (« Beluga Relais ») : 1, 0, vide = inconnue ; absentes = relais d'avant. */

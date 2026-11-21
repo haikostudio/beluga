@@ -1423,3 +1423,42 @@ async function executer(geste, args) {
       throw new Error(`Geste inconnu : ${geste}`);
   }
 }
+
+/*
+ * 1.0.14 — L'EXTENSION SE PRÉSENTE À LA PAGE BELUGA (carte « Beluga Connect : installation simplifiée », 21/11/2026) :
+ * sur un onglet de SON Beluga (même origine que son adresse), elle pose sur la page l'identifiant d'appareil de ce
+ * navigateur — la partie du milieu de sa clé, JAMAIS le compte ni le nonce, et jamais le secret — dans
+ * `data-beluga-navigateur`, avec sa version dans `data-beluga-extension`. Réglages › Ordinateurs reconnaît ainsi
+ * l'ordinateur sur lequel on est : « Connecter cet ordinateur » ne repart pas de zéro sur un ordinateur déjà relié.
+ */
+async function seRepresenterA(tabId, adresseDeLOnglet) {
+  try {
+    const { adresse } = await configuration();
+    if (!adresse || !adresseDeLOnglet || new URL(adresseDeLOnglet).origin !== new URL(adresse).origin) return;
+    const { identifiant } = await liaison();
+    const appareil = typeof identifiant === 'string' ? identifiant.split('.')[1] ?? '' : '';
+    const version = chrome.runtime.getManifest().version;
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (id, v) => {
+        const racine = document.documentElement;
+        if (id) racine.dataset.belugaNavigateur = id;
+        else delete racine.dataset.belugaNavigateur;
+        racine.dataset.belugaExtension = v;
+        window.dispatchEvent(new CustomEvent('beluga:extension-presente'));
+      },
+      args: [appareil, version],
+    });
+  } catch {
+    /* onglet fermé, page interdite : rien à dire */
+  }
+}
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (change.status === 'complete') void seRepresenterA(tabId, tab.url);
+});
+/* À la liaison (code ou liaison.json), les onglets Beluga déjà ouverts l'apprennent tout de suite. */
+chrome.storage.onChanged.addListener((changes, zone) => {
+  if (zone !== 'local' || !changes.identifiant) return;
+  void chrome.tabs.query({}).then((onglets) => onglets.forEach((o) => o.id && void seRepresenterA(o.id, o.url)));
+});
+void chrome.tabs.query({}).then((onglets) => onglets.forEach((o) => o.id && void seRepresenterA(o.id, o.url)));

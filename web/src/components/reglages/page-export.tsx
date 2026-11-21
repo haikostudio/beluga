@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   Database,
 } from '@/components/ui/icones';
@@ -25,9 +26,7 @@ const TiroirDonnees = React.lazy(() =>
 export function SectionExportDonnees() {
   const [ouvert, setOuvert] = React.useState(false);
   return (
-    <section className="rounded-lg border border-border bg-bloc p-3">
-      <h3 className="flex items-center gap-1.5 text-[13px] uppercase tracking-wide text-muted mb-2">
-        <Database className="h-3.5 w-3.5 text-faint" />  {t('Export et import des données')}<BulleInfo cote="start">{t('Emporter le coffre-fort, les backups, les projets, les cartes, les conversations et les branches dans une seule archive — puis les remonter sur une autre installation.')}</BulleInfo></h3>
+    <Groupe titre={t('Export et import des données')} aide={t('Emporter le coffre-fort, les backups, les projets, les cartes, les conversations et les branches dans une seule archive — puis les remonter sur une autre installation.')}>
       <Button variant="subtle" size="sm" data-ouvrir-export-donnees onClick={() => setOuvert(true)}>
         <Database className="h-3 w-3" />
         {t('Ouvrir')}
@@ -35,6 +34,6 @@ export function SectionExportDonnees() {
       <PanneauALaDemande monte={ouvert}>
         <TiroirDonnees open={ouvert} onClose={() => setOuvert(false)} />
       </PanneauALaDemande>
-    </section>
+    </Groupe>
   );
 }

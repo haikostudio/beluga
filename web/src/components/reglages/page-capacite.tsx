@@ -27,7 +27,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { Mesure, gigas } from '@/components/reglages/communs';
+import { Groupe, Mesure, gigas } from '@/components/reglages/communs';
 import { lancerIntervalleVisible } from '@/lib/veille';
 
 
@@ -74,11 +74,7 @@ export function SectionSysteme() {
 
   return (
     <>
-      <section>
-        <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-          <Activity className="h-3.5 w-3.5 text-faint" />  {t('Capacité du système')}
-  <BulleInfo cote="start">{t('La barre montre les places d\'agents occupées, rien d\'autre : elle ne devient rouge que lorsqu\'aucun agent ne peut plus démarrer, faute de mémoire ou de place sous le plafond.')}</BulleInfo>
-</h3>
+      <Groupe titre={t('Capacité du système')} aide={t('La barre montre les places d\'agents occupées, rien d\'autre : elle ne devient rouge que lorsqu\'aucun agent ne peut plus démarrer, faute de mémoire ou de place sous le plafond.')}>
 
         {capacity ? (
           <>
@@ -165,10 +161,9 @@ export function SectionSysteme() {
 
           </>
         ) : null}
-      </section>
+      </Groupe>
 
-      <section className="mt-4">
-        <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Ce qui tourne en ce moment')}</p>
+      <Groupe titre={t('Ce qui tourne en ce moment')}>
         <div className="space-y-0.5">
           {state.processes.map((process) => (
             <div
@@ -217,7 +212,7 @@ export function SectionSysteme() {
             </div>
           ))}
         </div>
-      </section>
+      </Groupe>
 
       <ConfirmDialog
         open={!!aConfirmer}

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   Copy,
   KeyRound,
@@ -79,11 +80,7 @@ export function SectionClesApi({ open }: { open: boolean }) {
   const vivantes = cles.filter((c) => !c.revoqueeLe);
 
   return (
-    <section>
-      <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text mb-3">
-        <KeyRound className="h-3.5 w-3.5 text-faint" />  {t('Clés des services extérieurs')}
-  <BulleInfo cote="start">{t('Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte dans un projet, sans ouvrir cette application. La carte arrive dans « À planifier » et attend son lancement, comme n\'importe quelle autre.')}</BulleInfo>
-</h3>
+    <Groupe titre={t('Clés des services extérieurs')} aide={t('Une clé permet à un service du dehors — une boîte mail, un formulaire, un automate — de poser une carte dans un projet, sans ouvrir cette application. La carte arrive dans « À planifier » et attend son lancement, comme n\'importe quelle autre.')}>
 
 
       {/* Fabriquer une clé */}
@@ -208,7 +205,7 @@ export function SectionClesApi({ open }: { open: boolean }) {
         }}
         onClose={() => setARevoquer(null)}
       />
-    </section>
+    </Groupe>
   );
 }
 

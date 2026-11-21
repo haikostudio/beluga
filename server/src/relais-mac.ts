@@ -27,7 +27,9 @@ import {
   signatureFraiche,
   VERSION_EXTENSION_CHROME,
   versionAuMoins,
+  systemeValable,
   type AutorisationsDuMac,
+  type SystemeDOrdinateur,
   type EtatDuRelais,
   type PreparationDeChrome,
 } from '@beluga/shared';
@@ -47,6 +49,8 @@ interface RelaisRelie {
   creeLe: number;
   /** L'ordinateur qui porte ce programme (absent pour un relais relié avant la carte des ordinateurs). */
   ordinateurId?: string;
+  /** Le système de l'ordinateur (Beluga Connect Windows / Linux, 21/11/2026) ; absent : un Mac. */
+  systeme?: SystemeDOrdinateur;
 }
 
 function relais(): RelaisRelie[] {
@@ -91,7 +95,7 @@ export type ResultatDeLiaisonDuRelais = { ok: true; identifiant: string; secret:
  * Le relais échange le code contre sa clé. Il se rattache à l'ordinateur visé par le code (le programme d'avant sur cet
  * ordinateur est remplacé), sinon à un ordinateur neuf au vrai nom du Mac. Le vrai nom remplace un nom par défaut.
  */
-export function relierUnMac(demande: { code?: unknown; nom?: unknown }, adresse: string, maintenant = Date.now()): ResultatDeLiaisonDuRelais {
+export function relierUnMac(demande: { code?: unknown; nom?: unknown; systeme?: unknown; ancien?: unknown }, adresse: string, maintenant = Date.now()): ResultatDeLiaisonDuRelais {
   if (tropDEssais(adresse, maintenant)) return { ok: false, raison: 'Trop d’essais : patientez une minute.' };
   const code = String(demande.code ?? '').replace(/\s+/g, '');
   if (!codeDeLiaisonValide(code)) return { ok: false, raison: 'Le code a six chiffres.' };
@@ -100,16 +104,24 @@ export function relierUnMac(demande: { code?: unknown; nom?: unknown }, adresse:
   if (!trouve || trouve.expireLe < maintenant) return { ok: false, raison: 'Code inconnu ou expiré : affichez-en un nouveau dans Réglages → Extension.' };
   const id = crypto.randomBytes(9).toString('base64url');
   const nonce = crypto.randomBytes(12).toString('base64url');
-  const nom = String(demande.nom ?? '').trim().slice(0, 60) || 'Mac';
-  const ordinateurId = ligneDOrdinateur(trouve.compteId, trouve.ordinateurId)?.id ?? creerUnOrdinateur(trouve.compteId, nom, maintenant).id;
+  const systeme = systemeValable(demande.systeme) ?? 'mac';
+  const nom = String(demande.nom ?? '').trim().slice(0, 60) || (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : 'Linux');
+  /* RELIÉ DE NOUVEAU (Beluga Connect Windows / Linux, 21/11/2026) : le programme donne son ancienne clé ; sans
+     ordinateur visé par le code, il reprend SON ordinateur au lieu d'en créer un second. */
+  const ancienne = lireIdentifiantDAppareil(demande.ancien);
+  const precedent = ancienne ? relais().find((x) => x.id === ancienne.id && x.nonce === ancienne.nonce && x.compteId === trouve.compteId) : undefined;
+  const ordinateurId =
+    ligneDOrdinateur(trouve.compteId, trouve.ordinateurId)?.id ??
+    (precedent?.ordinateurId ? ligneDOrdinateur(trouve.compteId, precedent.ordinateurId)?.id : undefined) ??
+    creerUnOrdinateur(trouve.compteId, nom, maintenant).id;
   proposerLeVraiNom(trouve.compteId, ordinateurId, nom);
   rattacherLesOrphelins();
   enregistrer([
     ...relais().filter((r) => !(r.compteId === trouve.compteId && r.ordinateurId === ordinateurId)),
-    { id, compteId: trouve.compteId, nonce, nom, creeLe: maintenant, ordinateurId },
+    { id, compteId: trouve.compteId, nonce, nom, creeLe: maintenant, ordinateurId, ...(systeme === 'mac' ? {} : { systeme }) },
   ]);
   const cle = { compteId: trouve.compteId, id, nonce };
-  log.info(`relais du Mac relié (${nom})`);
+  log.info(`Beluga Connect relié (${nom}, ${systeme})`);
   bus.emit({ type: 'extension.change' });
   return { ok: true, identifiant: identifiantDAppareil(cle), secret: secretDeLAppareil(cle), nom };
 }
@@ -179,6 +191,8 @@ type Nouvelles = {
   version?: number;
   lanceur?: boolean;
   connect?: string;
+  systeme?: SystemeDOrdinateur;
+  arch?: string;
 };
 const nouvelles = new Map<string, Nouvelles>();
 
@@ -194,6 +208,10 @@ export interface EtatRapporteParLeRelais {
   lanceur?: boolean;
   /** La version de Beluga Connect qui joue ce relais (absente : ancien « Beluga Relais »). */
   connect?: string;
+  /** Le système rapporté par Beluga Connect Windows / Linux ; absent : un Mac. */
+  systeme?: SystemeDOrdinateur;
+  /** L'architecture rapportée (amd64, arm64) : le bon paquet pour la mise à jour. */
+  arch?: string;
 }
 
 /** Dernière demande de remplacement envoyée à chaque relais : une seule toutes les dix minutes. */
@@ -205,7 +223,7 @@ const remplacementsDemandes = new Map<string, number>();
  * (installation d'avant), rien : il faut rejouer la commande d'installation une fois.
  */
 function remplacerSiEnRetard(appareilId: string, etat: EtatRapporteParLeRelais, maintenant = Date.now()): void {
-  if (!etat.lanceur) return;
+  if (!etat.lanceur || (etat.systeme && etat.systeme !== 'mac')) return;
   const servi = versionDuRelaisServi();
   if (!servi || (etat.version ?? 1) >= servi) return;
   if (maintenant - (remplacementsDemandes.get(appareilId) ?? 0) < 10 * 60_000) return;
@@ -296,6 +314,8 @@ type EtatDUnRelais = {
   ordinateurId: string | null;
   autorisations: AutorisationsDuMac | null;
   connect: string | null;
+  systeme: SystemeDOrdinateur;
+  relieLe: number | null;
 };
 
 /** Les autorisations rapportées : `null` tant que le relais n'en a rien dit (programme d'avant « Beluga Relais »). */
@@ -313,8 +333,15 @@ function etatDe(r: RelaisRelie | undefined, maintenant: number): EtatDUnRelais {
     ordinateurId: r?.ordinateurId ?? null,
     autorisations: autorisationsDe(n),
     connect: n?.connect ?? null,
+    systeme: systemeDuRelais(r, n),
+    relieLe: r?.creeLe ?? null,
     etat: etatDuRelais({ relie: !!r, vuLe: n?.vuLe, maintenant, recopie: n?.recopie, verrouille: n?.verrouille }),
   };
+}
+
+/** Le système d'un relais : celui noté à la liaison, sinon celui qu'il rapporte, sinon un Mac. */
+function systemeDuRelais(r: RelaisRelie | undefined, n: Nouvelles | undefined): SystemeDOrdinateur {
+  return r?.systeme ?? n?.systeme ?? 'mac';
 }
 
 const RANG_DE_L_ETAT: Record<EtatDuRelais, number> = { pret: 0, 'recopie-fermee': 1, 'mac-verrouille': 2, 'hors-ligne': 3, absent: 4 };
@@ -330,7 +357,9 @@ export function relaisDuCompte(compteId: string, maintenant = Date.now(), ordina
     .map((r) => etatDe(r, maintenant));
   const duBon = ordinateurId ? etats.find((e) => e.ordinateurId === ordinateurId) : undefined;
   if (duBon) return duBon;
-  return etats.sort((a, b) => RANG_DE_L_ETAT[a.etat] - RANG_DE_L_ETAT[b.etat])[0] ?? etatDe(undefined, maintenant);
+  /* L'iPhone ne se pilote que depuis un Mac : les Mac passent devant les PC. */
+  const rangDuSysteme = (e: EtatDUnRelais) => (e.systeme === 'mac' ? 0 : 1);
+  return etats.sort((a, b) => rangDuSysteme(a) - rangDuSysteme(b) || RANG_DE_L_ETAT[a.etat] - RANG_DE_L_ETAT[b.etat])[0] ?? etatDe(undefined, maintenant);
 }
 
 /** Le programme du Mac de chaque ordinateur du compte (pour la liste des ordinateurs). */
@@ -345,6 +374,8 @@ export function programmesDuCompte(
   autorisations: AutorisationsDuMac | null;
   connect: string | null;
   preparation: PreparationDeChrome | null;
+  systeme: SystemeDOrdinateur;
+  relieLe: number | null;
 }[] {
   rattacherLesOrphelins();
   return relais()
@@ -359,6 +390,8 @@ export function programmesDuCompte(
         autorisations: e.autorisations,
         connect: e.connect,
         preparation: preparations.get(r.ordinateurId!) ?? null,
+        systeme: e.systeme,
+        relieLe: e.relieLe,
       };
     });
 }
@@ -397,6 +430,7 @@ export async function ouvrirUnReglageDuMac(compteId: string, ordinateurId: strin
   const r = relaisDuCompte(compteId, Date.now(), ordinateurId);
   if (!r.appareilId || r.ordinateurId !== ordinateurId) throw new Error('Le programme du Mac n’est pas installé sur cet ordinateur.');
   if (r.etat === 'hors-ligne' || r.etat === 'absent') throw new Error('Le programme du Mac ne répond pas : le Mac est-il allumé ?');
+  if (r.systeme !== 'mac') throw new Error('Cet ordinateur n’est pas un Mac : il n’a aucune autorisation à donner.');
   await demanderAuRelais(r.appareilId, 'ouvrir_reglage', { reglage });
 }
 
@@ -451,35 +485,72 @@ function lireLeFichier(nom: string): string | null {
  *    (`autoriser_navigation_privee`). Chaque sous-état est suivi pour l'écran 5 de l'assistant (`preparation`).
  */
 
-let archive: { zip: Buffer; version: string; empreinte: string; mtime: number } | null = null;
+/*
+ * LES PAQUETS DE BELUGA CONNECT PAR SYSTÈME (carte « Beluga Connect : installation simplifiée », 21/11/2026) : le Mac
+ * reçoit l'archive signée et notarisée (Swift, fabriquée sur le Mac mini) ; Windows et Linux reçoivent l'application Go
+ * (`connect/go/`, fabriquée depuis Linux par `connect/go/fabriquer.sh`), un seul fichier par système et architecture.
+ * Tous vivent dans `connect/paquet/` (versionné et publié) ; la version Go est dans `version-go.txt`.
+ */
+export type CleDePaquet = 'mac' | 'windows' | 'linux-amd64' | 'linux-arm64';
+const FICHIERS_DES_PAQUETS: Record<CleDePaquet, { fichier: string; version: string; route: string; type: string }> = {
+  mac: { fichier: 'Beluga-Connect.zip', version: 'version.txt', route: '/api/connect/Beluga-Connect.zip', type: 'application/zip' },
+  windows: { fichier: 'Beluga-Connect-Windows.exe', version: 'version-go.txt', route: '/api/connect/Beluga-Connect-Windows.exe', type: 'application/vnd.microsoft.portable-executable' },
+  'linux-amd64': { fichier: 'beluga-connect-linux-amd64', version: 'version-go.txt', route: '/api/connect/beluga-connect-linux-amd64', type: 'application/octet-stream' },
+  'linux-arm64': { fichier: 'beluga-connect-linux-arm64', version: 'version-go.txt', route: '/api/connect/beluga-connect-linux-arm64', type: 'application/octet-stream' },
+};
 
-function cheminDeLArchive(): string | null {
+/** La route publique de chaque paquet, et la clé qu'elle sert. */
+export function paquetDeLaRoute(route: string): CleDePaquet | null {
+  return (Object.keys(FICHIERS_DES_PAQUETS) as CleDePaquet[]).find((c) => FICHIERS_DES_PAQUETS[c].route === route) ?? null;
+}
+
+const paquets = new Map<CleDePaquet, { octets: Buffer; version: string; empreinte: string; mtime: number }>();
+
+function dossierDesPaquets(): string | null {
   for (const candidat of [
-    path.resolve(process.cwd(), 'connect/paquet/Beluga-Connect.zip'),
-    path.resolve(process.cwd(), '../connect/paquet/Beluga-Connect.zip'),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../connect/paquet/Beluga-Connect.zip'),
+    path.resolve(process.cwd(), 'connect/paquet'),
+    path.resolve(process.cwd(), '../connect/paquet'),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../connect/paquet'),
   ]) {
     if (fs.existsSync(candidat)) return candidat;
   }
   return null;
 }
 
-/** L'archive de Beluga Connect servie par ce Beluga, sa version et son empreinte (relue si le fichier change). */
-export function archiveDeConnect(): { zip: Buffer; version: string; empreinte: string } | null {
-  const chemin = cheminDeLArchive();
-  if (!chemin) return null;
+/** Un paquet de Beluga Connect servi par ce Beluga, sa version et son empreinte (relu si le fichier change). */
+export function paquetDeConnect(cle: CleDePaquet): { octets: Buffer; version: string; empreinte: string; route: string; fichier: string; type: string } | null {
+  const dossier = dossierDesPaquets();
+  const f = FICHIERS_DES_PAQUETS[cle];
+  if (!dossier || !f) return null;
+  const chemin = path.join(dossier, f.fichier);
+  if (!fs.existsSync(chemin)) return null;
   const mtime = fs.statSync(chemin).mtimeMs;
-  if (!archive || archive.mtime !== mtime) {
-    const zip = fs.readFileSync(chemin);
+  let p = paquets.get(cle);
+  if (!p || p.mtime !== mtime) {
+    const octets = fs.readFileSync(chemin);
     let version = '0';
     try {
-      version = fs.readFileSync(path.join(path.dirname(chemin), 'version.txt'), 'utf8').trim();
+      version = fs.readFileSync(path.join(dossier, f.version), 'utf8').trim();
     } catch {
       /* sans version : 0, jamais proposée comme mise à jour */
     }
-    archive = { zip, version, empreinte: crypto.createHash('sha256').update(zip).digest('hex'), mtime };
+    p = { octets, version, empreinte: crypto.createHash('sha256').update(octets).digest('hex'), mtime };
+    paquets.set(cle, p);
   }
-  return { zip: archive.zip, version: archive.version, empreinte: archive.empreinte };
+  return { octets: p.octets, version: p.version, empreinte: p.empreinte, route: f.route, fichier: f.fichier, type: f.type };
+}
+
+/** L'archive de Beluga Connect pour Mac (forme d'avant, gardée pour ses appelants). */
+export function archiveDeConnect(): { zip: Buffer; version: string; empreinte: string } | null {
+  const p = paquetDeConnect('mac');
+  return p ? { zip: p.octets, version: p.version, empreinte: p.empreinte } : null;
+}
+
+/** Le paquet qu'un programme relié doit recevoir pour se mettre à jour (son système, son architecture). */
+function paquetDuProgramme(systeme: SystemeDOrdinateur, arch: string | undefined): CleDePaquet {
+  if (systeme === 'windows') return 'windows';
+  if (systeme === 'linux') return arch === 'arm64' ? 'linux-arm64' : 'linux-amd64';
+  return 'mac';
 }
 
 const preparations = new Map<string, PreparationDeChrome>();
@@ -501,7 +572,8 @@ function poserLaPreparation(ordinateurId: string, p: PreparationDeChrome): void 
 function apresLAttente(appareilId: string, etat: EtatRapporteParLeRelais): void {
   const r = relais().find((x) => x.id === appareilId);
   if (!r?.ordinateurId || (etat.version ?? 1) < 3) return;
-  if (!etat.connect) {
+  const mac = systemeDuRelais(r, nouvelles.get(appareilId)) === 'mac';
+  if (!etat.connect && mac) {
     const a = archiveDeConnect();
     if (!etat.lanceur || !a || !auPlusToutesLes(`connect:${appareilId}`, 6 * 3600_000)) return;
     log.info(`relais du Mac « ${r.nom} » : passage à Beluga Connect ${a.version}`);
@@ -510,7 +582,9 @@ function apresLAttente(appareilId: string, etat: EtatRapporteParLeRelais): void 
     );
     return;
   }
-  if (etat.accessibilite !== true) return;
+  /* Sur un Mac, poser l'extension demande « Contrôler le Mac » ; Windows et Linux n'ont rien à autoriser. */
+  if (mac && etat.accessibilite !== true) return;
+  if (!etat.connect) return;
   void preparerChrome(r.compteId, r, false).catch((e) => log.warn('Beluga Connect : préparation de Chrome', String((e as Error)?.message ?? e)));
 }
 
@@ -548,13 +622,13 @@ export async function preparerChrome(compteId: string, r: RelaisRelie, force: bo
       const { preparerLePaquet } = await import('./mise-a-jour-extension.js');
       const { code } = emettreUnCodeDeLiaison(compteId, Date.now(), { ordinateurId });
       const { jeton, empreinte } = await preparerLePaquet(r.id);
-      const fait = await demanderAuRelais<{ ajoutee?: boolean; detail?: string }>(
+      const fait = await demanderAuRelais<{ ajoutee?: boolean; detail?: string; dossier?: string }>(
         r.id,
         'installer_extension',
         { chemin: `/api/relais-mac/extension.zip?jeton=${jeton}`, empreinte, version: VERSION_EXTENSION_CHROME, code },
         180_000,
       );
-      poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: fait.ajoutee === true, message: fait.detail || null, depuis });
+      poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: fait.ajoutee === true, message: fait.detail || null, depuis, dossier: fait.dossier ?? null });
       const relie = await attendreQue(async () => (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.enLigne), fait.ajoutee ? 90_000 : 20_000);
       if (!relie) {
         poserLaPreparation(ordinateurId, {
@@ -562,6 +636,7 @@ export async function preparerChrome(compteId: string, r: RelaisRelie, force: bo
           ajoutee: fait.ajoutee === true,
           message: fait.ajoutee ? 'Chrome ne s’est pas relié à Beluga.' : (fait.detail ?? 'L’extension n’a pas pu être ajoutée à Chrome.'),
           depuis,
+          dossier: fait.dossier ?? null,
         });
         return;
       }
@@ -572,6 +647,11 @@ export async function preparerChrome(compteId: string, r: RelaisRelie, force: bo
     }
   }
   const chrome = chromes[0]!;
+  /* La case « navigation privée » ne se coche seule que sur un Mac (pilotage de chrome://extensions par macOS). */
+  if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') {
+    if (preparations.get(ordinateurId)?.etat === 'en-cours') poserLaPreparation(ordinateurId, { etat: 'fait', ajoutee: true, message: null, depuis });
+    return;
+  }
   if (chrome.incognito === true || !chrome.enLigne || !versionAuMoins(chrome.version, '1.0.11')) {
     if (preparations.get(ordinateurId)?.etat === 'en-cours') poserLaPreparation(ordinateurId, { etat: 'fait', ajoutee: true, message: null, depuis });
     return;
@@ -599,7 +679,8 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
   const chromes = r?.ordinateurId ? await chromesDeLOrdinateur(compteId, r.ordinateurId) : [];
   const { retardsDuCompte, phaseDeLaMiseAJour } = await import('./mise-a-jour-extension.js');
   const retards = await retardsDuCompte(compteId);
-  const a = archiveDeConnect();
+  const n = nouvelles.get(appareilId);
+  const a = paquetDeConnect(paquetDuProgramme(systemeDuRelais(r, n), n?.arch));
   return {
     ordinateur: ordinateur?.nom ?? null,
     chromes: chromes.map((c) => ({
@@ -612,7 +693,7 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
       attente: c.agentsAuTravail > 0 ? 'agent' : null,
     })),
     versionExtension: VERSION_EXTENSION_CHROME,
-    connect: a ? { version: a.version, empreinte: a.empreinte, chemin: '/api/connect/Beluga-Connect.zip' } : null,
+    connect: a ? { version: a.version, empreinte: a.empreinte, chemin: a.route } : null,
     preparation: (r?.ordinateurId && preparations.get(r.ordinateurId)?.etat) || null,
   };
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BulleInfo } from '@/components/ui';
+import { BulleInfo, CLASSE_GROUPE_DE_LIGNES } from '@/components/ui';
 import { t } from '@/lib/langue';
 
 /* ------------------------------------------------------------------ */
@@ -7,19 +7,50 @@ import { t } from '@/lib/langue';
 /* ------------------------------------------------------------------ */
 
 /**
- * Un GROUPE de réglages à l'intérieur d'une sous-page : un titre, son « i »
- * d'explication facultatif, puis les champs. Il servait de rubrique dans l'onglet
- * « Fonctionnement » ; il sert maintenant de sous-titre dans les pages qui en
- * ont hérité.
+ * UNE SECTION DE RÉGLAGES, AU STYLE « B » (refonte des réglages, 21/11/2026,
+ * maquette #6b80) : le TITRE et sa description posés sur le fond de la page,
+ * puis les options dans UN BLOC GRIS ARRONDI en dessous — la section se
+ * délimite par son fond, jamais par un trait. Même tenue que
+ * `RubriqueDeReglages` (modeles) : les deux s'alignent.
+ *
+ * `liste` : les enfants SONT des lignes (`CLASSE_LIGNE_DE_GROUPE`, `Ligne…`) —
+ * le bloc les serre sans marge intérieure, comme `CLASSE_GROUPE_DE_LIGNES`.
+ * Sans `liste`, le bloc pose une marge et espace ses enfants (texte, champs,
+ * boutons). `nu` : pas de bloc du tout, pour un enfant qui dessine déjà le sien.
  */
-export function Groupe({ titre, aide, children }: { titre: string; aide?: string; children: React.ReactNode }) {
+export const CLASSE_BLOC_DE_REGLAGES = 'flex flex-col gap-3 rounded-2xl bg-surface p-4';
+
+export function Groupe({
+  titre,
+  aide,
+  description,
+  liste,
+  nu,
+  children,
+}: {
+  titre: string;
+  aide?: string;
+  description?: React.ReactNode;
+  liste?: boolean;
+  nu?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <section>
-      <div className="flex items-center gap-1">
-        <h3 className="text-[13.5px] font-medium text-text">{titre}</h3>
-        {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+    <section className="flex flex-col gap-2" data-section-reglages>
+      <div className="flex flex-col gap-0.5 px-1">
+        <div className="flex items-center gap-1">
+          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+        </div>
+        {description ? <p className="text-[13px] leading-relaxed text-muted">{description}</p> : null}
       </div>
-      <div className="mt-2 space-y-3">{children}</div>
+      {nu ? (
+        <div className="flex flex-col gap-3">{children}</div>
+      ) : (
+        <div className={liste ? CLASSE_GROUPE_DE_LIGNES : CLASSE_BLOC_DE_REGLAGES} data-bloc-reglages={liste ? 'liste' : 'bloc'}>
+          {children}
+        </div>
+      )}
     </section>
   );
 }

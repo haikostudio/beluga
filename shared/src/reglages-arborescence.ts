@@ -1,6 +1,8 @@
 /**
- * L'ARBORESCENCE DES RÉGLAGES : les GROUPES, leurs PAGES, et les mots qui y
- * mènent. Elle vit ICI, dans le socle partagé, pour trois raisons.
+ * L'ARBORESCENCE DES RÉGLAGES : six RUBRIQUES par usage, leurs PAGES, et les
+ * mots qui y mènent (refonte « Réglages à deux niveaux », 21/11/2026 : 22 pages
+ * en 9 groupes d'une seule colonne devenaient illisibles). Elle vit ICI, dans le
+ * socle partagé, pour trois raisons.
  *
  * 1. Les titres sont des CLÉS DU DICTIONNAIRE : l'écran les passe à `t()` au
  *    moment de l'affichage, jamais avant — un titre traduit une fois pour
@@ -9,6 +11,12 @@
  *    repères de saisie, à leur place dans une donnée, pas dans un écran.
  * 3. Une structure sans base ni disque se teste seule
  *    (`server/src/test/recherche-reglages.test.ts`).
+ *
+ * DEUX NIVEAUX : la fenêtre s'ouvre sur les six rubriques ; une rubrique ouverte
+ * devient la colonne de gauche, ses pages techniques (`avance`) repliées sous
+ * « Avancé » en bas. Les ANCIENNES clés de page (liens, événement
+ * `beluga:ouvrir-reglages`, adresses `#reglages/<page>`) mènent toujours à leur
+ * nouvelle place par `ALIAS_DES_PAGES_DE_REGLAGES`.
  *
  * L'écran, lui, n'ajoute que ce qui ne peut pas vivre ici : l'icône de chaque
  * page et le module à charger quand on l'ouvre.
@@ -24,69 +32,48 @@ export interface PageDeReglages {
   motsCles?: string[];
   /** Les libellés des réglages portés par la page : la recherche les lit aussi. */
   libelles?: string[];
+  /** Une page TECHNIQUE : rangée sous « Avancé », replié, en bas de sa rubrique. */
+  avance?: boolean;
 }
 
-/** Un groupe du menu : un titre et ses pages, dans l'ordre d'affichage. */
+/** Une rubrique du premier niveau : un titre, une phrase, ses pages dans l'ordre. */
 export interface GroupeDeReglages {
   cle: string;
   titre: string;
+  /** Ce que la rubrique contient, en une phrase (clé du dictionnaire). */
+  phrase: string;
   pages: PageDeReglages[];
 }
 
 export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
   {
-    // Le profil de la personne connectée : le premier réglage qui la concerne elle.
-    cle: 'compte',
-    titre: 'Mon compte',
+    cle: 'moi',
+    titre: 'Moi',
+    phrase: 'Votre compte, l’apparence et les notifications.',
     pages: [
       {
         cle: 'mon-compte',
         titre: 'Mon compte',
         // …ET LES ACCÈS TIERS À BELUGA (l'ancien onglet « Sous-comptes ») : une
         // grille de droits par projet et par service. Les comptes clients se
-        // créent depuis la messagerie, jamais ici.
+        // créent depuis la messagerie, jamais ici. La visite guidée y est réunie.
         motsCles: [
           'profil', 'mot de passe', 'identifiant', 'courriel', 'mail', 'pseudo', 'nom', 'connexion', 'adresse',
           'accès', 'sous-comptes', 'équipe', 'collaborateur', 'droits', 'invitation', 'utilisateur', 'permission',
+          'visite guidée', 'aide', 'tutoriel',
         ],
-        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe', 'Accès à Beluga', 'Ouvrir un accès'],
+        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe', 'Accès à Beluga', 'Ouvrir un accès', 'Revoir la visite guidée'],
       },
-    ],
-  },
-  {
-    cle: 'apparence',
-    titre: 'Apparence',
-    pages: [
       {
+        // Thème et langue réunis : l'ancienne page « Langue » y mène.
         cle: 'theme',
-        titre: 'Clair ou sombre',
-        motsCles: ['sombre', 'clair', 'couleur', 'thème', 'apparence', 'nuit', 'noir', 'blanc'],
+        titre: 'Apparence et langue',
+        motsCles: [
+          'sombre', 'clair', 'couleur', 'thème', 'apparence', 'nuit', 'noir', 'blanc',
+          'langue', 'français', 'english', 'anglais', 'deutsch', 'allemand', 'español', 'espagnol', '中文', 'chinois', 'traduction', 'language',
+        ],
+        libelles: ['Langue'],
       },
-      {
-        // La langue vivait dans le menu « … » de la barre d'en-tête : un réglage
-        // GÉNÉRAL se range ici, où on l'atteint depuis n'importe quel écran.
-        cle: 'langue',
-        titre: 'Langue',
-        motsCles: ['langue', 'français', 'english', 'anglais', 'deutsch', 'allemand', 'español', 'espagnol', '中文', 'chinois', 'traduction', 'language'],
-      },
-    ],
-  },
-  {
-    cle: 'projets',
-    titre: 'Projets',
-    pages: [
-      {
-        cle: 'projets',
-        titre: 'Projets réunis',
-        motsCles: ['projet', 'réunir', 'fusionner', 'regrouper', 'séparer', 'dépôt', 'sous-groupe', 'tableau commun', 'projects'],
-        libelles: ['Réunir des projets'],
-      },
-    ],
-  },
-  {
-    cle: 'notifications',
-    titre: 'Notifications',
-    pages: [
       {
         cle: 'notifications',
         titre: 'Notifications',
@@ -96,30 +83,14 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     ],
   },
   {
-    cle: 'agents',
-    titre: 'Agents',
-    pages: [
-      {
-        cle: 'agents-paralleles',
-        titre: 'Agents en parallèle',
-        motsCles: ['plafond', 'parallèle', 'heures creuses', 'tâche lourde', 'simultané'],
-        libelles: ["Plafond d'agents", 'Heures creuses'],
-      },
-      {
-        cle: 'voix',
-        titre: 'Voix',
-        motsCles: ['micro', 'dictée', 'parler', 'écoute', 'raccourci'],
-      },
-    ],
-  },
-  {
-    cle: 'moteurs',
-    titre: 'Moteurs',
+    cle: 'agents-ia',
+    titre: 'Agents et IA',
+    phrase: 'Les moteurs, leurs quotas, ce qu’ils coûtent et comment ils travaillent.',
     pages: [
       {
         cle: 'comptes',
         titre: 'Comptes et quotas',
-        motsCles: ['quota', 'compte', 'claude', 'codex', 'cursor', 'connexion', 'limite'],
+        motsCles: ['quota', 'compte', 'claude', 'codex', 'cursor', 'connexion', 'limite', 'moteur'],
       },
       {
         cle: 'consommation',
@@ -128,60 +99,96 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         libelles: ['Multiplicateur du coût des jetons'],
       },
       {
+        cle: 'agents-paralleles',
+        titre: 'Agents en parallèle',
+        motsCles: ['plafond', 'parallèle', 'heures creuses', 'tâche lourde', 'simultané'],
+        libelles: ["Plafond d'agents", 'Heures creuses'],
+      },
+      {
+        // L'assistant (nom, voix du direct) et la dictée, réunis : l'ancienne page « Voix » y mène.
+        cle: 'assistant',
+        titre: 'Assistant et voix',
+        motsCles: ['assistant', 'nom', 'voix', 'micro', 'dictée', 'parler', 'écoute', 'raccourci', 'direct'],
+      },
+      {
         cle: 'services-creation',
         titre: 'Services de création',
         motsCles: ['vidéo', 'image', 'clé', 'kie', 'kie.ai', 'higgsfield', 'byteplus', 'seedance', 'freepik', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter', 'modèle', 'génération'],
       },
+      {
+        cle: 'juge-rapide',
+        titre: 'Juge rapide',
+        avance: true,
+        motsCles: ['jev', 'typesafe', 'juge', 'jugement', 'avis', 'signal', 'urgence', 'niveau', 'local'],
+        libelles: ['Le modèle local', 'Ce que le juge décide', 'Les jugements rendus'],
+      },
     ],
   },
   {
-    cle: 'machine',
-    titre: 'Machine',
+    cle: 'ordinateurs',
+    titre: 'Ordinateurs',
+    phrase: 'Où les agents travaillent : vos ordinateurs, reliés par Beluga Connect.',
     pages: [
       {
-        // Récupérer les nouveautés du dépôt public de Beluga Build. Visible
-        // partout : la machine source et l'offre hébergée y lisent pourquoi
-        // elles n'ont rien à récupérer.
+        // UNE SEULE PAGE (carte « Beluga Connect : installation simplifiée », 21/11/2026) : « Connecter cet
+        // ordinateur » (parcours en direct), la liste, la page de chaque ordinateur (droits, navigateurs, Beluga
+        // Connect, autorisations), puis les sites et les gestes répétés. « beluga-connect » et « navigateur » y mènent.
+        cle: 'ordinateurs',
+        titre: 'Vos ordinateurs',
+        motsCles: [
+          'ordinateur', 'mac', 'pc', 'windows', 'linux', 'relier', 'connecter', 'droits', 'piloter', 'installer', 'ajouter', 'délier',
+          'beluga connect', 'connect', 'application', 'autorisations', 'accessibilité', 'enregistrement de l’écran', 'télécharger',
+          'extension', 'chrome', 'safari', 'navigateur', 'onglet', 'site', 'lecture seule', 'geste répété', 'panneau latéral',
+        ],
+        libelles: ['Connecter cet ordinateur', 'Ce que Beluga peut faire sur ce Mac', 'Toujours demandé', 'Sites', 'Gestes répétés'],
+      },
+    ],
+  },
+  {
+    cle: 'serveur',
+    titre: 'Serveur',
+    phrase: 'La machine, sa mise à jour, son adresse et ses fonctions.',
+    pages: [
+      {
+        // La fiche, les courbes, les plus lourds et la capacité (« capacite » y mène).
+        cle: 'serveur',
+        titre: 'La machine',
+        motsCles: ['serveur', 'démon', 'capacité', 'mémoire', 'charge', 'processus', 'place', 'disque', 'saturé', 'cpu', 'processeur', 'ram', 'ip', 'adresse ip', 'vcpu', 'stockage', 'explorateur', 'fichiers', 'dossiers', 'ménage', 'version'],
+        libelles: ['Capacité du système', 'Ce qui pèse le plus', 'Parcourir les dossiers'],
+      },
+      {
+        // Récupérer les nouveautés : la machine source et l'offre hébergée y lisent pourquoi elles n'ont rien à récupérer.
         cle: 'mise-a-jour',
         titre: 'Mise à jour',
         motsCles: ['mise à jour', 'mettre à jour', 'nouveautés', 'version', 'dépôt public', 'changelog', 'vérifier', 'upgrade'],
         libelles: ['Mettre à jour', 'Vérifier maintenant'],
       },
       {
-        // Ce qui change d'un serveur à l'autre : adresse, nom de domaine, courriels,
-        // espace client. Les pages de l'assistant de premier démarrage, réunies.
-        cle: 'installation',
-        titre: 'Installation',
-        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant', 'dépôt'],
-        libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
+        // Adresse, nom de domaine des projets et courriels (sortis de l'ancienne page « Installation »).
+        cle: 'adresse',
+        titre: 'Adresse et courriels',
+        motsCles: ['domaine', 'adresse', 'courriel', 'email', 'resend', 'expédition', 'url', 'sous-domaine'],
+        libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition'],
       },
       {
-        // L'extension Beluga pour Chrome : téléchargement, installation, liaison
-        // par code, Chrome reliés, sites et gestes répétés (09/11/2026).
-        cle: 'extension',
-        titre: 'Extension',
-        motsCles: ['extension', 'chrome', 'navigateur', 'onglet', 'piloter', 'relier', 'code', 'site', 'lecture seule', 'geste répété', 'panneau latéral'],
-        libelles: ['Télécharger', 'Relier un Chrome', 'Chrome reliés', 'Sites', 'Gestes répétés'],
+        // Mémoire, espace client, compétences et fonctions facultatives (ancienne page « Installation »).
+        cle: 'fonctions',
+        titre: 'Fonctions',
+        motsCles: ['mémoire', 'espace client', 'compétences', 'fonctions', 'facultatif', 'mise en route', 'installation', 'copie'],
+        libelles: ['Nom de l’espace client'],
       },
       {
-        // Le compte GitHub du serveur : qui est relié, d'où vient le jeton, les
-        // projets récupérés, et la réinitialisation du jeton.
-        cle: 'github',
-        titre: 'GitHub',
-        motsCles: ['github', 'jeton', 'token', 'dépôt', 'repo', 'clé', 'gh', 'réinitialiser', 'compte'],
-        libelles: ['Réinitialiser le jeton'],
-      },
-      {
-        // La liaison avec Beluga Pass, le gestionnaire de mots de passe : un bouton qui ouvre Beluga Pass déjà rempli,
-        // trois étapes qui se cochent seules, puis l'accès des agents (16/11/2026 — elle vivait dans le coffre-fort).
-        cle: 'belugapass',
-        titre: 'Beluga Pass',
-        motsCles: ['beluga pass', 'belugapass', 'mots de passe', 'gestionnaire', 'relier', 'liaison', 'clé de liaison', 'sauvegarde chiffrée', 'accès des agents', 'coffre'],
-        libelles: ['Relier Beluga Pass', 'Accès des agents', 'Sauvegarde chiffrée', 'Délier Beluga Pass'],
+        // Redémarrer, terminal, arrêt général : ce qui agit sur la machine entière.
+        cle: 'gestes-serveur',
+        titre: 'Gestes sur le serveur',
+        avance: true,
+        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'shell'],
+        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents'],
       },
       {
         cle: 'erreurs',
         titre: 'Dernières erreurs de l’interface',
+        avance: true,
         motsCles: ['erreur', 'plantage', 'journal', 'page blanche', 'bug'],
       },
     ],
@@ -189,6 +196,7 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
   {
     cle: 'donnees',
     titre: 'Données',
+    phrase: 'Sauvegardes, backups des sites, export et projets réunis.',
     pages: [
       {
         cle: 'sauvegardes',
@@ -206,45 +214,67 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         titre: 'Export des données',
         motsCles: ['export', 'import', 'déménager', 'archive', 'migration'],
       },
+      {
+        cle: 'projets',
+        titre: 'Projets réunis',
+        motsCles: ['projet', 'réunir', 'fusionner', 'regrouper', 'séparer', 'dépôt', 'sous-groupe', 'tableau commun', 'projects'],
+        libelles: ['Réunir des projets'],
+      },
     ],
   },
   {
-    cle: 'developpeurs',
-    titre: 'Développeurs',
+    cle: 'connexions',
+    titre: 'Connexions',
+    phrase: 'GitHub, Beluga Pass et les accès des services extérieurs.',
     pages: [
+      {
+        cle: 'github',
+        titre: 'GitHub',
+        motsCles: ['github', 'jeton', 'token', 'dépôt', 'repo', 'clé', 'gh', 'réinitialiser', 'compte'],
+        libelles: ['Réinitialiser le jeton'],
+      },
+      {
+        // La liaison avec Beluga Pass, le gestionnaire de mots de passe (16/11/2026 — elle vivait dans le coffre-fort).
+        cle: 'belugapass',
+        titre: 'Beluga Pass',
+        motsCles: ['beluga pass', 'belugapass', 'mots de passe', 'gestionnaire', 'relier', 'liaison', 'clé de liaison', 'sauvegarde chiffrée', 'accès des agents', 'coffre'],
+        libelles: ['Relier Beluga Pass', 'Accès des agents', 'Sauvegarde chiffrée', 'Délier Beluga Pass'],
+      },
       {
         cle: 'acces-api',
         titre: 'Accès API',
+        avance: true,
         motsCles: ['api', 'clé', 'jeton', 'webhook', 'service extérieur'],
-      },
-      {
-        cle: 'juge-rapide',
-        titre: 'Juge rapide',
-        motsCles: ['jev', 'typesafe', 'juge', 'jugement', 'avis', 'signal', 'urgence', 'niveau', 'local'],
-        libelles: ['Le modèle local', 'Ce que le juge décide', 'Les jugements rendus'],
-      },
-    ],
-  },
-  {
-    /* TOUT EN BAS DU MENU (demande du 20/10/2026) : redémarrage, terminal et
-       arrêt général, ce qui agit sur la machine entière. Le redémarrage est
-       AUSSI dans le menu « … » des tableaux de bord ; la clé reste « serveur »
-       pour les adresses et les liens existants. */
-    cle: 'serveur',
-    titre: 'Serveur',
-    pages: [
-      {
-        cle: 'serveur',
-        titre: 'Serveur',
-        // « Capacité du système » y a été réunie (06/11/2026) : ses mots-clés suivent.
-        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon', 'capacité', 'mémoire', 'charge', 'processus', 'place', 'disque', 'saturé', 'cpu', 'processeur', 'ram', 'ip', 'adresse ip', 'vcpu', 'stockage', 'explorateur', 'fichiers', 'dossiers', 'ménage'],
-        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents', 'Capacité du système', 'Ce qui pèse le plus', 'Parcourir les dossiers'],
       },
     ],
   },
 ];
 
-/** Toutes les pages visibles, à plat — dans l'ordre du menu. */
-export function pagesDesReglages(groupes: readonly GroupeDeReglages[]): PageDeReglages[] {
-  return groupes.flatMap((groupe) => groupe.pages);
+/**
+ * LES ANCIENNES CLÉS DE PAGE ET LEUR NOUVELLE PLACE. Un lien, un bouton
+ * (`beluga:ouvrir-reglages`) ou une adresse `#reglages/<page>` écrits avant la
+ * refonte doivent mener quelque part : un écran vide passerait pour une panne.
+ */
+export const ALIAS_DES_PAGES_DE_REGLAGES: Readonly<Record<string, string>> = {
+  capacite: 'serveur',
+  langue: 'theme',
+  voix: 'assistant',
+  extension: 'ordinateurs',
+  'beluga-connect': 'ordinateurs',
+  navigateur: 'ordinateurs',
+  installation: 'adresse',
+};
+
+/** La clé ACTUELLE d'une page : une ancienne clé suit son alias, une clé à jour reste telle quelle. */
+export function cleActuelleDeLaPage(cle: string): string {
+  return ALIAS_DES_PAGES_DE_REGLAGES[cle] ?? cle;
+}
+
+/** La rubrique qui porte une page (anciennes clés comprises) ; `undefined` si aucune. */
+export function rubriqueDeLaPage(
+  groupes: readonly GroupeDeReglages[],
+  cle: string,
+): GroupeDeReglages | undefined {
+  const actuelle = cleActuelleDeLaPage(cle);
+  return groupes.find((groupe) => groupe.pages.some((page) => page.cle === actuelle));
 }

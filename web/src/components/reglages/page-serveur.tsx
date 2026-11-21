@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Hash, Loader2, Power, Smartphone, Square, TerminalSquare } from '@/components/ui/icones';
-import { Button, CLASSE_GROUPE_DE_LIGNES, ConfirmDialog } from '@/components/ui';
+import { Button, ConfirmDialog } from '@/components/ui';
 import { Groupe } from '@/components/reglages/communs';
 import { COULEUR_DU_POINT_DE_REDEMARRAGE, useRedemarrage } from '@/components/redemarrage';
 import { client } from '@/lib/client';
@@ -48,6 +48,39 @@ import {
 export function SectionServeur() {
   const state = useApp();
   const offreHebergee = state.offreHebergee;
+  const fiche = useFicheDuServeur();
+  const [explorateur, setExplorateur] = React.useState<string | null>(null);
+
+  return (
+    <div className="flex flex-col gap-7" data-reglages-serveur>
+      <VersionEnLigne />
+
+      <Groupe titre={t('La machine')}>
+        <FicheDeLaMachineVue donnees={fiche} />
+      </Groupe>
+
+      <Groupe titre={t('Au fil du temps')}>
+        <CourbesDuServeur donnees={fiche} />
+      </Groupe>
+
+      {!offreHebergee ? <LesPlusLourds onParcourir={setExplorateur} /> : null}
+
+      <SectionSysteme />
+
+      {!offreHebergee ? (
+        <ExplorateurDuServeur chemin={explorateur} onChemin={setExplorateur} onClose={() => setExplorateur(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * LES GESTES SUR LE SERVEUR — page « avancée » de la rubrique Serveur (refonte des réglages, 21/11/2026) :
+ * redémarrer, ouvrir le terminal (volet du bas, `ouvrirLeTerminal`), arrêter tous les agents.
+ */
+export function SectionGestesServeur() {
+  const state = useApp();
+  const offreHebergee = state.offreHebergee;
   const redemarrage = useRedemarrage();
   const [arretTous, setArretTous] = React.useState(false);
 
@@ -73,27 +106,9 @@ export function SectionServeur() {
         client.pushToast('error', err?.message ?? t('Arrêt refusé'));
       });
 
-  const fiche = useFicheDuServeur();
-  const [explorateur, setExplorateur] = React.useState<string | null>(null);
-
   return (
-    <div className="space-y-6" data-reglages-serveur>
-      <VersionEnLigne />
-
-      <Groupe titre={t('La machine')}>
-        <FicheDeLaMachineVue donnees={fiche} />
-      </Groupe>
-
-      <Groupe titre={t('Au fil du temps')}>
-        <CourbesDuServeur donnees={fiche} />
-      </Groupe>
-
-      {!offreHebergee ? <LesPlusLourds onParcourir={setExplorateur} /> : null}
-
-      <SectionSysteme />
-
-      <Groupe titre={t('Gestes sur le serveur')}>
-        <div className={CLASSE_GROUPE_DE_LIGNES}>
+    <div className="flex flex-col gap-7" data-reglages-gestes-serveur>
+      <Groupe titre={t('Gestes sur le serveur')} description={t('Ils agissent sur la machine entière, tous projets confondus.')} liste>
           <Ligne
             icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
             titre={redemarrage.libelle}
@@ -134,14 +149,9 @@ export function SectionServeur() {
               {t('Arrêter')}
             </Button>
           </Ligne>
-        </div>
       </Groupe>
 
       {redemarrage.dialogue}
-
-      {!offreHebergee ? (
-        <ExplorateurDuServeur chemin={explorateur} onChemin={setExplorateur} onClose={() => setExplorateur(null)} />
-      ) : null}
 
       <ConfirmDialog
         open={arretTous}
@@ -200,8 +210,8 @@ function VersionEnLigne() {
         ? t('Version de développement : rien n’a encore été mis en ligne depuis ce dossier.')
         : t('Mis en ligne : {v0}', { v0: heureDuMessage(paquet.construitA) });
   return (
-    <Groupe titre={t('Version')}>
-      <div className={CLASSE_GROUPE_DE_LIGNES}>
+    <Groupe titre={t('Version')} liste>
+      <>
         <Ligne icone={<Hash className="h-4 w-4" />} titre={t('Écran en ligne')} detail={detailEcran}>
           <span className="font-mono text-[12.5px] text-muted" data-version-en-ligne={paquet && paquet !== 'absent' ? paquet.empreinte : ''}>
             {paquet && paquet !== 'absent' ? [paquet.commit, paquet.empreinte.slice(0, 8)].filter(Boolean).join(' · ') : '—'}
@@ -218,7 +228,7 @@ function VersionEnLigne() {
             </span>
           </Ligne>
         ) : null}
-      </div>
+      </>
     </Groupe>
   );
 }

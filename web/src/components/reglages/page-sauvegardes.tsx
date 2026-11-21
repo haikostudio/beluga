@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   Database,
   Loader2,
@@ -46,10 +47,7 @@ export function SectionSauvegardes({ open }: { open: boolean }) {
   }, [open]);
 
   return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Database className="h-3.5 w-3.5 text-faint" />  {t('Sauvegardes')}
-</h3>
+    <Groupe titre={t('Sauvegardes')}>
       {/* Le libellé est long : sur un écran étroit, le bouton se met sur deux
           lignes plutôt que de sortir du tiroir par la droite. */}
       <Button
@@ -87,6 +85,6 @@ export function SectionSauvegardes({ open }: { open: boolean }) {
         ))}
         {!backups.length ? <p className="text-[12.5px] text-faint">{t('Aucune sauvegarde pour l\'instant.')}</p> : null}
       </div>
-    </section>
+    </Groupe>
   );
 }

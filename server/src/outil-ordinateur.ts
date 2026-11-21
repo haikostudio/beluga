@@ -221,6 +221,14 @@ export async function outilOrdinateur(ctx: ToolContext, args: Record<string, any
     return { ok: false, text: `« ${vise.nom} » n’a pas le programme du Mac (Beluga Connect) : la personne l’installe depuis Réglages → Extension (menu de cet ordinateur). Sur un PC, le programme n’existe pas encore.` };
   }
   if (!programmeEnLigne(vise.programme)) return { ok: false, text: texteInjoignable(vise.nom, true) };
+  /* Beluga Connect Windows / Linux (21/11/2026) relie l'ordinateur et tient l'extension à jour ; ses gestes sur
+     l'ordinateur lui-même (applications, écran, terminal) n'existent encore que sur un Mac. */
+  if (vise.programme.systeme && vise.programme.systeme !== 'mac') {
+    return {
+      ok: false,
+      text: `« ${vise.nom} » est un ordinateur ${vise.programme.systeme === 'windows' ? 'Windows' : 'Linux'} : Beluga Connect y relie Chrome, mais les gestes sur l’ordinateur lui-même (applications, réglages, écran, terminal) n’existent que sur un Mac pour l’instant. Travaille dans Chrome (outil « chrome ») ou dis-le à la personne.`,
+    };
+  }
   if (vise.programme.etat === 'mac-verrouille') return { ok: false, text: `« ${vise.nom} » est verrouillé : rien ne peut s’y faire. Dis-le à la personne.` };
   if (voulu && vise.id !== retenu) retenirLOrdinateur(compte.id, ctx.agentId, ctx.cardId, vise.id);
 

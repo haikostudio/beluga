@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   AUCUN_RACCOURCI,
   RACCOURCI_PAR_DEFAUT,
@@ -89,13 +90,16 @@ export function VoiceSection({ open: _open }: { open: boolean }) {
     <section>
       {/* LA VOIX SE PROPOSE ICI, hors de la mise en route (20/11/2026) : seulement sans compte ChatGPT relié. */}
       <ParlezAVoixHaute className="mb-6" />
-      <div className="mb-6" data-reglages-votre-assistant>
-        <SectionVotreAssistant />
+      <div className="mb-7" data-reglages-votre-assistant>
+        <Groupe titre={t('Votre assistant')}>
+          <SectionVotreAssistant />
+        </Groupe>
       </div>
       <VoixDuDirect />
       <CerveauDeLaVoix />
 
-      <div className="mb-3 space-y-2">
+      <Groupe titre={t('Le micro et le raccourci')}>
+      <div className="space-y-2">
         {/* LE BOUTON DU BORD EST L'ENTRÉE DE L'ASSISTANT (16/11/2026) : toujours là pour qui a l'assistant ; ce choix ne
             reste qu'aux comptes sans assistant, pour qui il n'ouvre que la voix. */}
         {state.monRole !== 'admin' ? (
@@ -122,7 +126,7 @@ export function VoiceSection({ open: _open }: { open: boolean }) {
         ) : null}
       </div>
 
-      <div className="mb-3">
+      <div>
         <div className="mb-1 flex items-center gap-1">
           <label className="text-[12.5px] text-muted">{t('Le raccourci clavier qui ouvre {v0}', { v0: nomDeLAssistant(state.settings) })}</label>
           <BulleInfo cote="start">
@@ -174,6 +178,7 @@ export function VoiceSection({ open: _open }: { open: boolean }) {
           </p>
         ) : null}
       </div>
+      </Groupe>
     </section>
   );
 }

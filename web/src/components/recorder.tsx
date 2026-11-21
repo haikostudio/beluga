@@ -286,7 +286,7 @@ export function MicButton({
       type="button"
       onClick={() => {
         if (indisponible) {
-          naviguerVers('#reglages/installation');
+          naviguerVers('#reglages/fonctions');
           return;
         }
         onStart();

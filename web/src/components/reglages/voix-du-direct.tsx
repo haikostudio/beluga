@@ -5,6 +5,7 @@
  * la voix de la ligne sans rien changer au choix (une courte session sans outils, `ecouterUneVoixDuDirect`).
  */
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   MODELE_DU_DIRECT,
   REFLEXIONS_DU_DIRECT,
@@ -59,15 +60,11 @@ export function VoixDuDirect() {
   };
 
   return (
-    <div className="mb-6" data-voix-du-direct>
-      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Volume2 className="h-3.5 w-3.5 text-faint" />  {t('La voix de Codex en direct')}
-        <BulleInfo cote="start">
-          {t('C’est la voix qui vous répond quand vous parlez à Codex en direct, depuis le module de voix. Elle passe par votre abonnement Codex, sans frais en plus.')}
-          {'\n\n'}
-          {t('« Écouter » fait entendre la voix de la ligne sans changer votre choix ; il faut quelques secondes pour la joindre.')}
-        </BulleInfo>
-      </h3>
+    <div className="mb-7" data-voix-du-direct>
+      <Groupe
+        titre={t('La voix de Codex en direct')}
+        aide={[t('C’est la voix qui vous répond quand vous parlez à Codex en direct, depuis le module de voix. Elle passe par votre abonnement Codex, sans frais en plus.'), '\n\n', t('« Écouter » fait entendre la voix de la ligne sans changer votre choix ; il faut quelques secondes pour la joindre.')].join('')}
+      >
       <p className="mb-2 text-[11.5px] text-faint">
         {t('Touchez le nom pour l’adopter : c’est la seule voix de Beluga.')}
       </p>
@@ -103,6 +100,7 @@ export function VoixDuDirect() {
           );
         })}
       </div>
+    </Groupe>
     </div>
   );
 }
@@ -129,15 +127,11 @@ export function CerveauDeLaVoix() {
   const enregistrer = (patch: Record<string, string>) => void client.geste({ type: 'settings.update', patch }, t('Enregistrement du réglage'));
 
   return (
-    <div className="mb-6" data-cerveau-de-la-voix>
-      <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-        <Brain className="h-3.5 w-3.5 text-faint" /> {t('Le cerveau de l’assistant vocal')}
-        <BulleInfo cote="start">
-          {t('C’est le modèle qui réfléchit, vérifie et agit pendant que vous parlez à l’assistant. Une réflexion plus poussée donne des réponses plus sûres, un peu plus lentes.')}
-          {'\n\n'}
-          {t('La voix qui parle reste celle de votre abonnement : elle ne se règle pas ici.')}
-        </BulleInfo>
-      </h3>
+    <div className="mb-7" data-cerveau-de-la-voix>
+      <Groupe
+        titre={t('Le cerveau de l’assistant vocal')}
+        aide={[t('C’est le modèle qui réfléchit, vérifie et agit pendant que vous parlez à l’assistant. Une réflexion plus poussée donne des réponses plus sûres, un peu plus lentes.'), '\n\n', t('La voix qui parle reste celle de votre abonnement : elle ne se règle pas ici.')].join('')}
+      >
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="min-w-0">
           <p className="mb-1 text-[11.5px] text-faint">{t('Modèle')}</p>
@@ -161,6 +155,7 @@ export function CerveauDeLaVoix() {
         </div>
       </div>
       <p className="mt-2 text-[11.5px] text-faint">{t('Un changement s’applique à la prochaine conversation.')}</p>
+    </Groupe>
     </div>
   );
 }

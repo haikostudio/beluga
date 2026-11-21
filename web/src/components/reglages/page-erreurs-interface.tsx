@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Groupe } from '@/components/reglages/communs';
 import {
   Bug,
   Loader2,
@@ -62,11 +63,7 @@ export function SectionErreursInterface() {
   };
 
   return (
-    <section className="mt-4" data-bloc-erreurs>
-      <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text mb-2">
-        <Bug className="h-3.5 w-3.5 text-faint" />  {t('Dernières erreurs de l\'interface')}
-  <BulleInfo cote="start">{t('Ce qui a planté dans la page, sur cet ordinateur comme sur un téléphone. Rien du contenu des projets n\'est remonté : seulement l\'erreur, l\'adresse de la page et l\'appareil.')}</BulleInfo>
-</h3>
+    <Groupe titre={t('Dernières erreurs de l\'interface')} aide={t('Ce qui a planté dans la page, sur cet ordinateur comme sur un téléphone. Rien du contenu des projets n\'est remonté : seulement l\'erreur, l\'adresse de la page et l\'appareil.')}><div data-bloc-erreurs>
 
 
       {erreurs.length ? (
@@ -115,6 +112,6 @@ export function SectionErreursInterface() {
         <p className="rounded-md border border-border bg-bloc px-2.5 py-2 text-[13px] text-muted">
           {t('Aucune erreur remontée : l\'interface n\'a rien cassé depuis le dernier effacement.')}</p>
       )}
-    </section>
+    </div></Groupe>
   );
 }

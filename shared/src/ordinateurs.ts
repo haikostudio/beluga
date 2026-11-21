@@ -96,8 +96,24 @@ export interface AutorisationsDuMac {
   ecran: boolean | null;
 }
 
+/**
+ * LE SYSTÈME de l'ordinateur où tourne Beluga Connect (carte « Beluga Connect : installation simplifiée », 21/11/2026) :
+ * l'application Mac (Swift, `connect/`) ou l'application Windows / Linux (Go, `connect/go/`). Absent : un Mac (tous les
+ * programmes d'avant cette carte en sont).
+ */
+export type SystemeDOrdinateur = 'mac' | 'windows' | 'linux';
+export const SYSTEMES_D_ORDINATEUR: readonly SystemeDOrdinateur[] = ['mac', 'windows', 'linux'];
+
+export function systemeValable(brut: unknown): SystemeDOrdinateur | null {
+  return SYSTEMES_D_ORDINATEUR.includes(brut as SystemeDOrdinateur) ? (brut as SystemeDOrdinateur) : null;
+}
+
 export interface ProgrammeDuMac {
   id: string;
+  /** Le système qui fait tourner Beluga Connect ; absent : un Mac. */
+  systeme?: SystemeDOrdinateur;
+  /** Quand ce programme s'est relié : le parcours reconnaît l'ordinateur relié avec SON code. */
+  relieLe?: number | null;
   etat: EtatDuRelais;
   vuLe: number | null;
   /** `null` : programme d'avant « Beluga Relais » (il ne rapporte rien), ou pas encore de nouvelles. */
@@ -118,10 +134,14 @@ export interface PreparationDeChrome {
   ajoutee: boolean | null;
   message: string | null;
   depuis: number;
+  /** Le dossier où Beluga Connect a posé l'extension (affiché si elle doit être chargée à la main). */
+  dossier?: string | null;
 }
 
 /** Les deux autorisations sont-elles données ? (Pour cocher l'étape de l'assistant.) */
-export function autorisationsDonnees(p: Pick<ProgrammeDuMac, 'autorisations'> | null | undefined): boolean {
+export function autorisationsDonnees(p: Pick<ProgrammeDuMac, 'autorisations' | 'systeme'> | null | undefined): boolean {
+  /* Windows et Linux n'ont aucune autorisation à donner à Beluga Connect : rien n'attend la personne. */
+  if (p && p.systeme && p.systeme !== 'mac') return true;
   return p?.autorisations?.accessibilite === true && p.autorisations.ecran === true;
 }
 

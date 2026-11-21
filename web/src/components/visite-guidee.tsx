@@ -26,7 +26,7 @@ import { t } from '@/lib/langue';
  * visé, qui laisse passer les clics. Une étape dont le bouton n'est pas affiché
  * est sautée ; une fenêtre ouverte (l'ajout d'un projet…) la fait s'effacer le
  * temps qu'on la remplisse. Une croix la ferme à tout moment, pour de bon ;
- * elle se relance depuis Réglages, page « Installation » (`relancerLaVisite`).
+ * elle se relance depuis Réglages › Moi, page « Mon compte » (`relancerLaVisite`).
  * Règles pures : `shared/src/visite-guidee.ts`.
  */
 

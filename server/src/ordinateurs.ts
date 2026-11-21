@@ -169,7 +169,16 @@ export function ordinateursAssembles(
           creeLe: n.creeLe,
         })),
       programme: p
-        ? { id: p.id, etat: p.etat, vuLe: p.vuLe, autorisations: p.autorisations ?? null, connect: p.connect ?? null, preparation: p.preparation ?? null }
+        ? {
+            id: p.id,
+            etat: p.etat,
+            vuLe: p.vuLe,
+            autorisations: p.autorisations ?? null,
+            connect: p.connect ?? null,
+            preparation: p.preparation ?? null,
+            systeme: p.systeme ?? 'mac',
+            relieLe: p.relieLe ?? null,
+          }
         : null,
     };
   });

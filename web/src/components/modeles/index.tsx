@@ -310,15 +310,33 @@ export function ChampDeFormulaire({
  * lignes `LigneDeReglage` (libellé et explication à gauche, contrôle maison à
  * droite ; empilés sur téléphone).
  *
- * PEUT VARIER : plusieurs groupes de lignes, un tableau sous les lignes.
+ * PEUT VARIER : plusieurs groupes de lignes, un tableau sous les lignes, LE geste de la rubrique (`action`) sur la
+ * ligne de l'intertitre (à droite sur ordinateur, pleine largeur dessous sur téléphone) ; un contenu posé entre
+ * l'intertitre et les lignes (`avant`, un parcours en direct par exemple).
  */
-export function RubriqueDeReglages({ titre, description, children }: { titre: string; description?: string; children: React.ReactNode }) {
+export function RubriqueDeReglages({
+  titre,
+  description,
+  action,
+  avant,
+  children,
+}: {
+  titre: string;
+  description?: string;
+  action?: React.ReactNode;
+  avant?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-2" data-modele="reglages">
-      <div className="flex flex-col gap-0.5 px-1">
-        <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
-        {description ? <p className="text-[13px] text-muted">{description}</p> : null}
+      <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          {description ? <p className="text-[13px] text-muted">{description}</p> : null}
+        </div>
+        {action ? <div className="shrink-0 max-sm:[&>*]:w-full">{action}</div> : null}
       </div>
+      {avant}
       <div className={CLASSE_GROUPE_DE_LIGNES}>{children}</div>
     </section>
   );

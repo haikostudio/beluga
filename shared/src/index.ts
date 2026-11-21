@@ -494,6 +494,7 @@ export * from './services-ia.js';
 export * from './journal-de-l-agent.js';
 export * from './extension-chrome.js';
 export * from './ordinateurs.js';
+export * from './connecter-un-ordinateur.js';
 export * from './droits-d-ordinateur.js';
 export * from './onglets-du-projet.js';
 export * from './ecarts-de-comprehension.js';

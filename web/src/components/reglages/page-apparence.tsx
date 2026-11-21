@@ -1,11 +1,9 @@
 import * as React from 'react';
-import {
-  Palette,
-} from '@/components/ui/icones';
 import { AppearancePicker } from '@/components/appearance-picker';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { t } from '@/lib/langue';
-import { BulleInfo } from '@/components/ui';
+import { Groupe } from '@/components/reglages/communs';
+import { SectionLangue } from '@/components/reglages/page-langue';
 
 
 /**
@@ -20,19 +18,28 @@ export function SectionApparence() {
   const enVigueur = useThemeEnVigueur();
 
   return (
-    <section>
-      <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text mb-3">
-        <Palette className="h-3.5 w-3.5 text-faint" />  {t('Thème général')}
-  <BulleInfo cote="start">{t('Choisissez le mode clair ou sombre, ou laissez l’ordinateur décider. Le réglage vaut sur l’ordinateur comme sur le téléphone, et pour tous les projets.')}</BulleInfo>
-</h3>
-
+    <Groupe
+      titre={t('Thème général')}
+      aide={t('Choisissez le mode clair ou sombre, ou laissez l’ordinateur décider. Le réglage vaut sur l’ordinateur comme sur le téléphone, et pour tous les projets.')}
+      nu
+    >
       {enVigueur.parLeSysteme ? (
-        <p data-theme-par-le-systeme className="mb-3 text-[12.5px] leading-relaxed text-muted">
+        <p data-theme-par-le-systeme className="px-1 text-[12.5px] leading-relaxed text-muted">
           {t('Votre ordinateur est réglé en mode {v0} : l’application le suit.', {
             v0: enVigueur.clarteAppliquee === 'clair' ? t('Clair') : t('Sombre'),
           })}</p>
       ) : null}
       <AppearancePicker value={apparence} onChange={setApparence} systemeSombre={systemeSombre} />
-    </section>
+    </Groupe>
+  );
+}
+
+/** « Apparence et langue » (refonte des réglages, 21/11/2026) : le thème et la langue réunis ; l'ancienne clé `langue` y mène. */
+export function PageApparenceEtLangue() {
+  return (
+    <div className="flex flex-col gap-7">
+      <SectionApparence />
+      <SectionLangue />
+    </div>
   );
 }
