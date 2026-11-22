@@ -1,3 +1,4 @@
+import { noterUnEcranOuvert } from './ecrans-ouverts.js';
 import { TEXTE_PROJET_ARCHIVE, auMoinsUnMoteurEnLigne, derniereActiviteDArchivage, horsArchivageAuto, joursAvantArchivageAuto, projetFigeParLArchive } from '@beluga/shared';
 import http from 'node:http';
 import { chercherDesFichiers, lireLaCorbeille, lireLeDossier, mettreALaCorbeille, projetsRanges, rangerLesFichiers, renommerUnFichier, restaurerUnFichier } from './fichiers-ranges.js';
@@ -499,6 +500,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     // Relevée À L'OUVERTURE : à la fermeture, la prise est déjà défaite et n'a plus d'adresse.
     const transmis = _req.headers['x-forwarded-for'];
     const adresse = (Array.isArray(transmis) ? transmis[0] : transmis)?.split(',')[0]?.trim() || _req.socket.remoteAddress;
+    if (adresse) adresseDuCanal.set(ws, adresse);
     ws.once('close', (code: number, raison: Buffer) => {
       log.info(
         ligneDeFermetureDuCanal({
@@ -579,6 +581,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       return event;
     };
     const unsubscribe = bus.subscribe(send);
+    /* Cet onglet compte parmi les écrans ouverts du compte : une demande « Relier ce Mac ? » lui sera poussée. */
+    const lacherLEcran = noterUnEcranOuvert(compte.id);
     /*
      * LA RÉPONSE À UNE COMMANDE NE SE PERD PLUS AVEC SON CANAL. Une commande
      * longue (créer un projet) peut finir après que l'écran a changé de canal :
@@ -628,11 +632,15 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       });
       ws.on('close', () => {
         unsubscribe();
+        lacherLEcran();
         /* Le canal parti NE LÂCHE AUCUNE MODIFICATION (04/11/2026) : une demande
            ouverte dans la barre d'écriture reste retenue jusqu'à « Enregistrer »
            ou « Annuler », quel que soit l'écran qui revient. */
       });
-      ws.on('error', () => unsubscribe());
+      ws.on('error', () => {
+        unsubscribe();
+        lacherLEcran();
+      });
       return;
     }
 
@@ -758,7 +766,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         // AVANT la commande : sa réponse passe déjà par le périmètre mis à jour.
         elargirLePerimetre(perimetre, envelope.cmd);
         noterUnGeste(compte, envelope.cmd.type);
-        const data = reponsePourLeCollaborateur(compte, envelope.cmd, await handleCommand(envelope.cmd, compte));
+        const data = reponsePourLeCollaborateur(compte, envelope.cmd, await handleCommand(envelope.cmd, compte, ws));
         if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
       } catch (err: any) {
         log.warn(`commande ${envelope.cmd.type}${contexteDeCommande(envelope.cmd)} refusée :`, err?.message ?? err);
@@ -771,8 +779,14 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       }
     });
 
-    ws.on('close', unsubscribe);
-    ws.on('error', () => unsubscribe());
+    ws.on('close', () => {
+      unsubscribe();
+      lacherLEcran();
+    });
+    ws.on('error', () => {
+      unsubscribe();
+      lacherLEcran();
+    });
   });
 
   return wss;
@@ -1476,6 +1490,9 @@ export async function commandeDUnAppareil(brute: unknown, compte: CompteUtilisat
   if (refus) throw new Error(refus);
   return handleCommand(commande, compte);
 }
+
+/** L'adresse publique de chaque canal, relevée à son ouverture (appariement « même réseau » de Beluga Connect). */
+const adresseDuCanal = new WeakMap<WebSocket, string>();
 
 async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur, canal?: WebSocket): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
@@ -4671,6 +4688,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const r = relaisDuCompte(compte.id);
       return { nom: r.nom, etat: r.etat, vuLe: r.vuLe };
     }
+    case 'relaisMac.liaison.enAttente': {
+      const { demandesEnAttenteDuCompte, codeAttenduParLeCompte } = await import('./relais-mac.js');
+      return { demandes: demandesEnAttenteDuCompte(compte.id), codeAttendu: codeAttenduParLeCompte(compte.id) };
+    }
+    case 'relaisMac.liaison.parCode': {
+      const { accepterParCodeDeSecours } = await import('./relais-mac.js');
+      const r = accepterParCodeDeSecours(compte.id, cmd.code, cmd.ordinateurId ?? null);
+      if (!r.ok) throw new Error(r.raison);
+      return r;
+    }
     case 'relaisMac.liaison.lire': {
       const { lireUneDemandeDeLiaison } = await import('./relais-mac.js');
       return { demande: lireUneDemandeDeLiaison(cmd.jeton) };
@@ -4687,7 +4714,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
     case 'relaisMac.code': {
       const { emettreUnCodeDuRelais } = await import('./relais-mac.js');
-      return emettreUnCodeDuRelais(compte.id, Date.now(), cmd.ordinateurId ?? null);
+      /* L'adresse publique de l'onglet qui clique « Lier » : sans code lisible, le même réseau relie Beluga Connect. */
+      return emettreUnCodeDuRelais(compte.id, Date.now(), cmd.ordinateurId ?? null, (canal && adresseDuCanal.get(canal)) || null);
     }
     case 'relaisMac.reglage': {
       const { ouvrirUnReglageDuMac } = await import('./relais-mac.js');
@@ -4697,6 +4725,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'relaisMac.preparer': {
       const { preparerChromeDeLOrdinateur } = await import('./relais-mac.js');
       if (!preparerChromeDeLOrdinateur(compte.id, cmd.ordinateurId)) throw new Error('Beluga Connect ne répond pas sur cet ordinateur.');
+      return { ok: true };
+    }
+    case 'relaisMac.preparerSafari': {
+      const { preparerSafariDeLOrdinateur } = await import('./relais-mac.js');
+      if (!preparerSafariDeLOrdinateur(compte.id, cmd.ordinateurId)) throw new Error('Beluga Connect ne répond pas sur cet ordinateur.');
       return { ok: true };
     }
     case 'relaisMac.delier': {

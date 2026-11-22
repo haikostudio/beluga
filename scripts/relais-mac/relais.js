@@ -68,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 5;
+const VERSION_DU_RELAIS = 7;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -96,8 +96,14 @@ function journal(texte) {
 
 // --- La voie signée ----------------------------------------------------------------------------------------------
 
+/* DEUX DEMANDES SIGNÉES DANS LA MÊME SECONDE AU MÊME CORPS SONT REFUSÉES COMME UN REJEU (401) : le téléchargement de
+   l'extension, signé juste après l'attente (corps vide aussi), tombait ainsi au hasard (carte « Beluga Connect :
+   liaison et suivi », 22/11/2026). Chaque signature prend donc une seconde neuve. */
+let derniereSeconde = 0;
 function signer(config, corpsFichier) {
+  while (Math.floor(Date.now() / 1000) <= derniereSeconde) delay(0.15);
   const ts = Math.floor(Date.now() / 1000);
+  derniereSeconde = ts;
   const empreinte = corpsFichier ? sh(`shasum -a 256 ${q(corpsFichier)} | cut -d' ' -f1`) : sh(`printf '' | shasum -a 256 | cut -d' ' -f1`);
   const message = `${ts}.${config.identifiant}.${empreinte}`;
   const sig = sh(`printf '%s' ${q(message)} | openssl dgst -sha256 -hmac ${q(config.secret)} -binary | base64 | tr '+/' '-_' | tr -d '='`);
@@ -487,8 +493,13 @@ function telechargerVerifie(config, chemin, fichier, empreinte) {
   if (lue !== empreinte) throw new Error('paquet altéré (empreinte différente) : rien n’a été remplacé');
 }
 
-/** Quitter Chrome PROPREMENT (comme Cmd+Q), attendre sa fermeture, puis le rouvrir : l'extension se relit du disque. */
-function quitterEtRouvrirChrome() {
+/** Chrome tourne-t-il ? */
+function chromeOuvert() {
+  return $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.chrome).count > 0;
+}
+
+/** Quitter Chrome PROPREMENT (comme Cmd+Q) et attendre sa fermeture ; forcée au bout de 20 s. */
+function quitterChrome() {
   const lesquels = () => $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.chrome);
   const ouverts = lesquels();
   for (let i = 0; i < ouverts.count; i++) ouverts.objectAtIndex(i).terminate;
@@ -500,14 +511,39 @@ function quitterEtRouvrirChrome() {
     delay(2);
   }
   delay(1);
-  /* CHROME REVIENT AVEC SES ONGLETS (21/11/2026, « Mettre à jour » de Beluga Connect) : quitté proprement, il ne rouvre
-     sa session que si la personne l'a réglé ainsi ; `--restore-last-session` la rouvre dans tous les cas. */
-  try {
-    sh(`/usr/bin/open -b ${q(NAVIGATEURS.chrome)} --args --restore-last-session`);
-  } catch (e) {
-    journal(`réouverture avec la session impossible (${e}) : ouverture simple`);
-    relancerLeNavigateur('chrome');
+}
+
+/**
+ * ROUVRIR CHROME AVEC SES ONGLETS, ET LE VÉRIFIER (22/11/2026 : l'étape « Chrome rouvert avec vos onglets » échouait
+ * chez l'utilisateur sans que rien ne le dise). Quitté proprement, Chrome ne rouvre sa session que si la personne l'a
+ * réglé ainsi ; `--restore-last-session` la rouvre dans tous les cas. Trois façons de l'ouvrir, puis on regarde.
+ */
+function rouvrirChrome() {
+  const essais = [
+    () => sh(`/usr/bin/open -b ${q(NAVIGATEURS.chrome)} --args --restore-last-session`),
+    () => sh(`/usr/bin/open -a 'Google Chrome' --args --restore-last-session`),
+    () => relancerLeNavigateur('chrome'),
+  ];
+  for (const ouvrir of essais) {
+    try {
+      ouvrir();
+    } catch (e) {
+      journal(`réouverture de Chrome : ${e}`);
+    }
+    for (let i = 0; i < 20 && !chromeOuvert(); i++) delay(0.5);
+    if (chromeOuvert()) {
+      delay(1.5);
+      return true;
+    }
   }
+  journal('Chrome ne s’est pas rouvert');
+  return false;
+}
+
+/** Quitter Chrome PROPREMENT, attendre sa fermeture, puis le rouvrir avec ses onglets : l'extension se relit du disque. */
+function quitterEtRouvrirChrome() {
+  quitterChrome();
+  return rouvrirChrome();
 }
 
 function mettreAJourLExtension(config, a) {
@@ -623,76 +659,413 @@ function appuyer(el) {
   }
 }
 
-/** Ouvrir une adresse dans un nouvel onglet de Chrome au clavier (les pages chrome:// ne s'ouvrent pas autrement). */
-function ouvrirDansChrome(adresse) {
+/** Le titre de la fenêtre de devant de Chrome (« Extensions », « Erweiterungen »…), ou vide. */
+function titreDeChrome(proc) {
+  try {
+    const f = proc.windows();
+    return f.length ? String(f[0].name() || '') : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Le titre de la page des extensions dans les langues de Beluga. */
+const TITRE_EXTENSIONS = /^(extensions|erweiterungen|extensiones|扩展程序)( [-–—] .*)?$/i;
+
+/**
+ * Ouvrir une adresse dans un nouvel onglet de Chrome au clavier (les pages chrome:// ne s'ouvrent pas autrement).
+ * L'accessibilité du contenu web est demandée AVANT de naviguer, puis on attend le TITRE de la page (`attendu`) au lieu
+ * d'un délai fixe : la page lente d'un Mac chargé faisait chercher l'interrupteur dans une page encore vide. Rend le
+ * processus et `ouvert` : vrai si un onglet a été ouvert pour l'occasion (à refermer ensuite).
+ */
+function ouvrirDansChrome(adresse, attendu, { fenetreAPart = false } = {}) {
   const se = Application('System Events');
-  relancerLeNavigateur('chrome');
-  delay(1.5);
+  if (!chromeOuvert()) rouvrirChrome();
+  else relancerLeNavigateur('chrome');
   const proc = se.processes.byName('Google Chrome');
+  for (let i = 0; i < 20; i++) {
+    try {
+      if (proc.windows().length > 0) break;
+    } catch (e) {}
+    delay(0.5);
+  }
   try {
     proc.frontmost = true;
   } catch (e) {}
-  delay(0.4);
-  se.keystroke('t', { using: 'command down' });
-  delay(0.6);
-  se.keystroke(adresse);
-  delay(0.3);
-  se.keyCode(36);
-  delay(2.5);
-  /* Le contenu des pages n'est exposé à l'accessibilité que sur demande. */
+  /* Le contenu des pages n'est exposé à l'accessibilité que sur demande : avant la navigation, pas après. */
   try {
     proc.attributes.byName('AXManualAccessibility').value = true;
   } catch (e) {}
   try {
     proc.attributes.byName('AXEnhancedUserInterface').value = true;
   } catch (e) {}
-  delay(1);
-  return proc;
-}
-
-/** Ajouter le dossier comme extension non empaquetée : mode développeur, « Charger l'extension non empaquetée », chemin. */
-function ajouterDansChrome(dossier) {
-  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
-  const se = Application('System Events');
-  const proc = ouvrirDansChrome('chrome://extensions/');
-  const mode = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.modeDev, 15);
-  if (!mode) throw new Error('interrupteur « Mode développeur » introuvable');
-  if (!valeurCochee(mode)) {
-    appuyer(mode);
-    delay(1.5);
+  delay(0.4);
+  /* Un onglet de la page déjà devant : on le réutilise, rien à refermer ensuite. `fenetreAPart` (navigation privée,
+     carte « Beluga Connect : liaison sans fenêtre ») : une petite fenêtre à elle, jamais un onglet glissé parmi ceux de
+     la personne, refermée d'un seul Cmd+W. */
+  const dejaLa = !fenetreAPart && attendu && attendu.test(titreDeChrome(proc));
+  se.keystroke(dejaLa ? 'l' : fenetreAPart ? 'n' : 't', { using: 'command down' });
+  if (fenetreAPart) {
+    delay(0.6);
+    try {
+      const f = proc.windows[0];
+      f.size = [560, 420];
+      f.position = [80, 80];
+    } catch (e) {}
   }
-  const charger = chercherDansChrome(proc, ['AXButton'], LIBELLES.charger, 10);
-  if (!charger) throw new Error('bouton « Charger l’extension non empaquetée » introuvable');
-  appuyer(charger);
-  delay(1.8);
-  /* La fenêtre de choix du dossier : « Aller au dossier » (Cmd+Maj+G), le chemin, Entrée, puis « Sélectionner ». */
-  se.keystroke('g', { using: ['command down', 'shift down'] });
-  delay(1);
-  se.keystroke(dossier);
   delay(0.6);
+  se.keystroke(adresse);
+  delay(0.3);
   se.keyCode(36);
-  delay(1.5);
-  se.keyCode(36);
-  delay(3);
-  journal(`extension ajoutée à Chrome depuis ${dossier}`);
-  return true;
+  const fin = Date.now() + 15000;
+  while (Date.now() < fin && attendu && !attendu.test(titreDeChrome(proc))) delay(0.4);
+  delay(1.2);
+  return { proc, ouvert: !dejaLa };
 }
 
-/** Cocher « Autoriser en navigation privée » sur la page de l'extension. */
+/** Refermer l'onglet ouvert pour l'occasion (Cmd+W), seulement s'il montre encore la page attendue. */
+function refermerLOnglet(proc, attendu) {
+  try {
+    if (attendu.test(titreDeChrome(proc))) Application('System Events').keystroke('w', { using: 'command down' });
+  } catch (e) {}
+}
+
+/** Les fichiers « Preferences » des profils de Chrome (« Default », « Profile N »). */
+function preferencesDesProfils() {
+  return (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(PREFERENCES_CHROME, null)) || [])
+    .filter((n) => n === 'Default' || /^Profile \d+$/.test(n))
+    .map((n) => `${PREFERENCES_CHROME}/${n}/Preferences`)
+    .filter((f) => existe(f));
+}
+
+/** Le mode développeur est-il déjà allumé dans tous les profils ? */
+function modeDeveloppeurPartout() {
+  const fichiers = preferencesDesProfils();
+  return fichiers.length > 0 && fichiers.every((f) => {
+    const p = lireJson(f);
+    return !!(p && p.extensions && p.extensions.ui && p.extensions.ui.developer_mode === true);
+  });
+}
+
+/**
+ * ALLUMER LE MODE DÉVELOPPEUR SANS LE CHERCHER À L'ÉCRAN (22/11/2026 : « interrupteur « Mode développeur »
+ * introuvable » chez l'utilisateur). Chrome FERMÉ (sinon il réécrit le fichier en quittant), on pose
+ * `extensions.ui.developer_mode` dans le « Preferences » de chaque profil : copie de sauvegarde d'abord, JSON relu
+ * ensuite ; un fichier qui ne se relit pas est remis tel quel.
+ */
+function allumerLeModeDeveloppeur() {
+  if (chromeOuvert()) return false;
+  let poses = 0;
+  for (const fichier of preferencesDesProfils()) {
+    const prefs = lireJson(fichier);
+    if (!prefs) continue;
+    prefs.extensions = prefs.extensions || {};
+    prefs.extensions.ui = prefs.extensions.ui || {};
+    if (prefs.extensions.ui.developer_mode === true) {
+      poses += 1;
+      continue;
+    }
+    const garde = `${fichier}.beluga-avant`;
+    try {
+      sh(`/bin/cp -p ${q(fichier)} ${q(garde)}`);
+      prefs.extensions.ui.developer_mode = true;
+      $.NSString.alloc.initWithUTF8String(JSON.stringify(prefs)).writeToFileAtomicallyEncodingError(fichier, true, $.NSUTF8StringEncoding, null);
+      const relu = lireJson(fichier);
+      if (!relu || !relu.extensions || !relu.extensions.ui || relu.extensions.ui.developer_mode !== true) throw new Error('relecture impossible');
+      poses += 1;
+    } catch (e) {
+      journal(`mode développeur non posé dans ${fichier} : ${e}`);
+      try {
+        sh(`/bin/cp -p ${q(garde)} ${q(fichier)}`);
+      } catch (e2) {}
+    }
+  }
+  journal(`mode développeur posé dans ${poses} profil(s) de Chrome`);
+  return poses > 0;
+}
+
+/** L'extension est-elle VRAIMENT connue de Chrome (ses préférences la nomment, depuis ce dossier) ? */
+function extensionPresente(config, dossier, delaiS) {
+  const fin = Date.now() + delaiS * 1000;
+  while (Date.now() < fin) {
+    if (dossiersDeLExtension(config, null).some((d) => d.chemin === dossier)) return true;
+    delay(1);
+  }
+  return false;
+}
+
+/** Un essai d'ajout : la page des extensions, l'interrupteur s'il le faut, « Charger l'extension non empaquetée », le chemin. */
+function unEssaiDAjout(dossier) {
+  const se = Application('System Events');
+  const { proc, ouvert } = ouvrirDansChrome('chrome://extensions/', TITRE_EXTENSIONS);
+  try {
+    let charger = chercherDansChrome(proc, ['AXButton'], LIBELLES.charger, 4);
+    if (!charger) {
+      /* Bouton absent : le mode développeur n'est pas allumé dans CE profil — on le cherche alors à l'écran. */
+      const mode = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.modeDev, 12);
+      if (!mode) throw new Error('interrupteur « Mode développeur » introuvable');
+      if (!valeurCochee(mode)) {
+        appuyer(mode);
+        delay(1.5);
+      }
+      charger = chercherDansChrome(proc, ['AXButton'], LIBELLES.charger, 10);
+    }
+    if (!charger) throw new Error('bouton « Charger l’extension non empaquetée » introuvable');
+    appuyer(charger);
+    delay(1.8);
+    /* La fenêtre de choix du dossier : « Aller au dossier » (Cmd+Maj+G), le chemin, Entrée, puis « Sélectionner ». */
+    se.keystroke('g', { using: ['command down', 'shift down'] });
+    delay(1);
+    se.keystroke(dossier);
+    delay(0.6);
+    se.keyCode(36);
+    delay(1.5);
+    se.keyCode(36);
+    delay(3);
+  } finally {
+    if (ouvert) refermerLOnglet(proc, TITRE_EXTENSIONS);
+  }
+}
+
+/**
+ * AJOUTER LE DOSSIER À CHROME, POUR DE BON (carte « Beluga Connect : liaison et suivi », 22/11/2026). Avant : une
+ * seule tentative, un délai fixe, et « ajoutée » écrit sur la foi des frappes. Maintenant : mode développeur posé
+ * Chrome fermé (puis Chrome rouvert avec ses onglets), jusqu'à TROIS essais, et l'extension n'est dite ajoutée que si
+ * les préférences de Chrome la nomment. Rend { ajoutee, developpeur, rouvert, essais, detail }.
+ */
+function ajouterDansChrome(config, dossier) {
+  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
+  let developpeur = modeDeveloppeurPartout();
+  let rouvert = true;
+  if (!developpeur) {
+    const etaitOuvert = chromeOuvert();
+    if (etaitOuvert) quitterChrome();
+    developpeur = allumerLeModeDeveloppeur();
+    if (etaitOuvert) rouvert = rouvrirChrome();
+  }
+  let detail = '';
+  for (let essai = 1; essai <= 3; essai++) {
+    try {
+      unEssaiDAjout(dossier);
+    } catch (e) {
+      detail = String(e && e.message ? e.message : e);
+      journal(`ajout à Chrome, essai ${essai} sur 3 : ${detail}`);
+    }
+    if (extensionPresente(config, dossier, 20)) {
+      journal(`extension ajoutée à Chrome depuis ${dossier} (vérifiée, essai ${essai} sur 3)`);
+      if (!chromeOuvert()) rouvert = rouvrirChrome();
+      return { ajoutee: true, developpeur: true, rouvert, essais: essai, detail: '' };
+    }
+    if (!detail) detail = 'Chrome ne montre pas l’extension après l’ajout';
+    /* Entre deux essais, Chrome repart de zéro (avec ses onglets). */
+    if (essai < 3) rouvert = quitterEtRouvrirChrome();
+  }
+  if (!chromeOuvert()) rouvert = rouvrirChrome();
+  return { ajoutee: false, developpeur, rouvert, essais: 3, detail };
+}
+
+/**
+ * Cocher « Autoriser en navigation privée » sur la page de l'extension. LE RÉSULTAT EST CELUI DE LA CASE, PLUS UN
+ * « OUI » DE PRINCIPE (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : l'ancien `|| true` rendait
+ * « autorisée » même quand rien n'avait été coché. La preuve finale vient de l'extension elle-même (une vraie fenêtre
+ * privée réduite, ouverte puis refermée : geste `verifier_prive`).
+ */
 function autoriserLaNavigationPrivee(a) {
   const id = /^[a-p]{32}$/.test(String(a.extensionId || '')) ? a.extensionId : null;
   if (!id) throw new Error('identifiant de l’extension absent');
   if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
-  const proc = ouvrirDansChrome(`chrome://extensions/?id=${id}`);
-  const caseP = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.prive, 15);
-  if (!caseP) throw new Error('case « Autoriser en navigation privée » introuvable');
-  if (!valeurCochee(caseP)) appuyer(caseP);
-  delay(1);
-  /* L'onglet ouvert pour l'occasion se referme. */
+  const { proc, ouvert } = ouvrirDansChrome(`chrome://extensions/?id=${id}`, TITRE_EXTENSIONS, { fenetreAPart: true });
   try {
-    Application('System Events').keystroke('w', { using: 'command down' });
-  } catch (e) {}
-  return { incognito: valeurCochee(caseP) || true };
+    const caseP = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.prive, 15);
+    if (!caseP) throw new Error('case « Autoriser en navigation privée » introuvable dans Chrome');
+    const avant = valeurCochee(caseP);
+    if (!avant) appuyer(caseP);
+    /* Chrome recharge l'extension en cochant : la case se relit après un temps. */
+    let apres = avant;
+    for (let i = 0; i < 6 && !apres; i++) {
+      delay(0.5);
+      apres = valeurCochee(caseP);
+    }
+    if (!apres) throw new Error('la case « Autoriser en navigation privée » ne s’est pas cochée');
+    return { incognito: true, dejaCochee: avant };
+  } finally {
+    /* L'onglet ouvert pour l'occasion se referme ; celui de la personne, jamais. */
+    if (ouvert) refermerLOnglet(proc, TITRE_EXTENSIONS);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* SAFARI D'OFFICE, APRÈS CHROME (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) */
+/* ------------------------------------------------------------------ */
+
+/** Le conteneur partagé de l'équipe : l'application « Beluga » pour Safari y lit la fiche de liaison. */
+const GROUPE_SAFARI = `${$.NSHomeDirectory().js}/Library/Group Containers/${EQUIPE_APPLE}.studio.haiko.beluga`;
+const IDENTIFIANT_SAFARI = 'studio.haiko.beluga';
+const LIBELLES_SAFARI = {
+  extensions: /^(extensions|erweiterungen|extensiones|扩展)$/i,
+  sites: /sites web|websites|sitios web|webseiten|网站/i,
+  autoriser: /^(autoriser|allow|permitir|erlauben|允许)$/i,
+};
+
+/** L'application « Beluga » pour Safari est-elle posée, et où ? */
+function applicationSafari() {
+  for (const d of ['/Applications', `${$.NSHomeDirectory().js}/Applications`]) {
+    if (existe(`${d}/Beluga.app/Contents/PlugIns`)) return `${d}/Beluga.app`;
+  }
+  return null;
+}
+
+/** L'extension est-elle cochée dans Safari ? Lu par pluginkit (« + » devant l'identifiant) : sans fenêtre. */
+function extensionSafariActivee() {
+  try {
+    const sortie = sh(`/usr/bin/pluginkit -m -v -i ${IDENTIFIANT_SAFARI}.Extension 2>/dev/null || true`);
+    if (!sortie.trim()) return null;
+    return /^\s*\+/m.test(sortie);
+  } catch (e) {
+    return null;
+  }
+}
+
+function etatDeSafari() {
+  return { installee: !!applicationSafari(), activee: extensionSafariActivee(), fiche: existe(`${GROUPE_SAFARI}/liaison.json`) };
+}
+
+/**
+ * INSTALLER L'EXTENSION SAFARI : l'application signée est téléchargée par la voie signée (empreinte vérifiée), son
+ * équipe Apple contrôlée, rangée dans Applications, la fiche de liaison posée dans le conteneur partagé, l'application
+ * lancée une fois EN ARRIÈRE-PLAN (enregistrement de l'extension) puis refermée, et l'extension COCHÉE dans les
+ * réglages de Safari par l'accessibilité (autorisation « Souris et clavier » déjà donnée). Aucun téléchargement ni code
+ * pour la personne. Rend ce qui est fait ; un échec le dit en clair.
+ */
+function installerSafari(config, a) {
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet Safari absente');
+  if (String(a.chemin || '') !== '/api/relais-mac/extension-safari.zip') throw new Error('adresse du paquet Safari refusée');
+  if (!/^\d{6}$/.test(String(a.code || ''))) throw new Error('code de liaison absent');
+  /* 1. L'application. */
+  const travail = `${DOSSIER}/safari-neuf`;
+  sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)}`);
+  let cible = applicationSafari();
+  try {
+    telechargerVerifie(config, a.chemin, `${travail}/safari.zip`, a.empreinte);
+    sh(`/usr/bin/ditto -x -k ${q(`${travail}/safari.zip`)} ${q(travail)}`);
+    const appli = `${travail}/Beluga.app`;
+    sh(`/usr/bin/codesign --verify --deep --strict ${q(appli)}`);
+    if (sh(`/usr/bin/codesign -dv ${q(appli)} 2>&1`).indexOf(`TeamIdentifier=${EQUIPE_APPLE}`) < 0) throw new Error('application Safari signée par une autre équipe');
+    const dossierApplis = sh(`[ -w /Applications ] && echo /Applications || echo "$HOME/Applications"`).trim();
+    sh(`mkdir -p ${q(dossierApplis)}`);
+    cible = `${dossierApplis}/Beluga.app`;
+    sh(`/usr/bin/pkill -x Beluga || true; rm -rf ${q(cible)} && /usr/bin/ditto ${q(appli)} ${q(cible)} && /usr/bin/xattr -dr com.apple.quarantine ${q(cible)} || true`);
+  } finally {
+    sh(`rm -rf ${q(travail)}`);
+  }
+  /* 2. La fiche de liaison, lue par l'extension par sa messagerie native. */
+  sh(`mkdir -p ${q(GROUPE_SAFARI)}`);
+  $.NSString.alloc
+    .initWithUTF8String(JSON.stringify({ code: String(a.code), adresse: config.base }))
+    .writeToFileAtomicallyEncodingError(`${GROUPE_SAFARI}/liaison.json`, true, $.NSUTF8StringEncoding, null);
+  /* 3. L'enregistrement : lancée une fois, cachée (-g -j), puis refermée ; pluginkit en renfort. */
+  sh(`/usr/bin/pluginkit -a ${q(`${cible}/Contents/PlugIns/Beluga Extension.appex`)} 2>/dev/null || true`);
+  sh(`/usr/bin/open -g -j ${q(cible)} || true`);
+  delay(3);
+  sh(`/usr/bin/pkill -x Beluga || true`);
+  journal(`extension Safari posée dans ${cible}`);
+  /* 4. Cochée dans Safari : la case elle-même fait foi (pluginkit ne reflète pas toujours le choix fait dans Safari). */
+  let activee = false;
+  let sites = false;
+  let detail = '';
+  try {
+    const r = cocherDansSafari();
+    activee = r.activee;
+    sites = r.sites;
+  } catch (e) {
+    detail = String(e && e.message ? e.message : e);
+    journal(`activation dans Safari impossible : ${detail}`);
+  }
+  return { installee: true, activee, sites, detail, dossier: cible };
+}
+
+/** Ouvrir les réglages de Safari › Extensions, cocher « Beluga », autoriser sur tous les sites, refermer. */
+function cocherDansSafari() {
+  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
+  const se = Application('System Events');
+  const dejaOuvert = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.safari).count > 0;
+  const safari = Application('Safari');
+  safari.activate();
+  delay(1.5);
+  const proc = se.processes.byName('Safari');
+  se.keystroke(',', { using: 'command down' });
+  delay(1.5);
+  let activee = false;
+  let sites = false;
+  try {
+    const fenetre = () => proc.windows()[0];
+    /* L'onglet « Extensions » de la barre d'outils des réglages. */
+    const onglet = chercherDansFenetre(fenetre(), ['AXButton', 'AXRadioButton'], LIBELLES_SAFARI.extensions, 8);
+    if (!onglet) throw new Error('onglet « Extensions » des réglages de Safari introuvable');
+    appuyer(onglet);
+    delay(1.2);
+    const caseB = chercherDansFenetre(fenetre(), ['AXCheckBox'], /beluga/i, 8);
+    if (!caseB) throw new Error('« Beluga » absente de la liste des extensions de Safari');
+    if (!valeurCochee(caseB)) appuyer(caseB);
+    for (let i = 0; i < 6 && !activee; i++) {
+      delay(0.5);
+      activee = valeurCochee(caseB);
+    }
+    if (!activee) throw new Error('la case « Beluga » ne s’est pas cochée dans Safari');
+    /* Sur tous les sites : « Modifier les sites web… », puis « Autoriser » pour les autres sites. Facultatif. */
+    try {
+      const modifier = chercherDansFenetre(fenetre(), ['AXButton'], LIBELLES_SAFARI.sites, 4);
+      if (modifier) {
+        appuyer(modifier);
+        delay(1.2);
+        const menu = chercherDansFenetre(fenetre(), ['AXPopUpButton'], /./, 4);
+        if (menu) {
+          appuyer(menu);
+          delay(0.6);
+          const choix = chercherDansFenetre(menu, ['AXMenuItem'], LIBELLES_SAFARI.autoriser, 3);
+          if (choix) {
+            appuyer(choix);
+            sites = true;
+          } else se.keyCode(53);
+        }
+      }
+    } catch (e) {
+      journal(`Safari : « sur tous les sites » non réglé (${e && e.message ? e.message : e})`);
+    }
+  } finally {
+    se.keystroke('w', { using: 'command down' });
+    delay(0.5);
+    /* Safari reste ouvert en arrière-plan le temps que l'extension se relie ; caché s'il ne l'était pas. */
+    if (!dejaOuvert) {
+      try {
+        proc.visible = false;
+      } catch (e) {}
+    }
+  }
+  return { activee, sites };
+}
+
+/** Le premier élément d'un rôle donné dont le texte répond au motif, sous une fenêtre ou un élément (borné en temps). */
+function chercherDansFenetre(racine, roles, motif, delaiS) {
+  const fin = Date.now() + delaiS * 1000;
+  while (Date.now() < fin) {
+    let file = racine ? [racine] : [];
+    let vus = 0;
+    while (file.length && vus < 3000 && Date.now() < fin) {
+      const el = file.shift();
+      vus += 1;
+      let role = '';
+      try {
+        role = el.role();
+      } catch (e) {}
+      if (roles.indexOf(role) >= 0 && motif.test(texteDe(el).trim())) return el;
+      try {
+        file = file.concat(el.uiElements());
+      } catch (e) {}
+    }
+    delay(0.6);
+  }
+  return null;
 }
 
 /** Poser (ou remettre) l'extension dans son dossier fixe, avec le code de liaison, puis l'ajouter à Chrome. */
@@ -732,15 +1105,22 @@ function installerLExtension(config, a) {
   journal(`code de liaison posé dans ${poses.length} dossier(s) : ${poses.join(', ')}`);
   let ajoutee = connus.length > 0;
   let detail = '';
+  let suivi = { developpeur: ajoutee, rouvert: true, essais: 0 };
   if (!ajoutee) {
     try {
-      ajoutee = ajouterDansChrome(cible);
+      const r = ajouterDansChrome(config, cible);
+      ajoutee = r.ajoutee;
+      detail = r.detail;
+      suivi = { developpeur: r.developpeur, rouvert: r.rouvert, essais: r.essais };
     } catch (e) {
       detail = String(e && e.message ? e.message : e);
       journal(`ajout à Chrome impossible : ${detail}`);
     }
+  } else if (!chromeOuvert()) {
+    /* Déjà dans Chrome, mais Chrome fermé (réparation) : il est rouvert avec ses onglets pour lire son code. */
+    suivi.rouvert = rouvrirChrome();
   }
-  return { dossier: cible, ajoutee, deja: connus.length > 0, detail, dossiers: poses };
+  return { dossier: cible, ajoutee, deja: connus.length > 0, detail, dossiers: poses, developpeur: suivi.developpeur, rouvert: suivi.rouvert, essais: suivi.essais };
 }
 
 /**
@@ -979,6 +1359,10 @@ function jouerSurLOrdinateur(commande) {
       return installerLExtension(lireConfig(), a);
     case 'autoriser_navigation_privee':
       return autoriserLaNavigationPrivee(a);
+    case 'installer_safari':
+      return installerSafari(lireConfig(), a);
+    case 'etat_safari':
+      return etatDeSafari();
     case 'installer_connect':
       return installerConnect(lireConfig(), a);
     case 'lister_applications':

@@ -1487,6 +1487,13 @@ export function createHttpServer(): http.Server {
           res.writeHead(200, { 'content-type': 'application/zip', 'content-length': zip.length, 'cache-control': 'no-store' });
           return res.end(zip);
         }
+        /* L'APPLICATION « BELUGA » POUR SAFARI, posée par Beluga Connect lui-même (carte « Beluga Connect : liaison sans fenêtre »). */
+        if (route === '/api/relais-mac/extension-safari.zip' && req.method === 'GET') {
+          const zip = await relaisMac.paquetSafariPourLeRelais();
+          if (!zip) return json(res, 404, { ok: false, raison: 'L’extension Safari n’est pas encore fabriquée.' });
+          res.writeHead(200, { 'content-type': 'application/zip', 'content-length': zip.length, 'cache-control': 'no-store' });
+          return res.end(zip);
+        }
         /* Le menu de Beluga Connect : son état, et ses deux gestes (« Mettre à jour maintenant », « Réparer »). */
         if (route === '/api/relais-mac/statut' && req.method === 'POST') {
           return json(res, 200, await relaisMac.statutPourConnect(voie.appareilId, voie.compteId));

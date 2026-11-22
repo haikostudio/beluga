@@ -38,7 +38,7 @@ import { LigneDeReglage, RubriqueDeReglages } from '@/components/modeles';
 import { client } from '@/lib/client';
 import { cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { EtapesDeChrome, FenetreSafari, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { EtapesDeChrome, EtatDesServices, FenetreSafari, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
 import { useSousPageDeReglages, type PartieDeSommaire } from './sous-page';
 
 /** Le nom propre de l'application : le même dans toutes les langues. */
@@ -772,7 +772,11 @@ function PageDUnOrdinateur({
       </div>
 
       <div className="scroll-mt-2" data-partie-ordinateur="connect">
-      <RubriqueDeReglages titre={CONNECT} description={t('L’application qui relie cet ordinateur à Beluga, installe l’extension de Chrome et la tient à jour.')}>
+      <RubriqueDeReglages
+        titre={CONNECT}
+        description={t('L’application qui relie cet ordinateur à Beluga, installe l’extension de Chrome et la tient à jour.')}
+        avant={<EtatDesServices ordinateur={ordinateur} />}
+      >
         <LigneDeReglage libelle={CONNECT} detail={etatDeConnect(ordinateur)} controle={<FormeDEtat allume={programmeEnLigne(ordinateur.programme)} />} />
       </RubriqueDeReglages>
       </div>
@@ -812,7 +816,7 @@ function PageDUnOrdinateur({
         {estUnMac && safari && !ordinateur.navigateurs.some((n) => n.genre === 'safari') ? (
           <LigneDeReglage
             libelle={t('Beluga pour Safari')}
-            detail={t('Pour travailler aussi dans Safari : une application signée et un code.')}
+            detail={t('Pour travailler aussi dans Safari : Beluga Connect l’installe et la relie, sans rien télécharger.')}
             controle={
               <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => setSafariOuvert(true)} data-ajouter-safari>
                 <Plus className="h-3.5 w-3.5" />

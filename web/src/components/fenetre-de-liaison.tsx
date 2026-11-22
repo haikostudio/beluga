@@ -22,6 +22,11 @@ import { t } from '@/lib/langue';
  * la demande (le nom réel de l'ordinateur), la personne connectée clique « Relier », et l'application, qui attendait
  * de son côté, reçoit sa clé — sans code, sans fenêtre de Chrome. « Pas maintenant » refuse : l'application le sait.
  * Le jeton est retiré de l'adresse dès sa lecture (et gardé le temps d'une connexion, si la session manquait).
+ *
+ * PLUS JAMAIS DE PAGE OUVERTE PAR BELUGA CONNECT (22/11/2026, carte « Beluga Connect : liaison et suivi ») : quand le
+ * code du téléchargement ne suffit plus, l'application envoie sa demande AVEC ce code ; le démon la pousse aux onglets
+ * déjà ouverts du compte (`relaisMac.demande`), et un onglet ouvert après coup la reprend (`relaisMac.liaison.enAttente`).
+ * L'adresse `/?liaison=` ne sert plus qu'au clic « Ouvrir Beluga » de l'application, quand aucun onglet n'était ouvert.
  */
 const CLE_DE_SESSION = 'beluga:demande-de-liaison';
 
@@ -63,6 +68,23 @@ function libelleDuSysteme(systeme: SystemeDOrdinateur): string {
 export function FenetreDeLiaison() {
   const [demande, setDemande] = React.useState<DemandeLue | null>(null);
   const [envoi, setEnvoi] = React.useState<'relier' | 'refuser' | null>(null);
+
+  /* Poussée par Beluga Connect à l'onglet déjà ouvert, ou en attente à l'ouverture de l'onglet. */
+  React.useEffect(() => {
+    let vivant = true;
+    const montrer = (d: DemandeLue) => setDemande((avant) => avant ?? d);
+    const lacher = client.onDemandeDeLiaison(montrer);
+    void client
+      .call<{ demandes: DemandeLue[] }>({ type: 'relaisMac.liaison.enAttente' })
+      .then((r) => {
+        if (vivant && r.demandes?.[0]) montrer(r.demandes[0]);
+      })
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+      lacher();
+    };
+  }, []);
 
   React.useEffect(() => {
     const jeton = jetonEnAttente();
@@ -137,7 +159,7 @@ export function FenetreDeLiaison() {
             {t('Relier « {nom} » à Beluga ?', { nom: demande.nom })}
           </p>
           <p className="max-w-[24rem] text-[13.5px] leading-relaxed text-muted">
-            {t('Beluga Connect vient de s’ouvrir sur {appareil} et demande à se relier à votre compte. Les agents pourront ensuite y ouvrir Chrome et y travailler, selon les droits que vous lui donnez.', {
+            {t('Beluga Connect est lancé sur {appareil} et demande à se relier à votre compte. Les agents pourront ensuite y ouvrir Chrome et y travailler, selon les droits que vous lui donnez.', {
               appareil: libelleDuSysteme(demande.systeme),
             })}
           </p>

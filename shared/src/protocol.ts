@@ -1327,12 +1327,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('relaisMac.delier'), ordinateurId: z.string().optional() }),
   /** « Relier ce Mac ? » (21/11/2026) : la page lit la demande de liaison posée par Beluga Connect, puis la tranche. */
   z.object({ type: z.literal('relaisMac.liaison.lire'), jeton: z.string().max(200) }),
+  /** Les demandes « Relier ce Mac ? » qui attendent CE compte (un onglet ouvert après leur arrivée les reprend). */
+  z.object({ type: z.literal('relaisMac.liaison.enAttente') }),
   z.object({ type: z.literal('relaisMac.liaison.accepter'), jeton: z.string().max(200), ordinateurId: z.string().optional() }),
   z.object({ type: z.literal('relaisMac.liaison.refuser'), jeton: z.string().max(200) }),
+  /* LE CODE DE SECOURS affiché par Beluga Connect, tapé dans l'onglet (carte « Beluga Connect : liaison sans fenêtre »). */
+  z.object({ type: z.literal('relaisMac.liaison.parCode'), code: z.string().max(20), ordinateurId: z.string().optional() }),
   /** Rouvrir sur le Mac l'écran des réglages d'une autorisation, ou (`aide`) la fenêtre « Activer » de Beluga Connect. */
   z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran', 'aide']) }),
   /** Beluga Connect prépare (ou répare) Chrome sur ce Mac : extension posée, reliée, navigation privée (20/11/2026). */
   z.object({ type: z.literal('relaisMac.preparer'), ordinateurId: z.string() }),
+  /** « Installer dans Safari » : Beluga Connect de cet ordinateur pose et relie l'extension Safari (carte « Beluga Connect : liaison sans fenêtre »). */
+  z.object({ type: z.literal('relaisMac.preparerSafari'), ordinateurId: z.string() }),
   /* Le code de secours d'un ordinateur (étape « Chrome prêt », page de l'ordinateur) : partagé avec Beluga Connect. */
   z.object({ type: z.literal('relaisMac.codeDeSecours'), ordinateurId: z.string() }),
   /*
@@ -2427,6 +2433,28 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('groups'), groups: z.array(ProjectGroup) }),
   /** LE PILOTAGE DE CHROME (`server/src/extension-chrome.ts`) : un Chrome relié, délié, un site ou un geste répété a changé. */
   z.object({ type: z.literal('extension.change') }),
+  /**
+   * « RELIER CE MAC ? » POUSSÉ À L'ONGLET DÉJÀ OUVERT (22/11/2026) : Beluga Connect n'ouvre plus de page ; sa demande
+   * de repli, portant le code du téléchargement, arrive par le canal de CE compte seul (`pour`).
+   */
+  z.object({
+    type: z.literal('relaisMac.demande'),
+    pour: z.string(),
+    jeton: z.string(),
+    nom: z.string(),
+    systeme: z.enum(['mac', 'windows', 'linux']),
+  }),
+  /**
+   * UN CODE DE SECOURS ATTEND (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : Beluga Connect s'est
+   * lancé sans que son compte soit certain ; il affiche six chiffres, et l'onglet de CE compte (`pour`) ouvre le champ.
+   */
+  z.object({
+    type: z.literal('relaisMac.codeAttendu'),
+    pour: z.string(),
+    nom: z.string(),
+    systeme: z.enum(['mac', 'windows', 'linux']),
+    expireLe: z.number(),
+  }),
   /**
    * Projets qui attendent une réponse : le compte par projet, ET l'endroit où
    * chaque décision se prend — sans quoi la ligne du projet annoncerait un

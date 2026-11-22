@@ -550,16 +550,34 @@ void reprendreLesGroupes();
  * usage unique émis par Beluga pour CET ordinateur. Tant qu'elle n'est pas reliée, l'extension le lit (au démarrage,
  * puis à chaque réveil) et se relie seule : personne n'a de code à taper. Un code déjà essayé n'est jamais rejoué.
  */
+/**
+ * LA FICHE DE LIAISON { code, adresse } posée par Beluga Connect. Chrome : `liaison.json`, dans le dossier de
+ * l'extension. SAFARI (1.0.9 de l'extension Safari, carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : le
+ * dossier de l'extension est scellé dans l'application signée ; Beluga Connect pose la fiche dans le conteneur partagé
+ * de l'équipe, et l'application « Beluga » la rend par la messagerie native — aucun code à taper dans Safari.
+ */
+async function ficheDeLiaison() {
+  if (SAFARI) {
+    try {
+      const r = await chrome.runtime.sendNativeMessage('studio.haiko.beluga', { type: 'liaison' });
+      return r && typeof r === 'object' && r.code ? r : null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const r = await fetch(chrome.runtime.getURL('liaison.json'), { cache: 'no-store' });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function lierParLeFichier() {
   const { identifiant } = await liaison();
   if (identifiant) return;
-  let fiche = null;
-  try {
-    const r = await fetch(chrome.runtime.getURL('liaison.json'), { cache: 'no-store' });
-    if (r.ok) fiche = await r.json();
-  } catch {
-    return;
-  }
+  const fiche = await ficheDeLiaison();
+  if (!fiche) return;
   const code = String(fiche?.code ?? '');
   if (!/^\d{6}$/.test(code)) return;
   const adresse = typeof fiche?.adresse === 'string' && /^https?:\/\/[A-Za-z0-9.:\[\]-]+$/.test(fiche.adresse) ? fiche.adresse : null;
@@ -1242,6 +1260,28 @@ async function autorisationPrivee() {
 }
 
 /**
+ * LA PREUVE DE LA NAVIGATION PRIVÉE (1.0.16, carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : la case
+ * cochée ne suffit plus. L'extension ouvre une VRAIE fenêtre privée — réduite, sans focus, vide —, vérifie qu'elle est
+ * bien privée, puis la referme aussitôt. Sans cette preuve, Beluga n'affiche jamais « Vérifiée ». Elle ne touche à aucune
+ * fenêtre de la personne.
+ */
+async function verifierLaNavigationPrivee() {
+  if (SAFARI) return { incognito: null, prouve: false, raison: 'Safari ne le dit pas' };
+  if (!(await autorisationPrivee())) return { incognito: false, prouve: false, raison: 'case « Autoriser en navigation privée » décochée' };
+  let id = null;
+  try {
+    const w = await chrome.windows.create({ incognito: true, focused: false, state: 'minimized', type: 'normal', url: 'about:blank' });
+    id = w?.id ?? null;
+    const prive = w?.incognito === true;
+    return { incognito: prive, prouve: prive, raison: prive ? null : 'la fenêtre ouverte n’est pas privée' };
+  } catch (e) {
+    return { incognito: false, prouve: false, raison: String(e?.message ?? e) };
+  } finally {
+    if (Number.isInteger(id)) await chrome.windows.remove(id).catch(() => undefined);
+  }
+}
+
+/**
  * LES GESTES DE L'EXTENSION ELLE-MÊME (1.0.11), sans agent : se recharger après que le programme du Mac a remplacé ses
  * fichiers (même dossier, même identifiant), et ouvrir sa page de réglages pour cocher « Autoriser en navigation
  * privée ». Rien d'autre.
@@ -1258,6 +1298,7 @@ async function gesteDeLExtension(geste) {
   if (geste === 'etat_extension') {
     return { version: chrome.runtime.getManifest().version, incognito: await autorisationPrivee(), extensionId: chrome.runtime.id };
   }
+  if (geste === 'verifier_prive') return verifierLaNavigationPrivee();
   return undefined;
 }
 

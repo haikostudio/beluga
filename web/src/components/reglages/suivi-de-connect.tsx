@@ -143,7 +143,9 @@ export function SuiviDeConnect() {
   if (!etat || !cible) return null;
   return (
     <Dialog open onOpenChange={(o) => !o && fermer()}>
-      <DialogContent adresse="connexion-en-cours" className="sm:w-[min(620px,100%)]" data-suivi-de-connect={cible.id}>
+      {/* Aucun focus d'office : il encadrait la première étape et faisait glisser le contenu sous le titre, coupé en
+          haut (capture #a2a1, carte « Beluga Connect : liaison et suivi »). */}
+      <DialogContent adresse="connexion-en-cours" className="sm:w-[min(620px,100%)]" data-suivi-de-connect={cible.id} onOpenAutoFocus={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{t('Connexion de « {nom} »', { nom: cible.nom })}</DialogTitle>
         </DialogHeader>

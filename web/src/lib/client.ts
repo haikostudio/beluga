@@ -664,6 +664,8 @@ class Client {
   /** La page « Plaquettes » : relue à chaque changement d'une plaquette, jamais rangée dans l'état général. */
   private plaquettesHandlers = new Set<(event: Extract<ServerEvent, { type: 'plaquettes.change' }>) => void>();
   private extensionHandlers = new Set<() => void>();
+  private demandeDeLiaisonHandlers = new Set<(demande: { jeton: string; nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void>();
+  private codeAttenduHandlers = new Set<(attente: { nom: string; systeme: 'mac' | 'windows' | 'linux'; expireLe: number }) => void>();
   /** Les images du navigateur des sources : remises au seul volet ouvert, jamais rangées dans l'état général. */
   /*
    * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
@@ -890,6 +892,18 @@ class Client {
   onExtension(handler: () => void): () => void {
     this.extensionHandlers.add(handler);
     return () => this.extensionHandlers.delete(handler);
+  }
+
+  /** « Relier ce Mac ? » poussé par Beluga Connect à l'onglet déjà ouvert (il n'ouvre plus jamais de page). */
+  /** Beluga Connect affiche un code de secours (compte incertain) : l'onglet ouvre le champ pour le taper. */
+  onCodeAttendu(handler: (attente: { nom: string; systeme: 'mac' | 'windows' | 'linux'; expireLe: number }) => void): () => void {
+    this.codeAttenduHandlers.add(handler);
+    return () => this.codeAttenduHandlers.delete(handler);
+  }
+
+  onDemandeDeLiaison(handler: (demande: { jeton: string; nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void): () => void {
+    this.demandeDeLiaisonHandlers.add(handler);
+    return () => this.demandeDeLiaisonHandlers.delete(handler);
   }
 
   /** La page « Plaquettes » se relit quand une plaquette change (contenu, lien, ouverture, remarque). */
@@ -2296,6 +2310,12 @@ class Client {
 
       case 'extension.change':
         for (const handler of this.extensionHandlers) handler();
+        break;
+      case 'relaisMac.demande':
+        for (const handler of this.demandeDeLiaisonHandlers) handler({ jeton: event.jeton, nom: event.nom, systeme: event.systeme });
+        break;
+      case 'relaisMac.codeAttendu':
+        for (const handler of this.codeAttenduHandlers) handler({ nom: event.nom, systeme: event.systeme, expireLe: event.expireLe });
         break;
       case 'plaquettes.change':
         for (const handler of this.plaquettesHandlers) handler(event);

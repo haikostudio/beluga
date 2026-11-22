@@ -122,6 +122,52 @@ export interface ProgrammeDuMac {
   connect?: string | null;
   /** Beluga Connect prépare Chrome (écran 5 de l'assistant) ; `null` : rien en cours ni récent. */
   preparation?: PreparationDeChrome | null;
+  /** Beluga Connect installe Safari, APRÈS Chrome (carte « Beluga Connect : liaison sans fenêtre ») ; `null` : rien. */
+  safari?: PreparationDeSafari | null;
+}
+
+/**
+ * SAFARI D'OFFICE, APRÈS CHROME (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : Beluga Connect pose
+ * l'application « Beluga » pour Safari, coche l'extension dans les réglages de Safari et lui passe le code par le
+ * conteneur partagé ; « reliée » se lit sur le navigateur Safari relié lui-même. `message` : ce qui a bloqué.
+ */
+export interface PreparationDeSafari {
+  etat: 'en-cours' | 'fait' | 'echec';
+  installee: boolean | null;
+  activee: boolean | null;
+  message: string | null;
+  depuis: number;
+  majLe?: number;
+}
+
+export type EtatDUneEtapeDeSafari = 'fait' | 'en-cours' | 'a-venir' | 'echec';
+
+/**
+ * LES TROIS LIGNES DE SAFARI (installée, activée, reliée), dans l'ordre, d'après la préparation et le Safari relié.
+ * `apresChrome` : Chrome n'est pas encore prêt — tout reste « à venir ».
+ */
+export function etapesDeSafari(
+  p: PreparationDeSafari | null | undefined,
+  safariRelie: boolean,
+  apresChrome: boolean,
+): { cle: 'installee' | 'activee' | 'reliee'; etat: EtatDUneEtapeDeSafari }[] {
+  if (safariRelie) return (['installee', 'activee', 'reliee'] as const).map((cle) => ({ cle, etat: 'fait' as const }));
+  if (apresChrome) return (['installee', 'activee', 'reliee'] as const).map((cle) => ({ cle, etat: 'a-venir' as const }));
+  /* Chrome prêt, rien encore de Beluga Connect : l'installation est la prochaine chose qui se fait. */
+  if (!p) return [
+    { cle: 'installee', etat: 'en-cours' },
+    { cle: 'activee', etat: 'a-venir' },
+    { cle: 'reliee', etat: 'a-venir' },
+  ];
+  const echec = p.etat === 'echec';
+  const installee: EtatDUneEtapeDeSafari = p.installee ? 'fait' : echec ? 'echec' : 'en-cours';
+  const activee: EtatDUneEtapeDeSafari = p.activee ? 'fait' : !p.installee ? 'a-venir' : echec ? 'echec' : 'en-cours';
+  const reliee: EtatDUneEtapeDeSafari = !p.activee ? 'a-venir' : echec ? 'echec' : 'en-cours';
+  return [
+    { cle: 'installee', etat: installee },
+    { cle: 'activee', etat: activee },
+    { cle: 'reliee', etat: reliee },
+  ];
 }
 
 /**
@@ -145,6 +191,13 @@ export interface PreparationDeChrome {
   travail?: TravailDeConnect;
   debutLiaison?: number | null;
   majLe?: number;
+  /**
+   * L'AJOUT SUIVI EN CINQ LIGNES (carte « Beluga Connect : liaison et suivi », 22/11/2026) : le mode développeur posé
+   * par Beluga Connect, Chrome rouvert avec ses onglets, et le nombre d'essais (trois au plus) qu'a pris l'ajout.
+   */
+  developpeur?: boolean | null;
+  rouvert?: boolean | null;
+  essais?: number;
 }
 
 /** Ce que Beluga Connect fait sur l'ordinateur : première installation, réparation, navigation privée, mise à jour. */
@@ -181,7 +234,14 @@ export function codeDeSecoursAMontrer(
 }
 
 /** Les étapes de la préparation, cochées d'après l'état réel : pour Beluga comme pour le menu de Beluga Connect. */
-export type EtapeDePreparation = 'ajoutee' | 'reliee' | 'prive';
+export type EtapeDePreparation = 'developpeur' | 'ajoutee' | 'reliee' | 'prive' | 'rouvert';
+
+/**
+ * LES LIGNES DE « PRÉPARER CHROME », LES MÊMES PARTOUT (page de Beluga, fenêtre et volet de Beluga Connect) : sur un
+ * Mac, mode développeur → extension ajoutée (vérifiée) → reliée → navigation privée → Chrome rouvert avec ses onglets ;
+ * ailleurs, ajoutée → reliée. Chacune est cochée d'après l'état RÉEL ; la première qui manque est « en cours », ou
+ * « échec » si la préparation a échoué.
+ */
 export function etapesDeLaPreparation(
   p: PreparationDeChrome | null | undefined,
   chrome: { enLigne: boolean; incognito?: boolean | null } | null | undefined,
@@ -189,12 +249,16 @@ export function etapesDeLaPreparation(
   maintenant = Date.now(),
 ): { cle: EtapeDePreparation; etat: 'fait' | 'en-cours' | 'a-venir' | 'echec' }[] {
   const vue = preparationVue(p, maintenant);
+  const ajoutee = !!chrome || vue?.ajoutee === true;
   const faits: Record<EtapeDePreparation, boolean> = {
-    ajoutee: !!chrome || vue?.ajoutee === true,
+    developpeur: ajoutee || vue?.developpeur === true,
+    ajoutee,
     reliee: !!chrome?.enLigne,
     prive: chrome?.incognito === true,
+    /* Chrome relié tourne forcément ; sinon, ce que Beluga Connect a constaté en le rouvrant. */
+    rouvert: !!chrome?.enLigne || (vue?.rouvert === true && vue.etat !== 'echec'),
   };
-  const cles: EtapeDePreparation[] = mac ? ['ajoutee', 'reliee', 'prive'] : ['ajoutee', 'reliee'];
+  const cles: EtapeDePreparation[] = mac ? ['developpeur', 'ajoutee', 'reliee', 'prive', 'rouvert'] : ['ajoutee', 'reliee'];
   const premiere = cles.find((c) => !faits[c]) ?? null;
   return cles.map((cle) => ({
     cle,

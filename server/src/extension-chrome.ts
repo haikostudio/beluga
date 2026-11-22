@@ -66,6 +66,7 @@ import {
   genreDeNavigateur,
   nomProposeDepuisLaPlateforme,
   type GenreDeNavigateur,
+  versionAuMoins,
 } from '@beluga/shared';
 import { creerUnOrdinateur, ligneDOrdinateur } from './ordinateurs.js';
 import { getDb, getMeta, setMeta } from './db.js';
@@ -114,7 +115,7 @@ function empreinte(texte: string): string {
  * `CODES_VIVANTS_MAX` par compte, les plus anciens tombent. Six chiffres, dix essais par minute et par adresse et dix
  * minutes de vie : quelques codes vivants ne changent rien à la difficulté de deviner.
  */
-export type UsageDuCode = 'fichier' | 'saisie';
+export type UsageDuCode = 'fichier' | 'saisie' | 'safari';
 const CODES_VIVANTS_MAX = 6;
 const usagesDesCodes = new Map<string, { compteId: string; ordinateurId: string | null; usage: UsageDuCode }>();
 
@@ -514,6 +515,26 @@ export function demanderAuChrome<T = any>(appareilId: string, geste: string, arg
     c.attentes.set(id, { resolve, reject, minuterie });
     envoyer(c, { type: 'geste', id, geste, args });
   });
+}
+
+/**
+ * LA NAVIGATION PRIVÉE PROUVÉE (extension ≥ 1.0.16, carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) :
+ * l'extension ouvre une vraie fenêtre privée réduite puis la referme. Vrai seulement sur cette preuve ; l'état retenu
+ * (`incognito`) suit la réponse. `null` : Chrome fermé, extension trop ancienne ou muette.
+ */
+export async function prouverLaNavigationPrivee(appareilId: string): Promise<boolean | null> {
+  const c = connexions.get(appareilId);
+  if (!c || !c.version || !versionAuMoins(c.version, '1.0.16')) return null;
+  try {
+    const r = await demanderAuChrome<{ incognito?: boolean | null; prouve?: boolean }>(appareilId, 'verifier_prive', {}, 20_000);
+    const prouve = r?.prouve === true;
+    c.incognito = prouve;
+    getDb().prepare('UPDATE chrome_appareils SET incognito = ? WHERE id = ?').run(prouve ? 1 : 0, appareilId);
+    bus.emit({ type: 'extension.change' });
+    return prouve;
+  } catch {
+    return null;
+  }
 }
 
 /** Un message au panneau d'un Chrome (événement, pas de réponse attendue). */
