@@ -14,6 +14,7 @@ import {
   ordinateurReconnu,
   programmeEnLigne,
   systemeDeLAppareil,
+  travailEnCoursSurUnOrdinateur,
   versionAuMoins,
   type EtatDeLExtension,
   type GenreDeNavigateur,
@@ -24,6 +25,7 @@ import {
 } from '@beluga/shared';
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input } from '@/components/ui';
 import { client } from '@/lib/client';
+import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { noterLaConnexionEnCours } from './suivi-de-connect';
@@ -49,7 +51,7 @@ import { noterLaConnexionEnCours } from './suivi-de-connect';
  * Mac ? » (`FenetreDeLiaison`, page `?liaison=`). La page n'ouvre jamais de lien `beluga-connect://` (Chrome le bloque).
  */
 
-type Cle = 'installer' | 'relier' | 'autorisations' | 'navigateur' | 'safari';
+type Cle = 'installation' | 'mac' | 'chrome' | 'safari';
 /** Les noms propres : les mêmes dans toutes les langues. */
 const CONNECT = ['Beluga', 'Connect'].join(' ');
 /** L'orange des réponses attendues : c'est à la personne (ou à son ordinateur) de faire le geste. */
@@ -284,13 +286,14 @@ export function ParcoursDeConnexion({
   }, [code, installe, cibleId, emettre, systemeAppareil]);
 
   const safariNav = cible?.navigateurs.filter((n) => n.genre === 'safari').sort((a, b) => Number(b.enLigne) - Number(a.enLigne))[0] ?? null;
-  const etapes: Cle[] = mac ? ['installer', 'relier', 'autorisations', 'navigateur', 'safari'] : ['installer', 'relier', 'navigateur'];
+  /* LES VOLETS DE BELUGA CONNECT (carte « Ordinateurs : pannes et volets alignés », 22/11/2026) : les mêmes que la
+     fenêtre de l'application, dans le même ordre — Installation, Ce Mac, Chrome, Safari ; deux sur Windows et Linux. */
+  const etapes: Cle[] = mac ? ['installation', 'mac', 'chrome', 'safari'] : ['installation', 'chrome'];
   const chromeFait = !!nav?.enLigne && versionAuMoins(nav.version, VERSION_EXTENSION_CHROME) && (!mac || nav.incognito === true);
   const faite: Record<Cle, boolean> = {
-    installer: installe,
-    relier: relie,
-    autorisations: relie && autorisationsDonnees(programme),
-    navigateur: chromeFait,
+    installation: relie,
+    mac: relie && autorisationsDonnees(programme),
+    chrome: chromeFait,
     safari: !!safariNav?.enLigne,
   };
   const toutFait = etapes.every((e) => faite[e]);
@@ -298,7 +301,21 @@ export function ParcoursDeConnexion({
   React.useEffect(() => {
     surFini?.(toutFait);
   }, [toutFait, surFini]);
-  /* LE BLOC EN COURS RESTE SOUS LES YEUX : à chaque étape qui s'ouvre, la zone défile jusqu'à lui (puis jusqu'à
+
+  /* La préparation de Chrome ou de Safari a échoué : le volet le dit en rouge (« À réparer »), « Réessayer » la relance. */
+  const chromeEnEchec = !faite.chrome && preparationVue(programme?.preparation ?? null)?.etat === 'echec';
+  const prepSafari = programme?.safari ?? null;
+  const safariEnEchec = !faite.safari && prepSafari?.etat === 'echec';
+  const enEchec: Record<Cle, boolean> = { installation: false, mac: false, chrome: chromeEnEchec, safari: safariEnEchec };
+
+  /* UN SEUL VOLET OUVERT : celui en panne, sinon celui en cours. Un clic en ouvre un autre (et referme le premier) ; le
+     choix tient tant que le volet ouvert d'office ne change pas — l'étape suivante s'ouvre alors d'elle-même. */
+  const parDefaut: Cle | null = etapes.find((e) => enEchec[e]) ?? (toutFait ? null : courante);
+  const [choix, setChoix] = React.useState<{ cle: Cle | null; sous: Cle | null } | null>(null);
+  const ouverte: Cle | null = choix && choix.sous === parDefaut ? choix.cle : parDefaut;
+  const basculer = (e: Cle) => setChoix({ cle: ouverte === e ? null : e, sous: parDefaut });
+
+  /* LE VOLET OUVERT RESTE SOUS LES YEUX : à chaque volet qui s'ouvre, la zone défile jusqu'à lui (puis jusqu'à
      « … est prêt » à la fin) — sans quoi Chrome et Safari avançaient sous le bas de la fenêtre. */
   const racine = React.useRef<HTMLDivElement>(null);
   const premierRendu = React.useRef(true);
@@ -307,130 +324,117 @@ export function ParcoursDeConnexion({
       premierRendu.current = false;
       return;
     }
-    /* Après la pose du contenu du bloc (sa hauteur finale), pas avant. */
+    /* Après la pose du contenu du volet (sa hauteur finale), pas avant. */
     const minuteur = window.setTimeout(() => {
       const cible = racine.current?.querySelector<HTMLElement>(toutFait ? '[data-assistant-tout-pret]' : '[data-etape-connexion][data-ouverte]');
       cible?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 200);
     return () => window.clearTimeout(minuteur);
-  }, [courante, toutFait]);
+  }, [ouverte, toutFait]);
 
-  const ce = systeme === 'mac' ? t('ce Mac') : systeme === 'windows' ? t('ce PC') : t('cet ordinateur');
   const nomVise = cible?.nom ?? (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : t('Cet ordinateur'));
   const titreDe = (e: Cle): string => {
     switch (e) {
-      case 'installer':
-        return t('Installer {v0}', { v0: CONNECT });
-      case 'relier':
-        return systeme === 'mac' ? t('Relier ce Mac') : systeme === 'windows' ? t('Relier ce PC') : t('Relier cet ordinateur');
-      case 'autorisations':
-        return t('Autorisations du Mac');
-      case 'navigateur':
+      case 'installation':
+        return t('Installation');
+      case 'mac':
+        return t('Ce Mac');
+      case 'chrome':
         return 'Chrome';
       case 'safari':
         return 'Safari';
     }
   };
 
-  /* La préparation de Chrome a échoué : le bloc le dit en rouge (« À réparer »), « Réessayer » la relance. */
-  const chromeEnEchec = !faite.navigateur && preparationVue(programme?.preparation ?? null)?.etat === 'echec';
-  const prepSafari = programme?.safari ?? null;
-  const safariEnEchec = !faite.safari && prepSafari?.etat === 'echec';
-
-  /* LES POINTS DE CHAQUE BLOC, L'UN SOUS L'AUTRE (maquettes #b22e, #8de5f, #ce64, #b0d01, #9cb2, #1b3e3, #e435). */
-  type Point = { cle: string; texte: string; etat: 'fait' | 'en-cours' | 'a-venir' | 'echec' };
+  /* LES LIGNES DE CHAQUE VOLET, CELLES DE L'APPLICATION : rond, libellé, état calé à droite. */
+  type Point = { cle: string; texte: string; etat: 'fait' | 'en-cours' | 'a-venir' | 'echec'; valeur?: string };
   const pointsDe = (e: Cle): Point[] => {
     switch (e) {
-      case 'installer': {
+      case 'installation': {
         const telecharge = !!telechargeLe || !!code || installe;
+        const lance: Point = { cle: 'lance', texte: installe ? t('{v0} lancé', { v0: CONNECT }) : t('Lancer {v0}', { v0: CONNECT }), etat: installe ? 'fait' : telecharge ? 'en-cours' : 'a-venir' };
+        const relieA: Point[] = secoursOuvert
+          ? [
+              { cle: 'code', texte: t('Code de {v0}', { v0: CONNECT }), etat: 'en-cours', valeur: t('À vous') },
+              { cle: 'relie', texte: t('Relié à votre compte'), etat: 'a-venir' },
+            ]
+          : [{ cle: 'relie', texte: t('Relié à votre compte'), etat: relie ? 'fait' : programme ? 'en-cours' : 'a-venir' }];
         if (systemeAppareil === 'linux' || systeme === 'linux') {
-          return [
-            { cle: 'telecharge', texte: t('Commande copiée'), etat: telecharge ? 'fait' : 'en-cours' },
-            { cle: 'lance', texte: t('{v0} lancé', { v0: CONNECT }), etat: installe ? 'fait' : telecharge ? 'en-cours' : 'a-venir' },
-          ];
+          return [{ cle: 'telecharge', texte: t('Commande copiée'), etat: telecharge ? 'fait' : 'en-cours' }, { ...lance, texte: t('{v0} lancé', { v0: CONNECT }) }, ...relieA];
         }
-        if (systeme === 'windows') {
-          return [
-            { cle: 'telecharge', texte: t('Téléchargé'), etat: telecharge ? 'fait' : 'en-cours' },
-            { cle: 'lance', texte: installe ? t('{v0} lancé', { v0: CONNECT }) : t('Lancer {v0}', { v0: CONNECT }), etat: installe ? 'fait' : telecharge ? 'en-cours' : 'a-venir' },
-          ];
-        }
+        if (systeme === 'windows') return [{ cle: 'telecharge', texte: t('Téléchargé'), etat: telecharge ? 'fait' : 'en-cours' }, lance, ...relieA];
         return [
           { cle: 'telecharge', texte: t('Téléchargé'), etat: telecharge ? 'fait' : 'en-cours' },
           { cle: 'glisse', texte: installe ? t('Glissé dans Applications') : t('Glisser dans Applications'), etat: installe ? 'fait' : telecharge ? 'en-cours' : 'a-venir' },
-          { cle: 'lance', texte: installe ? t('{v0} lancé', { v0: CONNECT }) : t('Lancer {v0}', { v0: CONNECT }), etat: installe ? 'fait' : 'a-venir' },
+          { ...lance, etat: installe ? 'fait' : 'a-venir' },
+          ...relieA,
         ];
       }
-      case 'relier':
-        if (secoursOuvert) {
-          return [
-            { cle: 'code', texte: t('Code de {v0}', { v0: CONNECT }), etat: 'en-cours' },
-            { cle: 'relie', texte: t('Relié à votre compte'), etat: 'a-venir' },
-          ];
-        }
-        return [
-          { cle: 'reconnu', texte: systeme === 'mac' ? t('Ce Mac reconnu') : systeme === 'windows' ? t('Ce PC reconnu') : t('Cet ordinateur reconnu'), etat: programme ? 'fait' : installe ? 'en-cours' : 'a-venir' },
-          { cle: 'relie', texte: t('Relié à votre compte'), etat: relie ? 'fait' : programme ? 'en-cours' : 'a-venir' },
-        ];
-      case 'autorisations': {
+      case 'mac': {
         const a = programme?.autorisations ?? null;
-        const ouvert = courante === 'autorisations';
+        const ouvert = courante === 'mac';
         return [
-          { cle: 'accessibilite', texte: t('Souris et clavier'), etat: a?.accessibilite ? 'fait' : ouvert ? 'en-cours' : 'a-venir' },
-          { cle: 'ecran', texte: t('Voir l’écran'), etat: a?.ecran ? 'fait' : ouvert && a?.accessibilite ? 'en-cours' : 'a-venir' },
+          { cle: 'connect', texte: CONNECT, etat: relie ? 'fait' : 'a-venir', valeur: relie ? t('Relié') : '—' },
+          { cle: 'accessibilite', texte: t('Souris et clavier'), etat: a?.accessibilite ? 'fait' : ouvert ? 'en-cours' : 'a-venir', valeur: a?.accessibilite ? t('Accordée') : ouvert ? t('À vous') : undefined },
+          { cle: 'ecran', texte: t('Voir l’écran'), etat: a?.ecran ? 'fait' : ouvert && a?.accessibilite ? 'en-cours' : 'a-venir', valeur: a?.ecran ? t('Accordée') : ouvert && a?.accessibilite ? t('À vous') : undefined },
         ];
       }
-      case 'navigateur': {
+      case 'chrome': {
         const brute = etapesDeLaPreparation(preparationVue(programme?.preparation ?? null), nav, mac);
         const etat = (cle: string): Point['etat'] => {
-          if (faite.navigateur) return 'fait';
-          if (courante !== 'navigateur') return 'a-venir';
+          if (faite.chrome) return 'fait';
+          if (courante !== 'chrome' && !chromeEnEchec) return 'a-venir';
           return (brute.find((x) => x.cle === cle)?.etat ?? 'a-venir') as Point['etat'];
         };
-        /* Le mode développeur se range sous « Extension ajoutée » : trois points, comme sur la maquette. */
+        /* Le mode développeur se range sous « Extension ajoutée », comme dans l'application. */
         const ajoutee: Point['etat'] = etat('developpeur') === 'echec' ? 'echec' : etat('developpeur') === 'fait' ? etat('ajoutee') : etat('developpeur');
         const points: Point[] = [
           { cle: 'ajoutee', texte: t('Extension ajoutée'), etat: ajoutee },
           { cle: 'reliee', texte: t('Reliée à Beluga'), etat: etat('reliee') },
         ];
         if (mac) points.push({ cle: 'prive', texte: t('Navigation privée vérifiée'), etat: etat('prive') });
+        const aJour = !!nav && versionAuMoins(nav.version, VERSION_EXTENSION_CHROME);
+        points.push({
+          cle: 'version',
+          texte: t('Version'),
+          etat: !nav?.version ? 'a-venir' : aJour ? 'fait' : courante === 'chrome' ? 'en-cours' : 'a-venir',
+          valeur: nav?.version ? (aJour ? t('{v} · à jour', { v: nav.version }) : t('{v} · à mettre à jour', { v: nav.version })) : undefined,
+        });
         return points;
       }
       case 'safari': {
-        const lignes = etapesDeSafari(prepSafari, !!safariNav?.enLigne, !faite.navigateur);
+        const lignes = etapesDeSafari(prepSafari, !!safariNav?.enLigne, !faite.chrome);
         const textes: Record<string, string> = { installee: t('Extension installée'), activee: t('Activée dans Safari'), reliee: t('Reliée à Beluga') };
         return lignes.map((l) => ({ cle: l.cle, texte: textes[l.cle]!, etat: l.etat }));
       }
     }
   };
 
-  /* Le statut à droite de l'entête : orange quand on attend la personne, gris quand tout se fait seul. */
-  const statutDe = (e: Cle): { texte: string; attend: boolean; echec?: boolean } => {
-    if (faite[e]) return { texte: t('Fait'), attend: false };
-    if (e === 'navigateur' && chromeEnEchec) return { texte: t('À réparer'), attend: false, echec: true };
-    if (e === 'safari' && safariEnEchec) return { texte: t('À réparer'), attend: false, echec: true };
-    if (e !== courante) return { texte: e === 'safari' && !faite.navigateur ? t('Après Chrome') : t('À venir'), attend: false };
-    if (e === 'installer') return { texte: t('À vous'), attend: true };
-    if (e === 'relier') return secoursOuvert ? { texte: t('À vous'), attend: true } : { texte: t('En cours…'), attend: false };
-    if (e === 'autorisations') return { texte: t('À vous'), attend: true };
-    return { texte: t('En cours…'), attend: false };
+  /* Le résumé à droite de l'entête : « n sur m » ou « Terminée » une fois fait, orange quand le volet est en cours. */
+  const statutDe = (e: Cle, points: Point[]): { texte: string; ton: TonDuResume } => {
+    if (faite[e]) return { texte: e === 'installation' ? t('Terminée') : t('{n} sur {total}', { n: points.length, total: points.length }), ton: 'doux' };
+    if (enEchec[e]) return { texte: t('À réparer'), ton: 'echec' };
+    if (e !== courante) return { texte: e === 'safari' && !faite.chrome ? t('Après Chrome') : t('À venir'), ton: 'doux' };
+    const aVous = (e === 'installation' && (!installe || secoursOuvert)) || e === 'mac';
+    return { texte: aVous ? t('À vous') : t('En cours'), ton: 'attend' };
   };
 
-  /* L'explication du bloc EN COURS, sous ses points. */
+  /* L'explication du volet en cours (ou en panne), sous ses lignes. */
   const explicationDe = (e: Cle): React.ReactNode => {
     switch (e) {
-      case 'installer':
-        return (
-          <EtapeInstaller
-            systeme={systemeAppareil}
-            code={code}
-            telecharge={!!telechargeLe}
-            envoi={envoi}
-            programmeAncien={programmeEnLigne(programme) && !programme?.connect}
-            onTelecharger={() => void departe('telecharger')}
-          />
-        );
-      case 'relier':
+      case 'installation':
+        if (!installe || (programmeEnLigne(programme) && !programme?.connect)) {
+          return (
+            <EtapeInstaller
+              systeme={systemeAppareil}
+              code={code}
+              telecharge={!!telechargeLe}
+              envoi={envoi}
+              programmeAncien={programmeEnLigne(programme) && !programme?.connect}
+              onTelecharger={() => void departe('telecharger')}
+            />
+          );
+        }
         return secoursOuvert ? (
           <ChampDuCodeDeSecours ordinateurVise={cible?.id ?? null} onRelie={() => setCodeAttendu(null)} />
         ) : (
@@ -438,16 +442,18 @@ export function ParcoursDeConnexion({
             {t('« {nom} » est reconnu : la liaison se fait toute seule. Rien à cliquer.', { nom: nomVise })}
           </p>
         );
-      case 'autorisations':
+      case 'mac':
         return <EtapeAutorisations ordinateur={cible} />;
-      case 'navigateur':
+      case 'chrome':
         return (
           <div className="flex flex-col gap-3">
-            <p className="text-[13.5px] leading-relaxed text-text">
-              {mac
-                ? t('Rien à faire de votre côté. Beluga vérifie la navigation privée avec une fenêtre privée invisible, aussitôt refermée.')
-                : t('Rien à faire de votre côté : {v0} prépare Chrome.', { v0: CONNECT })}
-            </p>
+            {chromeEnEchec ? null : (
+              <p className="text-[13.5px] leading-relaxed text-text">
+                {mac
+                  ? t('Rien à faire de votre côté. Beluga vérifie la navigation privée avec une fenêtre privée invisible, aussitôt refermée.')
+                  : t('Rien à faire de votre côté : {v0} prépare Chrome.', { v0: CONNECT })}
+              </p>
+            )}
             <EtapesDeChrome ordinateur={cible} nav={nav} mac={mac} fond="surface" sansLignes />
           </div>
         );
@@ -456,57 +462,59 @@ export function ParcoursDeConnexion({
     }
   };
 
+  /* LE BANDEAU DE TÊTE, COMME CELUI DE L'APPLICATION : le nom de l'ordinateur, puis le pire état. */
+  const tousLesPoints = Object.fromEntries(etapes.map((e) => [e, pointsDe(e)])) as Record<Cle, Point[]>;
+  const aReparer = etapes.flatMap((e) => tousLesPoints[e]).filter((p) => p.etat === 'echec').length || etapes.filter((e) => enEchec[e]).length;
+  const travail = preparationVue(programme?.preparation ?? null);
+  const enReparation = (travail?.etat === 'en-cours' && !!travail.travail && travail.travail !== 'installation') || (prepSafari?.etat === 'en-cours' && faite.chrome && !!safariNav);
+  const entete: { ton: 'fait' | 'echec' | 'en-cours'; texte: string } = aReparer
+    ? { ton: 'echec', texte: aReparer === 1 ? t('1 élément à réparer') : t('{n} éléments à réparer', { n: aReparer }) }
+    : toutFait
+      ? { ton: 'fait', texte: t('Tout va bien') }
+      : enReparation
+        ? { ton: 'en-cours', texte: t('Réparation en cours…') }
+        : { ton: 'en-cours', texte: t('Installation · étape {n} sur {total}', { n: etapes.indexOf(courante ?? etapes[0]!) + 1, total: etapes.length }) };
+
   /*
-   * CINQ BLOCS PLEINE LARGEUR, L'UN SOUS L'AUTRE (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026 —
-   * décision répétée de l'utilisateur : JAMAIS de colonnes, ni blocs côte à côte, ni points alignés sur une ligne, ni
-   * étapes regroupées). Chaque bloc : rond + titre + statut à droite, puis ses points l'un sous l'autre. Le bloc en
-   * cours est plus clair et porte l'explication ; les blocs faits restent dépliés avec leurs coches ; les blocs à venir
-   * sont atténués. Plus aucun bouton « Relier » : la liaison se fait toute seule.
+   * LES VOLETS PLEINE LARGEUR, L'UN SOUS L'AUTRE (décision répétée de l'utilisateur : JAMAIS de colonnes ni de blocs
+   * côte à côte). Chaque entête : rond, titre, résumé à droite, flèche ; un seul volet ouvert, ses lignes sur la MÊME
+   * grille que l'entête (rond sous le rond, libellé sous le titre, état sous le résumé). Aucune barre sur le bord gauche.
    */
   return (
-    <div ref={racine} className="flex flex-col gap-2" data-parcours-installation data-parcours-connexion={toutFait ? 'fini' : courante ?? ''} data-systeme={systeme ?? 'aucun'} data-ordinateur-vise={cible?.id ?? ''}>
-      {etapes.map((e, i) => {
+    <div ref={racine} className="flex flex-col gap-1.5" data-parcours-installation data-parcours-connexion={toutFait ? 'fini' : courante ?? ''} data-systeme={systeme ?? 'aucun'} data-ordinateur-vise={cible?.id ?? ''}>
+      <EnteteDOrdinateur nom={nomVise} ton={entete.ton} texte={entete.texte} />
+      {etapes.map((e) => {
         const fait = faite[e];
         const enCours = e === courante && !toutFait;
         const statut = fait ? 'faite' : enCours ? 'en-cours' : 'a-venir';
-        const { texte, attend, echec } = statutDe(e);
+        const points = tousLesPoints[e];
+        const { texte, ton } = statutDe(e, points);
+        const montrerExplication = (enCours || enEchec[e]) && !fait;
         return (
-          <section
+          <Volet
             key={e}
-            className={cn('flex flex-col rounded-xl px-4 pb-4 pt-3.5', enCours ? 'bg-fond-survol' : 'bg-raised', statut === 'a-venir' && 'opacity-55')}
-            data-etape-connexion={e}
-            data-etat={statut}
-            data-ouverte={enCours ? '' : undefined}
+            titre={titreDe(e)}
+            rond={fait ? 'fait' : enEchec[e] ? 'echec' : enCours ? 'en-cours' : 'neutre'}
+            resume={texte}
+            ton={ton}
+            ouverte={ouverte === e}
+            onBasculer={() => basculer(e)}
+            attributs={{ 'data-etape-connexion': e, 'data-etat': statut, 'data-en-cours': enCours ? '' : undefined }}
+            lignes={points.map((pt) => ({
+              cle: pt.cle,
+              libelle: pt.texte,
+              rond: pt.etat === 'a-venir' ? 'neutre' : pt.etat,
+              etat: pt.etat,
+              valeur: pt.valeur ?? valeurDUneLigne(pt.etat),
+            }))}
+            repereLigne="data-ligne-etat"
           >
-            <div className="flex min-h-7 items-center gap-3" data-entete-etape>
-              <RondDeLEtape statut={fait ? 'faite' : echec ? 'echec' : enCours ? 'ouverte' : 'a-venir'} numero={i + 1} />
-              <span className="min-w-0 flex-1 truncate text-[14.5px] font-semibold text-text">{titreDe(e)}</span>
-              <span className={cn('shrink-0 text-right text-[12.5px]', echec ? 'text-danger' : !attend && 'text-muted')} style={attend ? { color: ORANGE } : undefined} data-statut-etape>
-                {texte}
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5 pl-9 pt-1.5" data-points-etape>
-              {pointsDe(e).map((pt) => (
-                <LigneDEtat key={pt.cle} repere={pt.cle} etat={pt.etat}>
-                  {pt.texte}
-                </LigneDEtat>
-              ))}
-            </div>
-            {enCours ? (
-              <div className="flex min-w-0 flex-col gap-3 pl-9 pt-3" data-panneau-etape>
-                {explicationDe(e)}
-              </div>
-            ) : null}
-            {!enCours && echec ? (
-              <div className="flex min-w-0 flex-col gap-3 pl-9 pt-3" data-panneau-etape>
-                {explicationDe(e)}
-              </div>
-            ) : null}
-          </section>
+            {montrerExplication ? explicationDe(e) : null}
+          </Volet>
         );
       })}
       {toutFait ? (
-        <div className="flex flex-col gap-3 rounded-xl bg-fond-survol px-4 py-4 sm:flex-row sm:items-center" data-assistant-tout-pret>
+        <div className="mt-1.5 flex flex-col gap-3 rounded-xl bg-fond-survol px-4 py-4 sm:flex-row sm:items-center" data-assistant-tout-pret>
           <div className="min-w-0 flex-1">
             <p className="text-[14.5px] font-semibold text-text">{t('{nom} est prêt', { nom: nomVise })}</p>
             <p className="text-[13.5px] leading-relaxed text-muted">
@@ -533,6 +541,123 @@ export function ParcoursDeConnexion({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Les volets, communs au parcours et à la page de l'ordinateur          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA GRILLE DES VOLETS (carte « Ordinateurs : pannes et volets alignés », 22/11/2026) : la même pour l'entête et pour
+ * chaque ligne — rond (24 px), libellé, état calé à droite, flèche (16 px). Les ronds des lignes se centrent donc sous
+ * le rond du volet, leurs libellés sous son titre, leurs états sous son résumé, comme dans Beluga Connect.
+ */
+const GRILLE_DES_VOLETS = 'grid grid-cols-[24px_minmax(0,1fr)_auto_16px] items-center gap-x-3 px-4';
+/** Le retrait de ce qui s'écrit sous les libellés (explication, raison, boutons) : marge + rond + écart. */
+const RETRAIT_SOUS_LES_LIBELLES = 'pl-[52px] pr-4';
+
+type TonDuResume = 'doux' | 'attend' | 'echec';
+
+/** L'état d'une ligne, en un mot, quand elle n'en dit pas un plus précis. */
+function valeurDUneLigne(etat: 'fait' | 'en-cours' | 'a-venir' | 'echec' | 'neutre'): string {
+  if (etat === 'fait') return t('Oui');
+  if (etat === 'en-cours') return t('En cours');
+  if (etat === 'echec') return t('À réparer');
+  return '—';
+}
+
+/** Le bandeau de tête : le nom de l'ordinateur, puis son pire état (pastille et texte). */
+function EnteteDOrdinateur({ nom, ton, texte }: { nom: string; ton: 'fait' | 'echec' | 'en-cours'; texte: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-xl bg-fond-survol px-4 py-3" data-entete-ordinateur={ton}>
+      <p className="truncate text-[14px] font-semibold text-text">{nom}</p>
+      <p className={cn('flex items-center gap-2 text-[12.5px]', ton === 'echec' ? 'text-danger' : 'text-muted')}>
+        <span className={cn('size-2 shrink-0 rounded-full', ton === 'fait' ? 'bg-coche' : ton === 'echec' ? 'bg-danger' : '')} style={ton === 'en-cours' ? { backgroundColor: ORANGE } : undefined} aria-hidden />
+        {texte}
+      </p>
+    </div>
+  );
+}
+
+interface LigneDeVolet {
+  cle: string;
+  libelle: React.ReactNode;
+  rond: EtatDeService;
+  /** Ce que porte `data-etat` (les contrôles le lisent). */
+  etat: string;
+  valeur: string;
+}
+
+/**
+ * UN VOLET : un entête cliquable (rond, titre, résumé, flèche) et, ouvert, ses lignes sur la même grille, puis ce qui
+ * s'écrit sous les libellés. L'état se dit par le rond, le texte et le fond — jamais par une barre sur le bord gauche.
+ */
+function Volet({
+  titre,
+  rond,
+  resume,
+  ton,
+  ouverte,
+  onBasculer,
+  lignes,
+  repereLigne,
+  attributs,
+  children,
+}: {
+  titre: string;
+  rond: EtatDeService;
+  resume: string;
+  ton: TonDuResume;
+  ouverte: boolean;
+  onBasculer: () => void;
+  lignes: LigneDeVolet[];
+  repereLigne: string;
+  attributs: Record<string, string | undefined>;
+  children?: React.ReactNode;
+}) {
+  /* toArray écarte déjà null, undefined et les booléens : il ne reste que ce qui s'affiche. */
+  const aDire = React.Children.toArray(children).length > 0;
+  return (
+    <section className="flex flex-col" {...attributs} data-ouverte={ouverte ? '' : undefined}>
+      <button
+        type="button"
+        className={cn(GRILLE_DES_VOLETS, 'min-h-12 py-2 text-left', ouverte ? 'rounded-t-xl bg-fond-survol' : 'rounded-xl bg-raised hover:bg-fond-survol')}
+        onClick={onBasculer}
+        aria-expanded={ouverte}
+        data-entete-etape
+      >
+        <RondDeService etat={rond} />
+        <span className="min-w-0 truncate text-[14px] font-semibold text-text">{titre}</span>
+        <span className={cn('shrink-0 text-right text-[12.5px]', ton === 'echec' ? 'text-danger' : ton === 'doux' && 'text-muted')} style={ton === 'attend' ? { color: ORANGE } : undefined} data-statut-etape>
+          {resume}
+        </span>
+        {ouverte ? <ChevronUp className="size-4 text-muted" aria-hidden /> : <ChevronDown className="size-4 text-muted" aria-hidden />}
+      </button>
+      {ouverte ? (
+        <div className="flex flex-col rounded-b-xl bg-raised pb-3 pt-1.5" data-panneau-du-volet>
+          <div className="flex flex-col" data-points-etape>
+            {lignes.map((l) => (
+              <div key={l.cle} className={cn(GRILLE_DES_VOLETS, 'min-h-8')} {...{ [repereLigne]: l.cle }} data-etat={l.etat}>
+                <span className="flex justify-center">
+                  <RondDeService etat={l.rond} petit />
+                </span>
+                <span className={cn('min-w-0 truncate text-[13.5px]', l.rond === 'neutre' ? 'text-muted' : 'text-text')}>{l.libelle}</span>
+                <span className={cn('shrink-0 text-right text-[12.5px]', l.rond === 'echec' ? 'text-danger' : l.rond !== 'en-cours' && 'text-muted')} style={l.rond === 'en-cours' ? { color: ORANGE } : undefined}>
+                  {l.valeur}
+                </span>
+                <span aria-hidden />
+              </div>
+            ))}
+          </div>
+          {aDire ? (
+            <div className={cn('flex min-w-0 flex-col gap-3 pt-3', RETRAIT_SOUS_LES_LIBELLES)} data-panneau-etape>
+              {children}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 /**
  * LE PARCOURS DE LA MISE EN ROUTE (étape « Votre ordinateur ») : le même, sans fenêtre ; l'état de l'extension est
  * lu ici et relu à chaque changement poussé par le démon. Rien ne part au montage : le téléchargement attend le
@@ -547,15 +672,20 @@ export function ParcoursDInstallation({ surFini }: { onPlusTard?: () => void; on
       /* hors ligne : le parcours garde ce qu'il savait */
     }
   }, []);
-  React.useEffect(() => {
-    void lire();
-    return client.onExtension(() => void lire());
-  }, [lire]);
+  const [fini, setFini] = React.useState(false);
+  useRelectureDesOrdinateurs(lire, travailEnCoursSurUnOrdinateur(etat?.ordinateurs) || (!!etat && !fini));
+  const surFiniEtNote = React.useCallback(
+    (f: boolean) => {
+      setFini(f);
+      surFini?.(f);
+    },
+    [surFini],
+  );
   const depart = React.useMemo<DepartDuParcours>(() => ({ n: 0, mode: 'attendre' }), []);
   if (!etat) return <div className="h-[280px] animate-pulse rounded-xl bg-raised" data-silhouette />;
   return (
     <div className="flex flex-col gap-3" data-parcours-integre>
-      <ParcoursDeConnexion etat={etat} depart={depart} surFini={surFini} integre />
+      <ParcoursDeConnexion etat={etat} depart={depart} surFini={surFiniEtNote} integre />
     </div>
   );
 }
@@ -563,33 +693,6 @@ export function ParcoursDInstallation({ surFini }: { onPlusTard?: () => void; on
 /* ------------------------------------------------------------------ */
 /* Les pièces                                                           */
 /* ------------------------------------------------------------------ */
-
-function RondDeLEtape({ statut, numero }: { statut: 'faite' | 'ouverte' | 'a-venir' | 'echec'; numero: number }) {
-  if (statut === 'faite') {
-    return (
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-coche text-sur-couleur" data-rond="fait">
-        <Check className="size-3.5" strokeWidth={3} />
-      </span>
-    );
-  }
-  if (statut === 'echec') {
-    return (
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-danger text-sur-couleur" data-rond="echec">
-        <X className="size-3.5" strokeWidth={3} />
-      </span>
-    );
-  }
-  /* En cours : un anneau orange numéroté ; à venir : un anneau discret. */
-  return (
-    <span
-      className={cn('flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ring-inset', statut === 'ouverte' ? 'ring-2' : 'text-muted ring-[1.5px] ring-faint')}
-      style={statut === 'ouverte' ? { color: ORANGE, ['--tw-ring-color' as string]: ORANGE } : undefined}
-      data-rond={statut === 'ouverte' ? 'en-cours' : 'a-venir'}
-    >
-      {numero}
-    </span>
-  );
-}
 
 function Encadre({ children, repere, className }: { children: React.ReactNode; repere?: string; className?: string }) {
   return (
@@ -1340,7 +1443,7 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
   const nav = chromeDe(ordinateur);
   const preparation = preparationVue(p?.preparation ?? null);
   const [envoi, setEnvoi] = React.useState<string | null>(null);
-  const [choix, setChoix] = React.useState<Record<string, boolean>>({});
+  const [choix, setChoix] = React.useState<{ cle: string | null; sous: string | null } | null>(null);
   if (!p) return null;
   const relie = programmeEnLigne(p) && !!p.connect;
   const enPreparation = preparation?.etat === 'en-cours';
@@ -1443,66 +1546,51 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
       setEnvoi(null);
     }
   };
-  const grille = 'grid grid-cols-[24px_minmax(0,1fr)_auto_16px] items-center gap-x-3 px-4';
+  /* UN SEUL VOLET OUVERT (même règle que la fenêtre de connexion) : le premier en panne ou en cours, sinon aucun. */
+  const parDefaut = sections.find((s) => s.etat === 'echec' || s.etat === 'en-cours')?.cle ?? null;
+  const ouverte = choix && choix.sous === parDefaut ? choix.cle : parDefaut;
   return (
     <div className="flex flex-col gap-1.5" data-etat-des-services={entete.etat}>
-      <div className="flex flex-col gap-1 rounded-xl bg-fond-survol px-4 py-3" data-entete-des-services>
-        <p className="text-[14px] font-semibold text-text">{p.connect ? `${CONNECT} ${p.connect}` : CONNECT}</p>
-        <p className={cn('flex items-center gap-2 text-[12.5px]', entete.etat === 'echec' ? 'text-danger' : 'text-muted')}>
-          <span className={cn('size-2 shrink-0 rounded-full', entete.etat === 'fait' ? 'bg-coche' : entete.etat === 'echec' ? 'bg-danger' : '')} style={entete.etat === 'en-cours' ? { backgroundColor: ORANGE } : undefined} aria-hidden />
-          {entete.texte}
-        </p>
-      </div>
-      {sections.map((s) => {
-        const ouverte = choix[s.cle] ?? (s.etat === 'echec' || s.etat === 'en-cours');
-        return (
-          <section key={s.cle} className="flex flex-col gap-0.5" data-section-de-service={s.cle} data-etat={s.etat} data-ouverte={ouverte ? '' : undefined}>
-            <button
-              type="button"
-              className={cn(grille, 'relative min-h-12 overflow-hidden py-2 text-left', ouverte ? 'rounded-t-xl bg-fond-survol' : 'rounded-xl bg-raised hover:bg-fond-survol')}
-              onClick={() => setChoix((c) => ({ ...c, [s.cle]: !ouverte }))}
-              aria-expanded={ouverte}
-            >
-              {s.etat === 'echec' ? <span className="absolute inset-y-0 left-0 w-[3px] bg-danger" aria-hidden /> : null}
-              <RondDeService etat={s.etat} />
-              <span className="min-w-0 truncate text-[14px] font-semibold text-text">{s.titre}</span>
-              <span className={cn('shrink-0 text-right text-[12.5px]', s.etat === 'echec' ? 'text-danger' : 'text-muted')} style={s.etat === 'en-cours' ? { color: ORANGE } : undefined}>
-                {s.resume}
-              </span>
-              {ouverte ? <ChevronUp className="size-4 text-muted" aria-hidden /> : <ChevronDown className="size-4 text-muted" aria-hidden />}
-            </button>
-            {ouverte ? (
-              <div className="flex flex-col gap-1 rounded-b-xl bg-raised py-3 pl-4 pr-[44px] sm:pl-[52px]" data-panneau-de-service>
-                {/* Pendant une réparation, le détail des étapes se lit plus bas, sous « Navigateurs » (une seule fois). */}
-                {s.cle === 'chrome' && enPreparation ? (
-                  <p className="text-[13px] leading-relaxed text-muted">{t('Beluga Connect répare Chrome : les étapes se cochent sous « Navigateurs ».')}</p>
-                ) : (
-                  s.lignes.map((l) => (
-                    <div key={l.cle} className="flex min-h-7 items-center gap-2.5" data-ligne-de-service={l.cle} data-etat={l.etat}>
-                      <RondDeService etat={l.etat} petit />
-                      <span className={cn('min-w-0 flex-1 truncate text-[13.5px]', l.etat === 'neutre' ? 'text-muted' : 'text-text')}>{l.libelle}</span>
-                      <span className={cn('shrink-0 text-[12.5px]', l.etat === 'echec' ? 'text-danger' : 'text-muted')}>{l.valeur}</span>
-                    </div>
-                  ))
-                )}
-                {s.etat === 'echec' && preparation?.etat === 'echec' && s.cle === 'chrome' && preparation.message ? (
-                  <p className="text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">{preparation.message}</p>
-                ) : null}
-                {s.etat === 'echec' && s.conseil ? <p className="text-[12.5px] leading-relaxed text-muted">{s.conseil}</p> : null}
-                {s.etat === 'echec' && s.reparer ? (
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
-                    <Button variant="creation" size="md" className="max-sm:w-full" onClick={() => void reparer(s)} disabled={!!envoi} data-reparer-service={s.cle}>
-                      {envoi === s.cle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
-                      {t('Réparer')}
-                    </Button>
-                    <span className="text-[12.5px] text-muted">{t('Se suit ici et sur l’ordinateur.')}</span>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        );
-      })}
+      <EnteteDOrdinateur nom={p.connect ? `${CONNECT} ${p.connect}` : CONNECT} ton={entete.etat} texte={entete.texte} />
+      {sections.map((s) => (
+        <Volet
+          key={s.cle}
+          titre={s.titre}
+          rond={s.etat}
+          resume={s.resume}
+          ton={s.etat === 'echec' ? 'echec' : s.etat === 'en-cours' ? 'attend' : 'doux'}
+          ouverte={ouverte === s.cle}
+          onBasculer={() => setChoix({ cle: ouverte === s.cle ? null : s.cle, sous: parDefaut })}
+          attributs={{ 'data-section-de-service': s.cle, 'data-etat': s.etat }}
+          lignes={
+            /* Pendant une réparation, le détail des étapes se lit plus bas, sous « Navigateurs » (une seule fois). */
+            s.cle === 'chrome' && enPreparation ? [] : s.lignes.map((l) => ({ cle: l.cle, libelle: l.libelle, rond: l.etat, etat: l.etat, valeur: l.valeur }))
+          }
+          repereLigne="data-ligne-de-service"
+        >
+          {s.cle === 'chrome' && enPreparation ? <p className="text-[13px] leading-relaxed text-muted">{t('Beluga Connect répare Chrome : les étapes se cochent sous « Navigateurs ».')}</p> : null}
+          {s.etat === 'echec' && preparation?.etat === 'echec' && s.cle === 'chrome' && preparation.message ? (
+            <p className="text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]" data-raison-echec>
+              {preparation.message}
+            </p>
+          ) : null}
+          {s.etat === 'echec' && s.cle === 'safari' && p.safari?.etat === 'echec' && p.safari.message ? (
+            <p className="text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]" data-raison-echec>
+              {p.safari.message}
+            </p>
+          ) : null}
+          {s.etat === 'echec' && s.conseil ? <p className="text-[12.5px] leading-relaxed text-muted">{s.conseil}</p> : null}
+          {s.etat === 'echec' && s.reparer ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="creation" size="md" className="max-sm:w-full" onClick={() => void reparer(s)} disabled={!!envoi} data-reparer-service={s.cle}>
+                {envoi === s.cle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
+                {t('Réparer')}
+              </Button>
+              <span className="text-[12.5px] text-muted">{t('Se suit ici et sur l’ordinateur.')}</span>
+            </div>
+          ) : null}
+        </Volet>
+      ))}
     </div>
   );
 }

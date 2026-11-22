@@ -68,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 7;
+const VERSION_DU_RELAIS = 8;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -970,18 +970,60 @@ function installerSafari(config, a) {
   sh(`/usr/bin/pkill -x Beluga || true`);
   journal(`extension Safari posée dans ${cible}`);
   /* 4. Cochée dans Safari : la case elle-même fait foi (pluginkit ne reflète pas toujours le choix fait dans Safari). */
-  let activee = false;
-  let sites = false;
+  const r = cocherDansSafariAvecReprises();
+  return { installee: true, activee: r.activee, sites: r.sites, detail: r.detail, dossier: cible };
+}
+
+/** Safari tourne-t-il en ce moment (et pas seulement « a tourné ») ? */
+function safariTourne() {
+  return $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.safari).count > 0;
+}
+
+/**
+ * COCHER DANS SAFARI, EN TROIS ESSAIS (carte « Ordinateurs : pannes et volets alignés », 22/11/2026). Le 22/11, Safari
+ * a planté pendant le réglage et l'onglet « Extensions » est resté introuvable : un seul essai suffisait à déclarer
+ * l'échec. Désormais, avant chaque nouvel essai, la fenêtre des réglages est refermée, Safari est RELANCÉ s'il ne tourne
+ * plus (jamais quitté de force quand il tourne : les onglets de la personne restent), puis on attend qu'il réponde.
+ * Le message final dit ce qui a été tenté.
+ */
+function cocherDansSafariAvecReprises() {
+  const ESSAIS = 3;
+  let relance = false;
   let detail = '';
-  try {
-    const r = cocherDansSafari();
-    activee = r.activee;
-    sites = r.sites;
-  } catch (e) {
-    detail = String(e && e.message ? e.message : e);
-    journal(`activation dans Safari impossible : ${detail}`);
+  for (let essai = 1; essai <= ESSAIS; essai++) {
+    try {
+      if (essai > 1) {
+        if (!safariTourne()) {
+          journal('Safari ne tourne plus : relance avant un nouvel essai');
+          sh(`/usr/bin/open -g -b ${NAVIGATEURS.safari} || true`);
+          relance = true;
+          for (let i = 0; i < 20 && !safariTourne(); i++) delay(0.5);
+          delay(3);
+        } else {
+          /* Une fenêtre de réglages restée ouverte (ou une feuille) : Échap puis Cmd+W, sans toucher aux onglets. */
+          try {
+            const se = Application('System Events');
+            se.keyCode(53);
+            delay(0.4);
+          } catch (e) {}
+          delay(1.5);
+        }
+      }
+      const r = cocherDansSafari();
+      if (r.activee) {
+        if (essai > 1) journal(`Safari réglé au ${essai}e essai${relance ? ' (après relance)' : ''}`);
+        return { activee: true, sites: r.sites, detail: '' };
+      }
+      detail = 'la case « Beluga » ne s’est pas cochée dans Safari';
+    } catch (e) {
+      detail = String(e && e.message ? e.message : e);
+      /* Sans l'autorisation « Contrôler le Mac », réessayer ne sert à rien. */
+      if (/Contrôler le Mac/.test(detail)) break;
+    }
+    journal(`activation dans Safari, essai ${essai} sur ${ESSAIS} : ${detail}`);
   }
-  return { installee: true, activee, sites, detail, dossier: cible };
+  const tente = relance ? `${ESSAIS} essais, Safari relancé entre deux` : `${ESSAIS} essais`;
+  return { activee: false, sites: false, detail: /Contrôler le Mac/.test(detail) ? detail : `${detail} (${tente})` };
 }
 
 /** Ouvrir les réglages de Safari › Extensions, cocher « Beluga », autoriser sur tous les sites, refermer. */
@@ -998,10 +1040,27 @@ function cocherDansSafari() {
   let activee = false;
   let sites = false;
   try {
-    const fenetre = () => proc.windows()[0];
-    /* L'onglet « Extensions » de la barre d'outils des réglages. */
-    const onglet = chercherDansFenetre(fenetre(), ['AXButton', 'AXRadioButton'], LIBELLES_SAFARI.extensions, 8);
-    if (!onglet) throw new Error('onglet « Extensions » des réglages de Safari introuvable');
+    /* LA FENÊTRE DES RÉGLAGES, PAS LA PREMIÈRE VENUE : Safari tout juste relancé rouvre ses fenêtres d'onglets, et
+       les réglages ne sont pas toujours devant. On cherche l'onglet « Extensions » dans chacune, la première d'abord. */
+    let reglages = null;
+    let onglet = null;
+    const fin = Date.now() + 10000;
+    while (!onglet && Date.now() < fin) {
+      let fenetres = [];
+      try {
+        fenetres = proc.windows();
+      } catch (e) {}
+      for (const f of fenetres) {
+        onglet = chercherDansFenetre(f, ['AXButton', 'AXRadioButton'], LIBELLES_SAFARI.extensions, 2);
+        if (onglet) {
+          reglages = f;
+          break;
+        }
+      }
+      if (!onglet) delay(1);
+    }
+    const fenetre = () => reglages || proc.windows()[0];
+    if (!onglet) throw new Error(safariTourne() ? 'onglet « Extensions » des réglages de Safari introuvable' : 'Safari s’est fermé pendant le réglage');
     appuyer(onglet);
     delay(1.2);
     const caseB = chercherDansFenetre(fenetre(), ['AXCheckBox'], /beluga/i, 8);

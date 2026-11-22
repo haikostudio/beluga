@@ -1353,9 +1353,9 @@
     @apply my-0.5;
   }
   .note-riche blockquote {
-    /* Un trait qui PORTE une information suit `--faint`, jamais `--border` :
-       sur les thèmes plats la bordure se confond avec le fond. */
-    @apply my-2 border-l-2 border-faint/60 pl-3 italic text-muted;
+    /* AUCUN TRAIT SUR LE BORD GAUCHE (décision de l'utilisateur, 22/11/2026) : la citation se dit par son retrait,
+       son italique et son gris. */
+    @apply my-2 pl-4 italic text-muted;
   }
   .note-riche pre {
     @apply my-2 overflow-x-auto rounded-md bg-raised p-3 font-mono text-[13px] leading-relaxed;

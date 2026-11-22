@@ -810,7 +810,6 @@ export function Tableau<L>({
                           aere ? 'px-3 py-3.5 text-[13.5px]' : 'px-3 py-3 text-[13px]',
                           colonne.droite ? 'whitespace-nowrap text-right tabular-nums' : colonne.libre ? 'whitespace-nowrap' : '',
                           rang === 0 && 'pl-3',
-                          rang === 0 && choisie && 'shadow-[inset_2px_0_0_hsl(var(--teinte))]',
                           rang === nbColonnes - 1 && 'pr-3',
                           colonne.masqueSurTelephone && 'hidden sm:table-cell',
                         )}

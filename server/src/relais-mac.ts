@@ -1273,7 +1273,8 @@ export async function preparerSafari(compteId: string, r: RelaisRelie, force: bo
       r.id,
       'installer_safari',
       { chemin: '/api/relais-mac/extension-safari.zip', empreinte, code },
-      240_000,
+      /* Trois essais de réglage au plus dans le relais (8+), Safari relancé s'il est tombé : jusqu'à ~2 min de plus. */
+      360_000,
     );
     const installee = fait.installee === true;
     const activee = fait.activee === true;

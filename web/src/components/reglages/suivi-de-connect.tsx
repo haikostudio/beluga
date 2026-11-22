@@ -14,9 +14,10 @@
  *    d'une mise à jour est déjà dite par la bande neutre (`banniere-extension.tsx`) : pas de second message.
  */
 import * as React from 'react';
-import { ordinateurReconnu, type EtatDeLExtension, type RetardDExtension } from '@beluga/shared';
+import { ordinateurReconnu, travailEnCoursSurUnOrdinateur, type EtatDeLExtension, type RetardDExtension } from '@beluga/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui';
 import { client } from '@/lib/client';
+import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { t } from '@/lib/langue';
 import { ordinateurPret, ParcoursDeConnexion, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
 
@@ -71,15 +72,12 @@ export function SuiviDeConnect() {
       /* compte sans ordinateur, ou hors ligne : rien à suivre */
     }
   }, []);
-  React.useEffect(() => {
-    void lire();
-    return client.onExtension(() => void lire());
-  }, [lire]);
-
   /* LA FENÊTRE DE L'INSTALLATION : seulement avec la marque de CE navigateur, sur l'ordinateur qu'elle désigne. */
   const marque = lireLaMarque();
   const vise = etat && marque ? ordinateurReconnu(etat.ordinateurs, { navigateurId, codeEmisLe: marque.codeEmisLe }) : null;
   const pret = !!vise && ordinateurPret(vise);
+  /* Relue à chaque signal, au retour de l'onglet, et toutes les 5 s tant qu'un travail tourne ou que la fenêtre attend. */
+  useRelectureDesOrdinateurs(lire, travailEnCoursSurUnOrdinateur(etat?.ordinateurs) || (!!ouverte && !pret));
   React.useEffect(() => {
     if (!vise || ouverte === vise.id || pret) return;
     /* Le parcours est déjà sous les yeux (Réglages › Ordinateurs) : pas de seconde fenêtre par-dessus. */

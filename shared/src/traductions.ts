@@ -32,10 +32,6 @@ type Quatre = readonly [anglais: string, espagnol: string, allemand: string, chi
 
 const TEXTES: Readonly<Record<string, Quatre>> = {
   // Liaison d'ordinateur simplifiée : « Ajouter cet ordinateur », étapes empilées, page d'un ordinateur (22/11/2026)
-  "Installer {v0}": ["Install {v0}", "Instalar {v0}", "{v0} installieren", "安装 {v0}"],
-  "Relier ce Mac": ["Link this Mac", "Vincular este Mac", "Diesen Mac verbinden", "关联这台 Mac"],
-  "Relier ce PC": ["Link this PC", "Vincular este PC", "Diesen PC verbinden", "关联这台电脑"],
-  "Relier cet ordinateur": ["Link this computer", "Vincular este ordenador", "Diesen Computer verbinden", "关联这台计算机"],
   "Commande copiée": ["Command copied", "Comando copiado", "Befehl kopiert", "命令已复制"],
   "{v0} lancé": ["{v0} launched", "{v0} iniciado", "{v0} gestartet", "{v0} 已启动"],
   "Téléchargé": ["Downloaded", "Descargado", "Heruntergeladen", "已下载"],
@@ -44,9 +40,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "Glisser dans Applications": ["Drag into Applications", "Arrastrar a Aplicaciones", "In Programme ziehen", "拖入“应用程序”"],
   "Code de {v0}": ["{v0} code", "Código de {v0}", "Code von {v0}", "{v0} 的代码"],
   "Relié à votre compte": ["Linked to your account", "Vinculado a su cuenta", "Mit Ihrem Konto verbunden", "已关联到您的账户"],
-  "Ce Mac reconnu": ["This Mac recognised", "Este Mac reconocido", "Dieser Mac erkannt", "已识别这台 Mac"],
-  "Ce PC reconnu": ["This PC recognised", "Este PC reconocido", "Dieser PC erkannt", "已识别这台电脑"],
-  "Cet ordinateur reconnu": ["This computer recognised", "Este ordenador reconocido", "Dieser Computer erkannt", "已识别这台计算机"],
   "Navigation privée vérifiée": ["Incognito verified", "Navegación privada verificada", "Inkognito geprüft", "无痕模式已验证"],
   "Extension installée": ["Extension installed", "Extensión instalada", "Erweiterung installiert", "扩展已安装"],
   "Activée dans Safari": ["Turned on in Safari", "Activada en Safari", "In Safari aktiviert", "已在 Safari 中启用"],
@@ -72,7 +65,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "{v0} ne répond pas sur ce Mac : l’extension s’installe alors à la main.": ["{v0} is not responding on this Mac: the extension is then installed by hand.", "{v0} no responde en este Mac: la extensión se instala entonces a mano.", "{v0} antwortet auf diesem Mac nicht: Die Erweiterung wird dann von Hand installiert.", "{v0} 在这台 Mac 上没有响应：此时需要手动安装扩展。"],
   "Vérifiée": ["Verified", "Verificada", "Geprüft", "已验证"],
   "Installation…": ["Installing…", "Instalando…", "Installation…", "正在安装…"],
-  "Fait": ["Done", "Hecho", "Erledigt", "已完成"],
   "Beluga Connect répare Chrome : les étapes se cochent sous « Navigateurs ».": ["Beluga Connect is repairing Chrome: the steps are ticked under “Browsers”.", "Beluga Connect está reparando Chrome: los pasos se marcan en «Navegadores».", "Beluga Connect repariert Chrome: Die Schritte werden unter „Browser“ abgehakt.", "Beluga Connect 正在修复 Chrome：步骤会在“浏览器”下勾选。"],
   "1 élément à réparer": ["1 item to repair", "1 elemento por reparar", "1 Element zu reparieren", "1 项待修复"],
   "Absente": ["Missing", "Ausente", "Fehlt", "缺失"],
@@ -7798,6 +7790,8 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Documents, tableurs, présentations, PDF, conception d’interfaces.': ['Documents, spreadsheets, presentations, PDFs, interface design.', 'Documentos, hojas de cálculo, presentaciones, PDF, diseño de interfaces.', 'Dokumente, Tabellen, Präsentationen, PDFs, Oberflächengestaltung.', '文档、电子表格、演示文稿、PDF、界面设计。'],
   'La collection publiée pour Codex.': ['The collection published for Codex.', 'La colección publicada para Codex.', 'Die für Codex veröffentlichte Sammlung.', '为 Codex 发布的技能合集。'],
   'Installation': ['Installation', 'Instalación', 'Installation', '安装'],
+  'Installation · étape {n} sur {total}': ['Setup · step {n} of {total}', 'Instalación · paso {n} de {total}', 'Einrichtung · Schritt {n} von {total}', '安装 · 第 {n} 步，共 {total} 步'],
+  'Ce Mac': ['This Mac', 'Este Mac', 'Dieser Mac', '这台 Mac'],
   // L'assistant qui installe seul, la copie personnelle, les nouveautés, les courriels en trois modes, les fournisseurs de noms.
   'Qui gère ce nom de domaine ?': ['Who manages this domain name?', '¿Quién gestiona este nombre de dominio?', 'Wer verwaltet diesen Domainnamen?', '这个域名由谁托管？'],
   'Chez ces fournisseurs, Beluga Build crée lui-même l’adresse de chaque projet. Chez tous les autres, une règle posée une fois suffit.': ['With these providers, Beluga Build creates each project’s address itself. With any other, a rule set once is enough.', 'Con estos proveedores, Beluga Build crea por sí mismo la dirección de cada proyecto. Con todos los demás, basta una regla puesta una vez.', 'Bei diesen Anbietern legt Beluga Build die Adresse jedes Projekts selbst an. Bei allen anderen genügt eine einmal gesetzte Regel.', '在这些服务商处，Beluga Build 会自行创建每个项目的地址。其他服务商只需设置一次规则即可。'],

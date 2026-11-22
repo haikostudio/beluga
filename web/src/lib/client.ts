@@ -1719,6 +1719,13 @@ class Client {
         redemanderLesVues();
         this.envoyerLesVuesEnAttente();
         /*
+         * LES ORDINATEURS SE RELISENT AU RETOUR (carte « Ordinateurs : pannes et volets alignés », 22/11/2026).
+         * `extension.change` n'est qu'un signal sans contenu : émis pendant la veille de l'onglet (canal fermé dès
+         * qu'il quitte l'écran quelques secondes), il était perdu, et la fenêtre de connexion gardait « en cours »
+         * alors que Safari était tombé en échec. Chaque écouteur relit donc son état à chaque `ready`.
+         */
+        for (const handler of this.extensionHandlers) handler();
+        /*
          * UN RETOUR DE COUPURE OU DE VEILLE relit TOUTES les colonnes de « En
          * route » déjà lues (et celles restées sur un échec), puis les tableaux
          * des autres projets gardés en mémoire : les événements émis pendant la

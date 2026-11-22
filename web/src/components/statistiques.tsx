@@ -1736,7 +1736,7 @@ function FriseDuVisiteur({ id, visiteur, onClose }: { id: string; visiteur: stri
                   {s.source ? ` · ${s.source === 'direct' ? t('Direct') : s.source === 'recherche' ? t('Moteurs de recherche') : s.source}` : ''}
                   {s.appareil ? ` · ${t(s.appareil === 'mobile' ? 'Téléphone' : s.appareil === 'tablette' ? 'Tablette' : 'Ordinateur')}` : ''}
                 </span>
-                <ol className="flex flex-col gap-1 border-l border-faint/40 pl-3">
+                <ol className="flex flex-col gap-1 pl-1">
                   {s.etapes.map((x, i) => (
                     <li key={i} className="flex items-center gap-2 text-[12.5px]">
                       <span className="w-11 shrink-0 text-[11px] text-faint">{heure(x.instant)}</span>

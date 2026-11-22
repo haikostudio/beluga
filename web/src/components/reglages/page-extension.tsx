@@ -9,6 +9,7 @@ import {
   programmeEnLigne,
   etapesDeLaPreparation,
   ordinateurVuLe,
+  travailEnCoursSurUnOrdinateur,
   type EtatDeLExtension,
   type DroitDOrdinateur,
   type ModeDeSite,
@@ -36,6 +37,7 @@ import {
 } from '@/components/ui';
 import { LigneDeReglage, RubriqueDeReglages } from '@/components/modeles';
 import { client } from '@/lib/client';
+import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { EtapesDeChrome, EtatDesServices, FenetreSafari, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
@@ -67,10 +69,7 @@ function useEtatDeLExtension() {
       /* le démon ne répond pas : la page garde ce qu'elle savait */
     }
   }, []);
-  React.useEffect(() => {
-    void lire();
-    return client.onExtension(() => void lire());
-  }, [lire]);
+  useRelectureDesOrdinateurs(lire, travailEnCoursSurUnOrdinateur(etat?.ordinateurs));
   const agir = async (cle: string, cmd: Record<string, unknown>) => {
     setEnCours(cle);
     try {

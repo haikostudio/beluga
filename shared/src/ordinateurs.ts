@@ -285,6 +285,18 @@ export interface Ordinateur {
   programme: ProgrammeDuMac | null;
 }
 
+/**
+ * UN TRAVAIL DE BELUGA CONNECT EST-IL EN COURS SUR UN ORDINATEUR ? (carte « Ordinateurs : pannes et volets alignés »,
+ * 22/11/2026) Tant que oui, les écrans qui suivent les ordinateurs relisent leur état toutes les
+ * `RELECTURE_DES_ORDINATEURS_MS`, en SECOURS du signal poussé par le démon : un signal perdu ne laisse plus une étape
+ * « en cours » à l'écran alors que l'ordinateur l'a déjà finie, réussie ou tombée. Rien en cours : aucune relecture.
+ */
+export const RELECTURE_DES_ORDINATEURS_MS = 5_000;
+
+export function travailEnCoursSurUnOrdinateur(ordinateurs: readonly Pick<Ordinateur, 'programme'>[] | null | undefined): boolean {
+  return (ordinateurs ?? []).some((o) => o.programme?.preparation?.etat === 'en-cours' || o.programme?.safari?.etat === 'en-cours');
+}
+
 /** Le programme du Mac répond-il (même si la recopie de l'iPhone est fermée) ? */
 export function programmeEnLigne(p: ProgrammeDuMac | null | undefined): boolean {
   return !!p && p.etat !== 'absent' && p.etat !== 'hors-ligne';
