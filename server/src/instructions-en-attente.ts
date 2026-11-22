@@ -23,6 +23,7 @@ import {
   SUJETS_MEMOIRE,
   fichesDeRegles,
   sansRegroupements,
+  premierePhraseDuDetail,
 } from '@beluga/shared';
 import { proposerReglesDeNuit, sujetsDeLaPortee } from './connaissances.js';
 import { getMeta, setMeta } from './db.js';
@@ -462,9 +463,9 @@ export async function rangerUnProjet(racine: string, projet = projetDeLaRacine(r
     for (const fiche of fichesDeRegles(texteAvecMarqueurs, sujet, 'rangement de nuit', etiquette)) {
       const corps = fiche.corps.replace(/^—\s*/, '').trim() || fiche.titre;
       const plat = corps.replace(/\s+/g, ' ').trim();
-      // Le résumé est DISTINCT du détail : la première phrase, bornée. Jamais une copie tronquée du corps,
-      // que la lecture afficherait deux fois (résumé puis détail).
-      const premiere = plat.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? plat;
+      // Le résumé est la première phrase, bornée (jamais coupée après un nombre seul « 1. ») ; c'est le
+      // rendu (resumeRedisParLeDetail) qui l'écarte quand elle ouvre déjà le détail.
+      const premiere = premierePhraseDuDetail(plat);
       const bornee = premiere.length > 240 ? `${premiere.slice(0, 239).trim()}…` : premiere;
       const resume = bornee.length >= 20 ? bornee : `${fiche.titre} — ${bornee}`;
       const r = await proposerReglesDeNuit(

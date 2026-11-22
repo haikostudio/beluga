@@ -105,14 +105,41 @@ function empreinte(texte: string): string {
   return crypto.createHash('sha256').update(texte).digest('hex');
 }
 
-/** Un code de liaison neuf : l'ancien de ce compte meurt, seul son condensé est gardé. */
+/**
+ * PLUSIEURS CODES VIVANTS PAR COMPTE (carte « Liaison Chrome automatique et suivie », 22/11/2026). Avant, chaque code
+ * émis tuait TOUS les autres du compte : ouvrir « Ajouter Safari », afficher un code de secours ou préparer Chrome sur
+ * un autre ordinateur annulait le code que Beluga Connect venait de poser dans `liaison.json`, et l'extension ne se
+ * reliait jamais. Désormais un code neuf ne remplace que le code de MÊME ordinateur et de MÊME usage (« fichier » :
+ * posé par Beluga Connect ; « saisie » : affiché à l'écran), tenu en mémoire — aucun changement de table. Au-delà de
+ * `CODES_VIVANTS_MAX` par compte, les plus anciens tombent. Six chiffres, dix essais par minute et par adresse et dix
+ * minutes de vie : quelques codes vivants ne changent rien à la difficulté de deviner.
+ */
+export type UsageDuCode = 'fichier' | 'saisie';
+const CODES_VIVANTS_MAX = 6;
+const usagesDesCodes = new Map<string, { compteId: string; ordinateurId: string | null; usage: UsageDuCode }>();
+
 export function emettreUnCodeDeLiaison(
   compteId: string,
   maintenant = Date.now(),
-  cible: { ordinateurId?: string | null; nom?: string | null } = {},
+  cible: { ordinateurId?: string | null; nom?: string | null; usage?: UsageDuCode } = {},
 ): { code: string; expireLe: number } {
   const db = getDb();
-  db.prepare('DELETE FROM chrome_codes WHERE compte_id = ? OR expire_le < ?').run(compteId, maintenant);
+  const usage: UsageDuCode = cible.usage ?? 'saisie';
+  const ordinateurId = cible.ordinateurId ?? null;
+  db.prepare('DELETE FROM chrome_codes WHERE expire_le < ?').run(maintenant);
+  const remplace = db.prepare('DELETE FROM chrome_codes WHERE empreinte = ? AND compte_id = ?');
+  for (const [e, u] of usagesDesCodes) {
+    if (u.compteId === compteId && u.ordinateurId === ordinateurId && u.usage === usage) {
+      remplace.run(e, compteId);
+      usagesDesCodes.delete(e);
+    }
+  }
+  const vivants = db.prepare('SELECT empreinte FROM chrome_codes WHERE compte_id = ? ORDER BY expire_le DESC').all(compteId) as { empreinte: string }[];
+  for (const v of vivants.slice(CODES_VIVANTS_MAX - 1)) {
+    remplace.run(v.empreinte, compteId);
+    usagesDesCodes.delete(v.empreinte);
+  }
+  for (const e of usagesDesCodes.keys()) if (!db.prepare('SELECT 1 FROM chrome_codes WHERE empreinte = ?').get(e)) usagesDesCodes.delete(e);
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   const expireLe = maintenant + DUREE_CODE_LIAISON_MS;
   /* Le code peut viser un ordinateur DÉJÀ nommé (« Relier un navigateur » sur sa ligne) : le navigateur s'y rattache. */
@@ -120,10 +147,52 @@ export function emettreUnCodeDeLiaison(
     empreinte(code),
     compteId,
     expireLe,
-    cible.ordinateurId ?? null,
+    ordinateurId,
     cible.nom ?? null,
   );
+  usagesDesCodes.set(empreinte(code), { compteId, ordinateurId, usage });
   return { code, expireLe };
+}
+
+/**
+ * LE CODE DE SECOURS D'UN ORDINATEUR (même carte) : UN code « saisie » partagé par tout ce qui l'affiche (étape « Chrome
+ * prêt », page de l'ordinateur, fenêtre de Beluga Connect) — sinon chaque écran en émettrait un qui remplacerait celui
+ * de l'autre. Renouvelé quand il lui reste moins de deux minutes ; il ne touche jamais au code de `liaison.json`.
+ */
+const codesDeSecours = new Map<string, { compteId: string; code: string; expireLe: number }>();
+export function codeDeSecours(compteId: string, ordinateurId: string, maintenant = Date.now()): { code: string; expireLe: number } {
+  const c = codesDeSecours.get(ordinateurId);
+  if (c && c.compteId === compteId && c.expireLe - maintenant > 2 * 60_000 && getDb().prepare('SELECT 1 FROM chrome_codes WHERE empreinte = ?').get(empreinte(c.code))) {
+    return { code: c.code, expireLe: c.expireLe };
+  }
+  const neuf = emettreUnCodeDeLiaison(compteId, maintenant, { ordinateurId, usage: 'saisie' });
+  codesDeSecours.set(ordinateurId, { compteId, ...neuf });
+  return neuf;
+}
+
+/**
+ * LES ÉCHECS DE LIAISON SIGNALÉS PAR L'EXTENSION (même carte) : un code de `liaison.json` refusé (expiré, inconnu,
+ * serveur injoignable) remontait nulle part. L'extension le dit par `/api/extension-chrome/echec` (avant le mur, borné
+ * comme `/relier`) ; seul un code ENCORE CONNU est retenu — la raison sert à l'écran de préparation de son ordinateur.
+ */
+const echecsSignales = new Map<string, { raison: string; le: number }>();
+export function signalerUnEchecDeLiaison(demande: { code?: unknown; raison?: unknown }, adresse: string, maintenant = Date.now()): boolean {
+  if (tropDEssais(`echec:${adresse}`, maintenant)) return false;
+  const code = String(demande.code ?? '').replace(/\s+/g, '');
+  if (!codeDeLiaisonValide(code)) return false;
+  const ligne = getDb().prepare('SELECT ordinateur_id FROM chrome_codes WHERE empreinte = ?').get(empreinte(code)) as { ordinateur_id: string | null } | undefined;
+  const raison = String(demande.raison ?? '').trim().slice(0, 200) || 'raison inconnue';
+  log.info(`extension Chrome : liaison par le fichier refusée (${raison})${ligne?.ordinateur_id ? ` pour l’ordinateur ${ligne.ordinateur_id}` : ' (code inconnu)'}`);
+  if (!ligne?.ordinateur_id) return false;
+  echecsSignales.set(ligne.ordinateur_id, { raison, le: maintenant });
+  bus.emit({ type: 'extension.change' });
+  return true;
+}
+
+/** Le dernier échec de liaison signalé par l'extension pour cet ordinateur, s'il est postérieur à `depuis`. */
+export function echecDeLiaisonSignale(ordinateurId: string, depuis: number): { raison: string; le: number } | null {
+  const e = echecsSignales.get(ordinateurId);
+  return e && e.le >= depuis ? e : null;
 }
 
 /* Six chiffres se devinent : dix essais par minute et par adresse, pas un de plus. */
@@ -195,6 +264,27 @@ export function verifierLaVoie(
   return { appareilId: cle.id, compteId: cle.compteId };
 }
 
+/**
+ * LA CLÉ DE CE CHROME VAUT-ELLE ENCORE ? (carte « Liaison Chrome automatique et suivie », 22/11/2026). Une voie refusée
+ * à l'ouverture (clé révoquée pendant que Chrome était fermé) n'arrive à l'extension que comme une fermeture 1006 — la
+ * même qu'un démon qui redémarre. L'extension pose donc la question, SIGNÉE par sa clé (message « <ts>.<id>.sonde ») :
+ * `valable: false` n'est répondu qu'à une signature juste pour une fiche révoquée ou inconnue. Démon injoignable ou
+ * signature fausse : aucune réponse ferme, l'extension garde sa clé (sinon tout le parc se délierait à chaque mise en
+ * ligne). Ne touche pas à l'horodatage anti-rejeu de la voie.
+ */
+export function laCleVautEncore(params: { id?: unknown; ts?: unknown; sig?: unknown }, maintenant = Date.now()): { valable: boolean } | null {
+  const cle = lireIdentifiantDAppareil(params.id);
+  const ts = Number(params.ts);
+  if (!cle || !Number.isInteger(ts) || !signatureFraiche(ts, maintenant) || typeof params.sig !== 'string') return null;
+  const attendue = Buffer.from(signer(secretDeLAppareil(cle), messageASigner(ts, String(params.id), 'sonde')));
+  const recue = Buffer.from(params.sig);
+  if (attendue.length !== recue.length || !crypto.timingSafeEqual(attendue, recue)) return null;
+  const ligne = getDb().prepare('SELECT revoque_le FROM chrome_appareils WHERE id = ? AND compte_id = ? AND nonce = ?').get(cle.id, cle.compteId, cle.nonce) as
+    | { revoque_le: number | null }
+    | undefined;
+  return { valable: !!ligne && ligne.revoque_le === null };
+}
+
 interface LigneAppareil {
   id: string;
   compte_id: string;
@@ -246,10 +336,19 @@ export function genreDuNavigateur(appareilId: string): GenreDeNavigateur {
 }
 
 export function delierUnChrome(compteId: string, id: string): boolean {
+  const ligne = getDb().prepare('SELECT ordinateur_id, navigateur FROM chrome_appareils WHERE id = ? AND compte_id = ?').get(id, compteId) as
+    | { ordinateur_id: string | null; navigateur: string | null }
+    | undefined;
   const fait = getDb().prepare('UPDATE chrome_appareils SET revoque_le = ? WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').run(Date.now(), id, compteId);
   const connexion = connexions.get(id);
   if (connexion && connexion.compteId === compteId) connexion.ws.close(4001, 'délié');
   bus.emit({ type: 'extension.change' });
+  /* Un Chrome délié sur un ordinateur qui GARDE son Beluga Connect : la préparation repart seule, sans attendre le délai
+     entre deux essais (une fois par révocation). Laissé une seconde : un ordinateur délié en entier ne repart pas. */
+  if (fait.changes > 0 && ligne?.ordinateur_id && genreDeNavigateur(ligne.navigateur) === 'chrome') {
+    const ordinateurId = ligne.ordinateur_id;
+    setTimeout(() => void import('./relais-mac.js').then((m) => m.reprendreApresUneRevocation(compteId, ordinateurId)).catch(() => {}), 1_000).unref();
+  }
   return fait.changes > 0;
 }
 

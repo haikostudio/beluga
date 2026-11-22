@@ -93,9 +93,16 @@ export function ordinateurReconnu(
   return null;
 }
 
-/** Le nom de fichier proposé au téléchargement, par système. */
-export const NOM_DU_TELECHARGEMENT: Record<SystemeDOrdinateur, string> = {
-  mac: 'Beluga-Connect.zip',
-  windows: 'Beluga-Connect.exe',
-  linux: 'beluga-connect',
-};
+/*
+ * « RELIER CE MAC ? » (21/11/2026) — LA LIAISON PART DE BELUGA CONNECT : l'application ouvre Beluga sur
+ * `<base>/?liaison=<jeton>` (SANS écran derrière : la fenêtre des réglages la couvrirait), et la page demande « Relier « <nom> » à Beluga ? ». Le jeton n'ouvre
+ * rien à lui seul : il faut la session de la personne ET son clic ; la clé de l'appareil est remise à l'application par
+ * une autre voie (clé de retrait), jamais par cette adresse.
+ */
+export const PARAMETRE_DE_LIAISON = 'liaison';
+
+/** Le jeton porté par l'adresse de la page, s'il a la bonne forme (base64url, 16 à 64 signes). */
+export function jetonDeLiaisonDansLAdresse(recherche: string): string | null {
+  const valeur = new URLSearchParams(recherche.startsWith('?') ? recherche.slice(1) : recherche).get(PARAMETRE_DE_LIAISON);
+  return valeur && /^[A-Za-z0-9_-]{16,64}$/.test(valeur) ? valeur : null;
+}

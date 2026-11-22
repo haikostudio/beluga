@@ -30,6 +30,8 @@ export default {
         // l'utilisateur du 20/11/2026, exception assumée au monochrome) : la même dans les douze palettes, donc une
         // couleur fixe et non un jeton de palette.
         coche: '#22c55e',
+        /* Le blanc d'un signe posé SUR une couleur fixe (coche verte, rond rouge, dossier de macOS) : lisible dans les douze palettes. */
+        'sur-couleur': '#ffffff',
         warning: 'hsl(var(--warning))',
         // Le contenu NEUF d'un prompt envoyé (facturé), face au gris du
         // contenu déjà présent (`--faint`) — un jaune franc, distinct de

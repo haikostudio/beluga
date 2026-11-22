@@ -1295,6 +1295,29 @@ export function createHttpServer(): http.Server {
         const r = relierUnChrome(demande, clientIp(req));
         return json(res, r.ok ? 200 : 400, r);
       }
+      /* L'extension signale un code de `liaison.json` refusé (carte « Liaison Chrome automatique et suivie ») : avant le
+         mur, comme `/relier`, borné par adresse ; seul un code encore connu est retenu. */
+      if (route === '/api/extension-chrome/cle' && req.method === 'POST') {
+        const { laCleVautEncore } = await import('./extension-chrome.js');
+        let demande: Record<string, unknown> = {};
+        try {
+          demande = JSON.parse((await readBody(req, 2048)).toString() || '{}');
+        } catch {
+          return json(res, 400, { ok: false });
+        }
+        const r = laCleVautEncore(demande);
+        return r ? json(res, 200, { ok: true, ...r }) : json(res, 400, { ok: false });
+      }
+      if (route === '/api/extension-chrome/echec' && req.method === 'POST') {
+        const { signalerUnEchecDeLiaison } = await import('./extension-chrome.js');
+        let demande: Record<string, unknown> = {};
+        try {
+          demande = JSON.parse((await readBody(req, 2048)).toString() || '{}');
+        } catch {
+          return json(res, 400, { ok: false });
+        }
+        return json(res, 200, { ok: signalerUnEchecDeLiaison(demande, clientIp(req)) });
+      }
 
       /*
        * LE RELAIS DU MAC (`server/src/relais-mac.ts`, 13/11/2026) : AVANT le mur, comme l'extension Chrome — le relais
@@ -1350,10 +1373,17 @@ export function createHttpServer(): http.Server {
         const cle = paquetDeLaRoute(route);
         if (cle) {
           const a = paquetDeConnect(cle);
+          /* L'image disque pas encore fabriquée sur ce Beluga : l'archive d'avant, sous la même adresse de départ. */
+          if (!a && cle === 'mac-dmg' && paquetDeConnect('mac')) {
+            res.writeHead(302, { location: `/api/connect/Beluga-Connect.zip${code ? `?code=${code}` : ''}`, 'cache-control': 'no-store' });
+            return res.end();
+          }
           if (!a) return json(res, 404, { ok: false, raison: 'Beluga Connect n’est pas encore fabriqué pour ce système sur ce Beluga.' });
-          /* L'archive signée du Mac ne se touche jamais : la remorque ne vaut que pour Windows et Linux. */
+          /* L'archive et l'image signées du Mac ne se touchent jamais : la remorque ne vaut que pour Windows et Linux. Sur
+             Mac, le code voyage dans l'ADRESSE (`?code=`), que macOS garde dans la quarantaine du fichier téléchargé et que
+             Beluga Connect relit au premier lancement pour se relier seul (carte « Liaison d'ordinateur simplifiée »). */
           let corps: Buffer = a.octets;
-          if (code && cle !== 'mac') {
+          if (code && cle !== 'mac' && cle !== 'mac-dmg') {
             try {
               corps = Buffer.concat([a.octets, Buffer.from(octetsDeRemorque({ base, code }))]);
             } catch {
@@ -1363,7 +1393,7 @@ export function createHttpServer(): http.Server {
           res.writeHead(200, {
             'content-type': a.type,
             'content-length': corps.length,
-            'content-disposition': `attachment; filename="${cle === 'mac' ? 'Beluga-Connect.zip' : cle === 'windows' ? 'Beluga-Connect.exe' : 'beluga-connect'}"`,
+            'content-disposition': `attachment; filename="${cle === 'mac' ? 'Beluga-Connect.zip' : cle === 'mac-dmg' ? 'Beluga-Connect.dmg' : cle === 'windows' ? 'Beluga-Connect.exe' : 'beluga-connect'}"`,
             'cache-control': 'no-store',
           });
           return res.end(corps);
@@ -1382,6 +1412,27 @@ export function createHttpServer(): http.Server {
           }
           const r = relaisMac.relierUnMac(demande, clientIp(req));
           return json(res, r.ok ? 200 : 400, r);
+        }
+        /* « RELIER CE MAC ? » (21/11/2026) : l'application demande une liaison SANS session, puis attend qu'on l'accepte
+           dans Beluga. La clé de retrait voyage dans le CORPS, jamais dans l'adresse. */
+        if (route === '/api/relais-mac/demande-de-liaison' && req.method === 'POST') {
+          let demande: Record<string, unknown> = {};
+          try {
+            demande = JSON.parse((await readBody(req, 4096)).toString() || '{}');
+          } catch {
+            return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+          }
+          const r = relaisMac.demanderUneLiaison(demande, clientIp(req));
+          return json(res, r.ok ? 200 : 429, r);
+        }
+        if (route === '/api/relais-mac/demande-de-liaison/attendre' && req.method === 'POST') {
+          let demande: Record<string, unknown> = {};
+          try {
+            demande = JSON.parse((await readBody(req, 4096)).toString() || '{}');
+          } catch {
+            return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+          }
+          return json(res, 200, await relaisMac.attendreLaLiaison(String(demande.retrait ?? '')));
         }
         if (route === '/api/relais-mac/installer.sh' && req.method === 'GET') {
           const script = relaisMac.installateurDuRelais(`${req.headers['x-forwarded-proto'] === 'http' ? 'http' : 'https'}://${req.headers.host ?? ''}`);

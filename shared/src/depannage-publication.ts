@@ -91,6 +91,22 @@ export function depanneurVivant(agent: AgentPourLeDepannage | null | undefined):
 }
 
 /**
+ * « RELANCER » NE S'OFFRE PAS PENDANT QU'UN AGENT DÉPANNE (décision de l'utilisateur, 21/11/2026, « Dépannage de
+ * publication discret » : « il y a quand même un bouton relancer alors que l'agent est déjà en train de le faire »).
+ * Tant que le dépanneur tient son tour, démarre, ou attend la réponse à sa question, la publication reprendra d'elle-même
+ * à la fin de son travail : le bouton se tait. Il revient dès que plus aucun dépanneur ne vit — dépannage fini sans
+ * reprise, refusé faute de quota (`refusAuto`), plafond atteint (`enAttenteDeVous`), ou dépanneur introuvable : une
+ * publication tombée n'est JAMAIS laissée sans issue.
+ */
+export function relanceOfferte(
+  run: { state: string } | null | undefined,
+  depanneur: AgentPourLeDepannage | null | undefined,
+): boolean {
+  if (!run || (run.state !== 'failed' && run.state !== 'stopped')) return false;
+  return !depanneurVivant(depanneur);
+}
+
+/**
  * LES VIGNETTES « DÉPANNAGE » D'« ACTIFS » : chaque agent de dépannage vivant
  * (au travail ou arrêté sur sa question), le plus récent d'abord.
  */

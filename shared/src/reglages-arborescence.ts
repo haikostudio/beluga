@@ -130,17 +130,18 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     phrase: 'Où les agents travaillent : vos ordinateurs, reliés par Beluga Connect.',
     pages: [
       {
-        // UNE SEULE PAGE (carte « Beluga Connect : installation simplifiée », 21/11/2026) : « Connecter cet
-        // ordinateur » (parcours en direct), la liste, la page de chaque ordinateur (droits, navigateurs, Beluga
-        // Connect, autorisations), puis les sites et les gestes répétés. « beluga-connect » et « navigateur » y mènent.
+        // UNE SEULE PAGE (carte « Beluga Connect : installation simplifiée », 21/11/2026 ; « Liaison d'ordinateur
+        // simplifiée », 22/11/2026) : la liste avec « Ajouter cet ordinateur » et son bouton « Lier » (parcours en
+        // étapes empilées), la page de chaque ordinateur (Autorisations, Confirmations, Beluga Connect, Navigateurs,
+        // Accès du Mac), puis les sites et les gestes répétés. « beluga-connect » et « navigateur » y mènent.
         cle: 'ordinateurs',
         titre: 'Vos ordinateurs',
         motsCles: [
           'ordinateur', 'mac', 'pc', 'windows', 'linux', 'relier', 'connecter', 'droits', 'piloter', 'installer', 'ajouter', 'délier',
-          'beluga connect', 'connect', 'application', 'autorisations', 'accessibilité', 'enregistrement de l’écran', 'télécharger',
+          'beluga connect', 'connect', 'application', 'autorisations', 'lier', 'confirmations', 'accessibilité', 'enregistrement de l’écran', 'télécharger',
           'extension', 'chrome', 'safari', 'navigateur', 'onglet', 'site', 'lecture seule', 'geste répété', 'panneau latéral',
         ],
-        libelles: ['Connecter cet ordinateur', 'Ce que Beluga peut faire sur ce Mac', 'Toujours demandé', 'Sites', 'Gestes répétés'],
+        libelles: ['Ajouter cet ordinateur', 'Autorisations', 'Confirmations', 'Accès du Mac', 'Sites', 'Gestes répétés'],
       },
     ],
   },

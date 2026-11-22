@@ -47,6 +47,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { FournisseurDeSousPage, type SousPageDeReglages } from '@/components/reglages/sous-page';
 
 /* ------------------------------------------------------------------ */
 /* CE QUE L'ÉCRAN AJOUTE À L'ARBORESCENCE : une icône, un module        */
@@ -301,6 +302,9 @@ function CorpsDesReglages({
   const [pageAuPremierPlan, setPageAuPremierPlan] = React.useState(false);
   const [recherche, setRecherche] = React.useState('');
   const [avanceOuvert, setAvanceOuvert] = React.useState(false);
+  /* LA SOUS-PAGE OUVERTE PAR LA PAGE (un ordinateur, le parcours « Ajouter ce Mac ») : son sommaire remplace la colonne
+     sur ordinateur, et la flèche de l'en-tête y remonte sur téléphone (`reglages/sous-page.tsx`). */
+  const [sousPage, setSousPage] = React.useState<SousPageDeReglages | null>(null);
 
   /* L'adresse désigne une page : on ouvre sa rubrique, et la page devant. */
   const allerA = React.useCallback(
@@ -353,6 +357,9 @@ function CorpsDesReglages({
   const pagesAvancees = rubrique?.pages.filter((p) => p.avance) ?? [];
   const pageOuverte = rubrique ? rubrique.pages.find((p) => p.cle === pageInterne) ?? pagesOrdinaires[0] ?? rubrique.pages[0] : undefined;
   const rendu = pageOuverte ? RENDU_DES_PAGES[pageOuverte.cle] : undefined;
+  /* La sous-page se retire d'elle-même en quittant l'écran (`useSousPageDeReglages`) : aucune remise à zéro ici, qui
+     passerait APRÈS la publication de l'enfant (les effets d'un parent jouent après ceux de ses enfants). */
+  const sommaire = sousPage?.parties?.length ? sousPage : null;
 
   const ouvrirRubrique = (cle: string) => {
     const cible = groupes.find((g) => g.cle === cle);
@@ -415,15 +422,29 @@ function CorpsDesReglages({
      rubrique, puis de la rubrique aux six rubriques. */
   const retour = rubrique ? (
     <>
-      <button
-        type="button"
-        data-retour-menu-reglages={pageAuPremierPlan ? 'rubrique' : 'rubriques'}
-        onClick={() => (pageAuPremierPlan ? setPageAuPremierPlan(false) : revenirAuxRubriques())}
-        className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
-      >
-        <ChevronLeft className="h-4 w-4 shrink-0" />
-        <span className="truncate text-[13px]">{pageAuPremierPlan ? t(rubrique.titre) : t('Réglages')}</span>
-      </button>
+      {pageAuPremierPlan && sousPage ? (
+        /* Sur téléphone, la flèche remonte de la sous-page à la liste de la page (« ‹ Vos ordinateurs »). */
+        <button
+          type="button"
+          data-retour-menu-reglages="sous-page"
+          data-retour-ordinateurs="entete"
+          onClick={sousPage.onRetour}
+          className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
+        >
+          <ChevronLeft className="h-4 w-4 shrink-0" />
+          <span className="truncate text-[13px]">{sousPage.retour}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          data-retour-menu-reglages={pageAuPremierPlan ? 'rubrique' : 'rubriques'}
+          onClick={() => (pageAuPremierPlan ? setPageAuPremierPlan(false) : revenirAuxRubriques())}
+          className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
+        >
+          <ChevronLeft className="h-4 w-4 shrink-0" />
+          <span className="truncate text-[13px]">{pageAuPremierPlan ? t(rubrique.titre) : t('Réglages')}</span>
+        </button>
+      )}
       <button
         type="button"
         data-retour-rubriques-reglages
@@ -445,7 +466,7 @@ function CorpsDesReglages({
           ) : (
             <>
               <span className={cn(pageAuPremierPlan && 'max-sm:hidden')}>{t(rubrique.titre)}</span>
-              {pageAuPremierPlan && pageOuverte ? <span className="sm:hidden">{t(pageOuverte.titre)}</span> : null}
+              {pageAuPremierPlan && pageOuverte ? <span className="sm:hidden">{sousPage?.titre ?? t(pageOuverte.titre)}</span> : null}
             </>
           )}
         </DialogTitle>
@@ -509,6 +530,9 @@ function CorpsDesReglages({
               pageAuPremierPlan && 'hidden sm:flex',
             )}
           >
+            {sommaire ? (
+              <SommaireDeLaSousPage sousPage={sommaire} />
+            ) : (
             <ZoneDefilement className="px-2 pb-3 pt-3">
               <p className="px-2.5 pb-2 text-[12.5px] leading-snug text-muted sm:px-2" data-phrase-rubrique>
                 {t(rubrique.phrase)}
@@ -540,6 +564,7 @@ function CorpsDesReglages({
                 </div>
               ) : null}
             </ZoneDefilement>
+            )}
           </nav>
 
           <section
@@ -547,20 +572,71 @@ function CorpsDesReglages({
             className={cn('flex min-h-0 min-w-0 w-full flex-1 flex-col', !pageAuPremierPlan && 'hidden sm:flex')}
           >
             <ZoneDefilement className="p-4 sm:px-6 sm:py-5">
-              <React.Suspense fallback={<SilhouettePageReglages />}>
-                {rendu ? (
-                  <rendu.rendu
-                    key={pageOuverte?.cle}
-                    {...(rendu.avecReglages ? { settings: settings ?? {}, update } : {})}
-                    {...(rendu.avecOuverture ? { open } : {})}
-                  />
-                ) : null}
-              </React.Suspense>
+              <FournisseurDeSousPage value={setSousPage}>
+                <React.Suspense fallback={<SilhouettePageReglages />}>
+                  {rendu ? (
+                    <rendu.rendu
+                      key={pageOuverte?.cle}
+                      {...(rendu.avecReglages ? { settings: settings ?? {}, update } : {})}
+                      {...(rendu.avecOuverture ? { open } : {})}
+                    />
+                  ) : null}
+                </React.Suspense>
+              </FournisseurDeSousPage>
             </ZoneDefilement>
           </section>
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * LE SOMMAIRE D'UNE SOUS-PAGE (maquette #a0549) : à la place des pages de la rubrique, sur ordinateur seulement (sur
+ * téléphone, la colonne et la page ne se montrent jamais ensemble : la flèche de l'en-tête suffit). La partie lue se
+ * marque par le fond gris de la page choisie, comme dans le menu.
+ */
+function SommaireDeLaSousPage({ sousPage }: { sousPage: SousPageDeReglages }) {
+  return (
+    <ZoneDefilement className="px-2 pb-3 pt-3" data-sommaire-sous-page>
+      <button
+        type="button"
+        onClick={sousPage.onRetour}
+        className="flex w-fit items-center gap-0.5 rounded-md px-2 pb-3 text-[13px] text-muted hover:text-text"
+        data-retour-ordinateurs="colonne"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        {sousPage.retour}
+      </button>
+      {sousPage.titre ? (
+        <p className="truncate px-2 pb-2 text-[12px] uppercase tracking-wide text-faint" data-titre-sous-page>
+          {sousPage.titre}
+        </p>
+      ) : null}
+      <div className="space-y-0.5">
+        {(sousPage.parties ?? []).map((p) => {
+          const active = sousPage.active === p.cle;
+          const Icone = p.icone;
+          return (
+            <button
+              key={p.cle}
+              type="button"
+              data-aller-partie={p.cle}
+              data-actif={active ? 'oui' : undefined}
+              aria-current={active ? 'true' : undefined}
+              onClick={() => sousPage.onAller?.(p.cle)}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
+                active ? 'bg-raised font-medium text-text' : 'text-muted hover:bg-raised/60 hover:text-text',
+              )}
+            >
+              {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
+              <span className="min-w-0 flex-1 truncate">{p.titre}</span>
+            </button>
+          );
+        })}
+      </div>
+    </ZoneDefilement>
   );
 }
 

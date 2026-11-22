@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, EllipsisVertical, Eye, Link2Off, Loader2, Monitor, Pause, PencilLine, Play, Plus, Repeat, ShieldCheck, ShieldOff, Trash2 } from '@/components/ui/icones';
+import { AppWindow, ChevronLeft, ChevronRight, EllipsisVertical, Eye, Globe, Hand, Laptop, Link, Link2Off, Loader2, Monitor, Pause, PencilLine, Play, Plus, Repeat, ShieldCheck, ShieldOff, Trash2 } from '@/components/ui/icones';
 import {
   LIBELLE_DU_NAVIGATEUR,
   autorisationsDonnees,
@@ -7,6 +7,7 @@ import {
   ordinateurEnLigne,
   ordinateurReconnu,
   programmeEnLigne,
+  etapesDeLaPreparation,
   ordinateurVuLe,
   type EtatDeLExtension,
   type DroitDOrdinateur,
@@ -35,9 +36,10 @@ import {
 } from '@/components/ui';
 import { LigneDeReglage, RubriqueDeReglages } from '@/components/modeles';
 import { client } from '@/lib/client';
-import { relativeTime } from '@/lib/utils';
+import { cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { FenetreSafari, ParcoursDeConnexion, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { EtapesDeChrome, FenetreSafari, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { useSousPageDeReglages, type PartieDeSommaire } from './sous-page';
 
 /** Le nom propre de l'application : le même dans toutes les langues. */
 const CONNECT = ['Beluga', 'Connect'].join(' ');
@@ -46,10 +48,12 @@ const CONNECT = ['Beluga', 'Connect'].join(' ');
  * LA PAGE « ORDINATEURS » DES RÉGLAGES — UNE SEULE PAGE (carte « Beluga Connect : installation simplifiée »,
  * 21/11/2026, décision de l'utilisateur) : les anciennes pages « Beluga Connect » et « Extension du navigateur » y
  * sont fondues (leurs clés y mènent, `ALIAS_DES_PAGES_DE_REGLAGES`).
- *  - en tête, UN bouton : « Connecter cet ordinateur ». Il déplie le parcours en direct (`ParcoursDeConnexion`,
- *    assistant-installation.tsx) : téléchargement, puis tout se coche seul ;
- *  - la liste des ordinateurs ; celui sur lequel on est porte « Cet ordinateur » (reconnu par l'extension) ;
- *  - la page de chaque ordinateur : ses droits, Beluga Connect, ses navigateurs, les autorisations de macOS ;
+ *  - la liste des ordinateurs ; celui sur lequel on est porte « Cet ordinateur » (reconnu par l'extension). S'il ne
+ *    l'est pas, une ligne « Ajouter cet ordinateur » ouvre la liste (carte « Liaison d'ordinateur simplifiée »,
+ *    22/11/2026, maquette #b823) : son bouton « Lier » remplace la liste par le parcours en étapes empilées
+ *    (`ParcoursDeConnexion`, assistant-installation.tsx), qui avance tout seul dans le même onglet ;
+ *  - la page de chaque ordinateur (sommaire dans la colonne de gauche) : Autorisations, Confirmations, Beluga
+ *    Connect, Navigateurs, Accès du Mac ;
  *  - les sites et les gestes répétés, qui valent pour tout le compte.
  * `?connecter=1` (ouvert par Beluga Connect quand sa liaison a échoué) relance le parcours par le lien seul.
  */
@@ -92,63 +96,64 @@ function arriveeDepuisConnect(): boolean {
   return true;
 }
 
+type VueDesOrdinateurs = { genre: 'liste' } | { genre: 'ordinateur'; id: string } | { genre: 'parcours'; depart: DepartDuParcours };
+
 export function PageOrdinateurs() {
   const { etat, lire, enCours, agir } = useEtatDeLExtension();
   const navigateurId = useNavigateurCourant();
   const [aDelier, setADelier] = React.useState<Ordinateur | null>(null);
   const [aRenommer, setARenommer] = React.useState<Ordinateur | null>(null);
-  /* LE PARCOURS « Connecter cet ordinateur » : ouvert par le bouton (un nouveau départ à chaque clic). */
-  const [depart, setDepart] = React.useState<DepartDuParcours | null>(() => (arriveeDepuisConnect() ? { n: 1, mode: 'relier' } : null));
-  /* LA PAGE D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga ») : ouverte au clic sur sa ligne, au même endroit. */
-  const [ouvert, setOuvert] = React.useState<string | null>(null);
+  /* CE QUE MONTRE LA PAGE, au même endroit : la liste, la page d'un ordinateur, ou le parcours « Ajouter ce Mac »
+     (`?connecter=1`, arrivée depuis un ancien Beluga Connect, l'ouvre directement). */
+  const [vue, setVue] = React.useState<VueDesOrdinateurs>(() => (arriveeDepuisConnect() ? { genre: 'parcours', depart: { n: 1, mode: 'relier' } } : { genre: 'liste' }));
+  const departs = React.useRef(1);
+  const systemeIci = React.useMemo(systemeDeCetAppareil, []);
 
   const ici = etat ? ordinateurReconnu(etat.ordinateurs, { navigateurId }) : null;
-  const ordinateurOuvert = ouvert && etat ? etat.ordinateurs.find((o) => o.id === ouvert) ?? null : null;
+  const ordinateurOuvert = vue.genre === 'ordinateur' && etat ? etat.ordinateurs.find((o) => o.id === vue.id) ?? null : null;
+  const revenir = () => setVue({ genre: 'liste' });
   if (ordinateurOuvert && etat) {
-    return <PageDUnOrdinateur ordinateur={ordinateurOuvert} ordinateurs={etat.ordinateurs} ici={ici?.id ?? null} safari={etat.safari.disponible} onChoisir={setOuvert} onRetour={() => setOuvert(null)} relire={lire} />;
+    return <PageDUnOrdinateur ordinateur={ordinateurOuvert} ici={ici?.id ?? null} safari={etat.safari.disponible} onRetour={revenir} relire={lire} />;
   }
-  const connecter = () => setDepart((d) => ({ n: (d?.n ?? 0) + 1, mode: 'telecharger' }));
+  if (vue.genre === 'parcours' && etat) {
+    return <PageDuParcours etat={etat} depart={vue.depart} onRetour={revenir} onVoir={(id) => setVue({ genre: 'ordinateur', id })} />;
+  }
+  const lier = () => {
+    departs.current += 1;
+    setVue({ genre: 'parcours', depart: { n: departs.current, mode: 'telecharger' } });
+  };
+  /* « AJOUTER CET ORDINATEUR » : seulement depuis un ordinateur (un téléphone ne se relie pas) que rien ne reconnaît. */
+  const ajouter = !!etat && !ici && !!systemeIci;
 
   return (
     <div className="flex flex-col gap-7" data-page-extension data-page-ordinateurs>
       <RubriqueDeReglages
         titre={t('Vos ordinateurs')}
         description={t('Les agents ouvrent leurs onglets et agissent sur l’ordinateur choisi. Touchez-en un pour régler ce qu’ils ont le droit d’y faire.')}
-        action={
-          depart ? null : (
-            <Button variant="default" size="md" onClick={connecter} disabled={!etat} data-connecter-ordinateur>
-              <Plus className="h-3.5 w-3.5" />
-              {t('Connecter cet ordinateur')}
-            </Button>
-          )
-        }
-        avant={
-          depart && etat ? (
-            <div className="rounded-2xl bg-surface px-4 py-5 sm:px-5" data-bloc-parcours>
-              <ParcoursDeConnexion etat={etat} depart={depart} onFermer={() => setDepart(null)} />
-            </div>
-          ) : null
-        }
       >
         {!etat ? (
           <Silhouette />
-        ) : etat.ordinateurs.length ? (
-          etat.ordinateurs.map((o) => (
-            <LigneDOrdinateur
-              key={o.id}
-              ordinateur={o}
-              version={etat.version}
-              ici={ici?.id === o.id}
-              occupe={enCours === o.id}
-              onOuvrir={() => setOuvert(o.id)}
-              onRenommer={() => setARenommer(o)}
-              onDelier={() => setADelier(o)}
-              onDelierNavigateur={(n) => void agir(o.id, { type: 'extension.delier', id: n.id })}
-              onDelierProgramme={() => void agir(o.id, { type: 'relaisMac.delier', ordinateurId: o.id })}
-            />
-          ))
         ) : (
-          <p className="px-3.5 py-3 text-[13.5px] text-muted">{t('Aucun ordinateur n’est relié pour l’instant.')}</p>
+          <>
+            {ajouter && systemeIci ? <LigneAjouterCetOrdinateur systeme={systemeIci} onLier={lier} /> : null}
+            {etat.ordinateurs.map((o) => (
+              <LigneDOrdinateur
+                key={o.id}
+                ordinateur={o}
+                version={etat.version}
+                ici={ici?.id === o.id}
+                occupe={enCours === o.id}
+                onOuvrir={() => setVue({ genre: 'ordinateur', id: o.id })}
+                onRenommer={() => setARenommer(o)}
+                onDelier={() => setADelier(o)}
+                onDelierNavigateur={(n) => void agir(o.id, { type: 'extension.delier', id: n.id })}
+                onDelierProgramme={() => void agir(o.id, { type: 'relaisMac.delier', ordinateurId: o.id })}
+              />
+            ))}
+            {!etat.ordinateurs.length && !ajouter ? (
+              <p className="px-3.5 py-3 text-[13.5px] text-muted">{t('Aucun ordinateur n’est relié pour l’instant. Ouvrez Beluga sur l’ordinateur à relier : il s’y proposera.')}</p>
+            ) : null}
+          </>
         )}
       </RubriqueDeReglages>
 
@@ -189,7 +194,13 @@ export function PageOrdinateurs() {
       <ConfirmDialog
         open={!!aDelier}
         title={t('Délier « {nom} » ?', { nom: aDelier?.nom ?? '' })}
-        description={t('Ses navigateurs et Beluga Connect ne pourront plus être pilotés. Pour le retrouver, « Connecter cet ordinateur » depuis l’ordinateur lui-même.')}
+        /* DÉLIER L'ORDINATEUR SUR LEQUEL ON EST se dit d'abord (21/11/2026 : un Mac mini délié par erreur 27 s après sa
+           liaison, et l'assistant restait « en attente »). */
+        description={
+          aDelier && aDelier.id === ici?.id
+            ? t('C’est l’ordinateur sur lequel vous êtes. Ses navigateurs et Beluga Connect ne pourront plus être pilotés ; Beluga Connect vous proposera de le relier de nouveau.')
+            : t('Ses navigateurs et Beluga Connect ne pourront plus être pilotés. Pour le retrouver, ouvrez Beluga sur l’ordinateur lui-même et touchez « Lier ».')
+        }
         confirmLabel={t('Délier')}
         danger
         onClose={() => setADelier(null)}
@@ -199,6 +210,72 @@ export function PageOrdinateurs() {
           if (o) void agir(o.id, { type: 'ordinateur.delier', id: o.id });
         }}
       />
+    </div>
+  );
+}
+
+const NOM_DU_SYSTEME_ICI: Record<'mac' | 'windows' | 'linux', string> = { mac: 'Mac', windows: 'Windows', linux: 'Linux' };
+
+/**
+ * « AJOUTER CET ORDINATEUR » (maquette #b823) : en tête de la liste, quand l'ordinateur où l'on est n'est pas reconnu.
+ * Cadre pointillé et signe plus ; le détail dit le système et le navigateur de CET appareil — jamais un nom de machine
+ * inventé (la liaison le donnera) ; « Lier » ouvre le parcours.
+ */
+function LigneAjouterCetOrdinateur({ systeme, onLier }: { systeme: 'mac' | 'windows' | 'linux'; onLier: () => void }) {
+  const navigateur = React.useMemo(navigateurDeCetAppareil, []);
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-raised px-3.5 py-3" data-ajouter-cet-ordinateur={systeme}>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted" style={{ border: '1.5px dashed hsl(var(--faint))' }} aria-hidden>
+        <Plus className="h-4 w-4" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="text-[14px] text-text">{t('Ajouter cet ordinateur')}</span>
+          <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[11.5px] text-muted">{t('Celui où vous êtes')}</span>
+        </span>
+        <span className="text-[12.5px] text-muted">
+          {[NOM_DU_SYSTEME_ICI[systeme], navigateur, t('Beluga Connect n’est pas encore installé ici')].filter(Boolean).join(' · ')}
+        </span>
+      </div>
+      <Button variant="default" size="md" className="max-sm:basis-full" onClick={onLier} data-lier-cet-ordinateur>
+        <Link className="h-3.5 w-3.5" />
+        {t('Lier')}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * LE PARCOURS « AJOUTER CE MAC » (maquettes #f1f1, #bd11, #7251, #ba67) : il remplace la liste au même endroit. Le
+ * retour vit en tête sur ordinateur ; sur téléphone, c'est la flèche de la barre d'en-tête (sous-page publiée).
+ */
+function PageDuParcours({ etat, depart, onRetour, onVoir }: { etat: EtatDeLExtension; depart: DepartDuParcours; onRetour: () => void; onVoir: (id: string) => void }) {
+  const systeme = React.useMemo(systemeDeCetAppareil, []);
+  const titre = systeme === 'mac' ? t('Ajouter ce Mac') : systeme === 'windows' ? t('Ajouter ce PC') : t('Ajouter cet ordinateur');
+  const accueillie = useSousPageDeReglages({ retour: t('Vos ordinateurs'), onRetour, titre });
+  const racine = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    racine.current?.scrollIntoView({ block: 'start' });
+  }, []);
+  return (
+    <div ref={racine} className="flex scroll-mt-4 flex-col gap-[18px]" data-page-ordinateurs data-page-parcours>
+      <button
+        type="button"
+        onClick={onRetour}
+        className={cn('flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text', accueillie && 'max-sm:hidden')}
+        data-retour-ordinateurs="page"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        {t('Vos ordinateurs')}
+      </button>
+      <div className="flex flex-col gap-0.5 px-1">
+        {/* Sur téléphone, la barre d'en-tête porte déjà ce titre (sous-page publiée) : il n'est pas redit ici. */}
+        <h3 className={cn('text-[17px] font-semibold text-text', accueillie && 'max-sm:hidden')} data-titre-parcours>
+          {titre}
+        </h3>
+        <p className="text-[13px] text-muted">{t('Environ deux minutes. Restez sur cette page : elle avance toute seule.')}</p>
+      </div>
+      <ParcoursDeConnexion etat={etat} depart={depart} onFermer={onRetour} onVoir={onVoir} />
     </div>
   );
 }
@@ -504,27 +581,25 @@ function lignesDesDroits(): { droit: DroitDOrdinateur; libelle: string; detail: 
 }
 
 /**
- * LA PAGE D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga », 21/11/2026, maquette #3eb73) : elle remplace la
- * liste, dans la fenêtre des réglages, à droite du menu. « ‹ Vos ordinateurs » ramène à la liste ; un bouton par
- * ordinateur passe de l'un à l'autre. Cinq droits à interrupteur (tout allumé sauf le terminal à la liaison), ce qui
- * est TOUJOURS demandé (suppressions, commandes), puis les deux autorisations que macOS exige sur le Mac lui-même.
+ * LA PAGE D'UN ORDINATEUR (carte « Piloter le Mac depuis Beluga », 21/11/2026 ; refaite par la carte « Liaison
+ * d'ordinateur simplifiée », 22/11/2026, maquette #a0549) : elle remplace la liste, dans la fenêtre des réglages. Plus
+ * aucune rangée des autres ordinateurs : la COLONNE DE GAUCHE devient son sommaire (« ‹ Vos ordinateurs », le nom,
+ * un bouton par partie, la partie lue surlignée — `sous-page.tsx`). Des titres simples, chacun avec sa phrase :
+ * Autorisations (cinq interrupteurs, tout allumé sauf le terminal à la liaison), Confirmations (ce qui est TOUJOURS
+ * demandé), Beluga Connect, Navigateurs, Accès du Mac (les deux autorisations que macOS exige sur le Mac lui-même).
  */
 function PageDUnOrdinateur({
   ordinateur,
-  ordinateurs,
   ici,
   safari,
-  onChoisir,
   onRetour,
   relire,
 }: {
   ordinateur: Ordinateur;
-  ordinateurs: Ordinateur[];
   /** L'ordinateur sur lequel on est (reconnu par l'extension), s'il l'est. */
   ici: string | null;
   /** L'application Safari est-elle fabriquée sur ce Beluga ? */
   safari: boolean;
-  onChoisir: (id: string) => void;
   onRetour: () => void;
   relire: () => Promise<void>;
 }) {
@@ -544,8 +619,57 @@ function PageDUnOrdinateur({
   const allume = ordinateurEnLigne(ordinateur);
   const systeme = ordinateur.programme ? (ordinateur.programme.systeme ?? 'mac') : null;
   const estUnMac = systeme === 'mac';
+  const chromeDeLaPage = ordinateur.navigateurs.filter((n) => n.genre === 'chrome').sort((a, b) => Number(b.enLigne) - Number(a.enLigne))[0] ?? null;
+  const preparationDeLaPage = ordinateur.programme?.preparation ?? null;
+  const montrerLesEtapes =
+    programmeEnLigne(ordinateur.programme) &&
+    !!ordinateur.programme?.connect &&
+    (!chromeDeLaPage ||
+      (!!preparationDeLaPage && preparationDeLaPage.etat !== 'fait' && etapesDeLaPreparation(preparationDeLaPage, chromeDeLaPage, estUnMac).some((e) => e.etat !== 'fait')));
   const [safariOuvert, setSafariOuvert] = React.useState(false);
   const [delier, setDelier] = React.useState<string | null>(null);
+
+  /* LE SOMMAIRE DANS LA COLONNE DE GAUCHE : un bouton par partie, la partie lue surlignée d'après le défilement. */
+  const parties: PartieDeSommaire[] = [
+    { cle: 'autorisations', titre: t('Autorisations'), icone: ShieldCheck },
+    { cle: 'confirmations', titre: t('Confirmations'), icone: Hand },
+    { cle: 'connect', titre: CONNECT, icone: AppWindow },
+    { cle: 'navigateurs', titre: t('Navigateurs'), icone: Globe },
+    ...(estUnMac ? [{ cle: 'acces', titre: t('Accès du Mac'), icone: Laptop }] : []),
+  ];
+  const [active, setActive] = React.useState<string>('autorisations');
+  /* La partie choisie au sommaire reste surlignée pendant le défilement qu'elle lance (et en bas de page, quand une
+     partie courte ne peut pas monter jusqu'en haut) ; un défilement à la main reprend la main. */
+  const choisie = React.useRef<{ cle: string; le: number } | null>(null);
+  const aller = (cle: string) => {
+    choisie.current = { cle, le: Date.now() };
+    setActive(cle);
+    racine.current?.querySelector(`[data-partie-ordinateur="${cle}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const accueillie = useSousPageDeReglages({ retour: t('Vos ordinateurs'), onRetour, titre: ordinateur.nom, parties, active, onAller: aller });
+  React.useEffect(() => {
+    const zone = zoneQuiDefile(racine.current);
+    if (!zone) return;
+    const suivre = () => {
+      if (choisie.current && Date.now() - choisie.current.le < 1_200) return;
+      choisie.current = null;
+      const haut = zone.getBoundingClientRect().top;
+      const blocs = [...(racine.current?.querySelectorAll<HTMLElement>('[data-partie-ordinateur]') ?? [])];
+      if (!blocs.length) return;
+      /* Tout en bas : la dernière partie, même courte, est celle qu'on lit. */
+      if (zone.scrollTop + zone.clientHeight >= zone.scrollHeight - 4) {
+        setActive(blocs[blocs.length - 1]!.dataset.partieOrdinateur!);
+        return;
+      }
+      let lue = blocs[0]!.dataset.partieOrdinateur!;
+      for (const b of blocs) if (b.getBoundingClientRect().top - haut <= 96) lue = b.dataset.partieOrdinateur!;
+      setActive(lue);
+    };
+    zone.addEventListener('scroll', suivre, { passive: true });
+    return () => {
+      zone.removeEventListener('scroll', suivre);
+    };
+  }, [ordinateur.id]);
   const delierUnNavigateur = async (n: NavigateurDOrdinateur) => {
     setDelier(n.id);
     try {
@@ -578,10 +702,13 @@ function PageDUnOrdinateur({
   return (
     <div ref={racine} className="flex scroll-mt-4 flex-col gap-7" data-page-ordinateur={ordinateur.id}>
       <div className="flex flex-col gap-3">
-        <button type="button" onClick={onRetour} className="flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text" data-retour-ordinateurs>
-          <ChevronLeft className="h-4 w-4" />
-          {t('Vos ordinateurs')}
-        </button>
+        {/* Hors de la fenêtre des réglages (aucune colonne pour le sommaire) : le retour reste dans la page. */}
+        {!accueillie ? (
+          <button type="button" onClick={onRetour} className="flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text" data-retour-ordinateurs="page">
+            <ChevronLeft className="h-4 w-4" />
+            {t('Vos ordinateurs')}
+          </button>
+        ) : null}
         <div className="flex flex-col gap-0.5 px-1">
           <div className="flex min-w-0 items-center gap-2.5">
             <h3 className="min-w-0 truncate text-[17px] font-semibold text-text" data-nom-ordinateur-ouvert>
@@ -596,23 +723,14 @@ function PageDUnOrdinateur({
           </div>
           <p className="text-[12.5px] text-muted">{detailDOrdinateur(ordinateur)}</p>
         </div>
-        {ordinateurs.length > 1 ? (
-          <div className="flex flex-wrap gap-1.5 px-1" data-choix-ordinateur>
-            {ordinateurs.map((o) => (
-              <Button key={o.id} variant={o.id === ordinateur.id ? 'default' : 'subtle'} size="md" onClick={() => onChoisir(o.id)} data-aller-ordinateur={o.id} aria-pressed={o.id === ordinateur.id}>
-                <FormeDEtat allume={ordinateurEnLigne(o)} />
-                <span className="max-w-[180px] truncate">{o.nom}</span>
-              </Button>
-            ))}
-          </div>
-        ) : null}
       </div>
 
+      <div className="scroll-mt-2" data-partie-ordinateur="autorisations">
       <RubriqueDeReglages
-        titre={estUnMac ? t('Ce que Beluga peut faire sur ce Mac') : t('Ce que Beluga peut faire sur cet ordinateur')}
+        titre={t('Autorisations')}
         description={
           estUnMac
-            ? t('Un droit éteint est refusé à l’agent, même s’il le demande.')
+            ? t('Ce que les agents ont le droit de faire sur ce Mac. Un interrupteur éteint leur interdit le geste, même s’ils le demandent.')
             : systeme
               ? t('Sur Windows et Linux, Beluga Connect relie Chrome ; ces gestes sur l’ordinateur lui-même n’existent que sur un Mac pour l’instant. Les droits s’appliqueront dès qu’ils arriveront.')
               : t('Beluga Connect n’est pas encore installé sur cet ordinateur : ces droits s’appliqueront dès qu’il le sera.')
@@ -636,8 +754,10 @@ function PageDUnOrdinateur({
           />
         ))}
       </RubriqueDeReglages>
+      </div>
 
-      <RubriqueDeReglages titre={t('Toujours demandé')} description={t('Ces gestes attendent votre accord dans une fenêtre de Beluga, quels que soient les réglages.')}>
+      <div className="scroll-mt-2" data-partie-ordinateur="confirmations">
+      <RubriqueDeReglages titre={t('Confirmations')} description={t('Ces gestes attendent toujours votre accord dans une fenêtre de Beluga, quels que soient les réglages ci-dessus.')}>
         <LigneDeReglage
           libelle={t('Supprimer un fichier, un dossier ou une application')}
           detail={t('Redemandé à chaque fois, même pendant une carte déjà autorisée.')}
@@ -649,14 +769,18 @@ function PageDUnOrdinateur({
           controle={<span className="text-[13px] text-muted">{t('À chaque fois')}</span>}
         />
       </RubriqueDeReglages>
+      </div>
 
+      <div className="scroll-mt-2" data-partie-ordinateur="connect">
       <RubriqueDeReglages titre={CONNECT} description={t('L’application qui relie cet ordinateur à Beluga, installe l’extension de Chrome et la tient à jour.')}>
         <LigneDeReglage libelle={CONNECT} detail={etatDeConnect(ordinateur)} controle={<FormeDEtat allume={programmeEnLigne(ordinateur.programme)} />} />
       </RubriqueDeReglages>
+      </div>
 
+      <div className="scroll-mt-2" data-partie-ordinateur="navigateurs">
       <RubriqueDeReglages titre={t('Navigateurs')} description={t('Les navigateurs de cet ordinateur où les agents travaillent.')}>
-        {ordinateur.navigateurs.length ? (
-          ordinateur.navigateurs.map((n) => (
+        {ordinateur.navigateurs.length
+          ? ordinateur.navigateurs.map((n) => (
             <LigneDeReglage
               key={n.id}
               libelle={LIBELLE_DU_NAVIGATEUR[n.genre]}
@@ -675,9 +799,16 @@ function PageDUnOrdinateur({
               }
             />
           ))
-        ) : (
-          <p className="px-3.5 py-3 text-[13.5px] text-muted">{t('Aucun navigateur relié : Beluga Connect prépare Chrome dès qu’il est en marche.')}</p>
-        )}
+          : null}
+        {/* LES ÉTAPES DE CHROME EN DIRECT (carte « Liaison Chrome automatique et suivie ») à la place de « Aucun navigateur
+            relié » : Beluga Connect y montre ce qu'il fait, et le code de secours paraît après 30 s sans liaison. */}
+        {montrerLesEtapes ? (
+          <div className="px-3.5 py-3" data-etapes-de-l-ordinateur>
+            <EtapesDeChrome ordinateur={ordinateur} nav={chromeDeLaPage} mac={estUnMac} />
+          </div>
+        ) : !ordinateur.navigateurs.length ? (
+          <p className="px-3.5 py-3 text-[13.5px] text-muted">{t('Aucun navigateur relié : Beluga Connect ne répond pas sur cet ordinateur.')}</p>
+        ) : null}
         {estUnMac && safari && !ordinateur.navigateurs.some((n) => n.genre === 'safari') ? (
           <LigneDeReglage
             libelle={t('Beluga pour Safari')}
@@ -691,11 +822,25 @@ function PageDUnOrdinateur({
           />
         ) : null}
       </RubriqueDeReglages>
+      </div>
 
-      {estUnMac ? <AutorisationsDeMacOS ordinateur={ordinateur} /> : null}
+      {estUnMac ? (
+        <div className="scroll-mt-2" data-partie-ordinateur="acces">
+          <AutorisationsDeMacOS ordinateur={ordinateur} />
+        </div>
+      ) : null}
       <FenetreSafari ordinateur={ordinateur} ouverte={safariOuvert} onClose={() => setSafariOuvert(false)} />
     </div>
   );
+}
+
+/** La zone qui défile autour d'un élément (celle de la fenêtre des réglages). */
+function zoneQuiDefile(el: HTMLElement | null): HTMLElement | null {
+  for (let n = el?.parentElement ?? null; n; n = n.parentElement) {
+    const o = getComputedStyle(n).overflowY;
+    if (o === 'auto' || o === 'scroll') return n;
+  }
+  return null;
 }
 
 /** Allumé : un ROND vert ; éteint : un CARRÉ gris — l'état se lit par la forme, pas seulement par la couleur. */
@@ -714,7 +859,7 @@ function EtatDeLOrdinateur({ allume }: { allume: boolean }) {
 }
 
 /** Les deux autorisations que macOS exige SUR LE MAC : affichées, et le bon réglage s'ouvre à distance. */
-function AutorisationsDeMacOS({ ordinateur, titre }: { ordinateur: Ordinateur; titre?: string }) {
+function AutorisationsDeMacOS({ ordinateur }: { ordinateur: Ordinateur }) {
   const [ouverture, setOuverture] = React.useState<'accessibilite' | 'ecran' | null>(null);
   const a = ordinateur.programme?.autorisations ?? null;
   const rouvrir = async (reglage: 'accessibilite' | 'ecran') => {
@@ -733,7 +878,7 @@ function AutorisationsDeMacOS({ ordinateur, titre }: { ordinateur: Ordinateur; t
     { cle: 'ecran', titre: t('Voir l’écran'), pour: t('À donner sur le Mac : nécessaire pour « Voir l’écran et cliquer ».') },
   ];
   return (
-    <RubriqueDeReglages titre={titre ?? t('Autorisations de macOS')} description={t('Apple exige un clic sur le Mac lui‑même, une seule fois. Beluga ouvre le bon réglage à distance.')}>
+    <RubriqueDeReglages titre={t('Accès du Mac')} description={t('Les deux accès que macOS demande pour Beluga Connect. Apple exige un clic sur le Mac lui‑même, une seule fois : Beluga ouvre le bon réglage à distance.')}>
       {lignes.map((l) => {
         const donnee = a?.[l.cle] === true;
         return (

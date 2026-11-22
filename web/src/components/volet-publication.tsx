@@ -75,6 +75,7 @@ import {
   EtapeDuVolet,
   avancementDuFlux,
   depanneurVivant,
+  relanceOfferte,
   ecartDepuisLeDebut,
   etapeAOuvrir,
   etapeDePublication,
@@ -902,7 +903,8 @@ export function CorpsDuVolet({
               ) : null}
             </div>
             {/* LA RELANCE, AUSSI DEPUIS LE DÉPANNEUR (19/11/2026) : le dépannage s'arrête, la publication reprend. */}
-            {agentOuvert === depanneurId && run && aDepanner ? (
+            {/* …mais pas tant que le dépanneur travaille ou attend : la publication reprendra d'elle-même (21/11/2026). */}
+            {agentOuvert === depanneurId && run && aDepanner && relanceOfferte(run, depanneur) ? (
               <div className="flex shrink-0 items-center gap-2 px-4 pb-2" data-relance-du-depanneur>
                 <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-muted">{t('Publication bloquée : la relancer arrête ce dépannage.')}</p>
                 <BoutonRelancerLaPublication run={run} className="flex-none" onFait={() => setAgentOuvert(null)} />

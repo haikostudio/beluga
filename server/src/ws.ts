@@ -4615,6 +4615,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       await ouvrirLesReglagesDeLExtension(compte.id, cmd.chromeId);
       return { ok: true };
     }
+    case 'relaisMac.codeDeSecours': {
+      const { ligneDOrdinateur } = await import('./ordinateurs.js');
+      if (!ligneDOrdinateur(compte.id, cmd.ordinateurId)) throw new Error('Cet ordinateur n’est plus relié.');
+      const { codeDeSecours } = await import('./extension-chrome.js');
+      return codeDeSecours(compte.id, cmd.ordinateurId);
+    }
     case 'extension.code': {
       const { emettreUnCodeDeLiaison } = await import('./extension-chrome.js');
       return emettreUnCodeDeLiaison(compte.id, Date.now(), { ordinateurId: cmd.ordinateurId ?? null, nom: cmd.nom?.trim() || null });
@@ -4664,6 +4670,20 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const { relaisDuCompte } = await import('./relais-mac.js');
       const r = relaisDuCompte(compte.id);
       return { nom: r.nom, etat: r.etat, vuLe: r.vuLe };
+    }
+    case 'relaisMac.liaison.lire': {
+      const { lireUneDemandeDeLiaison } = await import('./relais-mac.js');
+      return { demande: lireUneDemandeDeLiaison(cmd.jeton) };
+    }
+    case 'relaisMac.liaison.accepter': {
+      const { accepterUneLiaison } = await import('./relais-mac.js');
+      const r = accepterUneLiaison(compte.id, cmd.jeton, cmd.ordinateurId ?? null);
+      if (!r.ok) throw new Error(r.raison);
+      return r;
+    }
+    case 'relaisMac.liaison.refuser': {
+      const { refuserUneLiaison } = await import('./relais-mac.js');
+      return { ok: refuserUneLiaison(cmd.jeton) };
     }
     case 'relaisMac.code': {
       const { emettreUnCodeDuRelais } = await import('./relais-mac.js');

@@ -21,6 +21,7 @@ import {
   agentDeConfiguration,
   construireFragment,
   depanneurVivant,
+  relanceOfferte,
   motDuBoutonPublier,
   type CiblePublication,
   type DeployRun,
@@ -446,15 +447,24 @@ function InitialiserLEtape({ projectId, cible, onFini }: { projectId: string; ci
 
 /**
  * UNE PUBLICATION RESTÉE BLOQUÉE (après ses trois réparations) : l'étape en rouge, la phrase « rien n'a changé en
- * ligne », et le DÉPANNAGE (17/11/2026 : plus de carte de réparation) — le dépanneur s'ouvre seul à la chute, et la
- * publication reprend à la fin de son tour ; le bouton ouvre son fil, ou le lance s'il n'y en a pas.
+ * ligne », et le DÉPANNAGE (17/11/2026 : plus de carte de réparation) — le dépanneur se LANCE seul à la chute, EN
+ * ARRIÈRE-PLAN (aucun tiroir ne s'ouvre sans clic, 21/11/2026 ; sa question vient en fenêtre au centre,
+ * `QuestionDuDepanneur`), et la publication reprend à la fin de son tour ; le bouton ouvre son fil, ou le lance s'il n'y
+ * en a pas. « Relancer » se tait tant qu'il travaille ou attend (`relanceOfferte`).
  */
 function EncadreDeBlocage({ run, onFini }: { run: DeployRun; onFini: () => void }) {
   const lignes = lignesDeLaPublication(run, run.endedAt ?? Date.now()).filter((ligne) => ligne.etat !== 'todo');
   const taches = run.taches?.length ?? run.cardIds.length;
   const state = useApp();
   const depanneur = run.depannage?.agentId ? state.agents[run.depannage.agentId] : undefined;
-  const enCours = depanneurVivant(depanneur) && !depanneur?.attendReponse;
+  const vivant = depanneurVivant(depanneur);
+  const attend = vivant && depanneur?.attendReponse === true;
+  const relancer = relanceOfferte(run, depanneur);
+  const depanneurId = run.depannage?.agentId;
+  /* Le dépanneur n'est pas forcément dans l'écran : on le réclame, sinon « Relancer » s'offrirait à tort. */
+  React.useEffect(() => {
+    if (depanneurId) void client.chargerAgent(depanneurId);
+  }, [depanneurId]);
   return (
     <div className="flex shrink-0 flex-col pb-1" data-publication-bloquee={run.id}>
       <EnteteDuSuivi
@@ -470,12 +480,16 @@ function EncadreDeBlocage({ run, onFini }: { run: DeployRun; onFini: () => void 
             : taches > 1
               ? t('Rien n’a changé en ligne, les {v0} tâches restent à déployer.', { v0: taches })
               : t('Rien n’a changé en ligne, la tâche reste à déployer.')}{' '}
-          {enCours ? t('Un agent la dépanne : elle reprendra d’elle-même à la fin de son travail.') : null}
+          {attend
+            ? t('Un agent la dépanne et attend votre réponse.')
+            : vivant
+              ? t('Un agent la dépanne : elle reprendra d’elle-même à la fin de son travail.')
+              : null}
         </p>
-        {/* DEUX GESTES, TOUJOURS (19/11/2026) : relancer tout de suite — le dépannage en cours s'arrête d'abord —, ou
-            ouvrir le dépannage pour voir ce qu'il fait. Même hauteur, côte à côte. */}
+        {/* DEUX GESTES (19/11/2026) : relancer tout de suite, ou ouvrir le dépannage pour voir ce qu'il fait. Même
+            hauteur, côte à côte. « Relancer » se tait tant qu'un agent dépanne (21/11/2026) : « Ouvrir » reste seul. */}
         <div className="mt-2 flex items-center gap-1.5">
-          <BoutonRelancerLaPublication run={run} />
+          {relancer ? <BoutonRelancerLaPublication run={run} /> : null}
           <button
             type="button"
             onClick={() => {

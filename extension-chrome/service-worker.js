@@ -55,16 +55,20 @@ async function signer(secret, message) {
   return base64url(await crypto.subtle.sign('HMAC', cle, new TextEncoder().encode(message)));
 }
 
-async function relier(code, nom) {
-  const { adresse } = await configuration();
+/* `adresseImposee` : celle du Beluga qui a émis le code (posée par Beluga Connect dans `liaison.json`) ; retenue à la
+   liaison, pour que la voie s'ouvre sur le MÊME Beluga même si `config.json` en vise un autre. */
+async function relier(code, nom, adresseImposee) {
+  const adresse = adresseImposee || (await configuration()).adresse;
   const r = await fetch(`${adresse}/api/extension-chrome/relier`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ code, nom: nom || (SAFARI ? 'Safari · macOS' : navigator.userAgentData?.platform ?? ''), version: chrome.runtime.getManifest().version, navigateur: SAFARI ? 'safari' : 'chrome' }),
   });
+  /* Beluga qui redémarre (502, 503…) n'a rien refusé : l'appelant réessaiera. */
+  if (r.status >= 500) throw new Error(`Beluga indisponible (${r.status})`);
   const data = await r.json().catch(() => ({ ok: false, raison: 'Réponse illisible.' }));
   if (!data.ok) return data;
-  await chrome.storage.local.set({ identifiant: data.identifiant, secret: data.secret, nom: data.nom, dernierTs: 0 });
+  await chrome.storage.local.set({ identifiant: data.identifiant, secret: data.secret, nom: data.nom, dernierTs: 0, ...(adresseImposee ? { adresse: adresseImposee } : {}) });
   void connecter();
   return { ok: true, nom: data.nom };
 }
@@ -100,7 +104,9 @@ async function connecter() {
     const url = `${adresse.replace(/^http/, 'ws')}/ws/chrome?id=${encodeURIComponent(identifiant)}&ts=${ts}&sig=${encodeURIComponent(sig)}`;
     const ws = new WebSocket(url);
     voie = ws;
+    let ouverte = false;
     ws.onopen = () => {
+      ouverte = true;
       const nom = SAFARI ? 'Safari · macOS' : `${navigator.userAgentData?.platform ?? 'Chrome'}`;
       /* 1.0.11 : l'extension dit aussi si elle est autorisée en navigation privée et son identifiant, pour que Beluga
          vérifie AVANT un audit GEO et sache quel dossier le programme du Mac doit mettre à jour. */
@@ -117,12 +123,38 @@ async function connecter() {
       clearInterval(battement);
       if (voie === ws) voie = null;
       diffuser({ type: 'liaison', relie: true, enLigne: false });
-      /* Délié depuis Beluga (4001) ou refusé (clé révoquée) : on oublie la clé. */
+      /* Délié depuis Beluga (4001) : on oublie la clé. */
       if (e.code === 4001) void delier();
+      /* REFUSÉE À L'OUVERTURE (1.0.15) : un refus (clé révoquée pendant que Chrome était fermé) et un démon qui redémarre
+         se ressemblent (1006). On demande au démon, signé : seule une réponse ferme « plus valable » fait oublier la clé,
+         et `liaison.json` peut alors relier ce Chrome de nouveau. Démon injoignable : la clé est gardée. */
+      else if (!ouverte) void verifierLaCle();
     };
     ws.onerror = () => {};
   } finally {
     enConnexion = false;
+  }
+}
+
+let derniereSonde = 0;
+async function verifierLaCle() {
+  if (Date.now() - derniereSonde < 60_000) return;
+  derniereSonde = Date.now();
+  const { identifiant, secret } = await liaison();
+  if (!identifiant || !secret) return;
+  try {
+    const { adresse } = await configuration();
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = await signer(secret, `${ts}.${identifiant}.sonde`);
+    const r = await fetch(`${adresse}/api/extension-chrome/cle`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: identifiant, ts, sig }) });
+    if (!r.ok) return;
+    const data = await r.json().catch(() => null);
+    if (data?.ok === true && data.valable === false) {
+      await delier();
+      void lierParLeFichier();
+    }
+  } catch {
+    /* Beluga injoignable : rien n'est oublié. */
   }
 }
 
@@ -530,10 +562,40 @@ async function lierParLeFichier() {
   }
   const code = String(fiche?.code ?? '');
   if (!/^\d{6}$/.test(code)) return;
+  const adresse = typeof fiche?.adresse === 'string' && /^https?:\/\/[A-Za-z0-9.:\[\]-]+$/.test(fiche.adresse) ? fiche.adresse : null;
+  /* 1.0.15 : un code n'est abandonné que sur un REFUS de Beluga (expiré, inconnu) ; une panne de réseau le fait
+     réessayer au réveil suivant (toutes les 30 s), vingt fois au plus. Chaque refus est signalé à Beluga. */
   const { liaisonEssayee } = await chrome.storage.local.get('liaisonEssayee');
-  if (liaisonEssayee === code) return;
-  await chrome.storage.local.set({ liaisonEssayee: code });
-  await relier(code).catch(() => {});
+  const deja = typeof liaisonEssayee === 'string' ? { code: liaisonEssayee, fini: true, essais: 1 } : liaisonEssayee ?? null;
+  if (deja?.code === code && deja.fini) return;
+  const essais = deja?.code === code ? (deja.essais ?? 0) + 1 : 1;
+  await chrome.storage.local.set({ liaisonEssayee: { code, fini: false, essais } });
+  let issue;
+  try {
+    issue = await relier(code, undefined, adresse);
+  } catch (err) {
+    const fini = essais >= 20;
+    await chrome.storage.local.set({ liaisonEssayee: { code, fini, essais } });
+    if (fini) void signalerLEchec(code, `Beluga injoignable : ${String(err?.message ?? err)}`, adresse);
+    return;
+  }
+  if (issue?.ok) {
+    await chrome.storage.local.set({ liaisonEssayee: { code, fini: true, essais } });
+    return;
+  }
+  /* « Trop d'essais » n'est pas un refus du code : il se retente au réveil suivant. */
+  const fini = !/^Trop/.test(String(issue?.raison ?? '')) || essais >= 20;
+  await chrome.storage.local.set({ liaisonEssayee: { code, fini, essais } });
+  if (fini) void signalerLEchec(code, issue?.raison ?? 'refusé', adresse);
+}
+
+async function signalerLEchec(code, raison, adresseImposee) {
+  try {
+    const adresse = adresseImposee || (await configuration()).adresse;
+    await fetch(`${adresse}/api/extension-chrome/echec`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, raison: String(raison).slice(0, 200) }) });
+  } catch {
+    /* rien à faire de plus : l'écran de Beluga passera au code de secours */
+  }
 }
 
 const seReveiller = () => void lierParLeFichier().finally(() => connecter());

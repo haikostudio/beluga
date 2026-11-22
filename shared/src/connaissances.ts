@@ -814,9 +814,28 @@ export function resumeRedisParLeDetail(detail: string, resume: string): boolean 
   const court = espacesNormalises(resume);
   if (!aplati || !court) return false;
   if (court === aplati) return true;
-  if (!court.endsWith('…')) return false;
-  const debut = court.replace(/…$/, '').trim();
-  return debut.length >= RESUME_UNITE_MIN && aplati.startsWith(debut);
+  if (court.endsWith('…')) {
+    const debut = court.replace(/…$/, '').trim();
+    return debut.length >= RESUME_UNITE_MIN && aplati.startsWith(debut);
+  }
+  // Nouveau format : la première phrase du détail, coupée sur une fin de phrase.
+  return court.length >= RESUME_UNITE_MIN && /[.!?]$/.test(court) && aplati.startsWith(court);
+}
+
+/**
+ * La première phrase d'un texte aplati : jusqu'au premier « . ! ? » suivi d'un espace ou de la fin,
+ * SANS s'arrêter après un nombre seul (« 1. », « 2. » d'une énumération). Pur, sans borne de longueur.
+ */
+export function premierePhraseDuDetail(texte: string): string {
+  const plat = texte.replace(/\s+/g, ' ').trim();
+  const re = /[.!?](?=\s|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(plat))) {
+    const fin = m.index + 1;
+    if (m[0] === '.' && /(^|\s)\d{1,2}$/.test(plat.slice(0, m.index))) continue;
+    return plat.slice(0, fin);
+  }
+  return plat;
 }
 
 /** Une unité rendue en Markdown, au gabarit de son type. */

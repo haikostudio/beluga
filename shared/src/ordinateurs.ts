@@ -136,6 +136,70 @@ export interface PreparationDeChrome {
   depuis: number;
   /** Le dossier où Beluga Connect a posé l'extension (affiché si elle doit être chargée à la main). */
   dossier?: string | null;
+  /**
+   * LE SUIVI DÉTAILLÉ (carte « Liaison Chrome automatique et suivie », 22/11/2026) : le genre du travail, l'instant où
+   * le code de liaison a été posé (le code de secours s'affiche 30 s après), et la dernière fois que l'état a bougé
+   * (une préparation « en cours » qui ne bouge plus depuis `PREPARATION_FIGEE_APRES_MS` est un échec, jamais un
+   * chargement sans fin).
+   */
+  travail?: TravailDeConnect;
+  debutLiaison?: number | null;
+  majLe?: number;
+}
+
+/** Ce que Beluga Connect fait sur l'ordinateur : première installation, réparation, navigation privée, mise à jour. */
+export type TravailDeConnect = 'installation' | 'reparation' | 'prive' | 'mise-a-jour';
+
+/** Le code de secours paraît 30 s après la pose du code de liaison, si Chrome ne s'est pas relié seul. */
+export const SECOURS_APRES_MS = 30_000;
+/** Une préparation qui ne bouge plus depuis six minutes s'est interrompue (démon redémarré, relais tombé). */
+export const PREPARATION_FIGEE_APRES_MS = 6 * 60_000;
+
+/** La préparation telle qu'on doit la montrer : une préparation figée devient un échec dit. */
+export function preparationVue(p: PreparationDeChrome | null | undefined, maintenant = Date.now()): PreparationDeChrome | null {
+  if (!p) return null;
+  if (p.etat === 'en-cours' && maintenant - (p.majLe ?? p.depuis) > PREPARATION_FIGEE_APRES_MS) {
+    return { ...p, etat: 'echec', message: p.message || 'La préparation de Chrome s’est interrompue.' };
+  }
+  return p;
+}
+
+/**
+ * LE CODE DE SECOURS EST-IL À MONTRER ? Seulement si aucun Chrome de l'ordinateur n'est relié en ligne, et que le code
+ * de liaison a été posé depuis 30 s (horodatage du démon), ou que la préparation a échoué après l'ajout de l'extension.
+ */
+export function codeDeSecoursAMontrer(
+  p: PreparationDeChrome | null | undefined,
+  chromeRelie: boolean,
+  maintenant = Date.now(),
+): boolean {
+  if (chromeRelie || !p) return false;
+  const vue = preparationVue(p, maintenant)!;
+  if (vue.etat === 'echec') return vue.ajoutee === true || !!vue.debutLiaison;
+  if (vue.etat !== 'en-cours' || !vue.debutLiaison) return false;
+  return maintenant - vue.debutLiaison >= SECOURS_APRES_MS;
+}
+
+/** Les étapes de la préparation, cochées d'après l'état réel : pour Beluga comme pour le menu de Beluga Connect. */
+export type EtapeDePreparation = 'ajoutee' | 'reliee' | 'prive';
+export function etapesDeLaPreparation(
+  p: PreparationDeChrome | null | undefined,
+  chrome: { enLigne: boolean; incognito?: boolean | null } | null | undefined,
+  mac: boolean,
+  maintenant = Date.now(),
+): { cle: EtapeDePreparation; etat: 'fait' | 'en-cours' | 'a-venir' | 'echec' }[] {
+  const vue = preparationVue(p, maintenant);
+  const faits: Record<EtapeDePreparation, boolean> = {
+    ajoutee: !!chrome || vue?.ajoutee === true,
+    reliee: !!chrome?.enLigne,
+    prive: chrome?.incognito === true,
+  };
+  const cles: EtapeDePreparation[] = mac ? ['ajoutee', 'reliee', 'prive'] : ['ajoutee', 'reliee'];
+  const premiere = cles.find((c) => !faits[c]) ?? null;
+  return cles.map((cle) => ({
+    cle,
+    etat: faits[cle] ? 'fait' : cle !== premiere ? 'a-venir' : vue?.etat === 'echec' ? 'echec' : 'en-cours',
+  }));
 }
 
 /** Les deux autorisations sont-elles données ? (Pour cocher l'étape de l'assistant.) */

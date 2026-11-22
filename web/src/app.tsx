@@ -1,5 +1,7 @@
 import { FenetreDAccordOrdinateur } from '@/components/fenetre-d-accord-ordinateur';
+import { FenetreDeLiaison } from '@/components/fenetre-de-liaison';
 import { EVENEMENT_OUVRIR_UN_AGENT, allerALEcranDeLAgentDeService } from '@/lib/ouvrir-un-agent';
+import { EVENEMENT_QUESTION_DU_DEPANNEUR } from '@/lib/evenements-publier';
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { appliquerTiroirs, oublierLAttenteSiEcranChange, usePileDeTiroirs, useTiroirAdresse } from '@/lib/tiroirs-adresse';
@@ -230,6 +232,9 @@ const Plaquettes = React.lazy(() => import('@/components/plaquettes').then((m) =
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
+const QuestionDuDepanneur = React.lazy(() =>
+  import('@/components/question-du-depanneur').then((m) => ({ default: m.QuestionDuDepanneur })),
+);
 const QuestionDeConfiguration = React.lazy(() =>
   import('@/components/config-projet/question-de-configuration').then((m) => ({ default: m.QuestionDeConfiguration })),
 );
@@ -240,6 +245,7 @@ const ProjectSettings = React.lazy(() =>
   chargerConfigProjet().then((m) => ({ default: m.ProjectSettings })),
 );
 import { BanniereExtension } from './components/banniere-extension';
+import { SuiviDeConnect } from './components/reglages/suivi-de-connect';
 import { AssistantGlobal } from '@/components/assistant-global';
 const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.VoixAssistant })));
 const AssistantDemarrage = React.lazy(() =>
@@ -861,6 +867,13 @@ export function App() {
           configurationId: projetDeLAgent?.miseEnProduction?.agentId,
           derniere: etat.deploys[agent.projectId],
         });
+        /* LA QUESTION D'UN DÉPANNEUR (cloche, notification touchée — `avecFil`) se répond dans SA FENÊTRE AU CENTRE,
+           jamais dans un tiroir ouvert sans qu'on l'ait demandé (décision du 21/11/2026, « Dépannage de publication
+           discret »). Le clic sur l'agent lui-même (ligne de colonne, vignette, « Voir la conversation ») ouvre son fil. */
+        if (avecFil && agent.depannagePublication && agent.attendReponse) {
+          window.dispatchEvent(new CustomEvent<string>(EVENEMENT_QUESTION_DU_DEPANNEUR, { detail: agentId }));
+          return;
+        }
         const fil = avecFil || !!agent.depannagePublication || !!agent.reparationPublication ? agentId : undefined;
         if (volet === 'configuration') ouvrirRubriqueDeLEtape(agent.projectId, 'production');
         else if (volet === 'dev') client.demanderDeploiement({ projectId: agent.projectId, agentId: fil });
@@ -1244,6 +1257,9 @@ export function App() {
   const unePremiereQuestionDeConfiguration = Object.values(state.procedures ?? {}).some((etat) => !!etat?.question);
   const [questionDeConfigurationVue, setQuestionDeConfigurationVue] = React.useState(false);
   if (unePremiereQuestionDeConfiguration && !questionDeConfigurationVue) setQuestionDeConfigurationVue(true);
+  const unDepanneurAttend = Object.values(state.agents).some((agent) => !!agent.depannagePublication && agent.attendReponse === true);
+  const [unDepanneurAttendVu, setUnDepanneurAttendVu] = React.useState(false);
+  if (unDepanneurAttend && !unDepanneurAttendVu) setUnDepanneurAttendVu(true);
   React.useEffect(() => {
     const monter = (event: Event) => {
       const detail = (event as CustomEvent<DemandeDAgentDeConfiguration>).detail;
@@ -2165,6 +2181,11 @@ export function App() {
             )
           }
         />
+        {/* LE SUIVI DE BELUGA CONNECT (carte « Liaison Chrome automatique et suivie ») : la fenêtre de connexion ouverte seule
+            sur l'ordinateur qu'on installe, et un message d'information pour les autres travaux. */}
+        <Filet zone="Suivi de Beluga Connect" muet>
+          <SuiviDeConnect />
+        </Filet>
         {/* LA FENÊTRE DES OUTILS DE CRÉATION, dans le projet affiché. */}
         <FenetreDeService
           open={!!fenetreDeCreation}
@@ -2759,6 +2780,12 @@ export function App() {
             Son morceau n'est demandé qu'à la première ouverture. */}
         {/* LA QUESTION DE L'AGENT DE CONFIGURATION S'OUVRE SEULE, AU CENTRE (15/11/2026) : son morceau ne se demande
             qu'à la première question posée, puis la fenêtre reste montée et écoute. */}
+        {/* LA QUESTION DU DÉPANNEUR D'UNE PUBLICATION, AU CENTRE (21/11/2026) : montée dès qu'un dépanneur attend. */}
+        <Filet zone="Question du dépanneur">
+          <PanneauALaDemande monte={unDepanneurAttendVu}>
+            <QuestionDuDepanneur />
+          </PanneauALaDemande>
+        </Filet>
         <Filet zone="Question de configuration">
           <PanneauALaDemande monte={questionDeConfigurationVue}>
             <QuestionDeConfiguration />
@@ -2772,6 +2799,8 @@ export function App() {
         <Toasts />
         {/* Une commande du terminal ou une suppression sur un ordinateur relié attend l'accord de son propriétaire. */}
         <FenetreDAccordOrdinateur />
+        {/* « Relier ce Mac ? » : Beluga Connect a ouvert Beluga pour se relier à ce compte (21/11/2026). */}
+        <FenetreDeLiaison />
         {/* Dans l'application installée, un lien vers un fichier s'ouvre ICI,
             dans une fenêtre refermable — il ne remplace plus tout l'écran. */}
         <VisionneuseDeLien />

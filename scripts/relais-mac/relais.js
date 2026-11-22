@@ -21,7 +21,7 @@
 // réglages. Le relais rapporte à chaque attente l'état de ses deux autorisations (Accessibilité, Enregistrement de
 // l'écran) : l'assistant d'installation de Beluga coche l'étape tout seul. Au premier démarrage après l'installation
 // (fichier « demander » posé par l'installateur), il DÉCLENCHE les demandes de macOS, ce qui l'inscrit dans les deux
-// listes des réglages ; le geste `ouvrir_reglage` (accessibilite | ecran, rien d'autre) rouvre le bon écran sur le Mac.
+// listes des réglages ; le geste `ouvrir_reglage` (accessibilite | ecran | aide, rien d'autre) rouvre le bon écran sur le Mac, ou la fenêtre « Activer » de Beluga Connect.
 
 // L'EXTENSION CHROME À JOUR (20/11/2026, carte « Extension à jour et Jarvis tout en voix ») : `mettre_a_jour_extension`
 // remplace le CONTENU du dossier de l'extension non empaquetée (trouvé dans les préférences de Chrome, jamais deviné),
@@ -68,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 4;
+const VERSION_DU_RELAIS = 5;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -151,6 +151,8 @@ function etatCourant() {
 const REGLAGES = {
   accessibilite: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
   ecran: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  /* La fenêtre « Activer » de Beluga Connect lui-même (« La rouvrir sur le Mac », 22/11/2026). */
+  aide: 'beluga-connect://autorisations',
 };
 
 /** Accessibilité : vraie, fausse, ou `null` si macOS ne répond pas. Ne demande rien. */
@@ -208,7 +210,7 @@ function demanderLesAutorisations(quoi) {
 function ouvrirUnReglage(quoi) {
   const url = REGLAGES[quoi];
   if (!url) throw new Error('réglage inconnu');
-  demanderLesAutorisations(quoi);
+  if (quoi !== 'aide') demanderLesAutorisations(quoi);
   $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(url));
   return { ouvert: quoi };
 }
@@ -716,7 +718,18 @@ function installerLExtension(config, a) {
   } finally {
     sh(`rm -rf ${q(travail)}`);
   }
-  $.NSString.alloc.initWithUTF8String(JSON.stringify({ code: String(a.code) })).writeToFileAtomicallyEncodingError(`${cible}/liaison.json`, true, $.NSUTF8StringEncoding, null);
+  /* LE CODE DANS CHAQUE DOSSIER CONNU (carte « Liaison Chrome automatique et suivie », 22/11/2026) : Chrome peut avoir
+     chargé l'extension depuis un autre dossier que le premier trouvé (autre profil, ancien dossier). `liaison.json`
+     est posé dans TOUS les dossiers Beluga connus de Chrome et dans le dossier fixe, avec l'adresse du Beluga qui a
+     émis le code : l'extension s'y relie même si son `config.json` vise un autre serveur. */
+  const fiche = JSON.stringify({ code: String(a.code), adresse: config.base });
+  const poses = [];
+  for (const d of [cible].concat(connus.map((x) => x.chemin), existe(DOSSIER_EXTENSION_FIXE) ? [DOSSIER_EXTENSION_FIXE] : [])) {
+    if (poses.indexOf(d) >= 0 || !existe(`${d}/manifest.json`)) continue;
+    $.NSString.alloc.initWithUTF8String(fiche).writeToFileAtomicallyEncodingError(`${d}/liaison.json`, true, $.NSUTF8StringEncoding, null);
+    poses.push(d);
+  }
+  journal(`code de liaison posé dans ${poses.length} dossier(s) : ${poses.join(', ')}`);
   let ajoutee = connus.length > 0;
   let detail = '';
   if (!ajoutee) {
@@ -727,7 +740,7 @@ function installerLExtension(config, a) {
       journal(`ajout à Chrome impossible : ${detail}`);
     }
   }
-  return { dossier: cible, ajoutee, deja: connus.length > 0, detail };
+  return { dossier: cible, ajoutee, deja: connus.length > 0, detail, dossiers: poses };
 }
 
 /**

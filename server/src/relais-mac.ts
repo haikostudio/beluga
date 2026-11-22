@@ -32,11 +32,15 @@ import {
   type SystemeDOrdinateur,
   type EtatDuRelais,
   type PreparationDeChrome,
+  type TravailDeConnect,
+  preparationVue,
+  codeDeSecoursAMontrer,
+  etapesDeLaPreparation,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
 import { creerUnOrdinateur, ligneDOrdinateur, proposerLeVraiNom } from './ordinateurs.js';
-import { secretDeLAppareil, signer } from './extension-chrome.js';
+import { echecDeLiaisonSignale, secretDeLAppareil, signer } from './extension-chrome.js';
 import { log } from './logger.js';
 
 const CLE_APPAREILS = 'relais-mac.appareils';
@@ -102,6 +106,19 @@ export function relierUnMac(demande: { code?: unknown; nom?: unknown; systeme?: 
   const trouve = codes.get(empreinte(code));
   codes.delete(empreinte(code));
   if (!trouve || trouve.expireLe < maintenant) return { ok: false, raison: 'Code inconnu ou expiré : affichez-en un nouveau dans Réglages → Extension.' };
+  return lierPourLeCompte(trouve.compteId, trouve.ordinateurId, demande, maintenant);
+}
+
+/**
+ * LE CŒUR DE LA LIAISON, commun au code (`relierUnMac`) et à la demande acceptée dans Beluga (`accepterUneLiaison`) :
+ * le programme se rattache à l'ordinateur visé, sinon au sien d'avant (`ancien`), sinon à un ordinateur neuf.
+ */
+function lierPourLeCompte(
+  compteId: string,
+  ordinateurVise: string | null,
+  demande: { nom?: unknown; systeme?: unknown; ancien?: unknown },
+  maintenant: number,
+): { ok: true; identifiant: string; secret: string; nom: string } {
   const id = crypto.randomBytes(9).toString('base64url');
   const nonce = crypto.randomBytes(12).toString('base64url');
   const systeme = systemeValable(demande.systeme) ?? 'mac';
@@ -109,21 +126,167 @@ export function relierUnMac(demande: { code?: unknown; nom?: unknown; systeme?: 
   /* RELIÉ DE NOUVEAU (Beluga Connect Windows / Linux, 21/11/2026) : le programme donne son ancienne clé ; sans
      ordinateur visé par le code, il reprend SON ordinateur au lieu d'en créer un second. */
   const ancienne = lireIdentifiantDAppareil(demande.ancien);
-  const precedent = ancienne ? relais().find((x) => x.id === ancienne.id && x.nonce === ancienne.nonce && x.compteId === trouve.compteId) : undefined;
+  const precedent = ancienne ? relais().find((x) => x.id === ancienne.id && x.nonce === ancienne.nonce && x.compteId === compteId) : undefined;
   const ordinateurId =
-    ligneDOrdinateur(trouve.compteId, trouve.ordinateurId)?.id ??
-    (precedent?.ordinateurId ? ligneDOrdinateur(trouve.compteId, precedent.ordinateurId)?.id : undefined) ??
-    creerUnOrdinateur(trouve.compteId, nom, maintenant).id;
-  proposerLeVraiNom(trouve.compteId, ordinateurId, nom);
+    ligneDOrdinateur(compteId, ordinateurVise)?.id ??
+    (precedent?.ordinateurId ? ligneDOrdinateur(compteId, precedent.ordinateurId)?.id : undefined) ??
+    creerUnOrdinateur(compteId, nom, maintenant).id;
+  proposerLeVraiNom(compteId, ordinateurId, nom);
   rattacherLesOrphelins();
   enregistrer([
-    ...relais().filter((r) => !(r.compteId === trouve.compteId && r.ordinateurId === ordinateurId)),
-    { id, compteId: trouve.compteId, nonce, nom, creeLe: maintenant, ordinateurId, ...(systeme === 'mac' ? {} : { systeme }) },
+    ...relais().filter((r) => !(r.compteId === compteId && r.ordinateurId === ordinateurId)),
+    { id, compteId, nonce, nom, creeLe: maintenant, ordinateurId, ...(systeme === 'mac' ? {} : { systeme }) },
   ]);
-  const cle = { compteId: trouve.compteId, id, nonce };
+  const cle = { compteId, id, nonce };
   log.info(`Beluga Connect relié (${nom}, ${systeme})`);
   bus.emit({ type: 'extension.change' });
   return { ok: true, identifiant: identifiantDAppareil(cle), secret: secretDeLAppareil(cle), nom };
+}
+
+/* ------------------------------------------------------------------ */
+/* La liaison DEMANDÉE PAR L'APPLICATION (21/11/2026)                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * « RELIER CE MAC ? » — LA LIAISON PART DE BELUGA CONNECT, PLUS DE LA PAGE (décision de l'utilisateur, 21/11/2026,
+ * carte « Dépannage de publication discret ») : le lien `beluga-connect://relier` ouvert par la page était bloqué par
+ * Chrome sans un mot, et « Relier maintenant » ne faisait rien. Désormais :
+ *   1. l'application demande une liaison (`demanderUneLiaison`, sans session) et reçoit DEUX secrets : un JETON public,
+ *      qu'elle met dans l'adresse de Beluga qu'elle ouvre (`/?liaison=<jeton>`), et une clé de
+ *      RETRAIT qu'elle garde pour elle ;
+ *   2. la page, AVEC la session de la personne, montre « Relier « <nom> » à Beluga ? » ; un clic sur « Relier »
+ *      (`accepterUneLiaison`) relie l'ordinateur à CE compte ;
+ *   3. l'application attend (`attendreLaLiaison`, clé de retrait) et reçoit sa clé d'appareil — qui ne passe donc
+ *      JAMAIS par l'adresse ni par le navigateur.
+ * Jeton à usage unique, dix minutes, demandes plafonnées par adresse ; tout vit en mémoire (un redémarrage du démon
+ * les efface : l'application en redemande une sur « inconnue »).
+ */
+export const DUREE_DEMANDE_DE_LIAISON_MS = 10 * 60_000;
+const ATTENTE_DE_LA_LIAISON_MS = 25_000;
+const PLAFOND_DE_DEMANDES_PAR_ADRESSE = 5;
+
+interface DemandeDeLiaison {
+  jeton: string;
+  retrait: string;
+  adresse: string;
+  nom: string;
+  systeme: SystemeDOrdinateur;
+  ancien?: string;
+  expireLe: number;
+  issue?: { ok: true; identifiant: string; secret: string; nom: string } | { ok: false };
+}
+/* Rangées par EMPREINTE de leur jeton ; l'empreinte du retrait sert à les retrouver côté application. */
+const demandesDeLiaison = new Map<string, DemandeDeLiaison>();
+const attentesDeLiaison = new Map<string, Set<() => void>>();
+
+function oublierLesDemandesExpirees(maintenant: number): void {
+  for (const [cle, d] of demandesDeLiaison) if (d.expireLe < maintenant) demandesDeLiaison.delete(cle);
+}
+function demandeParRetrait(retrait: string): [string, DemandeDeLiaison] | undefined {
+  const cible = empreinte(retrait);
+  for (const entree of demandesDeLiaison) if (entree[1].retrait === cible) return entree;
+  return undefined;
+}
+function reveiller(cle: string): void {
+  for (const f of attentesDeLiaison.get(cle) ?? []) f();
+  attentesDeLiaison.delete(cle);
+}
+
+/** L'application demande une liaison : elle rend le jeton (pour l'adresse) et la clé de retrait (gardée par elle). */
+export function demanderUneLiaison(
+  demande: { nom?: unknown; systeme?: unknown; ancien?: unknown },
+  adresse: string,
+  maintenant = Date.now(),
+): { ok: true; jeton: string; retrait: string; expireLe: number } | { ok: false; raison: string } {
+  oublierLesDemandesExpirees(maintenant);
+  if (tropDEssais(adresse, maintenant)) return { ok: false, raison: 'Trop d’essais : patientez une minute.' };
+  const vivantes = [...demandesDeLiaison.values()].filter((d) => d.adresse === adresse && !d.issue);
+  /* Une adresse ne garde que ses dernières demandes : la plus ancienne s'efface. */
+  if (vivantes.length >= PLAFOND_DE_DEMANDES_PAR_ADRESSE) {
+    const plusVieille = vivantes.sort((a, b) => a.expireLe - b.expireLe)[0];
+    demandesDeLiaison.delete(plusVieille.jeton);
+  }
+  const jeton = crypto.randomBytes(24).toString('base64url');
+  const retrait = crypto.randomBytes(32).toString('base64url');
+  const systeme = systemeValable(demande.systeme) ?? 'mac';
+  const nom = String(demande.nom ?? '').trim().slice(0, 60) || (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : 'Linux');
+  const ancien = typeof demande.ancien === 'string' && demande.ancien.length < 200 ? demande.ancien : undefined;
+  const expireLe = maintenant + DUREE_DEMANDE_DE_LIAISON_MS;
+  demandesDeLiaison.set(empreinte(jeton), { jeton: empreinte(jeton), retrait: empreinte(retrait), adresse, nom, systeme, ancien, expireLe });
+  return { ok: true, jeton, retrait, expireLe };
+}
+
+/** Ce que la page montre d'une demande (avec session) : le nom et le système de l'ordinateur, ou rien si elle est morte. */
+export function lireUneDemandeDeLiaison(jeton: string, maintenant = Date.now()): { nom: string; systeme: SystemeDOrdinateur; expireLe: number } | null {
+  oublierLesDemandesExpirees(maintenant);
+  const d = demandesDeLiaison.get(empreinte(String(jeton)));
+  if (!d || d.issue) return null;
+  return { nom: d.nom, systeme: d.systeme, expireLe: d.expireLe };
+}
+
+/** « Relier » : l'ordinateur est relié au compte de la personne connectée. Usage unique. */
+export function accepterUneLiaison(
+  compteId: string,
+  jeton: string,
+  ordinateurVise: string | null = null,
+  maintenant = Date.now(),
+): { ok: true; nom: string } | { ok: false; raison: string } {
+  oublierLesDemandesExpirees(maintenant);
+  const cle = empreinte(String(jeton));
+  const d = demandesDeLiaison.get(cle);
+  if (!d || d.issue) return { ok: false, raison: 'Cette demande a expiré : rouvrez Beluga Connect sur l’ordinateur.' };
+  const issue = lierPourLeCompte(compteId, ordinateurVise, { nom: d.nom, systeme: d.systeme, ancien: d.ancien }, maintenant);
+  d.issue = issue;
+  /* Le temps que l'application vienne la chercher, pas plus. */
+  d.expireLe = Math.min(d.expireLe, maintenant + 2 * 60_000);
+  reveiller(cle);
+  return { ok: true, nom: issue.nom };
+}
+
+/** « Pas maintenant » : l'application l'apprend à sa prochaine attente. */
+export function refuserUneLiaison(jeton: string, maintenant = Date.now()): boolean {
+  oublierLesDemandesExpirees(maintenant);
+  const cle = empreinte(String(jeton));
+  const d = demandesDeLiaison.get(cle);
+  if (!d || d.issue) return false;
+  d.issue = { ok: false };
+  d.expireLe = Math.min(d.expireLe, maintenant + 2 * 60_000);
+  reveiller(cle);
+  return true;
+}
+
+export type IssueDeLaLiaison =
+  | { etat: 'attente' }
+  | { etat: 'acceptee'; identifiant: string; secret: string; nom: string }
+  | { etat: 'refusee' }
+  | { etat: 'inconnue' };
+
+/** L'application attend la réponse de la personne (longue attente) ; la clé ne lui est remise qu'UNE fois. */
+export async function attendreLaLiaison(retrait: string, attente = ATTENTE_DE_LA_LIAISON_MS): Promise<IssueDeLaLiaison> {
+  oublierLesDemandesExpirees(Date.now());
+  const trouvee = demandeParRetrait(String(retrait));
+  if (!trouvee) return { etat: 'inconnue' };
+  const [cle] = trouvee;
+  if (!trouvee[1].issue && attente > 0) {
+    await new Promise<void>((fini) => {
+      const minuteur = setTimeout(() => {
+        attentesDeLiaison.get(cle)?.delete(reveil);
+        fini();
+      }, attente);
+      const reveil = () => {
+        clearTimeout(minuteur);
+        fini();
+      };
+      if (!attentesDeLiaison.has(cle)) attentesDeLiaison.set(cle, new Set());
+      attentesDeLiaison.get(cle)!.add(reveil);
+    });
+  }
+  const d = demandesDeLiaison.get(cle);
+  if (!d) return { etat: 'inconnue' };
+  if (!d.issue) return { etat: 'attente' };
+  demandesDeLiaison.delete(cle);
+  if (!d.issue.ok) return { etat: 'refusee' };
+  return { etat: 'acceptee', identifiant: d.issue.identifiant, secret: d.issue.secret, nom: d.issue.nom };
 }
 
 /** Délier le programme du Mac d'un ordinateur (ou tous ceux du compte, sans ordinateur donné). */
@@ -389,7 +552,7 @@ export function programmesDuCompte(
         vuLe: e.vuLe,
         autorisations: e.autorisations,
         connect: e.connect,
-        preparation: preparations.get(r.ordinateurId!) ?? null,
+        preparation: preparationDe(r.ordinateurId!, maintenant),
         systeme: e.systeme,
         relieLe: e.relieLe,
       };
@@ -426,7 +589,7 @@ function rattacherLesOrphelins(): void {
  * ROUVRIR SUR LE MAC l'écran des réglages d'une autorisation (assistant d'installation) : le relais la redemande à
  * macOS puis ouvre le bon écran. Seuls deux réglages existent ; rien d'autre ne s'ouvre.
  */
-export async function ouvrirUnReglageDuMac(compteId: string, ordinateurId: string, reglage: 'accessibilite' | 'ecran'): Promise<void> {
+export async function ouvrirUnReglageDuMac(compteId: string, ordinateurId: string, reglage: 'accessibilite' | 'ecran' | 'aide'): Promise<void> {
   const r = relaisDuCompte(compteId, Date.now(), ordinateurId);
   if (!r.appareilId || r.ordinateurId !== ordinateurId) throw new Error('Le programme du Mac n’est pas installé sur cet ordinateur.');
   if (r.etat === 'hors-ligne' || r.etat === 'absent') throw new Error('Le programme du Mac ne répond pas : le Mac est-il allumé ?');
@@ -491,9 +654,12 @@ function lireLeFichier(nom: string): string | null {
  * (`connect/go/`, fabriquée depuis Linux par `connect/go/fabriquer.sh`), un seul fichier par système et architecture.
  * Tous vivent dans `connect/paquet/` (versionné et publié) ; la version Go est dans `version-go.txt`.
  */
-export type CleDePaquet = 'mac' | 'windows' | 'linux-amd64' | 'linux-arm64';
+export type CleDePaquet = 'mac' | 'mac-dmg' | 'windows' | 'linux-amd64' | 'linux-arm64';
 const FICHIERS_DES_PAQUETS: Record<CleDePaquet, { fichier: string; version: string; route: string; type: string }> = {
   mac: { fichier: 'Beluga-Connect.zip', version: 'version.txt', route: '/api/connect/Beluga-Connect.zip', type: 'application/zip' },
+  /* L'IMAGE DISQUE « glisser dans Applications » (carte « Liaison d'ordinateur simplifiée », 22/11/2026) : ce qu'on
+     télécharge à la main. Le zip reste celui de la mise à jour d'elle-même de Beluga Connect (`/api/connect/version`). */
+  'mac-dmg': { fichier: 'Beluga-Connect.dmg', version: 'version.txt', route: '/api/connect/Beluga-Connect.dmg', type: 'application/x-apple-diskimage' },
   windows: { fichier: 'Beluga-Connect-Windows.exe', version: 'version-go.txt', route: '/api/connect/Beluga-Connect-Windows.exe', type: 'application/vnd.microsoft.portable-executable' },
   'linux-amd64': { fichier: 'beluga-connect-linux-amd64', version: 'version-go.txt', route: '/api/connect/beluga-connect-linux-amd64', type: 'application/octet-stream' },
   'linux-arm64': { fichier: 'beluga-connect-linux-arm64', version: 'version-go.txt', route: '/api/connect/beluga-connect-linux-arm64', type: 'application/octet-stream' },
@@ -553,8 +719,39 @@ function paquetDuProgramme(systeme: SystemeDOrdinateur, arch: string | undefined
   return 'mac';
 }
 
-const preparations = new Map<string, PreparationDeChrome>();
+/*
+ * LES PRÉPARATIONS DE CHROME (carte « Liaison Chrome automatique et suivie », 22/11/2026) : gardées dans `meta` pour
+ * survivre à un rechargement comme à un redémarrage du démon. Une préparation « en cours » laissée par le démon d'avant
+ * n'a plus personne pour la finir : elle devient un échec dit au chargement. `enCoursIci` est la seule garde contre
+ * deux préparations simultanées du même ordinateur.
+ */
+const CLE_DES_PREPARATIONS = 'relais-mac.preparations';
+let preparations: Map<string, PreparationDeChrome> | null = null;
+const enCoursIci = new Set<string>();
 const derniersEssais = new Map<string, number>();
+
+function lesPreparations(): Map<string, PreparationDeChrome> {
+  if (preparations) return preparations;
+  preparations = new Map();
+  try {
+    const brut = JSON.parse(getMeta(CLE_DES_PREPARATIONS) ?? '{}') as Record<string, PreparationDeChrome>;
+    for (const [id, p] of Object.entries(brut)) {
+      if (!p || typeof p !== 'object') continue;
+      preparations.set(id, p.etat === 'en-cours' ? { ...p, etat: 'echec', message: p.message || 'La préparation de Chrome s’est interrompue (Beluga a redémarré).' } : p);
+    }
+  } catch {
+    /* base pas encore prête : on repart à vide */
+  }
+  return preparations;
+}
+
+/** La préparation à montrer : figée = échec, et un refus du code signalé par l'extension remonte aussitôt. */
+function preparationDe(ordinateurId: string, maintenant = Date.now()): PreparationDeChrome | null {
+  const p = preparationVue(lesPreparations().get(ordinateurId), maintenant);
+  if (!p || p.etat !== 'en-cours' || !p.debutLiaison) return p;
+  const refus = echecDeLiaisonSignale(ordinateurId, p.debutLiaison);
+  return refus ? { ...p, etat: 'echec', message: `Chrome n’a pas pu se relier seul : ${refus.raison}` } : p;
+}
 
 /** Vrai (et noté) si ce geste n'a pas été tenté sur ce relais depuis `ms`. */
 function auPlusToutesLes(cle: string, ms: number, maintenant = Date.now()): boolean {
@@ -564,7 +761,20 @@ function auPlusToutesLes(cle: string, ms: number, maintenant = Date.now()): bool
 }
 
 function poserLaPreparation(ordinateurId: string, p: PreparationDeChrome): void {
-  preparations.set(ordinateurId, p);
+  const toutes = lesPreparations();
+  const neuve = { ...p, majLe: Date.now() };
+  toutes.set(ordinateurId, neuve);
+  log.info(
+    `Beluga Connect : préparation de Chrome (${ordinateurId}) ${neuve.travail ?? 'installation'} → ${neuve.etat}` +
+      `${neuve.ajoutee === true ? ', extension ajoutée' : ''}${neuve.debutLiaison ? ', code posé' : ''}${neuve.message ? ` — ${neuve.message}` : ''}`,
+  );
+  try {
+    /* Les préparations de plus d'une semaine sont oubliées : l'état se relit alors sur les navigateurs eux-mêmes. */
+    const garde = Object.fromEntries([...toutes].filter(([, x]) => Date.now() - (x.majLe ?? x.depuis) < 7 * 86_400_000));
+    setMeta(CLE_DES_PREPARATIONS, JSON.stringify(garde));
+  } catch {
+    /* base fermée à l'arrêt */
+  }
   bus.emit({ type: 'extension.change' });
 }
 
@@ -605,71 +815,140 @@ async function attendreQue<T>(lire: () => Promise<T | null | undefined>, delaiMs
   return null;
 }
 
+/** Cet ordinateur a-t-il déjà eu un Chrome relié (même délié depuis) ? Sinon, c'est son installation. */
+function dejaEuUnChrome(compteId: string, ordinateurId: string): boolean {
+  try {
+    return !!getDb().prepare("SELECT 1 FROM chrome_appareils WHERE compte_id = ? AND ordinateur_id = ? AND navigateur = 'chrome' LIMIT 1").get(compteId, ordinateurId);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * PRÉPARER CHROME sur le Mac de ce relais : poser et relier l'extension si ce Mac n'a aucun Chrome relié, puis cocher
- * la navigation privée si l'extension dit ne pas l'avoir. `force` (« Réparer ») passe outre les délais entre essais.
+ * la navigation privée si l'extension dit ne pas l'avoir. `force` (« Réparer », « Réessayer », Chrome délié) passe outre
+ * les délais entre essais. Chaque issue est POSÉE : la préparation ne reste jamais « en cours » une fois sortie d'ici.
  */
 export async function preparerChrome(compteId: string, r: RelaisRelie, force: boolean): Promise<void> {
   const ordinateurId = r.ordinateurId;
-  if (!ordinateurId || preparations.get(ordinateurId)?.etat === 'en-cours') return;
+  if (!ordinateurId || enCoursIci.has(ordinateurId)) return;
+  enCoursIci.add(ordinateurId);
+  try {
+    await preparerChromeSansGarde(compteId, r, ordinateurId, force);
+  } finally {
+    enCoursIci.delete(ordinateurId);
+    const p = lesPreparations().get(ordinateurId);
+    if (p?.etat === 'en-cours') {
+      /* Filet : une issue oubliée se lit sur le navigateur lui-même. */
+      const relie = (await chromesDeLOrdinateur(compteId, ordinateurId).catch(() => [])).find((c) => c.enLigne);
+      poserLaPreparation(ordinateurId, relie ? { ...p, etat: 'fait', ajoutee: true } : { ...p, etat: 'echec', message: p.message || 'Chrome ne s’est pas relié à Beluga.' });
+    }
+  }
+}
+
+async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinateurId: string, force: boolean): Promise<void> {
   let chromes = await chromesDeLOrdinateur(compteId, ordinateurId);
   const depuis = Date.now();
+  const travail: TravailDeConnect = !force && !dejaEuUnChrome(compteId, ordinateurId) ? 'installation' : 'reparation';
   if (!chromes.length) {
-    if (!force && !auPlusToutesLes(`installer:${r.id}`, 15 * 60_000)) return;
-    poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: null, message: null, depuis });
+    /* Dix minutes entre deux essais : la durée de vie d'un code, pour que `liaison.json` en porte toujours un valable. */
+    if (!force && !auPlusToutesLes(`installer:${r.id}`, 10 * 60_000)) return;
+    poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: null, message: null, depuis, travail, debutLiaison: null });
     try {
       const { emettreUnCodeDeLiaison } = await import('./extension-chrome.js');
       const { preparerLePaquet } = await import('./mise-a-jour-extension.js');
-      const { code } = emettreUnCodeDeLiaison(compteId, Date.now(), { ordinateurId });
+      const { code } = emettreUnCodeDeLiaison(compteId, Date.now(), { ordinateurId, usage: 'fichier' });
       const { jeton, empreinte } = await preparerLePaquet(r.id);
-      const fait = await demanderAuRelais<{ ajoutee?: boolean; detail?: string; dossier?: string }>(
+      const fait = await demanderAuRelais<{ ajoutee?: boolean; detail?: string; dossier?: string; dossiers?: string[] }>(
         r.id,
         'installer_extension',
         { chemin: `/api/relais-mac/extension.zip?jeton=${jeton}`, empreinte, version: VERSION_EXTENSION_CHROME, code },
         180_000,
       );
-      poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: fait.ajoutee === true, message: fait.detail || null, depuis, dossier: fait.dossier ?? null });
-      const relie = await attendreQue(async () => (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.enLigne), fait.ajoutee ? 90_000 : 20_000);
-      if (!relie) {
+      const ajoutee = fait.ajoutee === true;
+      log.info(`Beluga Connect : extension posée (${ajoutee ? 'ajoutée à Chrome' : 'pas ajoutée'}) dans ${(fait.dossiers ?? [fait.dossier]).filter(Boolean).join(', ') || '?'}`);
+      poserLaPreparation(ordinateurId, {
+        etat: 'en-cours',
+        ajoutee,
+        message: fait.detail || null,
+        depuis,
+        travail,
+        dossier: fait.dossier ?? null,
+        debutLiaison: ajoutee ? Date.now() : null,
+      });
+      const relie = await attendreQue(async () => {
+        if (echecDeLiaisonSignale(ordinateurId, depuis)) return { refuse: true } as const;
+        return (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.enLigne);
+      }, ajoutee ? 90_000 : 20_000);
+      if (!relie || 'refuse' in relie) {
+        const refus = echecDeLiaisonSignale(ordinateurId, depuis);
         poserLaPreparation(ordinateurId, {
           etat: 'echec',
-          ajoutee: fait.ajoutee === true,
-          message: fait.ajoutee ? 'Chrome ne s’est pas relié à Beluga.' : (fait.detail ?? 'L’extension n’a pas pu être ajoutée à Chrome.'),
+          ajoutee,
+          message: refus
+            ? `Chrome n’a pas pu se relier seul : ${refus.raison}`
+            : ajoutee
+              ? 'Chrome ne s’est pas relié à Beluga tout seul.'
+              : (fait.detail ?? 'L’extension n’a pas pu être ajoutée à Chrome.'),
           depuis,
+          travail,
           dossier: fait.dossier ?? null,
+          debutLiaison: lesPreparations().get(ordinateurId)?.debutLiaison ?? null,
         });
         return;
       }
       chromes = [relie];
     } catch (e) {
-      poserLaPreparation(ordinateurId, { etat: 'echec', ajoutee: false, message: String((e as Error)?.message ?? e), depuis });
+      poserLaPreparation(ordinateurId, { etat: 'echec', ajoutee: false, message: String((e as Error)?.message ?? e), depuis, travail, debutLiaison: null });
       return;
     }
   }
   const chrome = chromes[0]!;
+  const enCours = () => lesPreparations().get(ordinateurId)?.etat === 'en-cours';
+  const fini = () => {
+    if (enCours()) poserLaPreparation(ordinateurId, { ...lesPreparations().get(ordinateurId)!, etat: 'fait', ajoutee: true, message: null });
+  };
   /* La case « navigation privée » ne se coche seule que sur un Mac (pilotage de chrome://extensions par macOS). */
-  if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') {
-    if (preparations.get(ordinateurId)?.etat === 'en-cours') poserLaPreparation(ordinateurId, { etat: 'fait', ajoutee: true, message: null, depuis });
+  if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') return fini();
+  if (chrome.incognito === true || !chrome.enLigne || !versionAuMoins(chrome.version, '1.0.11')) return fini();
+  const ligne = getDb().prepare('SELECT extension_id FROM chrome_appareils WHERE id = ? AND extension_id IS NOT NULL').get(chrome.id) as { extension_id: string } | undefined;
+  /* Pas encore d'identifiant (le bonjour arrive) ou essai trop récent : la liaison est faite, la case reste à cocher.
+     Avant, la préparation restait « en cours » à vie dans ces deux cas. */
+  if (!ligne || (!force && !auPlusToutesLes(`prive:${r.id}`, 30 * 60_000))) {
+    if (enCours()) {
+      poserLaPreparation(ordinateurId, { ...lesPreparations().get(ordinateurId)!, etat: 'echec', ajoutee: true, message: 'La navigation privée reste à autoriser.' });
+    }
     return;
   }
-  if (chrome.incognito === true || !chrome.enLigne || !versionAuMoins(chrome.version, '1.0.11')) {
-    if (preparations.get(ordinateurId)?.etat === 'en-cours') poserLaPreparation(ordinateurId, { etat: 'fait', ajoutee: true, message: null, depuis });
-    return;
-  }
-  if (!force && !auPlusToutesLes(`prive:${r.id}`, 30 * 60_000)) return;
-  const ligne = getDb().prepare('SELECT extension_id FROM chrome_appareils WHERE id = ?').get(chrome.id) as { extension_id: string | null } | undefined;
-  if (!ligne?.extension_id) return;
-  poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: true, message: null, depuis });
+  const avant = lesPreparations().get(ordinateurId);
+  const base: PreparationDeChrome = enCours() && avant ? avant : { etat: 'en-cours', ajoutee: true, message: null, depuis, travail: 'prive', debutLiaison: null };
+  poserLaPreparation(ordinateurId, { ...base, etat: 'en-cours', ajoutee: true, message: null });
   try {
     await demanderAuRelais(r.id, 'autoriser_navigation_privee', { extensionId: ligne.extension_id }, 90_000);
     const prive = await attendreQue(async () => (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.incognito === true), 30_000);
     poserLaPreparation(
       ordinateurId,
-      prive ? { etat: 'fait', ajoutee: true, message: null, depuis } : { etat: 'echec', ajoutee: true, message: 'La navigation privée n’a pas pu être autorisée.', depuis },
+      prive ? { ...base, etat: 'fait', ajoutee: true, message: null } : { ...base, etat: 'echec', ajoutee: true, message: 'La navigation privée n’a pas pu être autorisée.' },
     );
   } catch (e) {
-    poserLaPreparation(ordinateurId, { etat: 'echec', ajoutee: true, message: String((e as Error)?.message ?? e), depuis });
+    poserLaPreparation(ordinateurId, { ...base, etat: 'echec', ajoutee: true, message: String((e as Error)?.message ?? e) });
   }
+}
+
+/**
+ * UN CHROME DÉLIÉ SUR UN ORDINATEUR QUI GARDE SON BELUGA CONNECT (même carte) : la préparation repart aussitôt, sans le
+ * délai entre essais, une seule fois par révocation. L'ordinateur délié en entier (ou sans Connect en ligne) : rien.
+ */
+export function reprendreApresUneRevocation(compteId: string, ordinateurId: string): boolean {
+  if (!ligneDOrdinateur(compteId, ordinateurId)) return false;
+  const r = relais().find((x) => x.compteId === compteId && x.ordinateurId === ordinateurId);
+  if (!r || !nouvelles.get(r.id)?.connect) return false;
+  const etat = etatDe(r, Date.now());
+  if (etat.etat === 'hors-ligne' || etat.etat === 'absent') return false;
+  if (etat.systeme === 'mac' && etat.autorisations?.accessibilite !== true) return false;
+  log.info(`Beluga Connect : Chrome délié sur l’ordinateur ${ordinateurId}, nouvelle liaison`);
+  void preparerChrome(compteId, r, true).catch((e) => log.warn('Beluga Connect : reprise après révocation', String((e as Error)?.message ?? e)));
+  return true;
 }
 
 /** Ce que Beluga Connect affiche dans son menu : l'ordinateur, ses Chrome, la version servie de lui-même. */
@@ -681,6 +960,15 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
   const retards = await retardsDuCompte(compteId);
   const n = nouvelles.get(appareilId);
   const a = paquetDeConnect(paquetDuProgramme(systemeDuRelais(r, n), n?.arch));
+  const prep = r?.ordinateurId ? preparationDe(r.ordinateurId) : null;
+  const miseAJour = chromes.some((c) => retards.find((x) => x.chromeId === c.id)?.enCours);
+  const travailEnCours: TravailDeConnect | null = prep?.etat === 'en-cours' ? (prep.travail ?? 'installation') : miseAJour ? 'mise-a-jour' : null;
+  /* Le code de secours n'est montré par Connect que s'il est temps (30 s sans liaison) ; émis au besoin. */
+  let secours: { code: string; expireLe: number } | null = null;
+  if (r?.ordinateurId && codeDeSecoursAMontrer(prep, chromes.some((c) => c.enLigne))) {
+    const { codeDeSecours } = await import('./extension-chrome.js');
+    secours = codeDeSecours(compteId, r.ordinateurId);
+  }
   return {
     ordinateur: ordinateur?.nom ?? null,
     chromes: chromes.map((c) => ({
@@ -694,7 +982,16 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
     })),
     versionExtension: VERSION_EXTENSION_CHROME,
     connect: a ? { version: a.version, empreinte: a.empreinte, chemin: a.route } : null,
-    preparation: (r?.ordinateurId && preparations.get(r.ordinateurId)?.etat) || null,
+    preparation: prep?.etat ?? null,
+    /*
+     * LE SUIVI POUR LE MENU DE BELUGA CONNECT (carte « Liaison Chrome automatique et suivie », 22/11/2026) : le travail
+     * en cours (l'icône tourne), les étapes cochées d'après l'état réel, la raison d'un échec et le code de secours
+     * (le même que celui affiché dans Beluga). Les versions d'avant de Beluga Connect ignorent ces champs.
+     */
+    travail: travailEnCours,
+    etapes: r?.ordinateurId ? etapesDeLaPreparation(prep, chromes[0] ?? null, systemeDuRelais(r, n) === 'mac').map((e) => ({ cle: e.cle, etat: e.etat })) : [],
+    raison: prep?.etat === 'echec' ? prep.message : null,
+    codeDeSecours: secours ? { code: secours.code, expireLe: secours.expireLe } : null,
   };
 }
 
@@ -719,7 +1016,6 @@ export async function demandeDeConnect(appareilId: string, compteId: string, quo
 export function preparerChromeDeLOrdinateur(compteId: string, ordinateurId: string): boolean {
   const r = relais().find((x) => x.compteId === compteId && x.ordinateurId === ordinateurId);
   if (!r || !nouvelles.get(r.id)?.connect) return false;
-  if (preparations.get(ordinateurId)?.etat !== 'en-cours') preparations.delete(ordinateurId);
   void preparerChrome(compteId, r, true).catch(() => {});
   return true;
 }

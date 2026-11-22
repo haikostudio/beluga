@@ -1325,10 +1325,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('relaisMac.etat') }),
   z.object({ type: z.literal('relaisMac.code'), ordinateurId: z.string().optional() }),
   z.object({ type: z.literal('relaisMac.delier'), ordinateurId: z.string().optional() }),
-  /** Rouvrir sur le Mac l'écran des réglages d'une autorisation (assistant d'installation de la page Extension). */
-  z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran']) }),
+  /** « Relier ce Mac ? » (21/11/2026) : la page lit la demande de liaison posée par Beluga Connect, puis la tranche. */
+  z.object({ type: z.literal('relaisMac.liaison.lire'), jeton: z.string().max(200) }),
+  z.object({ type: z.literal('relaisMac.liaison.accepter'), jeton: z.string().max(200), ordinateurId: z.string().optional() }),
+  z.object({ type: z.literal('relaisMac.liaison.refuser'), jeton: z.string().max(200) }),
+  /** Rouvrir sur le Mac l'écran des réglages d'une autorisation, ou (`aide`) la fenêtre « Activer » de Beluga Connect. */
+  z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran', 'aide']) }),
   /** Beluga Connect prépare (ou répare) Chrome sur ce Mac : extension posée, reliée, navigation privée (20/11/2026). */
   z.object({ type: z.literal('relaisMac.preparer'), ordinateurId: z.string() }),
+  /* Le code de secours d'un ordinateur (étape « Chrome prêt », page de l'ordinateur) : partagé avec Beluga Connect. */
+  z.object({ type: z.literal('relaisMac.codeDeSecours'), ordinateurId: z.string() }),
   /*
    * LES ORDINATEURS NOMMÉS (`server/src/ordinateurs.ts`, carte « Choisir l'ordinateur visé depuis le téléphone ») :
    * en créer un (avant d'y relier un navigateur ou le programme du Mac), le renommer, le délier ; lire la liste avec
