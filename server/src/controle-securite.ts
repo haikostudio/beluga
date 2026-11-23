@@ -42,6 +42,9 @@ import {
   type RapportDeSecurite,
   type ReponseHttp,
   type RoutesDUnFichier,
+  ENTETE_ESSAI_VISITEUR,
+  constatsDeLaGarde,
+  reponseFermee,
 } from '@beluga/shared';
 
 export interface OptionsDuControle {
@@ -54,6 +57,8 @@ export interface OptionsDuControle {
   depotPublic?: boolean;
   /** Le réglage « Accès des robots » du site, s'il en a un à lui : l'audit juge alors d'après lui (22/11/2026). */
   reglageRobots?: ReglageRobots | null;
+  /** La garde de la version de travail du projet (carte « Accès des IA : prod ou dev », 23/11/2026). */
+  gardeTravail?: { hotes: string[]; protege: boolean; gardePosee: boolean } | null;
 }
 
 export interface ResultatDuControle {
@@ -305,6 +310,32 @@ export async function controlerLaSecurite(options: OptionsDuControle): Promise<R
     }
   } else {
     etapes.push({ nom: 'Protection contre les robots', etat: 'non-verifie', note: 'aucune adresse publique donnée' });
+  }
+
+  // 5. La version de travail réservée aux personnes connectées : un visiteur ANONYME (entête qui retire le passe-droit
+  //    des contrôles lancés depuis ce serveur) doit être renvoyé vers la connexion.
+  if (options.gardeTravail?.hotes.length) {
+    const g = options.gardeTravail;
+    let reponse: { statut: number; vers: string | null } | null = null;
+    if (g.protege) {
+      try {
+        const r = await fetch(`https://${g.hotes[0]}/`, {
+          redirect: 'manual',
+          headers: { [ENTETE_ESSAI_VISITEUR]: 'visiteur', 'user-agent': 'Mozilla/5.0 (controle Beluga)' },
+          signal: AbortSignal.timeout(15_000),
+        });
+        await r.body?.cancel().catch(() => {});
+        reponse = { statut: r.status, vers: r.headers.get('location') };
+      } catch {
+        reponse = null;
+      }
+    }
+    constats.push(...constatsDeLaGarde({ ...g, reponse }));
+    etapes.push({
+      nom: 'Version de travail réservée',
+      etat: 'fait',
+      note: g.protege ? `${g.hotes.join(', ')} : ${reponseFermee(reponse) ? 'fermée aux visiteurs anonymes' : 'OUVERTE à un visiteur anonyme'}` : 'protection coupée par l’utilisateur',
+    });
   }
 
   const rapport: RapportDeSecurite = {

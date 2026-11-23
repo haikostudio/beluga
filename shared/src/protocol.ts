@@ -1538,6 +1538,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * l'APPLIQUE sur le serveur qui sert le site (Caddy rechargé, jamais redémarré), puis rend l'état.
    */
   z.object({ type: z.literal('securite.robots.lire'), projectId: z.string() }),
+  /** LA GARDE DE LA VERSION DE TRAVAIL d'un projet (carte « Accès des IA : prod ou dev ») : adresses couvertes, état. */
+  z.object({ type: z.literal('projet.gardeTravail'), projectId: z.string() }),
   z.object({
     type: z.literal('securite.robots.regler'),
     projectId: z.string(),

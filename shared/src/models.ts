@@ -358,6 +358,18 @@ export const Project = z.object({
    */
   miseEnProductionActive: z.boolean().default(false),
   /**
+   * LA VERSION DE TRAVAIL EST RÉSERVÉE AUX PERSONNES CONNECTÉES (carte « Accès des IA : prod ou dev », 23/11/2026) :
+   * ALLUMÉE par défaut, projets à venir compris (décision de l'utilisateur). Les adresses de travail du projet sur la
+   * zone des projets ne s'ouvrent qu'à un administrateur de Beluga ou à un compte à qui le projet est ouvert
+   * (`shared/src/garde-acces.ts`). Se coupe dans paramètres › Déploiement.
+   */
+  protectionTravail: z.boolean().default(true),
+  /**
+   * LES CHEMINS QUI RESTENT LIBRES malgré la garde : notifications entrantes (paiement, webhooks) que des services
+   * extérieurs appellent sans compte. « /api/webhooks/* » couvre tout le dossier. Vide par défaut.
+   */
+  cheminsLibresTravail: z.array(z.string()).default([]),
+  /**
    * LES DÉPÔTS ANNEXES (`DepotAnnexe`, `shared/src/depots-du-projet.ts`). Vide =
    * un projet à dépôt simple, exactement comme avant : rien à convertir.
    */

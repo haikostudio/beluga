@@ -35,6 +35,7 @@ import {
   blocCaddyGardeRobots,
   fichierTraefikGardeRobots,
   estAdresseDeTravail,
+  hotesDuMemeSite,
   memeReglageRobots,
   reglageRobotsLu,
   reglageRobotsParDefaut,
@@ -47,6 +48,8 @@ import {
 /* La base et le magasin des projets se chargent À LA DEMANDE : ce fichier sert aussi au contrôle lancé hors du démon
    (scripts/controle-securite.mjs), qui n'ouvre aucune base. */
 const db = () => import('./db.js');
+const garde = () => import('./garde-acces.js');
+const config = () => import('./config.js');
 const magasin = () => import('./store.js');
 const journal = () => import('./logger.js');
 
@@ -236,14 +239,24 @@ export async function etatDesRobots(projectId: string): Promise<EtatDesRobots> {
   const application = await applicationPour(adresse, hote);
   const enregistre = hote ? await reglageEnregistre(projectId, hote) : null;
   const reglage = enregistre ?? (hote ? reglageRobotsParDefaut(hote) : reglageRobotsParDefaut('site.invalid'));
+  const projet = (await magasin()).getProject(projectId);
+  const version: 'en-ligne' | 'travail' = projet?.adresseProduction ? 'en-ligne' : 'travail';
+  const g = await garde();
+  const hotes = hote && application === 'serveur-beluga' ? hotesDuMemeSite(g.lesBlocsDeSite(), hote) : hote ? [hote] : [];
+  const site = g.lesSitesDeTravail().find((s) => s.projetId === projectId);
+  const reserveeAuxConnectes = version === 'travail' && !!site?.protege && !g.gardeCoupee() && !!hote && site.hotes.includes(hote);
   return {
     adresse,
     hote,
     reglage,
     parDefaut: !enregistre || (!!hote && memeReglageRobots(enregistre, reglageRobotsParDefaut(hote))),
     application,
-    reglable: reglageApplicable(application),
+    reglable: reglageApplicable(application) && !reserveeAuxConnectes,
     moteursReglables: application === 'serveur-beluga',
+    version,
+    hotes,
+    reserveeAuxConnectes,
+    hotesDeTravail: site?.hotes ?? [],
   };
 }
 
@@ -258,7 +271,9 @@ async function sitesParticuliers(): Promise<{ beluga: ReglageParticulier[]; clie
     const hote = hoteDeLAdresse(adresse);
     if (!hote) continue;
     const application = await applicationPour(adresse, hote);
-    if (application === 'serveur-beluga') beluga.push({ hotes: [hote], reglage: particulier });
+    /* TOUTES LES ADRESSES DU SITE (23/11/2026) : un réglage posé sur une adresse vaut pour ses alias servis par le
+       même bloc (deux adresses d'un même projet), sinon l'alias reste fermé. */
+    if (application === 'serveur-beluga') beluga.push({ hotes: hotesDuMemeSite((await garde()).lesBlocsDeSite(), hote), reglage: particulier });
     else if (application === 'serveur-clients' || application === 'garde-absente') clients.push({ hotes: [hote], reglage: particulier });
   }
   return { beluga, clients };
@@ -267,6 +282,8 @@ async function sitesParticuliers(): Promise<{ beluga: ReglageParticulier[]; clie
 /** Écrit et recharge la garde Caddy si elle change. */
 async function appliquerSurCaddy(texte: string): Promise<'inchange' | 'applique'> {
   const essai = process.env.BELUGA_GARDE_ROBOTS_CADDY;
+  /* Un démon d'essai sans fichier d'essai ne touche JAMAIS le vrai relais du serveur. */
+  if (!essai && (await config()).DEMON_D_ESSAI) return 'inchange';
   const cible = essai || FICHIER_CADDY;
   let actuel = '';
   try {
@@ -330,9 +347,12 @@ async function appliquerSurTraefik(texte: string): Promise<'inchange' | 'appliqu
 /** Régénère la garde des deux serveurs depuis tous les réglages enregistrés. */
 export async function appliquerLesReglagesDeRobots(): Promise<{ caddy: string; traefik: string }> {
   const { beluga, clients } = await sitesParticuliers();
-  const caddy = await appliquerSurCaddy(blocCaddyGardeRobots(undefined, beluga));
+  const g = await garde();
+  g.oublierLesSites();
+  const hotesGardes = g.hotesAGarder();
+  const caddy = await appliquerSurCaddy(blocCaddyGardeRobots(undefined, beluga, { hotes: hotesGardes, amont: g.amontDeLaGarde() }));
   const traefik = await appliquerSurTraefik(fichierTraefikGardeRobots('websecure', undefined, clients));
-  (await journal()).log.info(`garde des robots : Caddy ${caddy} (${beluga.length} site(s) réglé(s)), Traefik ${traefik} (${clients.length})`);
+  (await journal()).log.info(`garde des robots : Caddy ${caddy} (${beluga.length} site(s) réglé(s), ${hotesGardes.length} adresse(s) de travail réservée(s)), Traefik ${traefik} (${clients.length})`);
   return { caddy, traefik };
 }
 

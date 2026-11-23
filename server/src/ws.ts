@@ -1620,6 +1620,24 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         recupererFaviconEnTache(updated);
       }
       bus.emit({ type: 'project.upsert', project: updated });
+      /* LA GARDE DES VERSIONS DE TRAVAIL suit l'interrupteur, les chemins libres et l'adresse du projet : le relais est
+         réécrit tout de suite (`garde-des-robots.ts`), sans attendre le prochain quart d'heure. */
+      if (
+        updated.protectionTravail !== current.protectionTravail ||
+        JSON.stringify(updated.cheminsLibresTravail) !== JSON.stringify(current.cheminsLibresTravail) ||
+        updated.devUrl !== current.devUrl ||
+        updated.port !== current.port
+      ) {
+        const { oublierLesSites } = await import('./garde-acces.js');
+        oublierLesSites();
+        if (updated.protectionTravail !== current.protectionTravail) {
+          await import('./garde-des-robots.js').then((m) => m.appliquerLesReglagesDeRobots());
+        } else {
+          void import('./garde-des-robots.js')
+            .then((m) => m.appliquerLesReglagesDeRobots())
+            .catch((err) => log.warn('garde des versions de travail : relais non mis à jour', err));
+        }
+      }
       /* UNE ADRESSE DE PRODUCTION NOUVELLE EST AUTORISÉE dans l'espace de
          suivi ; le site n'est pas lu et aucune carte ne naît. */
       if (updated.adresseProduction && updated.adresseProduction !== current.adresseProduction) {
@@ -5873,6 +5891,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
       const { etatDesRobots } = await import('./garde-des-robots.js');
       return etatDesRobots(projectId);
+    }
+
+    case 'projet.gardeTravail': {
+      if (!store.getProject(cmd.projectId)) throw new Error('projet introuvable');
+      const { etatDeLaGardeDuProjet } = await import('./garde-acces.js');
+      return etatDeLaGardeDuProjet(cmd.projectId);
     }
 
     case 'securite.robots.regler': {

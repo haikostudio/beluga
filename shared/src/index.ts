@@ -486,6 +486,7 @@ export * from './serveur-machine.js';
 export * from './controle-securite.js';
 export * from './robots-ia.js';
 export * from './garde-des-robots.js';
+export * from './garde-acces.js';
 export * from './service-securite.js';
 export * from './etude-de-securite.js';
 export * from './belugapass.js';

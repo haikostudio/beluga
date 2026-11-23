@@ -354,6 +354,18 @@ export interface EtatDesRobots {
   reglable: boolean;
   /** Les moteurs se règlent-ils d'ici ? (non sur le serveur des sites publics : robots.txt du site) */
   moteursReglables: boolean;
+  /**
+   * QUELLE VERSION DU SITE CE RÉGLAGE VISE (carte « Accès des IA : prod ou dev », 23/11/2026) : « en-ligne » quand
+   * l'adresse est celle de la mise en production, « travail » quand le projet n'en a pas et que l'adresse de travail
+   * est la seule connue. Absent sur une réponse d'un démon plus ancien.
+   */
+  version?: 'en-ligne' | 'travail';
+  /** Toutes les adresses couvertes par le réglage : celle du projet ET ses alias servis par le même bloc. */
+  hotes?: string[];
+  /** La version de travail visée est réservée aux personnes connectées : le réglage des IA n'y sert à rien. */
+  reserveeAuxConnectes?: boolean;
+  /** Les adresses de la version de travail (pour le dire à l'écran quand le réglage vise la version en ligne). */
+  hotesDeTravail?: string[];
 }
 
 /** Les cases se règlent-elles pour cette application ? */

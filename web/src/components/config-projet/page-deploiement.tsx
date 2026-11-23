@@ -5,6 +5,7 @@ import { FormulaireEnColonnes, Input, LigneFormulaire } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { CLASSE_TITRE_DE_TEMPS, OuJEnSuis } from './processus-en-place';
 import { ChoixDeBranche, EcartAuSchema, Repli, TeteDeRubrique, type ContexteConfig } from './communs';
+import { GardeDeLaVersionDeTravail } from './garde-version-de-travail';
 
 /**
  * LE DÉPLOIEMENT : rafraîchir la version de TRAVAIL de ce projet, sur CE
@@ -72,6 +73,8 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
             </button>
           </div>
         </LigneFormulaire>
+
+        <GardeDeLaVersionDeTravail project={ctx.project} />
 
         <Repli
           titre={t('Réglages avancés')}

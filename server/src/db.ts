@@ -5642,6 +5642,29 @@ export const MIGRATIONS: {
       ALTER TABLE chrome_appareils ADD COLUMN marque TEXT;
     `,
   },
+  {
+    id: 188,
+    name: 'garde-des-versions-de-travail',
+    siTable: ['projects'],
+    /*
+     * LA GARDE DES VERSIONS DE TRAVAIL (carte « Accès des IA : prod ou dev », 23/11/2026,
+     * `server/src/garde-acces.ts`) : les JETONS d'aller-retour (genre « jeton », deux minutes, usage unique) et les
+     * SESSIONS DE GARDE (genre « session ») posées sur l'hôte d'un site de travail. Jetons stockés HACHÉS, comme les
+     * sessions ; une session de garde n'ouvre QUE la garde de son hôte, jamais l'application. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS garde_acces (
+        token TEXT PRIMARY KEY,
+        genre TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        hote TEXT NOT NULL,
+        chemin TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS garde_acces_par_expiration ON garde_acces(expires_at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

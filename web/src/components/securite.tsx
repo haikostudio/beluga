@@ -806,6 +806,10 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
     ? t('{v0} sources sur 4 autorisées', { v0: famillesAutorisees(r) })
     : t('Protection coupée');
   const hote = etat.hote ?? '';
+  /* TOUTES LES ADRESSES DU SITE, ET LA VERSION QU'ELLES PORTENT (carte « Accès des IA : prod ou dev », 23/11/2026). */
+  const adresses = (etat.hotes?.length ? etat.hotes : hote ? [hote] : []).join(', ');
+  const version =
+    etat.version === 'en-ligne' ? t('Version en ligne') : etat.version === 'travail' ? t('Version de travail') : null;
   return (
     <BlocRepliable
       titre={t('Accès des robots')}
@@ -830,7 +834,17 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
       }
     >
       <div className="flex flex-col gap-3" data-securite-robots={etat.application}>
-        {!etat.reglable ? (
+        {version && adresses ? (
+          <p className="text-[12.5px] text-muted" data-securite-robots-version={etat.version}>
+            <span className="text-faint">{version} · </span>
+            <span className="break-all text-text">{adresses}</span>
+          </p>
+        ) : null}
+        {etat.reserveeAuxConnectes ? (
+          <p className="text-[13px] text-muted" data-securite-robots-reservee="">
+            {t('Cette version de travail est réservée aux personnes connectées : aucun robot ni aucune IA n’y entre. Renseignez l’adresse de la version en ligne dans les paramètres du projet pour régler l’accès des IA au vrai site.')}
+          </p>
+        ) : !etat.reglable ? (
           <p className="text-[13px] text-muted" data-securite-robots-ailleurs="">
             {etat.application === 'sans-adresse'
               ? t('Ce projet n’a pas d’adresse : rien à régler.')
@@ -839,7 +853,7 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
         ) : (
           <>
             <p className="text-[13px] text-muted">
-              {t('Cochez les sources qui peuvent lire {v0}. Les autres sont renvoyées vers une page d’explication.', { v0: hote })}
+              {t('Cochez les sources qui peuvent lire {v0}. Les autres sont renvoyées vers une page d’explication.', { v0: adresses || hote })}
             </p>
             <div className={cn('flex flex-col gap-3', !r.protection && 'opacity-50')}>
               {FAMILLES_AFFICHEES.map(({ famille, libelle, detail }) => {
@@ -872,6 +886,13 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
                 ? t('La garde n’est pas encore installée sur le serveur des sites publics : ce réglage est gardé et s’appliquera dès son installation.')
                 : t('Couper l’interrupteur laisse passer toutes les sources.')}
             </p>
+            {etat.version === 'en-ligne' && etat.hotesDeTravail?.length ? (
+              <p className="text-[12.5px] text-faint" data-securite-robots-travail="">
+                {t('La version de travail ({v0}) n’est pas concernée : elle est fermée aux robots, et réservée aux personnes connectées quand sa protection est allumée.', {
+                  v0: etat.hotesDeTravail.join(', '),
+                })}
+              </p>
+            ) : null}
           </>
         )}
         {panne ? <p className="text-[12.5px] text-danger">{panne}</p> : null}

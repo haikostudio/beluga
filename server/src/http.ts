@@ -475,6 +475,26 @@ export function createHttpServer(): http.Server {
       }
 
       /*
+       * LA GARDE DES VERSIONS DE TRAVAIL (`server/src/garde-acces.ts`, carte « Accès des IA : prod ou dev »,
+       * 23/11/2026). `verifier` est interrogé par Caddy pour chaque requête d'un site protégé ; `connexion` est la
+       * page de connexion de l'aller-retour. Avant tout mur : un visiteur non connecté doit pouvoir y arriver.
+       */
+      if (route === '/auth/garde/verifier') {
+        const { repondreALaVerification } = await import('./garde-acces.js');
+        return repondreALaVerification(req, res);
+      }
+      if (route === '/auth/garde/connexion' && (req.method === 'GET' || req.method === 'POST')) {
+        const { repondreALaConnexion } = await import('./garde-acces.js');
+        return await repondreALaConnexion(req, res, {
+          lireCorps: async () => (await readBody(req, 64 * 1024)).toString('utf8'),
+          ip: clientIp(req),
+          champMotDePasse: CHAMP_DE_CONNEXION,
+          styleDuChamp: STYLE_DU_CHAMP,
+          scriptDuChamp: scriptDuChamp(TEXTES_DU_CHAMP_FR),
+        });
+      }
+
+      /*
        * LE PREMIER COMPTE D'UNE INSTALLATION NEUVE. La porte n'existe que tant
        * qu'aucun administrateur n'existe, et elle est gardée par le code
        * d'installation (`server/src/installation.ts`). Le compte créé, la

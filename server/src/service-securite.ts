@@ -306,7 +306,13 @@ export function lancerAudit(projectId: string, declencheur: DeclencheurDAudit, c
 }
 
 /** Le relevé, remplaçable par les contrôles (un vrai relevé lit le disque et le réseau). */
-type Releve = (options: { dossier: string; nom: string; adresse?: string; reglageRobots?: import('@beluga/shared').ReglageRobots | null }) => Promise<{ rapport: RapportDeSecurite }>;
+type Releve = (options: {
+  dossier: string;
+  nom: string;
+  adresse?: string;
+  reglageRobots?: import('@beluga/shared').ReglageRobots | null;
+  gardeTravail?: { hotes: string[]; protege: boolean; gardePosee: boolean } | null;
+}) => Promise<{ rapport: RapportDeSecurite }>;
 let releve: Releve = async (options) => (await import('./controle-securite.js')).controlerLaSecurite(options);
 /** Pour les contrôles seulement : un relevé factice, rendu à la fin. */
 export function remplacerLeReleve(autre: Releve | null): void {
@@ -362,7 +368,10 @@ async function executerAudit(projectId: string, auditId: string): Promise<void> 
     /* JUGÉ D'APRÈS LE RÉGLAGE « ACCÈS DES ROBOTS » DU SITE, s'il en a un à lui (22/11/2026). */
     const { reglageParticulierDuProjet } = await import('./garde-des-robots.js');
     const reglageRobots = await reglageParticulierDuProjet(projectId).catch(() => null);
-    ({ rapport } = await releve({ dossier: projet.path, nom: projet.name, ...(adresse ? { adresse } : {}), reglageRobots }));
+    const gardeTravail = await import('./garde-acces.js')
+      .then((m) => (m.gardeCoupee() ? null : m.etatDeLaGardeDuProjet(projectId)))
+      .catch(() => null);
+    ({ rapport } = await releve({ dossier: projet.path, nom: projet.name, ...(adresse ? { adresse } : {}), reglageRobots, gardeTravail }));
   } catch (err) {
     db.prepare('UPDATE securite_audits SET fini = ?, erreur = ? WHERE id = ?').run(Date.now(), (err as Error)?.message ?? String(err), auditId);
     return;

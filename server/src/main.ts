@@ -533,6 +533,18 @@ async function main(): Promise<void> {
     () => void rattraperLesBranchesPerdues().catch((err) => log.warn('rattrapage des branches perdues', err)),
     45_000,
   ).unref?.();
+  /*
+   * LA GARDE DES VERSIONS DE TRAVAIL (carte « Accès des IA : prod ou dev », 23/11/2026) : la liste des adresses
+   * réservées aux personnes connectées est réécrite dans le relais du serveur au démarrage — c'est la publication de
+   * Beluga qui l'active —, puis tous les quarts d'heure pour les projets nés entre-temps. Fichier inchangé : rien
+   * n'est rechargé. Un démon d'essai ne touche jamais le vrai relais (`appliquerSurCaddy`).
+   */
+  const appliquerLaGarde = () =>
+    void import('./garde-des-robots.js')
+      .then((m) => m.appliquerLesReglagesDeRobots())
+      .catch((err) => log.warn('garde des versions de travail : relais non mis à jour', err));
+  setTimeout(appliquerLaGarde, 40_000).unref?.();
+  setInterval(appliquerLaGarde, 15 * 60_000).unref?.();
   const rattrapageTimer = setInterval(() => void reprendreLesRattrapages(), 120_000);
   // Premier passage différé de 15 min, hors de la fenêtre du démarrage (rendu de la mémoire,
   // vecteurs, rattrapages) : à +2 min, sa lecture à froid figeait le démon ~5 s (18/11/2026).

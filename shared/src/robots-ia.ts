@@ -22,6 +22,7 @@
  */
 
 import { zoneDesProjets } from './installation.js';
+import { lignesCaddyGardeAcces } from './garde-acces.js';
 
 export type RoleDeRobotIA = 'entrainement' | 'recherche' | 'agent';
 
@@ -229,7 +230,13 @@ export const ROBOTS_TXT_FERME = 'User-agent: *\nDisallow: /\n';
  * `handle /robots.txt` (chemin seul) passe AVANT les `handle` à matcher nommé ou sans matcher des sites : Caddy trie
  * les blocs d'une même directive par spécificité du chemin.
  */
-export function blocCaddyGardeRobots(zone: string = zoneDesProjets(), particuliers: readonly ReglageParticulier[] = []): string {
+export function blocCaddyGardeRobots(
+  zone: string = zoneDesProjets(),
+  particuliers: readonly ReglageParticulier[] = [],
+  /* LA GARDE DES VERSIONS DE TRAVAIL (carte « Accès des IA : prod ou dev », 23/11/2026) : les hôtes fermés aux
+     visiteurs non connectés et l'adresse du démon qui juge. Absente : aucune garde (sortie identique à avant). */
+  gardeAcces?: { hotes: readonly string[]; amont: string },
+): string {
   /* Sans zone réglée : une adresse qui ne correspond à rien, le bloc reste valide. */
   const hotes = zone ? `${zone} *.${zone}` : 'zone-non-reglee.invalid';
   const libres = CHEMINS_LIBRES_POUR_IA.join(' ');
@@ -308,6 +315,7 @@ export function blocCaddyGardeRobots(zone: string = zoneDesProjets(), particulie
       );
     }
   });
+  if (gardeAcces) lignes.push(...lignesCaddyGardeAcces(gardeAcces.hotes, gardeAcces.amont));
   lignes.push('}', '');
   return lignes.join('\n');
 }
