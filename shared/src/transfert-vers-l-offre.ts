@@ -1,9 +1,10 @@
 /*
  * LE TRANSFERT D'UNE INSTALLATION GRATUITE VERS L'OFFRE HÉBERGÉE (carte « Fin de la version gratuite », 21/11/2026).
  *
- * Beluga devient un service hébergé et payant : une installation gratuite ne reçoit plus de nouveautés. Sa page
- * « Passer à l'offre hébergée » (réglages › Mise à jour) mesure l'espace, affiche la formule que le CENTRAL conseille,
- * puis — une fois l'abonnement payé — emballe tout l'espace et l'envoie vers le serveur hébergé du client.
+ * LOGICIEL LIBRE (23/11/2026) : l'installation gratuite reste complète et reçoit les nouveautés ; le transfert est un
+ * CHOIX. La section « Passer à Beluga Cloud » (réglages › Mise à jour), ouverte d'un clic, mesure l'espace, affiche la
+ * formule que le CENTRAL conseille, puis — une fois l'abonnement payé — emballe tout l'espace et l'envoie vers le serveur
+ * hébergé du client.
  *
  * C'EST UN CONTRAT AVEC LE CENTRAL (dépôt belugabuild, `central/src/relais.ts`), servi sur la même adresse que le relais
  * des installations : l'installation s'y présente par SON numéro et SON secret de relais (`relais-installations.ts`),

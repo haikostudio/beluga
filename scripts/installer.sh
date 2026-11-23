@@ -2,15 +2,15 @@
 #
 # INSTALLER BELUGA BUILD SUR UN SERVEUR NEUF — UNE SEULE COMMANDE.
 #
-#   sudo bash installer.sh --archive beluga-<version>.tar.gz
+#   curl -fsSL https://raw.githubusercontent.com/haikostudio/beluga/main/scripts/installer.sh | sudo bash
 #
-# Beluga Build est un service HÉBERGÉ (fin de la version gratuite, 21/11/2026) :
-# ce script est lancé par l'agent d'hôte du site central, sur le serveur qu'il
-# vient de louer pour un client, avec l'archive de la version à poser. Sans
-# --archive ni --depot, il refuse : il n'y a plus de dépôt public où puiser.
+# Beluga Build est un LOGICIEL LIBRE (AGPL-3.0, 23/11/2026) : la version
+# gratuite, c'est ce dépôt public, complet, installé par n'importe qui. L'offre
+# Cloud (belugabuild.com) lance ce même script avec --archive, sur le serveur
+# qu'elle loue pour un client.
 #
 # Sur un serveur Debian ou Ubuntu tout juste livré, il fait tout ce qui sépare
-# « l'archive est là » de « l'application répond » :
+# « le dépôt est public » de « l'application répond » :
 #
 #   1. les outils dont Beluga Build dépend (Node 22, git, de quoi compiler,
 #      le serveur web Caddy, l'outil GitHub, le terminal partagé) ;
@@ -37,16 +37,16 @@
 #   --sans-question     ne rien demander (adresse provisoire si --domaine manque)
 #   --dossier <chemin>  où installer (défaut : /opt/beluga)
 #   --compte <nom>      le compte système du service (défaut : beluga)
-#   --depot <adresse>   un dépôt à télécharger (accès requis : il est privé)
+#   --depot <adresse>   le dépôt à télécharger (défaut : le dépôt public)
 #   --branche <nom>     la branche (défaut : main)
-#   --archive <fichier> installer depuis une archive .tar.gz (le cas ordinaire)
+#   --archive <fichier> installer depuis une archive .tar.gz au lieu du dépôt (offre Cloud)
 #   --a-blanc           dire tout ce qui serait fait, sans rien changer
 #
 set -euo pipefail
 
 DOSSIER=/opt/beluga
 COMPTE=beluga
-DEPOT=""
+DEPOT=https://github.com/haikostudio/beluga.git
 BRANCHE=main
 DOMAINE="${BELUGA_DOMAINE:-}"
 ARCHIVE=""
@@ -247,7 +247,7 @@ elif [ -d "$DOSSIER/.git" ]; then
     fi
   fi
 elif [ -z "$(ls -A "$DOSSIER" 2>/dev/null)" ]; then
-  [ -n "$DEPOT" ] || arret "Beluga Build est un service hébergé : son code n'est plus public. L'installation se fait avec --archive, par l'équipe Beluga."
+  [ -n "$DEPOT" ] || arret "aucun dépôt à télécharger (--depot vide) ni archive (--archive)."
   dire "téléchargement depuis $DEPOT."
   sous_compte git clone --quiet --branch "$BRANCHE" "$DEPOT" "$DOSSIER"
 else

@@ -166,17 +166,13 @@ export function FenetreDeService({
   }
 
   if (telephone) {
+    /* COFFRE-FORT ET MÉMOIRE SUR TÉLÉPHONE : la MÊME feuille que les dix services (23/11/2026). Sans cible de gestes,
+       leurs options (« Nouveau dossier », « Archives ») et leur geste principal (« Nouvel accès ») se posaient en
+       rangées de boutons sous le titre ; ils vont désormais au menu « … » de l'entête et en bas, pleine largeur. */
     return (
-      <Drawer feuille hauteurFixe open={open} onClose={onClose}>
-        <EnteteDeFeuille titre={titre} gauche={<span className="ml-1 flex shrink-0 text-muted [&>svg]:h-4 [&>svg]:w-4">{icone}</span>} />
-        <DansUneFenetreDeService.Provider value>
-          <FournirLaCibleDesGestes value={null}>
-            <div className="flex min-h-0 flex-1 flex-col" data-fenetre-de-service={repere} data-fenetre-de-service-forme="feuille">
-              {children}
-            </div>
-          </FournirLaCibleDesGestes>
-        </DansUneFenetreDeService.Provider>
-      </Drawer>
+      <FeuilleDeService open={open} onClose={onClose} titre={titre} icone={icone} repere={repere}>
+        {children}
+      </FeuilleDeService>
     );
   }
 
@@ -574,10 +570,18 @@ function FeuilleDeService({
   );
   return (
     <Drawer feuille hauteurFixe open={open} onClose={onClose}>
+      {/* LE MENU DES OPTIONS VIT DANS L'ENTÊTE, à droite du titre (23/11/2026, « les boutons dans l'entête ») : seul dans
+          la rangée dessous, il y faisait une ligne d'un bouton sous le titre (Communication). La rangée ne garde que les
+          contrôles de la page (filtre, rubriques, recherche, bascule, gestes) et disparaît quand elle n'en a aucun. */}
       <EnteteDeFeuille
         titre={titre}
         gauche={gauche}
-        droite={<span ref={setCibleDuGeste} className="flex shrink-0 items-center gap-1 empty:hidden" data-geste-de-l-entete-de-feuille />}
+        droite={
+          <>
+            <span ref={setCibleDuGeste} className="flex shrink-0 items-center gap-1 empty:hidden" data-geste-de-l-entete-de-feuille />
+            <ChevronDesOptions registre={registre} gestes={[]} cibleDuBas={bas} />
+          </>
+        }
       />
       <div className="shrink-0 px-4 pb-3" data-tete-de-la-feuille-de-service>
         <RangeeDesEmplacements
@@ -586,7 +590,7 @@ function FeuilleDeService({
           filtre={sousPage ? undefined : filtre}
           definir={definir}
           cibleDesGestes={setCible}
-          chevron={<ChevronDesOptions registre={registre} gestes={[]} cibleDuBas={bas} />}
+          chevron={null}
         />
       </div>
       <DansUneFenetreDeService.Provider value>

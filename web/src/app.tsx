@@ -2165,12 +2165,12 @@ export function App() {
       >
         <Celebrations />
         {/* LA BANDE DU HAUT (`bande-du-haut.tsx`) : au-dessus de TOUT, colonne et entête compris. L'orange d'une
-            extension Chrome en retard passe avant ; sinon, sur une installation gratuite, la bande noire de l'offre
-            hébergée (carte « Fin de la version gratuite », 21/11/2026), muette pendant la mise en route. */}
+            extension Chrome en retard passe avant ; sinon, sur une installation qui suit le dépôt public, la bande noire
+            « Une nouvelle mise à jour est disponible » (logiciel libre, 23/11/2026), muette pendant la mise en route. */}
         <BanniereExtension
           sinon={
             demarrageOuvert ? null : (
-              <Filet zone="Bande de l'offre hébergée" muet>
+              <Filet zone="Bandeau de mise à jour" muet>
                 <BandeauMiseAJour
                   onOuvrirLaPage={() => {
                     setSettingsPage('mise-a-jour');

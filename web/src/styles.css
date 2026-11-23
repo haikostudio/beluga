@@ -165,7 +165,6 @@
     --onglets-actif: 0 0% 17%;
     --tableau-entete: 0 0% 11%;
     /* LE PAVÉ D'UN CHIFFRE-CLÉ (14/11/2026, « un bg contrasté mais léger ») : à peine relevé sur la page. */
-    --fond-chiffre: 0 0% 11.5%;
     /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
        (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
        qu'on a dans l'application, avec parcimonie mais intelligemment »). Il
@@ -422,8 +421,7 @@
     --onglets-barre: 0 0% 96%;
     --onglets-repos: 0 0% 98.3%;
     --onglets-actif: 0 0% 100%;
-    --tableau-entete: 0 0% 97.8%;
-    --fond-chiffre: 0 0% 97.4%;
+    --tableau-entete: 0 0% 96%;
     --teinte: 0 0% 5%;
     --important: 215 84% 52%;
     --important-fond: 215 84% 52% / 0.1;
@@ -2440,7 +2438,9 @@ svg.lucide[stroke-width='2'] {
   row-gap: 12px;
 }
 :is([data-chiffre-cle], [data-tuile-resume], [data-chiffre], [data-marketing-indicateur]) {
-  background-color: hsl(var(--fond-chiffre));
+  /* Le VOILE des blocs (23/11/2026) : `--fond-chiffre` (97,4 % en clair) ne faisait que 1,06 sur la page et 1,03 dans
+     une feuille du bas — la tuile disparaissait. Le voile se détache de tout porteur, toujours « léger ». */
+  background-color: hsl(var(--controle-doux));
   border-radius: 14px;
   padding: 16px 18px 15px;
 }
@@ -2535,13 +2535,64 @@ html[data-mise-en-route] [data-rond-seul] {
   display: none !important;
 }
 
-/* UN BLOC REPLIABLE POSÉ DANS LA FEUILLE DU BAS (téléphone, 22/11/2026) : la feuille a déjà le fond `--surface`, le bloc
-   prend le cran suivant pour se détacher, et ce qu'il contient d'élevé redescend au fond de la page. */
-[data-feuille-du-bas] .bloc-repliable {
-  background-color: hsl(var(--raised));
+/* CHAQUE BLOC SE DÉTACHE DE CE QUI EST DESSOUS, PARTOUT (carte « Blocs contrastés et boutons en entête », 23/11/2026,
+   décision de l'utilisateur : « tu le fais partout »). Constat mesuré (`scripts/verif-contraste-des-blocs.mjs`) : sur
+   téléphone, une feuille du bas REDÉFINIT `--surface` sur son propre fond (`FOND_DE_FEUILLE`) — tout bloc `bg-surface`
+   posé dedans avait EXACTEMENT sa teinte (rapport 1,000) ; sur ordinateur en clair, un bloc `bg-surface` (98,2 %) sur
+   la page blanche ne faisait que 1,04–1,06. Un bloc ne peut pas savoir sur quoi il est posé : il prend donc le VOILE de
+   l'encre du texte (`--controle-doux`, 4,5 % en clair, 7 % en sombre), qui se détache de N'IMPORTE QUEL porteur — page,
+   feuille, fenêtre, autre bloc (deux voiles s'additionnent : un bloc dans un bloc descend d'un cran de plus).
+   Ce qui est un BLOC : un fond `surface`, `raised` ou d'en-tête de tableau, à coins arrondis — une ligne qui ouvre
+   (bouton pleine largeur) en est un aussi —, qui n'est ni un champ ni un onglet, ni un calque qui doit MASQUER ce
+   qu'il recouvre (ombre, position fixe, absolue ou collée, menu, fenêtre, bulle). Un bouton en `bg-raised` prend le
+   même voile : il se détache lui aussi de la feuille comme du bloc qui le porte. `data-fond-propre` retire un élément de la règle. Les cartes du tableau gardent leurs
+   règles (`.fond-de-colonne-tableau`). Le poids reste celui d'une classe + `html` : un survol écrit par l'écran
+   (`hover:bg-…`) garde la main ; le survol `hover:bg-raised` d'un bloc monte d'une marche du voile, juste en dessous. */
+html :is(.bg-surface, .bg-raised, .bg-tableau-entete):where(
+    .rounded-md,
+    .rounded-lg,
+    .rounded-xl,
+    .rounded-2xl,
+    .rounded-3xl,
+    [class*='rounded-[']
+  ):where(
+    :not(
+      input,
+      textarea,
+      select,
+      [role='tab'],
+      [role='menu'],
+      [role='menuitem'],
+      [role='listbox'],
+      [role='option'],
+      [role='dialog'],
+      [role='tooltip'],
+      [class*='shadow'],
+      .fixed,
+      .absolute,
+      .sticky,
+      .carte-du-tableau,
+      .carte-du-paquet,
+      [data-fond-propre],
+      [data-radix-popper-content-wrapper] *
+    )
+  ) {
+  background-color: hsl(var(--controle-doux));
 }
-[data-feuille-du-bas] .bloc-repliable [data-bloc-contenu] .bg-raised {
-  background-color: hsl(var(--bg));
+html :is(.bg-surface, .bg-raised):where([class~='hover:bg-raised']):where(
+    .rounded-md,
+    .rounded-lg,
+    .rounded-xl,
+    .rounded-2xl,
+    .rounded-3xl,
+    [class*='rounded-[']
+  ):where(:not([class*='shadow'], .fixed, .absolute, .sticky, .carte-du-tableau, .carte-du-paquet, [data-fond-propre])):hover {
+  background-color: hsl(var(--controle-doux-survol));
+}
+/* DANS UN BLOC, UNE LIGNE QUI SURVOLE (`hover:bg-raised`) prend le voile au lieu du `--raised` opaque : sur le voile du
+   bloc, `--raised` tombait PLUS CLAIR que lui en clair — un survol qui éclaircit, quasi invisible. */
+html :is(.bg-surface, .bg-raised):where(.rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl) [class~='hover:bg-raised']:not(.bg-surface, .bg-raised):hover {
+  background-color: hsl(var(--controle-doux));
 }
 
 /* LA RANGÉE D'UNE FEUILLE DE SERVICE NE PARAÎT QUE SI ELLE PORTE QUELQUE CHOSE (téléphone, 22/11/2026, capture #7ae7) :
@@ -2549,4 +2600,17 @@ html[data-mise-en-route] [data-rond-seul] {
    ou l'espace qui pousse le reste à droite disparaît, au lieu de laisser une ligne vide sous le titre. */
 [data-tete-de-la-feuille-de-service]:not(:has([data-rangee-de-la-page] > :not(:empty):not([aria-hidden]):not(.hidden))) {
   display: none;
+}
+
+/* UNE PAGE OUVERTE DANS UNE FEUILLE DU BAS GARDE LE FOND DE LA FEUILLE pour ce qui colle en bas (pied de pagination
+   d'un tableau) : la page reposait le fond de la PAGE (`--bg`), et Sécurité, sur téléphone, portait une bande blanche
+   sous ses cartes (23/11/2026). */
+[data-feuille-du-bas] [data-page-en-fenetre] {
+  --fond-zone-defilement: inherit !important;
+}
+
+/* DANS UNE FEUILLE DU BAS, L'EN-TÊTE D'UN TABLEAU ET LA BARRE D'UN CHOIX SEGMENTÉ (« Lignes 10 20 50 », liste / grille)
+   prennent le voile (23/11/2026) : leurs gris clairs (96 %) tombaient sur le fond de la feuille (98,6 %). */
+[data-feuille-du-bas] :is(.bg-tableau-entete, .bg-onglets-barre) {
+  background-color: hsl(var(--controle-doux));
 }

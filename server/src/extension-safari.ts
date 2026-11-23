@@ -14,8 +14,11 @@ import path from 'node:path';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 
-/** Le dépôt où tourne la fabrication. */
-export const DEPOT_DE_FABRICATION = 'haikostudio/beluga-dev';
+/**
+ * Le dépôt où tourne la fabrication (`BELUGA_DEPOT_DE_FABRICATION`). Le dépôt privé de l'auteur n'est écrit qu'au privé
+ */
+let depotParDefaut = '';
+export const DEPOT_DE_FABRICATION = process.env.BELUGA_DEPOT_DE_FABRICATION || depotParDefaut;
 /** Le nom de l'artefact rangé par la fabrication. */
 export const ARTEFACT_SAFARI = 'beluga-safari';
 /** Le nom du fichier servi. */
@@ -73,6 +76,7 @@ let enCours: Promise<boolean> | null = null;
 export function rafraichirLePaquetSafari(force = false): Promise<boolean> {
   /* Un démon d'essai ou un test ne va pas chercher chez GitHub, sauf demande expresse (`BELUGA_SAFARI_RELEVE=1`). */
   if ((process.env.BELUGA_ESSAI === '1' || process.env.BELUGA_DATA) && process.env.BELUGA_SAFARI_RELEVE !== '1') return Promise.resolve(false);
+  if (!DEPOT_DE_FABRICATION) return Promise.resolve(false);
   if (enCours) return enCours;
   if (!force && Date.now() - dernierEssai < RELIRE_APRES_MS) return Promise.resolve(false);
   dernierEssai = Date.now();

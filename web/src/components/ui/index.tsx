@@ -690,7 +690,19 @@ export const TabsTrigger = React.forwardRef<
 ));
 TabsTrigger.displayName = 'TabsTrigger';
 
-export const TabsContent = TabsPrimitive.Content;
+/**
+ * LE CONTENU D'UN ONGLET NE S'ENTOURE JAMAIS DU CONTOUR DU NAVIGATEUR (23/11/2026, capture #1ad2). Radix le rend
+ * focalisable (`tabIndex=0`) : un clic dans le fil d'une carte puis une flèche lui donnait le focus, et Chrome dessinait
+ * son anneau bleu autour de TOUT ce qu'il contient — le fil sur toute la largeur, puis le champ d'écriture. L'onglet
+ * qui le commande garde, lui, son repère de clavier.
+ */
+export const TabsContent = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Content ref={ref} className={cn('outline-none focus-visible:outline-none', className)} {...props} />
+));
+TabsContent.displayName = 'TabsContent';
 
 /* -------------------- Fondu au bord d'un défilement ---------------- */
 
@@ -1465,6 +1477,9 @@ export const ZoneDefilement = React.forwardRef<
           horizontal
             ? 'min-w-0 flex-1 overflow-x-auto overflow-y-hidden'
             : 'min-h-0 flex-1 overflow-y-auto overflow-x-hidden',
+          /* Chrome rend focalisable une zone qui défile sans élément focalisable dedans : elle ne s'entoure pas
+             pour autant de l'anneau du navigateur (23/11/2026). */
+          'outline-none',
           /* LE DÉFILEMENT RESTE DANS SA ZONE (demande du 31/10/2026, captures
              #af1f/#f9b0) : arrivée en butée, une zone ne passe plus le geste à
              celle qui la contient — la liste des tâches au-dessus du champ ne

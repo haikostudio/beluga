@@ -1,0 +1,26 @@
+name: Signaler un défaut
+description: Quelque chose ne marche pas comme prévu.
+labels: [défaut]
+body:
+  - type: textarea
+    id: quoi
+    attributes:
+      label: Ce qui se passe
+      description: Ce que vous avez fait, ce que vous attendiez, ce qui est arrivé à la place.
+    validations:
+      required: true
+  - type: textarea
+    id: refaire
+    attributes:
+      label: Pour le reproduire
+      placeholder: "1. Ouvrir…\n2. Cliquer sur…\n3. …"
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Réglages → Mise à jour, ou `git rev-parse --short HEAD` dans le dossier d'installation.
+  - type: textarea
+    id: captures
+    attributes:
+      label: Captures ou journal
+      description: Retirez toute donnée personnelle (adresse, clé, nom de client) avant de coller.

@@ -1,29 +1,30 @@
 import * as React from 'react';
-import { Info } from '@/components/ui/icones';
-import { bandeDeLOffreHebergee, type EtatDesNouveautes } from '@beluga/shared';
+import { RefreshCw } from '@/components/ui/icones';
+import { bandeauDeMiseAJour, type EtatDesNouveautes } from '@beluga/shared';
 import { BandeDuHaut } from '@/components/bande-du-haut';
 import { client } from '@/lib/client';
 import { installationEnDirect, useNouveautes } from '@/lib/travail-installation';
 import { t } from '@/lib/langue';
 
 /*
- * LA BANDE DE L'OFFRE HÉBERGÉE — tout en haut, sur une installation GRATUITE (carte « Fin de la version gratuite »,
- * 21/11/2026). Beluga devient un service hébergé : une installation qui suivait le dépôt public ne reçoit plus de
- * nouveautés, et cette bande — la même que celle de l'extension, pleine largeur, en noir puisque c'est une
- * information (`bande-du-haut.tsx`) — la mène à la page « Passer à l'offre hébergée » des réglages.
+ * LE BANDEAU « UNE NOUVELLE MISE À JOUR EST DISPONIBLE » — tout en haut, quand le dépôt public de Beluga Build porte
+ * du nouveau. LOGICIEL LIBRE (23/11/2026) : la version gratuite EST le dépôt public et reçoit toutes ses nouveautés ;
+ * la bande « fin de la version gratuite » du 21/11/2026 est retirée.
  *
- * Elle ne paraît que sur une installation qui SUIT le dépôt public (`etat.suivi`) : la machine source et l'offre
- * hébergée ne la voient jamais. La croix l'écarte une semaine (`bandeDeLOffreHebergee`, shared).
+ * Il ne paraît que sur une installation qui SUIT ce dépôt (`etat.suivi`) : la machine source et l'offre Cloud ne le
+ * voient jamais. Il ne lance RIEN : son bouton ouvre la page « Mise à jour » des réglages, d'où l'on lance la mise à
+ * jour (`page-mise-a-jour.tsx`). La croix l'écarte jusqu'à la nouveauté SUIVANTE — c'est le sommet du dépôt public qui
+ * est retenu, pas une date.
  *
- * Elle est montée par `BanniereExtension` (`sinon`) : l'orange d'un geste nécessaire passe avant elle.
+ * Il passe par `BandeDuHaut` (genre « information ») et est monté par `BanniereExtension` (`sinon`) : l'orange d'un
+ * geste nécessaire passe avant lui.
  */
 
-const CLE = 'beluga-offre-hebergee-ecartee-le';
+const CLE = 'beluga-nouveautes-ecartees';
 
-function ecarteeLe(): number | null {
+function sommetEcarte(): string | null {
   try {
-    const brut = Number(localStorage.getItem(CLE));
-    return Number.isFinite(brut) && brut > 0 ? brut : null;
+    return localStorage.getItem(CLE);
   } catch {
     return null;
   }
@@ -31,7 +32,7 @@ function ecarteeLe(): number | null {
 
 export function BandeauMiseAJour({ onOuvrirLaPage }: { onOuvrirLaPage: () => void }) {
   const nouveautes = useNouveautes();
-  const [ecartee, setEcartee] = React.useState<number | null>(ecarteeLe);
+  const [ecarte, setEcarte] = React.useState<string | null>(sommetEcarte);
 
   // Ce que le démon sait déjà : il regarde le dépôt public toutes les heures.
   React.useEffect(() => {
@@ -41,27 +42,26 @@ export function BandeauMiseAJour({ onOuvrirLaPage }: { onOuvrirLaPage: () => voi
       .catch(() => undefined);
   }, []);
 
-  if (!bandeDeLOffreHebergee(nouveautes, ecartee, Date.now())) return null;
+  if (!bandeauDeMiseAJour(nouveautes, ecarte)) return null;
 
   const ecarter = () => {
-    const maintenant = Date.now();
+    const sommet = nouveautes?.sommet ?? '';
     try {
-      localStorage.setItem(CLE, String(maintenant));
+      localStorage.setItem(CLE, sommet);
     } catch {
-      /* stockage indisponible : la bande reviendra au prochain chargement */
+      /* stockage indisponible : le bandeau reviendra au prochain chargement */
     }
-    setEcartee(maintenant);
+    setEcarte(sommet);
   };
 
   return (
     <BandeDuHaut
       genre="information"
       data-bandeau-mise-a-jour
-      data-bande-offre-hebergee
-      icone={<Info className="size-4" />}
-      texte={t('Beluga devient un service hébergé : la version gratuite ne reçoit plus de nouveautés. Transférez votre espace en un clic.')}
-      texteCourt={t('Fin de la version gratuite.')}
-      bouton={{ libelle: t('Voir l’offre'), onClick: onOuvrirLaPage, reperes: { 'data-voir-l-offre': '' } }}
+      icone={<RefreshCw className="size-4" />}
+      texte={t('Une nouvelle mise à jour de Beluga est disponible.')}
+      texteCourt={t('Nouvelle mise à jour disponible.')}
+      bouton={{ libelle: t('Mettre à jour'), onClick: onOuvrirLaPage, reperes: { 'data-mettre-a-jour': '' } }}
       onFermer={ecarter}
       libelleFermer={t('Plus tard')}
     />

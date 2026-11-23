@@ -500,8 +500,8 @@ function TiroirSurveillance({
 }) {
   const state = useApp();
   const telephone = useTelephone();
-  /* LE CRAN DU FIL NE PORTE QUE LE NOM DU PROJET (15/11/2026, capture #f46c1 : « InVia », jamais « InVia —
-     association-invia.ch ») ; un site sans projet rattaché garde son nom. */
+  /* LE CRAN DU FIL NE PORTE QUE LE NOM DU PROJET (15/11/2026, capture #f46c1 : « Projet », jamais « Projet —
+     exemple.ch ») ; un site sans projet rattaché garde son nom. */
   const nomDuCran = (s: SiteSurveille) => (s.projetRattache ? state.projects.find((p) => p.id === s.projetRattache)?.name : null) ?? s.nom;
   /** L'agent lancé depuis ce tiroir, avant qu'il n'ait enregistré quoi que ce soit. */
   const [depart, setDepart] = React.useState<{ agentId: string; projectId: string } | null>(null);

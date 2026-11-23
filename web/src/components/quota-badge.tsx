@@ -9,6 +9,9 @@ import {
   historiquePourProfil,
   niveauQuota,
   previsionEpuisement,
+  previsionsDeFamille,
+  compteDeFamilleDepuisQuota,
+  type EnsembleDeFamille,
   profilHoraire,
   tempsRestant,
   trancheLaPlusChargee,
@@ -52,7 +55,7 @@ import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
-import { detailDePrevision, texteDePrevision, texteDuManque } from '@/lib/prevision-quota';
+import { detailDeFamille, detailDePrevision, texteDeFamille, texteDePrevision, texteDuManque } from '@/lib/prevision-quota';
 import { useMinute } from '@/lib/horloge';
 import { lancerIntervalleVisible } from '@/lib/veille';
 
@@ -422,12 +425,21 @@ export function QuotaBadge({
    * compte de secours d'un moteur en manque se choisit parmi ceux qui, eux,
    * tiennent jusqu'à la remise à zéro.
    */
-  const previsions = React.useMemo(() => {
+  /*
+   * …ET LES COMPTES D'UN MÊME MOTEUR SONT PRÉVUS ENSEMBLE (23/11/2026, capture #45db) : ils se partagent le travail,
+   * chacun reprend sa part à sa remise à zéro (`previsionsDeFamille`). Calculé UNE fois par famille, pas à chaque ligne.
+   */
+  const { previsions, ensembles } = React.useMemo(() => {
     const out: Record<string, PrevisionEpuisement | null> = {};
-    for (const quota of quotas) {
-      out[quota.id] = quota.weekly ? previsionEpuisement(pourProfil(quota.id), quota.weekly) : null;
+    const parMoteur: Record<string, EnsembleDeFamille | null> = {};
+    for (const moteur of new Set(quotas.map((quota) => quota.engine))) {
+      const famille = previsionsDeFamille(
+        quotas.filter((quota) => quota.engine === moteur).map((quota) => compteDeFamilleDepuisQuota(quota, pourProfil(quota.id))),
+      );
+      Object.assign(out, famille.comptes);
+      parMoteur[moteur] = famille.ensemble;
     }
-    return out;
+    return { previsions: out, ensembles: parMoteur };
   }, [quotas, pourProfil]);
 
   const secoursDe = (quota: AccountQuota) =>
@@ -654,6 +666,21 @@ export function QuotaBadge({
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-text">{nom}</span>
                 <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{groupe.comptes.length}</span>
               </button>
+              {/* LA LIGNE « ENSEMBLE » DE LA FAMILLE (23/11/2026) : quand il n'y aura plus aucun compte de ce moteur, et
+                  pour combien de temps. Seulement à partir de deux comptes prévus : seul, la ligne du compte suffit. */}
+              {!replie && ensembles[groupe.engine] ? (
+                <Tooltip label={detailDeFamille()}>
+                  <p
+                    data-prevision-famille={groupe.engine}
+                    className={cn(
+                      'ml-[26px] mr-1.5 mb-1 w-fit text-[11px]',
+                      ensembles[groupe.engine]!.tient ? 'text-faint' : 'font-medium text-warning',
+                    )}
+                  >
+                    {texteDeFamille(ensembles[groupe.engine]!)}
+                  </p>
+                </Tooltip>
+              ) : null}
               {replie ? null : (
             <div className="mt-1 space-y-1.5 pb-1">
             {groupe.comptes.map((quota) => {
@@ -741,6 +768,7 @@ export function QuotaBadge({
                           label={libelleFenetre(quota.weekly, 'weekly')}
                           window={quota.weekly}
                           releves={pourProfil(quota.id)}
+                          prevision={previsions[quota.id] ?? null}
                           secours={secoursDe(quota)?.label}
                         />
                       ) : null}
@@ -1510,6 +1538,7 @@ function Window({
   releves,
   serie = 'weekly',
   secours,
+  prevision: precalculee,
 }: {
   label: string;
   window?: { usedPct?: number; resetsAt?: number; durationSeconds?: number };
@@ -1519,6 +1548,8 @@ function Window({
   serie?: SerieQuota;
   /** Le compte sur lequel basculer, s'il en existe un qui tienne. */
   secours?: string;
+  /** La prévision DÉJÀ calculée avec les autres comptes de la famille ; absente : la ligne la calcule seule. */
+  prevision?: PrevisionEpuisement | null;
 }) {
   const pct = win?.usedPct ?? 0;
   /*
@@ -1531,7 +1562,8 @@ function Window({
   const exact = heureDeRemiseAZero(win?.resetsAt);
   // Rien à annoncer tant que le calcul n'a pas de sens : la fonction se tait
   // toute seule (trop peu de relevés, rythme nul, quota qui tient jusqu'au bout).
-  const prevision = releves ? previsionEpuisement(releves, win, Date.now(), serie) : null;
+  const prevision =
+    precalculee !== undefined ? precalculee : releves ? previsionEpuisement(releves, win, Date.now(), serie) : null;
 
   return (
     <div>

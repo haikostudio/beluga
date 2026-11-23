@@ -537,22 +537,14 @@ export const EtatDesNouveautes = z.object({
 });
 export type EtatDesNouveautes = z.infer<typeof EtatDesNouveautes>;
 
-/** Une bande de l'offre hébergée refermée revient au bout d'une semaine. */
-export const RETOUR_DE_LA_BANDE_DE_L_OFFRE_MS = 7 * 24 * 60 * 60 * 1000;
-
 /**
- * LA FIN DE LA VERSION GRATUITE (carte « Fin de la version gratuite », 21/11/2026) : une installation qui SUIT le dépôt
- * public est une installation gratuite. Elle ne reçoit plus de nouveautés ; la bande noire du haut lui propose de
- * passer à l'offre hébergée. Refermée, elle revient une semaine plus tard. L'offre hébergée et la machine source ne
- * suivent rien : elles ne la voient jamais.
+ * Faut-il montrer le bandeau « Une nouvelle mise à jour de Beluga est disponible » ? Seulement sur une installation qui
+ * SUIT le dépôt public, et jamais pour un sommet déjà écarté. LOGICIEL LIBRE (23/11/2026) : la version gratuite est ce
+ * dépôt public et reçoit toutes les nouveautés — la bande « fin de la version gratuite » du 21/11/2026 a disparu.
  */
-export function bandeDeLOffreHebergee(
-  etat: EtatDesNouveautes | null | undefined,
-  ecarteeLe: number | null | undefined,
-  maintenant: number,
-): boolean {
-  if (!etat?.suivi) return false;
-  return !ecarteeLe || maintenant - ecarteeLe >= RETOUR_DE_LA_BANDE_DE_L_OFFRE_MS;
+export function bandeauDeMiseAJour(etat: EtatDesNouveautes | null | undefined, ecarte: string | null | undefined): boolean {
+  if (!etat?.suivi || !etat.disponibles || !etat.sommet) return false;
+  return etat.sommet !== ecarte;
 }
 
 /* ------------------------------------------------------------------ */

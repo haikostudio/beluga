@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { retenirLaSelectionDesMarges } from '@/lib/selection-des-marges';
 import { INTITULE_DE_LA_VOIX } from '@beluga/shared';
 import { createPortal } from 'react-dom';
 import { FichiersCites } from '@/components/fichiers-cites';
@@ -1798,7 +1799,7 @@ function FilDeConversation({
             {/* LE FLUX EN CINQ POINTS, dans la zone qui défile : chaque point
                 replie ses traces, sa mémoire et ses boutons secondaires ; le
                 plan est un point du flux (`FluxEnPoints`). */}
-            <ZoneDefilement ref={filRef} data-fil="parcours" className="flex flex-col" voileCaleSur="[data-composer]" fonduLateral={64}>
+            <ZoneDefilement ref={filRef} data-fil="parcours" className="flex flex-col" voileCaleSur="[data-composer]" fonduLateral={64} onMouseDown={retenirLaSelectionDesMarges}>
               {/* Les idées à cocher du compte rendu lisent leur case dans le
                   champ d'écriture de CETTE carte (`ContexteTexteDuChamp`). */}
               <ContexteTexteDuChamp.Provider value={champ}>
@@ -2017,6 +2018,7 @@ function FilDeConversation({
       <ZoneDefilement
         ref={filRef}
         data-fil="conversation"
+        onMouseDown={retenirLaSelectionDesMarges}
         onScroll={(event) => {
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
         }}

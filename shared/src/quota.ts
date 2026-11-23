@@ -1,3 +1,4 @@
+import { classerComptesPourLeTravail, tailleDuPlan } from './choix-de-compte.js';
 import { FUSEAU, heureLocale, jourDeSemaineLocal, jourLocal, minutesLocales, prochaineHeure } from './fuseau.js';
 
 /**
@@ -217,8 +218,16 @@ export interface MorceauxDePrevision {
   brut: number;
   /** Le rythme retenu, dit à l'heure (fenêtre de cinq heures) ou au jour (semaine). */
   cadence: { unite: 'heure' | 'jour'; pct: number };
-  /** D'où sort le chiffre : simple prolongement, profil de semaine, ou profil d'une journée type. */
-  base: 'prolongement' | 'semaine' | 'journee';
+  /**
+   * D'où sort le chiffre : simple prolongement, profil de semaine, profil d'une journée type, ou — tant que
+   * l'historique ne suffit pas à mesurer un profil — la pause de nuit par défaut (`NUIT_PAR_DEFAUT`).
+   */
+  base: 'prolongement' | 'semaine' | 'journee' | 'nuits';
+  /**
+   * Les AUTRES comptes de la même famille qui se partagent le travail avec celui-ci (`previsionsDeFamille`) :
+   * leurs libellés, pour l'infobulle. Absent : prévision d'un compte seul.
+   */
+  partage?: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -500,6 +509,79 @@ export function profilRetenu(releves: ReleveQuota[], serie: SerieQuota = 'weekly
   return profilSemaine(releves, serie) ?? profilHoraire(releves, serie);
 }
 
+/**
+ * LA PAUSE DE NUIT PAR DÉFAUT (décision de l'utilisateur, 23/11/2026) : environ six heures sans consommation, de 1 h à
+ * 7 h. Elle ne sert QUE de repli tant que l'historique ne suffit pas à MESURER un profil (`profilRetenu`, MEM-1024) :
+ * le profil mesuré, lui, apprend le vrai créneau creux de l'utilisateur. Sans elle, la prévision prolongeait le rythme
+ * du jour vingt-quatre heures sur vingt-quatre et annonçait l'épuisement bien trop tôt.
+ */
+export const NUIT_PAR_DEFAUT = { debut: 1, fin: 7 } as const;
+
+/** Le profil d'une journée type qui porte cette pause : poids minimum la nuit, le reste ramené à une moyenne de 1. */
+export const PROFIL_NUIT_PAR_DEFAUT: readonly number[] = (() => {
+  const nuit = NUIT_PAR_DEFAUT.fin - NUIT_PAR_DEFAUT.debut;
+  const jour = (TRANCHES_JOURNEE - nuit * PROFIL_POIDS_MINIMUM) / (TRANCHES_JOURNEE - nuit);
+  return Array.from({ length: TRANCHES_JOURNEE }, (_, heure) =>
+    heure >= NUIT_PAR_DEFAUT.debut && heure < NUIT_PAR_DEFAUT.fin ? PROFIL_POIDS_MINIMUM : jour,
+  );
+})();
+
+/** Une nuit consomme « calmement » sous cette part du rythme de jour. */
+export const NUIT_CALME_PART_DU_JOUR = 0.25;
+
+/**
+ * LES NUITS RÉCENTES SONT-ELLES CALMES ? La pause par défaut n'est qu'une supposition : si les relevés des trois
+ * derniers jours montrent qu'on consomme AUSSI la nuit (agents qui tournent tard), l'imposer ferait croire que tout
+ * ce qui s'est consommé la nuit l'a été le jour, et gonflerait le rythme du jour. Sans nuit observée (moins d'une heure
+ * de nuit dans les relevés), rien ne la contredit : elle s'applique.
+ */
+export function nuitsRecentesCalmes(releves: ReleveQuota[], maintenant: number, serie: SerieQuota = 'weekly'): boolean {
+  const points = releves
+    .filter((p) => p.at <= maintenant && p.at >= maintenant - 3 * 24 * 3600 * 1000)
+    .sort((a, b) => a.at - b.at);
+  let tempsNuit = 0;
+  let consoNuit = 0;
+  let tempsJour = 0;
+  let consoJour = 0;
+  for (let i = 1; i < points.length; i++) {
+    const delta = valeur(points[i], serie) - valeur(points[i - 1], serie);
+    const span = points[i].at - points[i - 1].at;
+    if (delta < 0 || span <= 0) continue;
+    let curseur = points[i - 1].at;
+    for (let pas = 0; pas < 24 * 60 && curseur < points[i].at; pas++) {
+      const bord = Math.min(prochaineHeure(curseur), points[i].at);
+      const heure = heureLocale(curseur);
+      const part = bord - curseur;
+      if (heure >= NUIT_PAR_DEFAUT.debut && heure < NUIT_PAR_DEFAUT.fin) {
+        tempsNuit += part;
+        consoNuit += (delta * part) / span;
+      } else {
+        tempsJour += part;
+        consoJour += (delta * part) / span;
+      }
+      curseur = bord;
+    }
+  }
+  if (tempsNuit < 3600 * 1000) return true;
+  if (tempsJour <= 0 || consoJour <= 0) return consoNuit <= 0;
+  return consoNuit / tempsNuit <= NUIT_CALME_PART_DU_JOUR * (consoJour / tempsJour);
+}
+
+/**
+ * Le profil mesuré s'il tient debout ; sinon la pause de nuit par défaut, quand les nuits récentes ne la contredisent
+ * pas ; sinon rien (simple prolongement) — et ce qui l'a fourni.
+ */
+function profilOuNuitParDefaut(
+  releves: ReleveQuota[],
+  serie: SerieQuota,
+  maintenant: number,
+): { profil: number[] | null; base: MorceauxDePrevision['base'] } {
+  const mesure = profilRetenu(releves, serie);
+  if (mesure) return { profil: mesure, base: mesure.length === TRANCHES_SEMAINE ? 'semaine' : 'journee' };
+  if (nuitsRecentesCalmes(releves, maintenant, serie)) return { profil: [...PROFIL_NUIT_PAR_DEFAUT], base: 'nuits' };
+  return { profil: null, base: 'prolongement' };
+}
+
 /** Le poids d'un instant, quel que soit le profil qu'on tient. */
 function poidsA(profil: number[], at: number): number {
   return profil[trancheDe(at, profil.length)];
@@ -684,7 +766,12 @@ export function previsionEpuisement(
    * semaine (jours ouvrés / week-end) passe d'abord ; à défaut, celui d'une
    * journée type.
    */
-  const profil = serie === 'weekly' ? profilRetenu(passes, serie) : null;
+  /*
+   * Sans profil mesuré, la SEMAINE prend la pause de nuit par défaut (1 h – 7 h) au lieu de la ligne droite : la
+   * fenêtre de cinq heures, elle, garde la simple pente.
+   */
+  const choisi = serie === 'weekly' ? profilOuNuitParDefaut(passes, serie, maintenant) : null;
+  const profil = choisi?.profil ?? null;
 
   /*
    * Le rythme de référence, une fois le profil connu, n'est plus la pente
@@ -734,11 +821,8 @@ export function previsionEpuisement(
 
   // Le chiffre doit rester compréhensible : on dit d'où il sort, et notamment
   // qu'il ne suppose plus le même rythme la nuit que le jour.
-  const base = !applique
-    ? 'en prolongeant simplement le rythme des dernières heures'
-    : applique.length === TRANCHES_SEMAINE
-      ? 'en tenant compte des heures creuses mesurées (la nuit et le week-end consomment peu)'
-      : 'en tenant compte des heures creuses mesurées (la nuit consomme peu)';
+  const baseRetenue: MorceauxDePrevision['base'] = !applique ? 'prolongement' : (choisi?.base ?? 'journee');
+  const base = TEXTE_DE_BASE[baseRetenue];
 
   return {
     at,
@@ -760,10 +844,18 @@ export function previsionEpuisement(
         serie === 'session'
           ? { unite: 'heure', pct: retenu * 3600 * 1000 }
           : { unite: 'jour', pct: parJour },
-      base: !applique ? 'prolongement' : applique.length === TRANCHES_SEMAINE ? 'semaine' : 'journee',
+      base: baseRetenue,
     },
   };
 }
+
+/** D'où sort le chiffre, dit en français (l'écran, lui, traduit depuis `morceaux.base`). */
+const TEXTE_DE_BASE: Record<MorceauxDePrevision['base'], string> = {
+  prolongement: 'en prolongeant simplement le rythme des dernières heures',
+  semaine: 'en tenant compte des heures creuses mesurées (la nuit et le week-end consomment peu)',
+  journee: 'en tenant compte des heures creuses mesurées (la nuit consomme peu)',
+  nuits: 'en comptant une pause de six heures chaque nuit (de 1 h à 7 h, le temps d’apprendre vos horaires)',
+};
 
 /* ------------------------------------------------------------------ */
 /* L'emballement : le rythme s'écarte brusquement de l'habitude         */
@@ -1086,4 +1178,290 @@ export function cumulerPartsQuota(
     quota5h: tour.quota5h + repartirPartQuota(delta5h, tour.poids, poidsGroupe),
     quotaSemaine: tour.quotaSemaine + repartirPartQuota(deltaSemaine, tour.poids, poidsGroupe),
   }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Les comptes d'une même famille se partagent le travail              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE PRÉVISION PAR FAMILLE, PLUS COMPTE PAR COMPTE (demande du 23/11/2026, capture #45db).
+ *
+ * Prévu seul, un compte qui a porté TOUT le travail pendant que son voisin était épuisé se voyait annoncer « épuisé
+ * jeudi » : sa pente du moment était prise pour son rythme normal, alors que le voisin repartait une heure plus tard et
+ * allait reprendre sa part. Ici, les comptes d'un même moteur (2 à 10) sont simulés ENSEMBLE :
+ *
+ * 1. le BESOIN de la famille se mesure sur la somme de ce que TOUS ses comptes ont consommé, ramené en fenêtres « Pro »
+ *    (`tailleDuPlan` : un % de Max x20 vaut vingt % de Pro, MEM-2563), et pesé par le profil des heures (mesuré, ou la
+ *    pause de nuit par défaut) ;
+ * 2. on avance heure par heure jusqu'à ce que chaque compte se soit remis à zéro une fois ; à chaque tranche, le besoin
+ *    va aux comptes allumés et pas encore épuisés, dans l'ORDRE RÉEL du travail (`classerComptesPourLeTravail`,
+ *    DEC-434) : le premier lot de même taille le prend en entier, partagé au prorata de la taille (chaque compte du lot
+ *    monte au même pas), et ne déborde sur le lot suivant que quand il est vide ;
+ * 3. une remise à zéro remet le compte à 0 % et le RÉINTÈGRE : les autres ralentissent d'autant.
+ *
+ * L'échéance de chaque compte dépend donc de tous les autres : un troisième compte l'éloigne. Et la famille dit
+ * quand il n'y aura plus AUCUN compte disponible, et jusqu'à quand.
+ */
+
+/** Ce que la simulation a besoin de savoir d'un compte. */
+export interface CompteDeFamille {
+  id: string;
+  label: string;
+  plan?: string;
+  priority?: number;
+  /** Coupé à la main : il ne reçoit rien. */
+  coupe?: boolean;
+  weekly?: { usedPct?: number; resetsAt?: number };
+  sessionPct?: number;
+  sessionFinit?: number;
+  /** Ses relevés (récents, précédés du résumé lointain : `historiquePourProfil`). */
+  releves: ReleveQuota[];
+}
+
+/** Le verdict de la famille entière. */
+export type EnsembleDeFamille =
+  | { tient: true }
+  | {
+      tient: false;
+      /** L'instant où plus aucun compte n'est disponible, arrondi à la demi-heure. */
+      at: number;
+      /** Le même, avant l'arrondi. */
+      brut: number;
+      /** La première remise à zéro qui rouvre un compte. */
+      jusqua: number;
+      /** Ce qui manque entre les deux, depuis l'instant arrondi. */
+      manqueMs: number;
+      morceaux: Pick<MorceauxDePrevision, 'jour' | 'heure' | 'demiHeure' | 'manque'>;
+    };
+
+export interface PrevisionDeFamille {
+  /** La prévision de chaque compte (null : il tient jusqu'à sa remise à zéro, ou rien à prévoir). */
+  comptes: Record<string, PrevisionEpuisement | null>;
+  /** Null : pas assez de matière pour juger la famille (chaque compte est alors prévu seul). */
+  ensemble: EnsembleDeFamille | null;
+}
+
+/** Le rythme de la famille se mesure sur ces derniers jours : assez pour lisser, assez court pour suivre. */
+export const FAMILLE_FENETRE_DE_RYTHME_MS = 3 * 24 * 3600 * 1000;
+const SEMAINE_MS = 7 * 24 * 3600 * 1000;
+const DEMI_HEURE_MS = 30 * 60 * 1000;
+
+/**
+ * La consommation CUMULÉE de la famille, en fenêtres « Pro » × % : la somme, à chaque relevé, de ce que chaque compte
+ * a consommé depuis son premier relevé. Un pourcentage qui recule (remise à zéro) n'ajoute rien.
+ */
+function serieDeLaFamille(comptes: CompteDeFamille[], maintenant: number): ReleveQuota[] {
+  const cumuls = comptes.map((compte) => {
+    const taille = tailleDuPlan(compte.plan);
+    const points = compte.releves.filter((p) => p.at <= maintenant).sort((a, b) => a.at - b.at);
+    let cumul = 0;
+    return points.map((point, i) => {
+      if (i > 0) cumul += Math.max(0, point.weekly - points[i - 1].weekly) * taille;
+      return { at: point.at, cumul };
+    });
+  });
+  const instants = [...new Set(cumuls.flatMap((serie) => serie.map((p) => p.at)))].sort((a, b) => a - b);
+  const curseurs = cumuls.map(() => -1);
+  return instants.map((at) => {
+    let total = 0;
+    cumuls.forEach((serie, i) => {
+      while (curseurs[i] + 1 < serie.length && serie[curseurs[i] + 1].at <= at) curseurs[i]++;
+      if (curseurs[i] >= 0) total += serie[curseurs[i]].cumul;
+    });
+    return { at, weekly: total };
+  });
+}
+
+/** « aujourd'hui / demain / jour », l'heure et la demi-heure d'un instant arrondi. */
+function morceauxDInstant(at: number, maintenant: number) {
+  return { jour: jourDePrevision(at, maintenant), heure: heureLocale(at), demiHeure: minutesLocales(at) > 0 };
+}
+
+export function previsionsDeFamille(comptes: CompteDeFamille[], maintenant = Date.now()): PrevisionDeFamille {
+  const seuls = (): PrevisionDeFamille => ({
+    comptes: Object.fromEntries(
+      comptes.map((c) => [c.id, c.weekly ? previsionEpuisement(c.releves, c.weekly, maintenant) : null]),
+    ),
+    ensemble: null,
+  });
+
+  // Seuls les comptes dont la semaine est connue se simulent ; les autres ne sont pas de la famille ici.
+  const suivis = comptes.filter(
+    (c) => typeof c.weekly?.usedPct === 'number' && typeof c.weekly.resetsAt === 'number' && c.weekly.resetsAt > maintenant,
+  );
+  if (suivis.length < 2) return seuls();
+
+  // 1. Le besoin de la famille, en fenêtres « Pro » × % par milliseconde PONDÉRÉE.
+  const serie = serieDeLaFamille(suivis, maintenant);
+  const choisi = profilOuNuitParDefaut(serie, 'weekly', maintenant);
+  const base = choisi.base;
+  // Sans profil ni nuit calme, un profil plat : la simple ligne droite, heure par heure.
+  const profil = choisi.profil ?? new Array<number>(TRANCHES_JOURNEE).fill(1);
+  const dernier = serie.at(-1);
+  const premier = serie.find((p) => p.at >= maintenant - FAMILLE_FENETRE_DE_RYTHME_MS);
+  if (!dernier || !premier || dernier.at - premier.at < OBSERVATION_MINIMALE_MS) return seuls();
+  const consomme = dernier.weekly - premier.weekly;
+  const pondere = tempsPondere(premier.at, dernier.at, profil);
+  const rythme = pondere > 0 ? consomme / pondere : 0;
+
+  const prevision: Record<string, PrevisionEpuisement | null> = Object.fromEntries(comptes.map((c) => [c.id, null]));
+  // Les comptes hors simulation gardent leur prévision seule.
+  for (const c of comptes) {
+    if (!suivis.includes(c) && c.weekly) prevision[c.id] = previsionEpuisement(c.releves, c.weekly, maintenant);
+  }
+  if (rythme <= 0) return { comptes: prevision, ensemble: { tient: true } };
+
+  // 2. L'état de chaque compte et l'ordre réel du travail, en lots de même taille.
+  const etats = suivis.map((c) => ({
+    compte: c,
+    taille: tailleDuPlan(c.plan),
+    pct: Math.min(100, Math.max(0, c.weekly!.usedPct!)),
+    remise: c.weekly!.resetsAt!,
+    premiereRemise: c.weekly!.resetsAt!,
+    epuiseA: undefined as number | undefined,
+    trajectoire: [{ at: maintenant, pct: c.weekly!.usedPct! }] as { at: number; pct: number }[],
+  }));
+  const ordre = classerComptesPourLeTravail(
+    suivis.map((c) => ({
+      id: c.id,
+      plan: c.plan,
+      priority: c.priority,
+      sessionPct: c.sessionPct,
+      weeklyPct: c.weekly!.usedPct,
+      sessionFinit: c.sessionFinit,
+    })),
+    maintenant,
+  );
+  const lots: (typeof etats)[] = [];
+  for (const classe of ordre) {
+    const etat = etats.find((e) => e.compte.id === classe.id)!;
+    const lot = lots.find((l) => l[0].taille === etat.taille);
+    if (lot) lot.push(etat);
+    else lots.push([etat]);
+  }
+
+  // 3. L'avance, tranche par tranche, jusqu'à ce que chaque compte se soit remis à zéro une fois.
+  const horizon = Math.min(Math.max(...etats.map((e) => e.premiereRemise)), maintenant + SEMAINE_MS + 24 * 3600 * 1000);
+  let curseur = maintenant;
+  let trou: number | undefined;
+  let finDuTrou: number | undefined;
+  for (let pas = 0; pas < 24 * 10 && curseur < horizon; pas++) {
+    const bord = Math.min(prochaineHeure(curseur), horizon, ...etats.map((e) => e.remise).filter((r) => r > curseur));
+    const duree = bord - curseur;
+    const besoin = rythme * poidsA(profil, curseur) * duree;
+    let reste = besoin;
+    for (const lot of lots) {
+      let ouverts = lot.filter((e) => !e.compte.coupe && e.pct < 100);
+      while (reste > 1e-9 && ouverts.length) {
+        const tailles = ouverts.reduce((somme, e) => somme + e.taille, 0);
+        const pasCommun = Math.min(reste / tailles, ...ouverts.map((e) => 100 - e.pct));
+        reste -= pasCommun * tailles;
+        const instant = curseur + duree * ((besoin - reste) / besoin);
+        for (const e of ouverts) {
+          e.pct = Math.min(100, e.pct + pasCommun);
+          if (e.pct >= 100 - 1e-9) {
+            e.pct = 100;
+            if (e.epuiseA === undefined && instant < e.premiereRemise) e.epuiseA = instant;
+          }
+        }
+        ouverts = ouverts.filter((e) => e.pct < 100);
+      }
+      if (reste <= 1e-9) break;
+    }
+    if (reste > 1e-9 && trou === undefined) trou = curseur + duree * ((besoin - reste) / besoin);
+
+    curseur = bord;
+    for (const e of etats) {
+      if (curseur <= e.premiereRemise && e.epuiseA === undefined) e.trajectoire.push({ at: curseur, pct: e.pct });
+      if (e.remise <= curseur) {
+        e.pct = 0;
+        e.remise += SEMAINE_MS;
+        if (trou !== undefined && finDuTrou === undefined && !e.compte.coupe) finDuTrou = curseur;
+      }
+    }
+  }
+
+  // 4. Les prévisions compte par compte, dans la forme habituelle.
+  for (const e of etats) {
+    if (e.epuiseA === undefined || e.compte.weekly!.usedPct! >= 100) continue;
+    const brut = e.epuiseA;
+    const at = Math.round(brut / DEMI_HEURE_MS) * DEMI_HEURE_MS;
+    const manqueMs = e.premiereRemise - at;
+    const manque = manqueEnClair(manqueMs);
+    const jours = Math.max((brut - maintenant) / (24 * 3600 * 1000), 1 / 24);
+    const parJour = (100 - e.compte.weekly!.usedPct!) / jours;
+    const partage = etats.filter((autre) => autre !== e && !autre.compte.coupe).map((autre) => autre.compte.label);
+    const exact = new Date(brut).toLocaleString('fr-CH', {
+      timeZone: FUSEAU,
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    e.trajectoire.push({ at: brut, pct: 100 });
+    prevision[e.compte.id] = {
+      at,
+      texte: `épuisé ${jourEnClair(at, maintenant)} vers ${heureEnClair(at)}`,
+      manqueMs,
+      manque,
+      detail: `Au rythme observé (environ ${parJour.toFixed(1)} % par jour), ${TEXTE_DE_BASE[base]}, charge partagée avec ${partage.join(', ') || 'aucun autre compte disponible'}, épuisement estimé ${exact}, avant la remise à zéro : il manquerait ${manque} jusque-là.`,
+      niveau: e.premiereRemise - brut > (e.premiereRemise - maintenant) * MARGE_CONFORT ? 'manque' : 'juste',
+      parJour,
+      heuresCreuses: !!choisi.profil,
+      trajectoire: allegerLaTrajectoire(e.trajectoire),
+      morceaux: {
+        ...morceauxDInstant(at, maintenant),
+        manque: decouperDuree(manqueMs),
+        brut,
+        cadence: { unite: 'jour', pct: parJour },
+        base,
+        partage,
+      },
+    };
+  }
+
+  // 5. La famille entière.
+  if (trou === undefined) return { comptes: prevision, ensemble: { tient: true } };
+  const at = Math.round(trou / DEMI_HEURE_MS) * DEMI_HEURE_MS;
+  const jusqua = finDuTrou ?? Math.min(...etats.map((e) => e.remise));
+  const manqueMs = Math.max(0, jusqua - at);
+  return {
+    comptes: prevision,
+    ensemble: {
+      tient: false,
+      at,
+      brut: trou,
+      jusqua,
+      manqueMs,
+      morceaux: { ...morceauxDInstant(at, maintenant), manque: decouperDuree(manqueMs) },
+    },
+  };
+}
+
+/** Un relevé de compte tel que le démon le tient, ramené à ce que la simulation de famille lit. */
+export function compteDeFamilleDepuisQuota(
+  quota: {
+    id: string;
+    label: string;
+    plan?: string;
+    priority?: number;
+    disabled?: boolean;
+    weekly?: { usedPct?: number; resetsAt?: number };
+    session?: { usedPct?: number; resetsAt?: number };
+  },
+  releves: ReleveQuota[],
+): CompteDeFamille {
+  return {
+    id: quota.id,
+    label: quota.label,
+    plan: quota.plan,
+    priority: quota.priority,
+    coupe: !!quota.disabled,
+    weekly: quota.weekly,
+    sessionPct: quota.session?.usedPct,
+    sessionFinit: quota.session?.resetsAt,
+    releves,
+  };
 }

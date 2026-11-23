@@ -1,8 +1,8 @@
 /*
  * LE GARDE DE LA PRODUCTION : AUCUN AGENT N'ÉCRIT SUR UN VRAI SITE HORS MISE EN PRODUCTION.
  *
- * Le 08/10/2026, une carte InVia a mis à jour trois extensions directement sur
- * association-invia.ch, par SSH, alors que la règle (MEM-4501) veut que tout
+ * Le 08/10/2026, une carte a mis à jour trois extensions WordPress directement sur
+ * le site d'un client, par SSH, alors que la règle (MEM-4501) veut que tout
  * changement se fasse sur la COPIE DE TEST puis parte en ligne par la mise en
  * production lancée par l'utilisateur. Une consigne ne suffit pas : on ferme le
  * chemin AVANT que la commande ne parte, comme le garde du démon
@@ -26,7 +26,7 @@
 
 /** Un vrai site protégé : ses hôtes (SSH, base) et son domaine web. */
 export interface ProductionProtegee {
-  /** Le nom lisible du site (« association-invia.ch »). */
+  /** Le nom lisible du site (« exemple.ch »). */
   nom: string;
   /** Les hôtes de la machine du site : SSH, base de données. Comparés en entier. */
   hotes: string[];

@@ -36,7 +36,9 @@ import {
   franchissementSemaine,
   historiquePourProfil,
   memeFenetre,
-  previsionEpuisement,
+  previsionsDeFamille,
+  compteDeFamilleDepuisQuota,
+  type PrevisionEpuisement,
   tempsRestant,
   descriptionMoteur,
   ficheDuMoteur,
@@ -2030,15 +2032,19 @@ function alerterEpuisementsProches(list: AccountQuota[]): void {
   // Le profil des heures creuses puise aussi dans le RÉSUMÉ des semaines
   // passées ; la pente du moment, elle, reste mesurée sur les relevés récents.
   const resume = quotaResume();
-  const previsions = new Map(
-    list.map(
-      (quota) =>
-        [
-          quota.id,
-          previsionEpuisement(historiquePourProfil(resume[quota.id], histoire[quota.id]), quota.weekly),
-        ] as const,
-    ),
-  );
+  /*
+   * LES COMPTES D'UN MÊME MOTEUR SONT PRÉVUS ENSEMBLE (23/11/2026) : celui qui a porté seul la charge pendant que son
+   * voisin était épuisé n'est plus annoncé « à court » quand le voisin va reprendre sa part (`previsionsDeFamille`).
+   */
+  const previsions = new Map<string, PrevisionEpuisement | null>();
+  for (const moteur of new Set(list.map((quota) => quota.engine))) {
+    const famille = previsionsDeFamille(
+      list
+        .filter((quota) => quota.engine === moteur)
+        .map((quota) => compteDeFamilleDepuisQuota(quota, historiquePourProfil(resume[quota.id], histoire[quota.id]))),
+    );
+    for (const [id, prevision] of Object.entries(famille.comptes)) previsions.set(id, prevision);
+  }
 
   let change = false;
   for (const quota of list) {

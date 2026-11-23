@@ -84,8 +84,8 @@ export function ChampDeDemande({
   return (
     <form onSubmit={(e) => void envoyer(e)} className={cn('flex min-w-0 flex-1 flex-col', !dansLaPage && 'w-full')} data-champ-d-ecriture data-v2-champ={repere}>
       {occupe || parti ? <TravailDuChef preparation={preparation} /> : null}
-      {/* `relative z-[1]` : le cadre recouvre le bas du bloc du chef (`-mb-3`), comme le champ des agents recouvre la liste des tâches. */}
-      <div className="relative z-[1] flex w-full min-w-0 flex-col rounded-lg bg-raised" data-v2-cadre-du-champ={repere}>
+      {/* `relative z-[1]` : le cadre recouvre le bas du bloc du chef (`-mb-3`), comme le champ des agents recouvre la liste des tâches ; `data-fond-propre` le garde opaque, hors du voile translucide des blocs. */}
+      <div className="relative z-[1] flex w-full min-w-0 flex-col rounded-lg bg-raised" data-v2-cadre-du-champ={repere} data-fond-propre>
         <input
           value={texte}
           onChange={(e) => setTexte(e.target.value)}

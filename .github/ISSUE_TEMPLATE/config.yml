@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Proposer une idée ou voter
+    url: https://github.com/haikostudio/beluga/discussions/categories/ideas
+    about: Les idées se discutent et se votent dans les Discussions.
+  - name: Poser une question
+    url: https://github.com/haikostudio/beluga/discussions/categories/q-a
+    about: Les questions d'installation et d'usage vont dans les Discussions.
+  - name: Signaler une faille de sécurité
+    url: https://github.com/haikostudio/beluga/security/advisories/new
+    about: Jamais en public — signalement privé.

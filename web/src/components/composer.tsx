@@ -2180,7 +2180,9 @@ export function Composer({
             bloc de configuration de l'agent) — le texte en haut, ses boutons
             sur la rangée du bas, l'envoi en rond plein tout à droite. La barre
             posée dessous (chat.tsx, `data-temoin-reflexion`) épouse ce rayon. */}
-        <div className="relative min-w-0 flex-1 rounded-lg bg-raised" data-champ-d-ecriture>
+        {/* `data-fond-propre` : le champ garde son fond PLEIN, hors du voile translucide des blocs (MEM-8175) — sinon
+            la liste des tâches glissée 12 px dessous transparaissait en bande foncée sur son haut (23/11/2026, #a284). */}
+        <div className="relative min-w-0 flex-1 rounded-lg bg-raised" data-champ-d-ecriture data-fond-propre>
         {/* LE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET SA DÉCOUPE NE
             BOUGE PAS. Deux blocs, et non un seul : une FENÊTRE posée exactement
             sur le champ, qui coupe ce qui dépasse, et DEDANS le texte, qui seul

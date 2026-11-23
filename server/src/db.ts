@@ -1710,23 +1710,6 @@ export const MIGRATIONS: {
      * réglage déjà posé n'est jamais écrasé.
      */
     sql: `
-      UPDATE projects
-         SET data = json_set(data, '$.depotSansDonneesSensibles', json('true'))
-       WHERE json_extract(data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git'
-         AND json_extract(data, '$.depotSansDonneesSensibles') IS NULL;
-
-      UPDATE projects
-         SET data = json_set(data, '$.vitrineLiee', json_object(
-               'site', (SELECT s.path FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git' LIMIT 1),
-               'constructeur', (SELECT c.path FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git' LIMIT 1),
-               'adresseEssai', 'https://essai.exemple.invalid',
-               'adresseProduction', 'https://belugabuild.com',
-               'dossierProduction', '/srv/belugabuild',
-               'serviceProduction', 'belugabuild-prod'))
-       WHERE json_extract(data, '$.gitRemote') = 'git@github.com:haikostudio/beluga.git'
-         AND json_extract(data, '$.vitrineLiee') IS NULL
-         AND EXISTS (SELECT 1 FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git')
-         AND EXISTS (SELECT 1 FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git');
     `,
   },
   {
@@ -1837,18 +1820,6 @@ export const MIGRATIONS: {
      * sans écraser un réglage qui aurait été ajouté entre-temps.
      */
     sql: `
-      UPDATE projects
-         SET data = json_set(data, '$.vitrineLiee', json_object(
-               'site', (SELECT s.path FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git' LIMIT 1),
-               'constructeur', (SELECT c.path FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git' LIMIT 1),
-               'adresseEssai', 'https://essai.exemple.invalid',
-               'adresseProduction', 'https://belugabuild.com',
-               'dossierProduction', '/srv/belugabuild',
-               'serviceProduction', 'belugabuild-prod'))
-       WHERE json_extract(data, '$.gitRemote') = 'git@github.com:haikostudio/beluga.git'
-         AND json_extract(data, '$.vitrineLiee') IS NULL
-         AND EXISTS (SELECT 1 FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git')
-         AND EXISTS (SELECT 1 FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git');
     `,
   },
   {
@@ -2510,19 +2481,6 @@ export const MIGRATIONS: {
        WHERE json_extract(data, '$.vitrineLiee.adresseProduction') = 'https://belugabuild.com'
          AND json_extract(data, '$.miseEnProduction.miroirPublic') = 'haikostudio/belugabuildtool';
 
-      UPDATE projects
-         SET data = json_set(data, '$.miseEnProduction.prompt',
-               replace(replace(replace(replace(replace(replace(replace(
-                 json_extract(data, '$.miseEnProduction.prompt'),
-                 'haikostudio/belugabuildtool', '§depot-public§'),
-                 'haikostudio/belugabuild', 'haikostudio/beluga-site'),
-                 'sur haikostudio/beluga.', 'sur haikostudio/beluga-dev.'),
-                 'Le dépôt privé beluga ', 'Le dépôt privé beluga-dev '),
-                 ' ni essai.exemple.invalid', ' ni https://vitrine.exemple.invalid'),
-                 'du site de production lié https://belugabuild.com —', 'du site de production lié https://belugabuild.com et de la vitrine Haiko https://vitrine.exemple.invalid —'),
-                 '§depot-public§', 'haikostudio/beluga'))
-       WHERE json_extract(data, '$.vitrineLiee.adresseProduction') = 'https://belugabuild.com'
-         AND instr(json_extract(data, '$.miseEnProduction.prompt'), 'belugabuildtool') > 0;
     `,
   },
   {
