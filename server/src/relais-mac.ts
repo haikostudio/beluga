@@ -37,10 +37,16 @@ import {
   preparationVue,
   codeDeSecoursAMontrer,
   etapesDeLaPreparation,
+  MARQUES,
+  choixEffectif,
+  marqueDuNavigateur,
+  navigateursInstallesValables,
+  type MarqueDeNavigateur,
+  type NavigateurInstalle,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
-import { creerUnOrdinateur, ligneDOrdinateur, proposerLeVraiNom } from './ordinateurs.js';
+import { creerUnOrdinateur, ligneDOrdinateur, navigateursChoisisDe, proposerLeVraiNom } from './ordinateurs.js';
 import { echecDeLiaisonSignale, secretDeLAppareil, signer } from './extension-chrome.js';
 import { log } from './logger.js';
 import { ecransOuvertsDuCompte } from './ecrans-ouverts.js';
@@ -761,6 +767,8 @@ export function programmesDuCompte(
   connect: string | null;
   preparation: PreparationDeChrome | null;
   safari: PreparationDeSafari | null;
+  installes: NavigateurInstalle[] | null;
+  autres: Partial<Record<MarqueDeNavigateur, PreparationDeChrome>> | null;
   systeme: SystemeDOrdinateur;
   relieLe: number | null;
 }[] {
@@ -778,6 +786,8 @@ export function programmesDuCompte(
         connect: e.connect,
         preparation: preparationDe(r.ordinateurId!, maintenant),
         safari: lesSafaris().get(r.ordinateurId!) ?? null,
+        installes: lesInstalles().get(r.ordinateurId!)?.liste ?? null,
+        autres: autresPreparations(r.ordinateurId!, maintenant),
         systeme: e.systeme,
         relieLe: e.relieLe,
       };
@@ -1003,7 +1013,7 @@ function poserLaPreparation(ordinateurId: string, p: PreparationDeChrome): void 
   bus.emit({ type: 'extension.change' });
 }
 
-/** Après chaque attente du relais : migration vers Beluga Connect, ou préparation de Chrome. Jamais bloquant. */
+/** Après chaque attente du relais : migration vers Beluga Connect, ou préparation des navigateurs CHOISIS. Jamais bloquant. */
 function apresLAttente(appareilId: string, etat: EtatRapporteParLeRelais): void {
   const r = relais().find((x) => x.id === appareilId);
   if (!r?.ordinateurId || (etat.version ?? 1) < 3) return;
@@ -1017,19 +1027,166 @@ function apresLAttente(appareilId: string, etat: EtatRapporteParLeRelais): void 
     );
     return;
   }
-  /* Sur un Mac, poser l'extension demande « Contrôler le Mac » ; Windows et Linux n'ont rien à autoriser. */
-  if (mac && etat.accessibilite !== true) return;
   if (!etat.connect) return;
-  void preparerChrome(r.compteId, r, false)
-    /* SAFARI D'OFFICE, APRÈS CHROME : seulement une fois Chrome prêt (relié, navigation privée vérifiée). */
-    .then(() => (mac && (etat.version ?? 1) >= 7 ? preparerSafari(r.compteId, r, false) : undefined))
-    .catch((e) => log.warn('Beluga Connect : préparation de Chrome', String((e as Error)?.message ?? e)));
+  /* LES NAVIGATEURS INSTALLÉS, relevés à la première attente puis toutes les dix minutes (pas d'autorisation requise). */
+  relever(r, etat);
+  /* Sur un Mac, poser une extension demande « Contrôler le Mac » ; Windows et Linux n'ont rien à autoriser. */
+  if (mac && etat.accessibilite !== true) return;
+  void preparerLesNavigateursChoisis(r.compteId, r, false).catch((e) => log.warn('Beluga Connect : préparation des navigateurs', String((e as Error)?.message ?? e)));
 }
 
-async function chromesDeLOrdinateur(compteId: string, ordinateurId: string) {
+/* ------------------------------------------------------------------ */
+/* LES NAVIGATEURS AU CHOIX (carte « Navigateurs facultatifs à la liaison », 22/11/2026) */
+/* ------------------------------------------------------------------ */
+
+const CLE_INSTALLES = 'relais-mac.installes';
+let installes: Map<string, { liste: NavigateurInstalle[]; le: number }> | null = null;
+const releveEnCours = new Set<string>();
+
+function lesInstalles(): Map<string, { liste: NavigateurInstalle[]; le: number }> {
+  if (installes) return installes;
+  installes = new Map();
+  try {
+    for (const [id, x] of Object.entries(JSON.parse(getMeta(CLE_INSTALLES) ?? '{}') as Record<string, { liste: unknown; le: number }>)) {
+      installes.set(id, { liste: navigateursInstallesValables(x?.liste), le: Number(x?.le) || 0 });
+    }
+  } catch {
+    /* base pas encore prête */
+  }
+  return installes;
+}
+
+/**
+ * RELEVER LES NAVIGATEURS INSTALLÉS (geste `navigateurs_installes` : relais du Mac 9, Beluga Connect Windows / Linux
+ * 1.2.0) : à la première attente puis toutes les dix minutes. Un programme d'avant ne connaît pas le geste : il le
+ * refuse, et la liste reste celle des navigateurs que Beluga sait équiper (`navigateursAProposer`).
+ */
+function relever(r: RelaisRelie, etat: EtatRapporteParLeRelais): void {
+  const ordinateurId = r.ordinateurId;
+  if (!ordinateurId || releveEnCours.has(r.id)) return;
+  const mac = systemeDuRelais(r, nouvelles.get(r.id)) === 'mac';
+  if (mac && (etat.version ?? 1) < 9) return;
+  if (!auPlusToutesLes(`installes:${r.id}`, 10 * 60_000)) return;
+  releveEnCours.add(r.id);
+  void demanderAuRelais<{ navigateurs?: unknown }>(r.id, 'navigateurs_installes', {}, 30_000)
+    .then((x) => {
+      const liste = navigateursInstallesValables(x?.navigateurs);
+      const avant = lesInstalles().get(ordinateurId);
+      lesInstalles().set(ordinateurId, { liste, le: Date.now() });
+      try {
+        setMeta(CLE_INSTALLES, JSON.stringify(Object.fromEntries(lesInstalles())));
+      } catch {
+        /* base fermée */
+      }
+      if (JSON.stringify(avant?.liste ?? null) !== JSON.stringify(liste)) {
+        log.info(`Beluga Connect : navigateurs trouvés sur ${ordinateurId} — ${liste.map((n) => n.marque).join(', ') || 'aucun'}`);
+        bus.emit({ type: 'extension.change' });
+      }
+    })
+    .catch((e) => log.info(`Beluga Connect : relevé des navigateurs indisponible (${String((e as Error)?.message ?? e)})`))
+    .finally(() => releveEnCours.delete(r.id));
+}
+
+/** Le choix qui vaut pour cet ordinateur (`choixEffectif`) : celui de la personne, sinon ses navigateurs déjà reliés. */
+async function choixDeLOrdinateur(compteId: string, ordinateurId: string): Promise<MarqueDeNavigateur[] | null> {
   const { chromesDuCompte } = await import('./extension-chrome.js');
+  const relies = chromesDuCompte(compteId).filter((c) => c.ordinateurId === ordinateurId);
+  return choixEffectif(navigateursChoisisDe(ligneDOrdinateur(compteId, ordinateurId)), relies);
+}
+
+/** Les marques que Beluga Connect sait poser sur ce système, hors Chrome et Safari (qui ont leur propre suivi). */
+function autreMarqueEquipable(m: MarqueDeNavigateur, systeme: SystemeDOrdinateur): boolean {
+  return m !== 'chrome' && m !== 'safari' && MARQUES[m].famille !== 'webkit' && MARQUES[m].code.includes(systeme);
+}
+
+/**
+ * ÉQUIPER LES NAVIGATEURS CHOISIS, ET EUX SEULS : Chrome (s'il est choisi), puis Safari (s'il est choisi — il n'attend
+ * plus Chrome quand Chrome n'est pas retenu), puis chacun des autres. Rien tant que le choix n'est pas fait.
+ */
+async function preparerLesNavigateursChoisis(compteId: string, r: RelaisRelie, force: boolean): Promise<void> {
+  const ordinateurId = r.ordinateurId;
+  if (!ordinateurId) return;
+  const choix = await choixDeLOrdinateur(compteId, ordinateurId);
+  if (!choix?.length) return;
+  const systeme = systemeDuRelais(r, nouvelles.get(r.id));
+  if (choix.includes('chrome')) await preparerChrome(compteId, r, force);
+  if (systeme === 'mac' && choix.includes('safari') && (nouvelles.get(r.id)?.version ?? 1) >= 7) await preparerSafari(compteId, r, force);
+  for (const m of choix) if (autreMarqueEquipable(m, systeme)) await preparerChrome(compteId, r, force, m);
+}
+
+/**
+ * APPLIQUER UN CHOIX CHANGÉ (page de l'ordinateur, étape « Navigateurs ») : un navigateur DÉCOCHÉ perd son module
+ * (geste `retirer_extension`) et ses fiches sont déliées ; un navigateur COCHÉ est équipé aussitôt, sans délai.
+ */
+export function appliquerLeChoixDesNavigateurs(compteId: string, ordinateurId: string, ajoutes: MarqueDeNavigateur[], retires: MarqueDeNavigateur[]): void {
+  const r = relais().find((x) => x.compteId === compteId && x.ordinateurId === ordinateurId);
+  void (async () => {
+    if (retires.length) {
+      const { chromesDuCompte, delierUnChrome } = await import('./extension-chrome.js');
+      for (const c of chromesDuCompte(compteId)) {
+        if (c.ordinateurId === ordinateurId && retires.includes(marqueDuNavigateur(c))) delierUnChrome(compteId, c.id, true);
+      }
+      for (const m of retires) oublierLaPreparation(ordinateurId, m);
+      if (r && nouvelles.get(r.id)?.connect && !['hors-ligne', 'absent'].includes(etatDe(r, Date.now()).etat)) {
+        for (const m of retires) {
+          await demanderAuRelais(r.id, 'retirer_extension', { marque: m }, 120_000)
+            .then(() => log.info(`Beluga Connect : module retiré de ${MARQUES[m].nom} (${ordinateurId})`))
+            .catch((e) => log.warn(`Beluga Connect : retrait du module de ${MARQUES[m].nom}`, String((e as Error)?.message ?? e)));
+        }
+      }
+    }
+    if (ajoutes.length && r && nouvelles.get(r.id)?.connect) {
+      const mac = systemeDuRelais(r, nouvelles.get(r.id)) === 'mac';
+      if (mac && nouvelles.get(r.id)?.accessibilite !== true) return;
+      await preparerLesNavigateursChoisis(compteId, r, true);
+    }
+  })().catch((e) => log.warn('Beluga Connect : choix des navigateurs', String((e as Error)?.message ?? e)));
+}
+
+/** La clé de suivi d'une marque : l'ordinateur seul pour Chrome (préparations d'avant), « ordinateur:marque » sinon. */
+function cleDeSuivi(ordinateurId: string, marque: MarqueDeNavigateur): string {
+  return marque === 'chrome' ? ordinateurId : `${ordinateurId}:${marque}`;
+}
+
+/** Les préparations des autres navigateurs d'un ordinateur, par marque (`null` : aucune). */
+function autresPreparations(ordinateurId: string, maintenant: number): Partial<Record<MarqueDeNavigateur, PreparationDeChrome>> | null {
+  const sortie: Partial<Record<MarqueDeNavigateur, PreparationDeChrome>> = {};
+  for (const [cle] of lesPreparations()) {
+    if (!cle.startsWith(`${ordinateurId}:`)) continue;
+    const m = cle.slice(ordinateurId.length + 1) as MarqueDeNavigateur;
+    const p = preparationVue(lesPreparations().get(cle), maintenant);
+    if (p && MARQUES[m]) sortie[m] = p;
+  }
+  return Object.keys(sortie).length ? sortie : null;
+}
+
+/** Un navigateur décoché n'a plus rien en cours ni en échec à montrer. */
+function oublierLaPreparation(ordinateurId: string, marque: MarqueDeNavigateur): void {
+  if (marque === 'safari') {
+    if (lesSafaris().delete(ordinateurId)) {
+      try {
+        setMeta(CLE_SAFARIS, JSON.stringify(Object.fromEntries(lesSafaris())));
+      } catch {
+        /* base fermée */
+      }
+    }
+    return;
+  }
+  if (lesPreparations().delete(cleDeSuivi(ordinateurId, marque))) {
+    try {
+      setMeta(CLE_DES_PREPARATIONS, JSON.stringify(Object.fromEntries(lesPreparations())));
+    } catch {
+      /* base fermée */
+    }
+  }
+  bus.emit({ type: 'extension.change' });
+}
+
+async function chromesDeLOrdinateur(compteId: string, ordinateurId: string, marque: MarqueDeNavigateur = 'chrome') {
+  const { chromesDuCompte } = await import('./extension-chrome.js');
+  /* PAR MARQUE (carte « Navigateurs facultatifs ») : un Edge relié a le genre « chrome » mais n'est pas Chrome. */
   return chromesDuCompte(compteId)
-    .filter((c) => c.ordinateurId === ordinateurId && c.genre === 'chrome')
+    .filter((c) => c.ordinateurId === ordinateurId && marqueDuNavigateur(c) === marque)
     .sort((a, b) => (b.vuLe ?? 0) - (a.vuLe ?? 0));
 }
 
@@ -1044,9 +1201,13 @@ async function attendreQue<T>(lire: () => Promise<T | null | undefined>, delaiMs
 }
 
 /** Cet ordinateur a-t-il déjà eu un Chrome relié (même délié depuis) ? Sinon, c'est son installation. */
-function dejaEuUnChrome(compteId: string, ordinateurId: string): boolean {
+function dejaEuUnChrome(compteId: string, ordinateurId: string, marque: MarqueDeNavigateur = 'chrome'): boolean {
   try {
-    return !!getDb().prepare("SELECT 1 FROM chrome_appareils WHERE compte_id = ? AND ordinateur_id = ? AND navigateur = 'chrome' LIMIT 1").get(compteId, ordinateurId);
+    return marque === 'chrome'
+      ? !!getDb()
+          .prepare("SELECT 1 FROM chrome_appareils WHERE compte_id = ? AND ordinateur_id = ? AND navigateur = 'chrome' AND (marque IS NULL OR marque = 'chrome') LIMIT 1")
+          .get(compteId, ordinateurId)
+      : !!getDb().prepare('SELECT 1 FROM chrome_appareils WHERE compte_id = ? AND ordinateur_id = ? AND marque = ? LIMIT 1').get(compteId, ordinateurId, marque);
   } catch {
     return false;
   }
@@ -1057,50 +1218,68 @@ function dejaEuUnChrome(compteId: string, ordinateurId: string): boolean {
  * la navigation privée si l'extension dit ne pas l'avoir. `force` (« Réparer », « Réessayer », Chrome délié) passe outre
  * les délais entre essais. Chaque issue est POSÉE : la préparation ne reste jamais « en cours » une fois sortie d'ici.
  */
-export async function preparerChrome(compteId: string, r: RelaisRelie, force: boolean): Promise<void> {
+export async function preparerChrome(compteId: string, r: RelaisRelie, force: boolean, marque: MarqueDeNavigateur = 'chrome'): Promise<void> {
   const ordinateurId = r.ordinateurId;
-  if (!ordinateurId || enCoursIci.has(ordinateurId)) return;
-  enCoursIci.add(ordinateurId);
+  if (!ordinateurId) return;
+  /* UN SEUL SUIVI PAR NAVIGATEUR (carte « Navigateurs facultatifs ») : Chrome garde sa clé d'avant (l'ordinateur), les
+     autres marques la leur (« ordinateur:marque ») — même relais, même déroulé, même filet. */
+  const cle = cleDeSuivi(ordinateurId, marque);
+  if (enCoursIci.has(cle)) return;
+  enCoursIci.add(cle);
   try {
-    await preparerChromeSansGarde(compteId, r, ordinateurId, force);
+    await preparerChromeSansGarde(compteId, r, ordinateurId, force, marque);
   } finally {
-    enCoursIci.delete(ordinateurId);
-    const p = lesPreparations().get(ordinateurId);
+    enCoursIci.delete(cle);
+    const p = lesPreparations().get(cle);
     if (p?.etat === 'en-cours') {
       /* Filet : une issue oubliée se lit sur le navigateur lui-même. */
-      const relie = (await chromesDeLOrdinateur(compteId, ordinateurId).catch(() => [])).find((c) => c.enLigne);
-      poserLaPreparation(ordinateurId, relie ? { ...p, etat: 'fait', ajoutee: true } : { ...p, etat: 'echec', message: p.message || 'Chrome ne s’est pas relié à Beluga.' });
+      const relie = (await chromesDeLOrdinateur(compteId, ordinateurId, marque).catch(() => [])).find((c) => c.enLigne);
+      poserLaPreparation(cle, relie ? { ...p, etat: 'fait', ajoutee: true } : { ...p, etat: 'echec', message: p.message || `${MARQUES[marque].nom} ne s’est pas relié à Beluga.` });
     }
   }
 }
 
-async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinateurId: string, force: boolean): Promise<void> {
-  let chromes = await chromesDeLOrdinateur(compteId, ordinateurId);
+async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinateurId: string, force: boolean, marque: MarqueDeNavigateur): Promise<void> {
+  const nomNav = MARQUES[marque].nom;
+  const cle = cleDeSuivi(ordinateurId, marque);
+  const gecko = MARQUES[marque].famille === 'gecko';
+  let chromes = await chromesDeLOrdinateur(compteId, ordinateurId, marque);
   const depuis = Date.now();
-  const travail: TravailDeConnect = !force && !dejaEuUnChrome(compteId, ordinateurId) ? 'installation' : 'reparation';
+  const travail: TravailDeConnect = !force && !dejaEuUnChrome(compteId, ordinateurId, marque) ? 'installation' : 'reparation';
   /* « RÉPARER » (22/11/2026) : une extension retirée à la main laisse sa fiche, hors ligne ; un clic sur « Réparer »
      refait donc l'installation dès qu'aucun Chrome de l'ordinateur ne répond (Chrome fermé : il est rouvert). */
   if (!chromes.length || (force && !chromes.some((c) => c.enLigne))) {
     /* Dix minutes entre deux essais : la durée de vie d'un code, pour que `liaison.json` en porte toujours un valable. */
-    if (!force && !auPlusToutesLes(`installer:${r.id}`, 10 * 60_000)) return;
-    poserLaPreparation(ordinateurId, { etat: 'en-cours', ajoutee: null, message: null, depuis, travail, debutLiaison: null });
+    if (!force && !auPlusToutesLes(`installer:${r.id}:${marque}`, 10 * 60_000)) return;
+    poserLaPreparation(cle, { etat: 'en-cours', ajoutee: null, message: null, depuis, travail, debutLiaison: null });
     try {
       const { emettreUnCodeDeLiaison } = await import('./extension-chrome.js');
-      const { preparerLePaquet } = await import('./mise-a-jour-extension.js');
       const { code } = emettreUnCodeDeLiaison(compteId, Date.now(), { ordinateurId, usage: 'fichier' });
-      const { jeton, empreinte } = await preparerLePaquet(r.id);
-      /* Trois essais d'ajout, Chrome quitté puis rouvert entre deux : jusqu'à sept minutes (le relais « qui ne
-         répondait pas à temps » chez l'utilisateur travaillait encore). */
-      const fait = await demanderAuRelais<{ ajoutee?: boolean; detail?: string; dossier?: string; dossiers?: string[]; developpeur?: boolean; rouvert?: boolean; essais?: number }>(
-        r.id,
-        'installer_extension',
-        { chemin: `/api/relais-mac/extension.zip?jeton=${jeton}`, empreinte, version: VERSION_EXTENSION_CHROME, code },
-        420_000,
-      );
+      type Fait = { ajoutee?: boolean; detail?: string; dossier?: string; dossiers?: string[]; developpeur?: boolean; rouvert?: boolean; essais?: number };
+      let fait: Fait;
+      if (gecko) {
+        /* FIREFOX : le module signé par Mozilla (`extension-firefox.ts`), ouvert dans Firefox et accepté par Beluga
+           Connect ; le code voyage dans une adresse de Beluga que le module lit (aucun fichier à côté de lui). */
+        const { paquetFirefox } = await import('./extension-firefox.js');
+        const xpi = paquetFirefox();
+        if (!xpi) throw new Error('Le module Firefox n’est pas encore signé sur ce serveur.');
+        fait = await demanderAuRelais<Fait>(r.id, 'installer_firefox', { chemin: '/api/relais-mac/extension-firefox.xpi', empreinte: xpi.empreinte, code }, 300_000);
+      } else {
+        const { preparerLePaquet } = await import('./mise-a-jour-extension.js');
+        const { jeton, empreinte } = await preparerLePaquet(r.id);
+        /* Trois essais d'ajout, le navigateur quitté puis rouvert entre deux : jusqu'à sept minutes (le relais « qui ne
+           répondait pas à temps » chez l'utilisateur travaillait encore). `marque` : le navigateur visé (relais 9). */
+        fait = await demanderAuRelais<Fait>(
+          r.id,
+          'installer_extension',
+          { chemin: `/api/relais-mac/extension.zip?jeton=${jeton}`, empreinte, version: VERSION_EXTENSION_CHROME, code, marque },
+          420_000,
+        );
+      }
       const ajoutee = fait.ajoutee === true;
-      log.info(`Beluga Connect : extension posée (${ajoutee ? 'ajoutée à Chrome' : 'pas ajoutée'}) dans ${(fait.dossiers ?? [fait.dossier]).filter(Boolean).join(', ') || '?'}`);
+      log.info(`Beluga Connect : extension posée (${ajoutee ? `ajoutée à ${nomNav}` : 'pas ajoutée'}) dans ${(fait.dossiers ?? [fait.dossier]).filter(Boolean).join(', ') || '?'}`);
       const suivi = { developpeur: fait.developpeur ?? ajoutee, rouvert: fait.rouvert ?? null, essais: fait.essais ?? 0 };
-      poserLaPreparation(ordinateurId, {
+      poserLaPreparation(cle, {
         etat: 'en-cours',
         ajoutee,
         message: fait.detail || null,
@@ -1112,39 +1291,40 @@ async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinat
       });
       const relie = await attendreQue(async () => {
         if (echecDeLiaisonSignale(ordinateurId, depuis)) return { refuse: true } as const;
-        return (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.enLigne);
+        return (await chromesDeLOrdinateur(compteId, ordinateurId, marque)).find((c) => c.enLigne);
       }, ajoutee ? 90_000 : 20_000);
       if (!relie || 'refuse' in relie) {
         const refus = echecDeLiaisonSignale(ordinateurId, depuis);
-        poserLaPreparation(ordinateurId, {
+        poserLaPreparation(cle, {
           etat: 'echec',
           ajoutee,
           message: refus
-            ? `Chrome n’a pas pu se relier seul : ${refus.raison}`
+            ? `${nomNav} n’a pas pu se relier seul : ${refus.raison}`
             : ajoutee
-              ? 'Chrome ne s’est pas relié à Beluga tout seul.'
-              : (fait.detail ?? 'L’extension n’a pas pu être ajoutée à Chrome.'),
+              ? `${nomNav} ne s’est pas relié à Beluga tout seul.`
+              : (fait.detail ?? `L’extension n’a pas pu être ajoutée à ${nomNav}.`),
           depuis,
           travail,
           dossier: fait.dossier ?? null,
-          debutLiaison: lesPreparations().get(ordinateurId)?.debutLiaison ?? null,
+          debutLiaison: lesPreparations().get(cle)?.debutLiaison ?? null,
           ...suivi,
         });
         return;
       }
       chromes = [relie];
     } catch (e) {
-      poserLaPreparation(ordinateurId, { etat: 'echec', ajoutee: false, message: String((e as Error)?.message ?? e), depuis, travail, debutLiaison: null });
+      poserLaPreparation(cle, { etat: 'echec', ajoutee: false, message: String((e as Error)?.message ?? e), depuis, travail, debutLiaison: null });
       return;
     }
   }
   const chrome = chromes[0]!;
-  const enCours = () => lesPreparations().get(ordinateurId)?.etat === 'en-cours';
+  const enCours = () => lesPreparations().get(cle)?.etat === 'en-cours';
   const fini = () => {
-    if (enCours()) poserLaPreparation(ordinateurId, { ...lesPreparations().get(ordinateurId)!, etat: 'fait', ajoutee: true, message: null });
+    if (enCours()) poserLaPreparation(cle, { ...lesPreparations().get(cle)!, etat: 'fait', ajoutee: true, message: null });
   };
-  /* La case « navigation privée » ne se coche seule que sur un Mac (pilotage de chrome://extensions par macOS). */
-  if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') return fini();
+  /* La case « navigation privée » ne se coche seule que sur un Mac (pilotage de chrome://extensions par macOS), et
+     seulement dans la famille Chromium (Firefox n'a pas de débogueur : rien à prouver en fenêtre privée). */
+  if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac' || gecko) return fini();
   if (!chrome.enLigne || !versionAuMoins(chrome.version, '1.0.11')) return fini();
   /* LA PREUVE, PAS LA CASE (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : extension ≥ 1.0.16, une vraie
      fenêtre privée réduite s'ouvre puis se referme ; avant, la case seule. */
@@ -1156,18 +1336,18 @@ async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinat
      Avant, la préparation restait « en cours » à vie dans ces deux cas. */
   if (!ligne || (!force && !auPlusToutesLes(`prive:${r.id}`, 30 * 60_000))) {
     if (enCours()) {
-      poserLaPreparation(ordinateurId, { ...lesPreparations().get(ordinateurId)!, etat: 'echec', ajoutee: true, message: 'La navigation privée reste à autoriser.' });
+      poserLaPreparation(cle, { ...lesPreparations().get(cle)!, etat: 'echec', ajoutee: true, message: 'La navigation privée reste à autoriser.' });
     }
     return;
   }
-  const avant = lesPreparations().get(ordinateurId);
+  const avant = lesPreparations().get(cle);
   const base: PreparationDeChrome = enCours() && avant ? avant : { etat: 'en-cours', ajoutee: true, message: null, depuis, travail: 'prive', debutLiaison: null };
-  poserLaPreparation(ordinateurId, { ...base, etat: 'en-cours', ajoutee: true, message: null });
+  poserLaPreparation(cle, { ...base, etat: 'en-cours', ajoutee: true, message: null });
   try {
-    await demanderAuRelais(r.id, 'autoriser_navigation_privee', { extensionId: ligne.extension_id }, 90_000);
+    await demanderAuRelais(r.id, 'autoriser_navigation_privee', { extensionId: ligne.extension_id, marque }, 90_000);
     /* Cocher la case recharge l'extension : on attend qu'elle revienne, puis la preuve (≥ 1.0.16) ou sa parole (avant). */
     const prive = await attendreQue(async () => {
-      const revenu = (await chromesDeLOrdinateur(compteId, ordinateurId)).find((c) => c.id === chrome.id && c.enLigne);
+      const revenu = (await chromesDeLOrdinateur(compteId, ordinateurId, marque)).find((c) => c.id === chrome.id && c.enLigne);
       if (!revenu) return null;
       const preuve = await prouverLaNavigationPrivee(chrome.id);
       return preuve === true || (preuve === null && revenu.incognito === true) ? revenu : null;
@@ -1179,7 +1359,7 @@ async function preparerChromeSansGarde(compteId: string, r: RelaisRelie, ordinat
         : { ...base, etat: 'echec', ajoutee: true, message: 'La navigation privée n’a pas pu être vérifiée : aucune fenêtre privée n’a pu s’ouvrir.' },
     );
   } catch (e) {
-    poserLaPreparation(ordinateurId, { ...base, etat: 'echec', ajoutee: true, message: String((e as Error)?.message ?? e) });
+    poserLaPreparation(cle, { ...base, etat: 'echec', ajoutee: true, message: String((e as Error)?.message ?? e) });
   }
 }
 
@@ -1246,10 +1426,11 @@ export async function preparerSafari(compteId: string, r: RelaisRelie, force: bo
   if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') return { ok: false, texte: 'Safari n’existe que sur Mac.' };
   if (safariEnCours.has(ordinateurId)) return { ok: true, texte: 'Safari est déjà en cours d’installation.' };
   if ((nouvelles.get(r.id)?.version ?? 1) < 7) return { ok: false, texte: 'Beluga Connect doit d’abord se mettre à jour sur ce Mac.' };
-  /* Chrome d'abord : relié, et vérifié en navigation privée. */
+  /* Chrome d'abord, s'il est choisi : relié, et vérifié en navigation privée. Safari choisi seul n'attend personne. */
+  const choix = await choixDeLOrdinateur(compteId, ordinateurId);
   const chromes = await chromesDeLOrdinateur(compteId, ordinateurId);
   const chromePret = chromes.some((c) => c.enLigne && c.incognito === true) && lesPreparations().get(ordinateurId)?.etat !== 'en-cours';
-  if (!chromePret && !force) return { ok: false, texte: 'Safari s’installera dès que Chrome sera prêt.' };
+  if (choix?.includes('chrome') && !chromePret && !force) return { ok: false, texte: 'Safari s’installera dès que Chrome sera prêt.' };
   const deja = await safarisDeLOrdinateur(compteId, ordinateurId);
   if (deja.length && !force) return { ok: true, texte: 'Safari est déjà relié sur ce Mac.' };
   const avant = lesSafaris().get(ordinateurId);
@@ -1318,15 +1499,21 @@ export async function paquetSafariPourLeRelais(): Promise<Buffer | null> {
  * UN CHROME DÉLIÉ SUR UN ORDINATEUR QUI GARDE SON BELUGA CONNECT (même carte) : la préparation repart aussitôt, sans le
  * délai entre essais, une seule fois par révocation. L'ordinateur délié en entier (ou sans Connect en ligne) : rien.
  */
-export function reprendreApresUneRevocation(compteId: string, ordinateurId: string): boolean {
+export function reprendreApresUneRevocation(compteId: string, ordinateurId: string, marque: MarqueDeNavigateur = 'chrome'): boolean {
   if (!ligneDOrdinateur(compteId, ordinateurId)) return false;
   const r = relais().find((x) => x.compteId === compteId && x.ordinateurId === ordinateurId);
   if (!r || !nouvelles.get(r.id)?.connect) return false;
   const etat = etatDe(r, Date.now());
   if (etat.etat === 'hors-ligne' || etat.etat === 'absent') return false;
   if (etat.systeme === 'mac' && etat.autorisations?.accessibilite !== true) return false;
-  log.info(`Beluga Connect : Chrome délié sur l’ordinateur ${ordinateurId}, nouvelle liaison`);
-  void preparerChrome(compteId, r, true).catch((e) => log.warn('Beluga Connect : reprise après révocation', String((e as Error)?.message ?? e)));
+  /* UN NAVIGATEUR DÉCOCHÉ (carte « Navigateurs facultatifs ») est délié EXPRÈS : il ne se réinstalle pas. */
+  void choixDeLOrdinateur(compteId, ordinateurId)
+    .then((choix) => {
+      if (!choix?.includes(marque)) return;
+      log.info(`Beluga Connect : ${MARQUES[marque].nom} délié sur l’ordinateur ${ordinateurId}, nouvelle liaison`);
+      return preparerChrome(compteId, r, true, marque);
+    })
+    .catch((e) => log.warn('Beluga Connect : reprise après révocation', String((e as Error)?.message ?? e)));
   return true;
 }
 
@@ -1340,6 +1527,7 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
   const n = nouvelles.get(appareilId);
   const a = paquetDeConnect(paquetDuProgramme(systemeDuRelais(r, n), n?.arch));
   const prep = r?.ordinateurId ? preparationDe(r.ordinateurId) : null;
+  const choix = r?.ordinateurId ? await choixDeLOrdinateur(compteId, r.ordinateurId) : null;
   const miseAJour = chromes.some((c) => retards.find((x) => x.chromeId === c.id)?.enCours);
   const travailEnCours: TravailDeConnect | null = prep?.etat === 'en-cours' ? (prep.travail ?? 'installation') : miseAJour ? 'mise-a-jour' : null;
   /* Le code de secours n'est montré par Connect que s'il est temps (30 s sans liaison) ; émis au besoin. */
@@ -1375,12 +1563,47 @@ export async function statutPourConnect(appareilId: string, compteId: string): P
     raison: prep?.etat === 'echec' ? prep.message : null,
     essais: prep?.essais ?? 0,
     codeDeSecours: secours ? { code: secours.code, expireLe: secours.expireLe } : null,
-    /* SAFARI (Beluga Connect ≥ 1.5.0) : ses trois lignes, après Chrome. */
+    /* SAFARI (Beluga Connect ≥ 1.5.0) : ses trois lignes, après Chrome — seulement s'il est choisi (un groupe absent est
+       déjà toléré par les versions d'avant). */
     safari:
-      r?.ordinateurId && systemeDuRelais(r, n) === 'mac'
-        ? await etatDeSafariPourConnect(compteId, r.ordinateurId, chromes.some((c) => c.enLigne && c.incognito === true))
+      r?.ordinateurId && systemeDuRelais(r, n) === 'mac' && (choix?.includes('safari') ?? true)
+        ? await etatDeSafariPourConnect(compteId, r.ordinateurId, chromes.some((c) => c.enLigne && c.incognito === true) || !choix?.includes('chrome'))
         : null,
+    /*
+     * LES NAVIGATEURS AU CHOIX (Beluga Connect 1.6.0, carte « Navigateurs facultatifs à la liaison ») : un groupe PAR
+     * navigateur choisi, dans l'ordre de la personne — son nom, son état, ses lignes et la raison d'un échec. `choisis`
+     * nul : rien n'est encore choisi, la fenêtre invite à le faire dans Beluga.
+     */
+    choisis: choix,
+    navigateurs: r?.ordinateurId ? await groupesDesNavigateurs(compteId, r, choix ?? []) : [],
   };
+}
+
+/** Un groupe par navigateur choisi, pour la fenêtre de Beluga Connect 1.6.0. */
+async function groupesDesNavigateurs(compteId: string, r: RelaisRelie, choix: MarqueDeNavigateur[]) {
+  const ordinateurId = r.ordinateurId!;
+  const mac = systemeDuRelais(r, nouvelles.get(r.id)) === 'mac';
+  const groupes = [];
+  for (const m of choix) {
+    if (m === 'safari') {
+      const s = await etatDeSafariPourConnect(compteId, ordinateurId, true);
+      groupes.push({ marque: m, nom: MARQUES[m].nom, etat: s.etat, etapes: s.etapes, raison: s.raison });
+      continue;
+    }
+    const nav = (await chromesDeLOrdinateur(compteId, ordinateurId, m))[0] ?? null;
+    const p = preparationVue(lesPreparations().get(cleDeSuivi(ordinateurId, m)));
+    const etapes = etapesDeLaPreparation(p, nav, mac && MARQUES[m].famille === 'chromium').map((e) => ({ cle: e.cle, etat: e.etat }));
+    const fait = !!nav?.enLigne && etapes.every((e) => e.etat === 'fait');
+    groupes.push({
+      marque: m,
+      nom: MARQUES[m].nom,
+      etat: fait ? 'fait' : p?.etat ?? 'a-venir',
+      etapes,
+      raison: p?.etat === 'echec' ? p.message : null,
+      version: nav?.version ?? null,
+    });
+  }
+  return groupes;
 }
 
 /** Un geste demandé depuis le menu de Beluga Connect : « Mettre à jour maintenant » ou « Réparer ». */
@@ -1388,15 +1611,19 @@ export async function demandeDeConnect(appareilId: string, compteId: string, quo
   const r = relais().find((x) => x.id === appareilId);
   if (!r?.ordinateurId) return { ok: false, texte: 'Ce Mac n’est rattaché à aucun ordinateur dans Beluga.' };
   if (quoi === 'reparer') {
-    void preparerChrome(compteId, r, true)
-      .then(async () => {
-        /* Puis Safari, s'il manque ou a échoué. */
-        if (systemeDuRelais(r, nouvelles.get(r.id)) !== 'mac') return;
-        const relie = (await safarisDeLOrdinateur(compteId, r.ordinateurId!)).some((c) => c.enLigne);
-        if (!relie) await preparerSafari(compteId, r, true);
-      })
-      .catch(() => {});
-    return { ok: true, texte: 'Beluga vérifie Chrome et Safari sur ce Mac et les répare au besoin.' };
+    /* « RÉPARER » ne touche qu'aux navigateurs CHOISIS (carte « Navigateurs facultatifs »). */
+    const choix = (await choixDeLOrdinateur(compteId, r.ordinateurId)) ?? [];
+    if (!choix.length) return { ok: true, texte: 'Aucun navigateur n’est choisi sur cet ordinateur : rien à réparer.' };
+    void preparerLesNavigateursChoisis(compteId, r, true).catch(() => {});
+    return { ok: true, texte: `Beluga vérifie ${choix.map((m) => MARQUES[m].nom).join(', ')} et les répare au besoin.` };
+  }
+  if (typeof quoi === 'string' && quoi.startsWith('navigateur:')) {
+    /* « Réparer » sur le groupe d'UN navigateur dans Beluga Connect 1.6.0. */
+    const m = quoi.slice('navigateur:'.length) as MarqueDeNavigateur;
+    if (!MARQUES[m]) return { ok: false, texte: 'Navigateur inconnu.' };
+    if (m === 'safari') void preparerSafari(compteId, r, true).catch(() => {});
+    else void preparerChrome(compteId, r, true, m).catch(() => {});
+    return { ok: true, texte: `Beluga Connect répare ${MARQUES[m].nom}.` };
   }
   if (quoi === 'safari') {
     void preparerSafari(compteId, r, true).catch(() => {});
@@ -1412,9 +1639,11 @@ export async function demandeDeConnect(appareilId: string, compteId: string, quo
 }
 
 /** « Réessayer » de l'assistant : Beluga Connect de cet ordinateur reprend la préparation de Chrome (sans délai). */
-export function preparerChromeDeLOrdinateur(compteId: string, ordinateurId: string): boolean {
+export function preparerChromeDeLOrdinateur(compteId: string, ordinateurId: string, brut?: unknown): boolean {
   const r = relais().find((x) => x.compteId === compteId && x.ordinateurId === ordinateurId);
   if (!r || !nouvelles.get(r.id)?.connect) return false;
-  void preparerChrome(compteId, r, true).catch(() => {});
+  /* La marque visée (« Réessayer » sous Edge, Brave, Firefox…) ; absente : Chrome. */
+  const marque = typeof brut === 'string' && brut in MARQUES && brut !== 'safari' ? (brut as MarqueDeNavigateur) : 'chrome';
+  void preparerChrome(compteId, r, true, marque).catch(() => {});
   return true;
 }

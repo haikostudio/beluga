@@ -75,6 +75,8 @@ import {
   agentApresNouveauDepart,
   comptePrecedents,
   messagesDepuis,
+  messagesAvecPrecedents,
+  PRECEDENTS_PAR_PAQUET,
   peutRepartir,
   accorderRunDeProposition,
   CLE_PROJET_ACTIF,
@@ -820,15 +822,21 @@ function contexteDeCommande(cmd: ClientEnvelope['cmd']): string {
  * nouveau départ, avec le compte de ce qui dort derrière. `tout` rouvre le fil
  * entier — rien n'ayant jamais été supprimé, il est toujours là.
  */
-function envoyerConversation(agentId: string, tout = false): void {
+/**
+ * LA CONVERSATION D'UN AGENT, ENVOYÉE À L'ÉCRAN. Depuis la conversation sans fin (22/11/2026), l'ancien fil d'avant
+ * « Repartir de zéro » part AUSSI, par paquets : le dernier paquet d'abord, les plus anciens à la demande
+ * (`precedents`). Ce n'est qu'un affichage : le contexte du moteur reste vidé au nouveau départ.
+ */
+function envoyerConversation(agentId: string, tout = false, combien: number = PRECEDENTS_PAR_PAQUET): void {
   const messages = store.listMessages(agentId);
   const depuis = store.nouveauDepart(agentId);
   bus.emit({
     type: 'agent.etat',
     agentId,
-    messages: tout ? messages : messagesDepuis(messages, depuis),
+    messages: tout ? messages : messagesAvecPrecedents(messages, depuis, combien),
     queue: store.listQueue(agentId),
     precedents: comptePrecedents(messages, depuis),
+    ...(typeof depuis === 'number' && depuis > 0 ? { depuis } : {}),
   });
 }
 
@@ -2422,7 +2430,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'agent.open': {
       const agent = store.getAgent(cmd.id);
       if (!agent) throw new Error('agent introuvable');
-      envoyerConversation(cmd.id, cmd.tout);
+      envoyerConversation(cmd.id, cmd.tout, cmd.precedents ?? PRECEDENTS_PAR_PAQUET);
       return { agent };
     }
 
@@ -2628,7 +2636,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const neuf = store.saveAgent(agentApresNouveauDepart(agent));
       bus.emit({ type: 'agent.upsert', agent: neuf });
       envoyerConversation(agent.id);
-      bus.toast('success', 'Nouvelle conversation. Les échanges précédents restent consultables.');
+      bus.toast('success', 'Nouvelle conversation. Les échanges précédents restent affichés au-dessus.');
       return { ok: true };
     }
 
@@ -4663,6 +4671,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!droits) throw new Error('Cet ordinateur n’est plus relié.');
       return { ok: true, droits };
     }
+    case 'ordinateur.navigateurs': {
+      const { choisirLesNavigateurs } = await import('./ordinateurs.js');
+      const change = choisirLesNavigateurs(compte.id, cmd.id, cmd.choisis);
+      if (!change) throw new Error('Cet ordinateur n’est plus relié.');
+      const { appliquerLeChoixDesNavigateurs } = await import('./relais-mac.js');
+      appliquerLeChoixDesNavigateurs(compte.id, cmd.id, change.ajoutes, change.retires);
+      return { ok: true, choisis: change.choisis };
+    }
     case 'ordinateur.etat': {
       const { ordinateursDuCompte, ordinateurRetenu, dernierOrdinateur } = await import('./ordinateurs.js');
       /* Une carte retient son ordinateur même avant d'avoir son agent (avant le premier message). */
@@ -4724,7 +4740,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
     case 'relaisMac.preparer': {
       const { preparerChromeDeLOrdinateur } = await import('./relais-mac.js');
-      if (!preparerChromeDeLOrdinateur(compte.id, cmd.ordinateurId)) throw new Error('Beluga Connect ne répond pas sur cet ordinateur.');
+      if (!preparerChromeDeLOrdinateur(compte.id, cmd.ordinateurId, cmd.marque)) throw new Error('Beluga Connect ne répond pas sur cet ordinateur.');
       return { ok: true };
     }
     case 'relaisMac.preparerSafari': {
@@ -5849,6 +5865,24 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const resultat = await libererUnVisiteur(projet?.adresseProduction || projet?.devUrl || null, ip);
       log.info(`sécurité : ${ip} libéré par l'interface (projet « ${projet?.name ?? projectId} »)`);
       return resultat;
+    }
+
+    case 'securite.robots.lire': {
+      const { estSuivi } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      const { etatDesRobots } = await import('./garde-des-robots.js');
+      return etatDesRobots(projectId);
+    }
+
+    case 'securite.robots.regler': {
+      const { estSuivi } = await import('./service-securite.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!estSuivi(projectId)) throw new Error('ce projet n’est pas suivi');
+      const { reglerLesRobots } = await import('./garde-des-robots.js');
+      const etat = await reglerLesRobots(projectId, cmd.reglage);
+      log.info(`sécurité : accès des robots réglé pour « ${store.getProject(projectId)?.name ?? projectId} » (${JSON.stringify(etat.reglage)})`);
+      return etat;
     }
 
     case 'securite.agent': {

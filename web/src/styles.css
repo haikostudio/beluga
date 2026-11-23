@@ -2523,3 +2523,19 @@ html[data-mise-en-route] [data-languette-jarvis],
 html[data-mise-en-route] [data-rond-seul] {
   display: none !important;
 }
+
+/* UN BLOC REPLIABLE POSÉ DANS LA FEUILLE DU BAS (téléphone, 22/11/2026) : la feuille a déjà le fond `--surface`, le bloc
+   prend le cran suivant pour se détacher, et ce qu'il contient d'élevé redescend au fond de la page. */
+[data-feuille-du-bas] .bloc-repliable {
+  background-color: hsl(var(--raised));
+}
+[data-feuille-du-bas] .bloc-repliable [data-bloc-contenu] .bg-raised {
+  background-color: hsl(var(--bg));
+}
+
+/* LA RANGÉE D'UNE FEUILLE DE SERVICE NE PARAÎT QUE SI ELLE PORTE QUELQUE CHOSE (téléphone, 22/11/2026, capture #7ae7) :
+   le retour d'une sous-page vit dans l'en-tête de la feuille ; une rangée où ne restent que des emplacements vides, cachés
+   ou l'espace qui pousse le reste à droite disparaît, au lieu de laisser une ligne vide sous le titre. */
+[data-tete-de-la-feuille-de-service]:not(:has([data-rangee-de-la-page] > :not(:empty):not([aria-hidden]):not(.hidden))) {
+  display: none;
+}

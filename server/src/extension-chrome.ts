@@ -63,6 +63,9 @@ import {
   type ServerEvent,
   type SiteDuChrome,
   LIBELLE_DU_NAVIGATEUR,
+  MARQUES,
+  genreDeLaMarque,
+  marqueValable,
   genreDeNavigateur,
   nomProposeDepuisLaPlateforme,
   type GenreDeNavigateur,
@@ -209,7 +212,7 @@ export type ResultatDeLiaison = { ok: true; identifiant: string; secret: string;
 
 /** L'extension échange le code contre sa clé. Le code meurt dans le même geste (usage unique). */
 export function relierUnChrome(
-  demande: { code?: unknown; nom?: unknown; version?: unknown; navigateur?: unknown },
+  demande: { code?: unknown; nom?: unknown; version?: unknown; navigateur?: unknown; marque?: unknown },
   adresse: string,
   maintenant = Date.now(),
 ): ResultatDeLiaison {
@@ -225,8 +228,11 @@ export function relierUnChrome(
   if (vivants.n >= CHROME_RELIES_MAX) return { ok: false, raison: `Déjà ${CHROME_RELIES_MAX} Chrome reliés : déliez-en un dans Réglages → Extension.` };
   const id = crypto.randomBytes(9).toString('base64url');
   const nonce = crypto.randomBytes(12).toString('base64url');
-  const genre = genreDeNavigateur(demande.navigateur);
-  const nom = String(demande.nom ?? '').trim().slice(0, 60) || LIBELLE_DU_NAVIGATEUR[genre];
+  /* LA MARQUE (extension 1.0.17, carte « Navigateurs facultatifs ») : Edge, Brave, Firefox… ; le genre en découle
+     quand elle est dite (Firefox joue en mode dégradé, comme Safari). */
+  const marque = marqueValable(demande.marque);
+  const genre = marque ? genreDeLaMarque(marque) : genreDeNavigateur(demande.navigateur);
+  const nom = String(demande.nom ?? '').trim().slice(0, 60) || (marque ? MARQUES[marque].nom : LIBELLE_DU_NAVIGATEUR[genre]);
   const version = String(demande.version ?? '').slice(0, 20) || null;
   /* L'ORDINATEUR : celui visé par le code s'il est encore au compte, sinon un neuf — au nom choisi en émettant le
      code, ou à celui de la plateforme (« Mac »). La personne le renomme à tout moment. */
@@ -234,8 +240,8 @@ export function relierUnChrome(
     ligneDOrdinateur(ligne.compte_id, ligne.ordinateur_id)?.id ??
     creerUnOrdinateur(ligne.compte_id, ligne.nom || nomProposeDepuisLaPlateforme(nom), maintenant).id;
   db.prepare(
-    'INSERT INTO chrome_appareils (id, compte_id, nonce, nom, version, cree_le, vu_le, ordinateur_id, navigateur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, ligne.compte_id, nonce, nom, version, maintenant, maintenant, ordinateur, genre);
+    'INSERT INTO chrome_appareils (id, compte_id, nonce, nom, version, cree_le, vu_le, ordinateur_id, navigateur, marque) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, ligne.compte_id, nonce, nom, version, maintenant, maintenant, ordinateur, genre, marque);
   const cle = { compteId: ligne.compte_id, id, nonce };
   bus.emit({ type: 'extension.change' });
   return { ok: true, identifiant: identifiantDAppareil(cle), secret: secretDeLAppareil(cle), nom };
@@ -298,6 +304,7 @@ interface LigneAppareil {
   revoque_le: number | null;
   incognito?: number | null;
   extension_id?: string | null;
+  marque?: string | null;
 }
 
 function appareilsDuCompte(compteId: string): LigneAppareil[] {
@@ -327,6 +334,7 @@ export function chromesDuCompte(compteId: string): ChromeRelie[] {
     agentsAuTravail: [...sessions.values()].filter((s) => s.appareilId === a.id && agentAuTravail(s.agentId)).length,
     ordinateurId: a.ordinateur_id ?? null,
     genre: genreDeNavigateur(a.navigateur),
+    marque: marqueValable(a.marque),
   }));
 }
 
@@ -336,19 +344,24 @@ export function genreDuNavigateur(appareilId: string): GenreDeNavigateur {
   return genreDeNavigateur(ligne?.navigateur);
 }
 
-export function delierUnChrome(compteId: string, id: string): boolean {
-  const ligne = getDb().prepare('SELECT ordinateur_id, navigateur FROM chrome_appareils WHERE id = ? AND compte_id = ?').get(id, compteId) as
-    | { ordinateur_id: string | null; navigateur: string | null }
+/**
+ * DÉLIER UN NAVIGATEUR. `retirer` (carte « Navigateurs facultatifs à la liaison ») : la personne a DÉCOCHÉ ce
+ * navigateur — la voie se ferme en 4002 et l'extension 1.0.17 se retire elle-même du navigateur.
+ */
+export function delierUnChrome(compteId: string, id: string, retirer = false): boolean {
+  const ligne = getDb().prepare('SELECT ordinateur_id, navigateur, marque FROM chrome_appareils WHERE id = ? AND compte_id = ?').get(id, compteId) as
+    | { ordinateur_id: string | null; navigateur: string | null; marque: string | null }
     | undefined;
   const fait = getDb().prepare('UPDATE chrome_appareils SET revoque_le = ? WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').run(Date.now(), id, compteId);
   const connexion = connexions.get(id);
-  if (connexion && connexion.compteId === compteId) connexion.ws.close(4001, 'délié');
+  if (connexion && connexion.compteId === compteId) connexion.ws.close(retirer ? 4002 : 4001, retirer ? 'retiré' : 'délié');
   bus.emit({ type: 'extension.change' });
   /* Un Chrome délié sur un ordinateur qui GARDE son Beluga Connect : la préparation repart seule, sans attendre le délai
      entre deux essais (une fois par révocation). Laissé une seconde : un ordinateur délié en entier ne repart pas. */
   if (fait.changes > 0 && ligne?.ordinateur_id && genreDeNavigateur(ligne.navigateur) === 'chrome') {
     const ordinateurId = ligne.ordinateur_id;
-    setTimeout(() => void import('./relais-mac.js').then((m) => m.reprendreApresUneRevocation(compteId, ordinateurId)).catch(() => {}), 1_000).unref();
+    const marque = marqueValable(ligne.marque) ?? 'chrome';
+    setTimeout(() => void import('./relais-mac.js').then((m) => m.reprendreApresUneRevocation(compteId, ordinateurId, marque)).catch(() => {}), 1_000).unref();
   }
   return fait.changes > 0;
 }

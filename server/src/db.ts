@@ -5669,6 +5669,21 @@ export const MIGRATIONS: {
       UPDATE users SET nom_affiche = 'Version gratuite' WHERE identifiant = 'relais-open-source' AND nom_affiche = 'Open source';
     `,
   },
+  {
+    id: 187,
+    name: 'navigateurs-choisis-par-ordinateur',
+    siTable: ['ordinateurs', 'chrome_appareils'],
+    /*
+     * LES NAVIGATEURS AU CHOIX (carte « Navigateurs facultatifs à la liaison », 22/11/2026) : `ordinateurs.navigateurs`
+     * porte le JSON des marques cochées (« ["chrome"] », « [] » = sans navigateur) ; NULL = pas encore choisi (les
+     * ordinateurs déjà reliés valent alors leurs navigateurs reliés, `choixEffectif`). `chrome_appareils.marque` : le
+     * vrai navigateur annoncé par l'extension 1.0.17 (edge, brave, firefox…) ; NULL = celui du genre. Additif.
+     */
+    sql: `
+      ALTER TABLE ordinateurs ADD COLUMN navigateurs TEXT;
+      ALTER TABLE chrome_appareils ADD COLUMN marque TEXT;
+    `,
+  },
 ];
 
 export function openDb(): DB {

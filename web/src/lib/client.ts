@@ -483,6 +483,8 @@ export interface AppState {
   queues: Record<string, QueuedPrompt[]>;
   /** Échanges mis de côté par un « repartir de zéro », par agent. */
   precedents: Record<string, number>;
+  /** L'heure du dernier nouveau départ de chaque agent (0 : jamais) — le trait « Nouvelle session » du fil. */
+  departs: Record<string, number>;
   attachments: Record<string, Attachment[]>;
   /** Les médias en fabrication, tous projets : les blocs d'attente du fil (`shared/src/media-en-fabrication.ts`). */
   mediasEnFabrication: MediaEnFabrication[];
@@ -598,6 +600,7 @@ const initialState: AppState = {
   carnets: {},
   queues: {},
   precedents: {},
+  departs: {},
   attachments: {},
   mediasEnFabrication: [],
   productionsMaj: {},
@@ -735,7 +738,7 @@ class Client {
    * et on la redemande à chaque `ready` : le premier, sans effet (rien
    * n'était encore ouvert), tous les suivants — donc chaque reconnexion.
    */
-  private dernierAgentOuvert: { id: string; tout: boolean } | null = null;
+  private dernierAgentOuvert: { id: string; tout: boolean; precedents?: number } | null = null;
   private derniereCarteOuverte: string | null = null;
 
   state: AppState = { ...initialState, annonces: relireAnnoncesRangees() };
@@ -1833,7 +1836,7 @@ class Client {
           this.dernierAgentOuvert = principal;
         }
         if (this.dernierAgentOuvert) {
-          this.send({ type: 'agent.open', id: this.dernierAgentOuvert.id, tout: this.dernierAgentOuvert.tout });
+          this.send({ type: 'agent.open', id: this.dernierAgentOuvert.id, tout: this.dernierAgentOuvert.tout, ...(this.dernierAgentOuvert.precedents !== undefined ? { precedents: this.dernierAgentOuvert.precedents } : {}) });
         }
         /*
          * …ET SON JOURNAL. Le fil était rattrapé, pas le journal : un plan rendu
@@ -2014,6 +2017,7 @@ class Client {
           messages: { ...state.messages, [event.agentId]: event.messages },
           queues: { ...state.queues, [event.agentId]: event.queue },
           precedents: { ...state.precedents, [event.agentId]: event.precedents ?? 0 },
+          departs: { ...state.departs, [event.agentId]: event.depuis ?? 0 },
         }));
         break;
 
@@ -2585,7 +2589,7 @@ class Client {
    * `geste()` juste en dessous s'en charge pour lui.
    */
   send(cmd: ClientCommand): boolean {
-    if (cmd.type === 'agent.open') this.dernierAgentOuvert = { id: cmd.id, tout: !!cmd.tout };
+    if (cmd.type === 'agent.open') this.dernierAgentOuvert = { id: cmd.id, tout: !!cmd.tout, ...(cmd.precedents !== undefined ? { precedents: cmd.precedents } : {}) };
     if (cmd.type === 'card.conversation') this.derniereCarteOuverte = cmd.cardId;
     this.noterLePerimetre(cmd);
     if (cmd.type === 'prefs.set') return this.envoyerReglage(cmd.key, cmd.value);

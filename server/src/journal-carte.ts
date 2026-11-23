@@ -11,7 +11,7 @@ import {
   phaseDuTour,
 } from '@beluga/shared';
 import { randomUUID } from 'node:crypto';
-import { getDb } from './db.js';
+import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 
 /**
@@ -347,7 +347,9 @@ export function phaseDeLaCarte(cardId: string, role: string | undefined): PhaseJ
  */
 export function allegerLesJournaux(avant: number): number {
   try {
+    const octets = mesurerLaPlaceAVider(`SELECT COALESCE(SUM(COALESCE(LENGTH(resultat), 0) + COALESCE(LENGTH(params), 0)), 0) AS n FROM card_journal WHERE ${A_ALLEGER}`, [avant]);
     const res = getDb().prepare(`UPDATE card_journal SET resultat = '', params = NULL WHERE ${A_ALLEGER}`).run(avant);
+    if ((res.changes ?? 0) > 0) cumulerLaPlaceVidee(octets);
     return res.changes ?? 0;
   } catch (err: any) {
     log.warn(`journal de carte : allègement impossible (${err?.message ?? err})`);
@@ -370,9 +372,14 @@ const A_ALLEGER = `at < ? AND ((resultat IS NOT NULL AND resultat != '') OR para
  */
 export function allegerUneTrancheDeJournaux(avant: number, apres: number, jusqua: number): number {
   try {
+    const octets = mesurerLaPlaceAVider(
+      `SELECT COALESCE(SUM(COALESCE(LENGTH(resultat), 0) + COALESCE(LENGTH(params), 0)), 0) AS n FROM card_journal WHERE rowid > ? AND rowid <= ? AND ${A_ALLEGER}`,
+      [apres, jusqua, avant],
+    );
     const res = getDb()
       .prepare(`UPDATE card_journal SET resultat = '', params = NULL WHERE rowid > ? AND rowid <= ? AND ${A_ALLEGER}`)
       .run(apres, jusqua, avant);
+    if ((res.changes ?? 0) > 0) cumulerLaPlaceVidee(octets);
     return res.changes ?? 0;
   } catch (err: any) {
     log.warn(`journal de carte : allègement d'une tranche impossible (${err?.message ?? err})`);
@@ -380,3 +387,40 @@ export function allegerUneTrancheDeJournaux(avant: number, apres: number, jusqua
   }
 }
 
+
+/**
+ * PLACE VIDÉE PAR L'ALLÈGEMENT, COMPTÉE SANS BALAYAGE. Vider une ligne ne rend
+ * aucune page à la liste des pages libres : le compactage nocturne ne voyait
+ * donc jamais ces centaines de Mo. On additionne ici, dans `meta`, la taille
+ * des textes vidés (mesurée sur la tranche qu'on va vider, jamais sur la
+ * table entière) ; `compactage.ts` l'ajoute aux pages libres et remet la clé
+ * à zéro après un VACUUM réussi.
+ */
+export const CLE_OCTETS_VIDES = 'compactage.octetsVides';
+
+function mesurerLaPlaceAVider(sql: string, params: number[]): number {
+  try {
+    const row = getDb().prepare(sql).get(...params) as { n: number } | undefined;
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function cumulerLaPlaceVidee(octets: number): void {
+  if (octets <= 0) return;
+  try {
+    setMeta(CLE_OCTETS_VIDES, String(octetsVidesEnAttente() + octets));
+  } catch {
+    // une mesure perdue retarde seulement un compactage
+  }
+}
+
+export function octetsVidesEnAttente(): number {
+  const n = Number(getMeta(CLE_OCTETS_VIDES) ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function remettreLaPlaceVideeAZero(): void {
+  setMeta(CLE_OCTETS_VIDES, '0');
+}

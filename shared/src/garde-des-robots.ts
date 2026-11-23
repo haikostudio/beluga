@@ -14,7 +14,7 @@
  */
 
 import type { ConstatSecurite } from './controle-securite.js';
-import { estAdresseDeTravail, PAGE_POUR_LES_IA } from './robots-ia.js';
+import { estAdresseDeTravail, fermeAuxMoteurs, FAMILLES_DE_ROBOTS, PAGE_POUR_LES_IA, rolesRenvoyes, type FamilleDeRobots, type ReglageRobots } from './robots-ia.js';
 
 /** Les deux serveurs (MEM-3294) : les adresses de travail sur Beluga, les domaines publics sur Clients. */
 export type ServeurDesSites = 'beluga' | 'clients';
@@ -85,8 +85,62 @@ const NOM_DU_SERVEUR: Record<ServeurDesSites, string> = {
   clients: 'le serveur des sites publics',
 };
 
-/** Les constats de la rubrique « Protection contre les robots ». */
-export function constatsDeRobots(r: ReleveDesRobots): ConstatSecurite[] {
+/** Les mots d'une famille, pour les constats et la note de l'étape. */
+export const NOM_DE_FAMILLE: Readonly<Record<FamilleDeRobots, string>> = {
+  moteurs: 'moteurs de recherche',
+  recherche: 'IA de recherche',
+  agents: 'assistants à la demande',
+  entrainement: "IA d'entraînement",
+};
+
+/**
+ * JUGÉ D'APRÈS LE RÉGLAGE DU SITE (22/11/2026, service Sécurité, « Accès des robots ») : quand le propriétaire a réglé
+ * l'accès des robots d'un site, l'audit ne compare plus à la règle commune mais à CE réglage — une famille décochée
+ * volontairement n'est plus une alerte ; un écart entre le réglage et ce que le serveur répond en est une.
+ */
+function constatsSelonLeReglage(r: ReleveDesRobots, reglage: ReglageRobots): ConstatSecurite[] {
+  const constats: ConstatSecurite[] = [];
+  const ajouter = (c: Omit<ConstatSecurite, 'categorie' | 'ou'>) => constats.push({ ...c, categorie: 'robots', ou: [r.adresse] });
+  const renvoyes = rolesRenvoyes(reglage);
+  const ecart = (famille: FamilleDeRobots, attendu: boolean, recu: ReponseDeRobot, ua: string) =>
+    ajouter({
+      id: `robots-ecart-${famille}`,
+      gravite: 'moyenne',
+      titre: attendu ? `Les ${NOM_DE_FAMILLE[famille]} lisent le site malgré le réglage` : `Les ${NOM_DE_FAMILLE[famille]} sont renvoyées malgré le réglage`,
+      risque: attendu
+        ? `Le réglage « Accès des robots » refuse les ${NOM_DE_FAMILLE[famille]}, mais le serveur les laisse lire tout le site.`
+        : `Le réglage « Accès des robots » autorise les ${NOM_DE_FAMILLE[famille]}, mais le serveur les renvoie vers « ${PAGE_POUR_LES_IA} ».`,
+      proposition: 'Réappliquer le réglage « Accès des robots » du site (le décocher puis le recocher suffit), ou vérifier que le site importe bien la garde commune.',
+      technique: `Réponse à un User-Agent ${ua} : ${recu.statut}${recu.vers ? ` → ${recu.vers}` : ''}. Attendu : ${attendu ? `307 → ${PAGE_POUR_LES_IA}` : 'la page elle-même'}. Bloc /etc/caddy/garde-robots.caddy (site particulier) ou routeur Traefik garde-robots-site-*.`,
+    });
+  if (r.ia && renvoyes.includes('entrainement') !== iaRenvoyee(r.ia)) ecart('entrainement', renvoyes.includes('entrainement'), r.ia, 'GPTBot');
+  if (r.recherche && renvoyes.includes('recherche') !== rechercheBloquee(r.recherche)) ecart('recherche', renvoyes.includes('recherche'), r.recherche, 'OAI-SearchBot');
+  if (r.google && !fermeAuxMoteurs(reglage) && googleCoupe(r.google)) {
+    ajouter({
+      id: 'robots-google-coupe',
+      gravite: 'critique',
+      titre: 'Google ne peut plus lire le site',
+      risque: 'Le site disparaît peu à peu des résultats de recherche : Google est refusé ou renvoyé comme un robot d’IA.',
+      proposition: 'Rendre à Google et Bing l’accès complet au site public.',
+      technique: `Réponse à un User-Agent Googlebot : ${r.google.statut}${r.google.vers ? ` → ${r.google.vers}` : ''}.`,
+    });
+  }
+  if (r.google && fermeAuxMoteurs(reglage) && !/noindex/i.test(r.google.xRobotsTag ?? '')) {
+    ajouter({
+      id: 'robots-ecart-moteurs',
+      gravite: 'moyenne',
+      titre: 'Le site peut apparaître dans Google malgré le réglage',
+      risque: 'Le réglage « Accès des robots » ferme le site aux moteurs de recherche, mais aucune consigne « noindex » n’est envoyée.',
+      proposition: 'Réappliquer le réglage « Accès des robots » du site.',
+      technique: 'Entête X-Robots-Tag absent alors que la famille « moteurs » est décochée.',
+    });
+  }
+  return constats;
+}
+
+/** Les constats de la rubrique « Protection contre les robots ». `reglage` : celui du site, s'il en a un à lui. */
+export function constatsDeRobots(r: ReleveDesRobots, reglage?: ReglageRobots | null): ConstatSecurite[] {
+  if (reglage) return [...constatsSelonLeReglage(r, reglage), ...constatsDuGarde(r)];
   const constats: ConstatSecurite[] = [];
   const travail = estAdresseDeTravail(hoteDe(r.adresse));
   const ajouter = (c: Omit<ConstatSecurite, 'categorie' | 'ou'>) => constats.push({ ...c, categorie: 'robots', ou: [r.adresse] });
@@ -143,6 +197,14 @@ export function constatsDeRobots(r: ReleveDesRobots): ConstatSecurite[] {
       technique: 'Entête X-Robots-Tag absent. Le bloc commun « garde-robots » du Caddyfile le pose sur les adresses de travail.',
     });
   }
+  constats.push(...constatsDuGarde(r));
+  return constats;
+}
+
+/** Le garde des visiteurs insistants (fail2ban), jugé pareil avec ou sans réglage du site. */
+function constatsDuGarde(r: ReleveDesRobots): ConstatSecurite[] {
+  const constats: ConstatSecurite[] = [];
+  const ajouter = (c: Omit<ConstatSecurite, 'categorie' | 'ou'>) => constats.push({ ...c, categorie: 'robots', ou: [r.adresse] });
   if (r.serveur && r.gardeActif === false) {
     ajouter({
       id: 'robots-sans-garde',
@@ -161,8 +223,19 @@ export function constatsDeRobots(r: ReleveDesRobots): ConstatSecurite[] {
 }
 
 /** Ce que l'étape « Protection contre les robots » dit dans « Ce qui a été vérifié ». */
-export function noteDeLEtapeRobots(r: ReleveDesRobots): string {
+export function noteDeLEtapeRobots(r: ReleveDesRobots, reglage?: ReglageRobots | null): string {
   const morceaux: string[] = [];
+  if (reglage) {
+    const ecarts = constatsSelonLeReglage(r, reglage).length;
+    const lisent = reglage.protection ? FAMILLES_DE_ROBOTS.filter((f) => reglage[f]).map((f) => NOM_DE_FAMILLE[f]) : [];
+    morceaux.push(
+      `${ecarts ? 'ÉCART au réglage' : 'conforme au réglage'} : ${reglage.protection ? (lisent.length ? `lisent ${lisent.join(', ')}` : 'aucune source autorisée') : 'protection coupée'}`,
+    );
+    morceaux.push(
+      r.gardeActif === true ? 'garde des visiteurs insistants actif' : r.gardeActif === false ? 'aucun garde des visiteurs insistants' : 'garde non vérifié (serveur inconnu)',
+    );
+    return morceaux.join(' · ');
+  }
   if (r.ia) morceaux.push(iaRenvoyee(r.ia) ? "robots d'entraînement renvoyés" : "robots d'entraînement NON renvoyés");
   if (r.recherche) {
     const travail = estAdresseDeTravail(hoteDe(r.adresse));
@@ -252,4 +325,38 @@ export function regrouperLesBannis(liste: readonly VisiteurBloque[]): VisiteurBl
 export function ipValide(ip: string): boolean {
   if (/^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(ip)) return true;
   return /^[0-9a-f:]+$/i.test(ip) && ip.includes(':') && ip.length <= 39;
+}
+
+/* ------------------------------------------------------------------------------------------------------------------
+ * L'accès des robots, réglé site par site (service Sécurité, 22/11/2026)
+ * ---------------------------------------------------------------------------------------------------------------- */
+
+/**
+ * OÙ LE RÉGLAGE S'APPLIQUE :
+ *   - `serveur-beluga` : le bloc commun du Caddy de ce serveur, réécrit puis rechargé (jamais redémarré) ;
+ *   - `serveur-clients` : le routeur Traefik du serveur des sites publics (seulement les robots d'IA : Traefik ne sert pas
+ *     robots.txt, les moteurs s'y règlent dans le site) ;
+ *   - `garde-absente` : le serveur des sites publics n'a pas encore sa garde — le réglage est gardé et posé à son
+ *     installation ;
+ *   - `hors-serveurs` : le site est servi ailleurs (hébergeur, relais) : il gère ses robots lui-même ;
+ *   - `sans-adresse` : le projet n'a pas d'adresse.
+ */
+export type ApplicationDuReglage = 'serveur-beluga' | 'serveur-clients' | 'garde-absente' | 'hors-serveurs' | 'sans-adresse';
+
+export interface EtatDesRobots {
+  adresse: string | null;
+  hote: string | null;
+  reglage: ReglageRobots;
+  /** Aucun réglage enregistré : le site garde sa protection d'avant. */
+  parDefaut: boolean;
+  application: ApplicationDuReglage;
+  /** Les cases se règlent-elles ? (non hors de nos serveurs ou sans adresse) */
+  reglable: boolean;
+  /** Les moteurs se règlent-ils d'ici ? (non sur le serveur des sites publics : robots.txt du site) */
+  moteursReglables: boolean;
+}
+
+/** Les cases se règlent-elles pour cette application ? */
+export function reglageApplicable(application: ApplicationDuReglage): boolean {
+  return application === 'serveur-beluga' || application === 'serveur-clients' || application === 'garde-absente';
 }

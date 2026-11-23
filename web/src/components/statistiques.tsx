@@ -1,6 +1,6 @@
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, CourbeDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
-import { BasculeDePage, DroiteDePage, RechercheDuService, RubriquesDePage, useDansUnePageDeService } from '@/components/fenetre-de-service';
+import { BasculeDePage, DroiteDePage, InfosDePage, RechercheDuService, RubriquesDePage, useDansUnePageDeService } from '@/components/fenetre-de-service';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
@@ -689,6 +689,33 @@ function GroupeDeSites({
 }
 
 /** LA FLÈCHE DE POPULARITÉ : verte qui monte, rouge qui descend, un trait quand rien ne bouge. */
+/** La ligne sous le titre d'un projet : adresse · suivi depuis · dernière visite. */
+function InfosDUnSite({ detail }: { detail: DetailSite }) {
+  const adresse = detail.espace.configuration.adresse;
+  const jours = detail.resultats.parJour.filter((j) => j.visites > 0);
+  const dernier = jours.length ? jours[jours.length - 1]!.jour : null;
+  const mois = (instant: number) => new Date(instant).toLocaleDateString(formatRegional(), { month: 'long', year: 'numeric' });
+  const morceaux = [
+    adresse ? adresse.replace(/^https?:\/\//, '').replace(/\/$/, '') : null,
+    detail.espace.creeLe ? t('Suivi depuis {v0}', { v0: mois(detail.espace.creeLe) }) : null,
+    dernier
+      ? t('Dernière visite le {v0}', { v0: new Date(`${dernier}T12:00:00Z`).toLocaleDateString(formatRegional(), { day: 'numeric', month: 'long' }) })
+      : t('Aucune visite sur la période'),
+  ].filter((m): m is string => !!m);
+  return (
+    <InfosDePage>
+      {morceaux.map((m, i) => (
+        <React.Fragment key={i}>
+          {i ? <span className="text-faint" aria-hidden>·</span> : null}
+          <span className="min-w-0 truncate" data-stats-info={i}>
+            {m}
+          </span>
+        </React.Fragment>
+      ))}
+    </InfosDePage>
+  );
+}
+
 function FlecheDeTendance({ tendance }: { tendance: TendanceDesVisites }) {
   const { sens, ecart } = tendance;
   const texte = ecart === null ? (sens === 'hausse' ? t('Nouveau') : '—') : `${ecart > 0 ? '+' : ''}${ecart.toLocaleString(formatRegional())} %`;
@@ -837,6 +864,8 @@ function DetailDuSite({
         <SeparateurDuFil />
         <SelecteurDeSite id={id} nom={nom} sites={sites} onChoisir={onChoisir} />
       </SuiteDuFil>
+      {/* SOUS LE TITRE DU PROJET (22/11/2026, maquette #1173) : son adresse, depuis quand il est suivi, la fraîcheur. */}
+      {detail ? <InfosDUnSite detail={detail} /> : null}
       {/* SUR TÉLÉPHONE, UNE SEULE RANGÉE SOUS LA BARRE (demande du 11/10/2026) :
           les onglets et la période. Le suivi, l'installation et « Blocs » sont
           les lignes du menu à trois points ; tant que le suivi n'est pas posé,

@@ -3251,6 +3251,7 @@ export interface EmplacementsDeLaPageDeService {
   recherche: HTMLElement | null;
   bascule: HTMLElement | null;
   droite: HTMLElement | null;
+  infos: HTMLElement | null;
 }
 export const EmplacementsDeLaPage = React.createContext<EmplacementsDeLaPageDeService | null>(null);
 /** La partie droite d'une fenêtre de service : une page ouverte depuis l'outil s'y pose (`FeuilleDeTiroir`, `cadre`). */
@@ -4336,8 +4337,11 @@ export function BlocRepliable({
   action,
   children,
   className,
+  sobre = false,
+  devant,
+  resumeReplie,
 }: {
-  titre: string;
+  titre: React.ReactNode;
   /** Le marqueur porté par le bloc, pour les contrôles. */
   repere: string;
   /** La clé de mémoire, si l'état doit survivre à la fermeture de l'écran. */
@@ -4349,36 +4353,85 @@ export function BlocRepliable({
   action?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /**
+   * L'ANCIENNE FORME, une simple ligne en petites capitales sans fond : réservée à un bloc posé DANS un menu
+   * (l'historique d'une demande de l'espace client), où un bloc à fond ferait une carte dans la carte.
+   */
+  sobre?: boolean;
+  /** Ce qui précède le titre dans l'en-tête (un numéro, une icône). */
+  devant?: React.ReactNode;
+  /** Ce que le bloc vaut, lu SANS L'OUVRIR — montré à droite du titre quand il est replié (« 3 sources sur 4 »). */
+  resumeReplie?: React.ReactNode;
 }) {
   const [ouvert, basculer] = useEtatRetenu(clef, defautOuvert);
+  if (sobre)
+    return (
+      <section className={cn('flex flex-col', className)} data-bloc-repliable={repere} data-bloc-ouvert={ouvert ? '' : undefined}>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={basculer}
+            aria-expanded={ouvert}
+            className="flex min-w-0 flex-1 items-center gap-1.5 py-2 sm:py-1.5 text-left text-[11px] uppercase tracking-wide text-faint transition-colors hover:text-text"
+            data-bloc-bascule={repere}
+          >
+            <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', ouvert ? '' : '-rotate-90')} aria-hidden />
+            <span className="truncate">{titre}</span>
+            {compte !== undefined && compte !== 0 ? <span className="shrink-0 text-faint">({compte})</span> : null}
+          </button>
+          {action ? <span className="shrink-0">{action}</span> : null}
+        </div>
+        {ouvert ? <div className="pb-1">{children}</div> : null}
+      </section>
+    );
+  /*
+   * LE BLOC (carte « Sécurité, rapports et marketing restructurés », 22/11/2026, maquette #d538) : un bloc détaché du
+   * fond, en-tête titre à GAUCHE, puis nombre, boutons et chevron tout à DROITE ; le contenu sous un trait fin
+   * (`--faint` : il sépare deux zones d'une même information). Le bouton de repli couvre tout l'en-tête sauf les
+   * boutons d'action, posés hors de lui (un bouton dans un bouton est interdit).
+   */
   return (
     <section
-      className={cn('flex flex-col', className)}
+      className={cn('bloc-repliable flex flex-col rounded-xl bg-surface', className)}
       data-bloc-repliable={repere}
       data-bloc-ouvert={ouvert ? '' : undefined}
     >
-      <div className="flex items-center gap-1">
+      <div className="flex min-h-[44px] items-center gap-2 pr-2">
         <button
           type="button"
           onClick={basculer}
           aria-expanded={ouvert}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-2 sm:py-1.5 text-left text-[11px] uppercase tracking-wide text-faint transition-colors hover:text-text"
+          className="flex min-w-0 flex-1 items-center gap-2.5 self-stretch py-2.5 pl-4 text-left"
           data-bloc-bascule={repere}
         >
-          <ChevronDown
-            className={cn('h-3.5 w-3.5 shrink-0 transition-transform', ouvert ? '' : '-rotate-90')}
-            aria-hidden
-          />
-          <span className="truncate">{titre}</span>
+          {devant ? <span className="shrink-0">{devant}</span> : null}
+          {/* Le TITRE garde sa place : c'est le résumé qui se coupe d'abord quand la ligne manque de place (téléphone). */}
+          <span className={cn('min-w-0 truncate text-[14px] font-semibold text-text', !ouvert && resumeReplie ? 'max-w-[65%] shrink-0' : 'flex-1')}>{titre}</span>
+          {!ouvert && resumeReplie ? <span className="min-w-0 flex-1 truncate text-right text-[12.5px] text-muted" data-bloc-resume="">{resumeReplie}</span> : null}
           {compte !== undefined && compte !== 0 ? (
-            <span className="shrink-0 text-faint">({compte})</span>
+            <span className="shrink-0 rounded-full bg-raised px-2 py-px text-[12px] tabular-nums text-muted" data-bloc-compte="">
+              {compte}
+            </span>
           ) : null}
         </button>
         {action ? <span className="shrink-0">{action}</span> : null}
+        <button
+          type="button"
+          onClick={basculer}
+          aria-hidden
+          tabIndex={-1}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:text-text"
+        >
+          <ChevronDown className={cn('h-4 w-4 transition-transform', ouvert ? 'rotate-180' : '')} aria-hidden />
+        </button>
       </div>
       {/* Le contenu est RETIRÉ du flux quand le bloc est replié : un `hidden`
           laisserait ses champs accessibles au clavier et à un contrôle. */}
-      {ouvert ? <div className="pb-1">{children}</div> : null}
+      {ouvert ? (
+        <div className="mx-4 border-t border-[hsl(var(--faint)/0.25)] pb-3.5 pt-3" data-bloc-contenu="">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -15,6 +15,10 @@ import {
   type VueDAudit,
   type VisiteurBloque,
   type ServeurDesSites,
+  famillesAutorisees,
+  type EtatDesRobots,
+  type FamilleDeRobots,
+  type ReglageRobots,
 } from '@beluga/shared';
 
 interface VisiteursBloquesDuProjet {
@@ -24,13 +28,13 @@ interface VisiteursBloquesDuProjet {
   note?: string;
 }
 import { Check, ExternalLink, Loader2, Plus, RefreshCw, ShieldCheck, X } from '@/components/ui/icones';
-import { BlocRepliable, Button, Drawer, ListeDeroulante, TitreDePage, ZoneDefilement } from '@/components/ui';
+import { BlocRepliable, Button, Drawer, ListeDeroulante, Switch, TitreDePage, ZoneDefilement } from '@/components/ui';
 import { Tableau } from '@/components/ui/tableau';
 import { BasculeTableauCartes, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { colonneProjet } from '@/components/ui/colonne-projet';
 import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
 import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
-import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
+import { BasculeDePage, GesteDeLEnteteDeFeuille, RechercheDuService, useDansUneFeuilleDeService, useSansLigneDeTitre } from '@/components/fenetre-de-service';
 import { BoutonPrincipal, CranDuFil, GestePrincipal, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { CaseACocher } from '@/components/ui/elements-maison';
 import { EtatVideDuProjet, useProjetDuService } from '@/components/projet-du-service';
@@ -440,6 +444,8 @@ function EtatDuProjet({ projet: p }: { projet: ProjetSuiviSecurite }) {
 
 function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; nom: string; onRetour: () => void }) {
   const state = useApp();
+  /* Conversation à gauche, volet à droite : pas de ligne de titre au-dessus (22/11/2026). */
+  useSansLigneDeTitre();
   const telephone = useTelephone();
   const version = state.securiteVersion;
   const [agentId, setAgentId] = React.useState<string | null>(projet.agentId ?? null);
@@ -501,6 +507,10 @@ function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; 
   };
 
   const agent: Agent | null = agentId ? (state.agents[agentId] ?? null) : null;
+  /* SUR TÉLÉPHONE, « LANCER UN AUDIT » MONTE DANS L'EN-TÊTE DE LA FEUILLE (22/11/2026, maquette #ccad), en bouton
+     icône à droite de « Sécurité » : la tête du rapport ne garde que la liste des audits. Un seul exemplaire monté. */
+  const dansUneFeuille = useDansUneFeuilleDeService();
+  const lancerEnTete = telephone && dansUneFeuille;
   const [placeDeLaRangee, setRangee] = usePlaceDeLaRangee();
   const { width, start, reset } = useResizable(CLE_DE_LARGEUR_DU_PLAN, bornesDuVoletDuPlan(placeDeLaRangee));
 
@@ -522,6 +532,7 @@ function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; 
         onDeposer={deposer}
         dernier={!auditChoisi}
         projectId={projet.projectId}
+        sansLancer={lancerEnTete}
       />
     </ContexteTexteDuChamp.Provider>
   );
@@ -531,8 +542,28 @@ function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; 
       <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-securite-retour': '' } }}>
         <CranDuFil data-securite-cran={projet.projectId}>{nom}</CranDuFil>
       </SuiteDuFil>
+      {lancerEnTete ? (
+        <GesteDeLEnteteDeFeuille>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-[38px] w-[38px] shrink-0 text-muted"
+            disabled={projet.enCours || lancement}
+            onClick={() => void lancerUnAudit()}
+            aria-label="Lancer un audit"
+            title={projet.enCours ? t('Audit en cours…') : t('Lancer un audit')}
+            data-securite-lancer=""
+            data-securite-lancer-en-tete=""
+          >
+            {projet.enCours || lancement ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </Button>
+        </GesteDeLEnteteDeFeuille>
+      ) : null}
       {telephone ? (
-        <div className="flex min-h-0 flex-1 flex-col" data-securite-page={projet.projectId}>
+        /* UNE SEULE MARGE DE PAGE, 16 PX (22/11/2026, capture #7ae7 : « c'est quoi ces paddings / marges ? ») : la page de
+           détail posée dans la feuille du service porte déjà 16 px de chaque côté ; la page les reprend (`-mx-4`) pour
+           que seuls les onglets et le rapport posent la leur — les blocs tombent à 16 px du bord, pas à 32. */
+        <div className={cn('flex min-h-0 flex-1 flex-col', dansUneFeuille && '-mx-4')} data-securite-page={projet.projectId}>
           {/* La marge de page (16 px) est portée par l'enveloppe : la barre pleine largeur la débordait à droite. */}
           <div className="shrink-0 px-4 pb-2">
             <BarreDOnglets
@@ -592,7 +623,10 @@ function RapportDuVolet({
   onDeposer,
   dernier,
   projectId,
+  sansLancer = false,
 }: {
+  /** « Lancer un audit » vit ailleurs (l'en-tête de la feuille du téléphone) : la tête ne garde que la liste. */
+  sansLancer?: boolean;
   vue: VueDAudit | null | undefined;
   audits: ResumeDAudit[];
   enCours: boolean;
@@ -612,7 +646,7 @@ function RapportDuVolet({
   const finis = audits.filter((a) => a.fini);
 
   /* LA TÊTE DU VOLET : l'audit montré (et les autres des douze mois), puis « Lancer un audit » — même hauteur. */
-  const tete = (
+  const tete = !finis.length && sansLancer ? null : (
     <div className="flex flex-wrap items-center gap-2 pb-3" data-securite-tete-du-rapport="">
       {finis.length ? (
         <ListeDeroulante
@@ -629,10 +663,12 @@ function RapportDuVolet({
           className="min-w-0"
         />
       ) : null}
-      <Button variant="ghost" size="sm" className="ml-auto" disabled={enCours || lancement} onClick={onLancer} data-securite-lancer="">
-        {enCours || lancement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        {enCours ? t('Audit en cours…') : t('Lancer un audit')}
-      </Button>
+      {sansLancer ? null : (
+        <Button variant="ghost" size="sm" className="ml-auto" disabled={enCours || lancement} onClick={onLancer} data-securite-lancer="">
+          {enCours || lancement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {enCours ? t('Audit en cours…') : t('Lancer un audit')}
+        </Button>
+      )}
     </div>
   );
 
@@ -657,15 +693,16 @@ function RapportDuVolet({
     );
 
   return (
-    <div className="flex flex-col gap-1" data-securite-rapport={audit.id}>
+    <div className="flex flex-col gap-2" data-securite-rapport={audit.id}>
       {tete}
-      <p className="pb-2 text-[12.5px] text-faint">
+      {dernier ? <AccesDesRobots projectId={projectId} /> : null}
+      <p className="pb-1 text-[12.5px] text-faint">
         {t('Audit du {v0}, {v1}.', { v0: dateLisible(audit.lance), v1: declencheurLisible(audit.declencheur) })}{' '}
         {audit.rapport.depotPublic === null ? t('Visibilité du dépôt inconnue.') : audit.rapport.depotPublic ? t('Dépôt public.') : t('Dépôt privé.')}
       </p>
       {/* « CE QUI A ÉTÉ VÉRIFIÉ » EN TÊTE, DÉPLIÉ : on lit d'abord l'étendue du contrôle, puis ce qu'il a trouvé. */}
       <BlocRepliable titre={t('Ce qui a été vérifié')} repere="securite-verifie" defautOuvert compte={audit.rapport.etapes.length}>
-        <ul className="flex flex-col gap-1 pt-1" data-securite-verifie="">
+        <ul className="flex flex-col gap-1" data-securite-verifie="">
           {audit.rapport.etapes.map((e, i) => (
             <li key={i} className="flex items-start gap-2 text-[13px]">
               <span className={cn('mt-0.5 shrink-0', e.etat === 'fait' ? 'text-text' : 'text-faint')}>{e.etat === 'fait' ? '✓' : '–'}</span>
@@ -700,6 +737,146 @@ function RapportDuVolet({
         );
       })}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* L'accès des robots                                                  */
+/* ------------------------------------------------------------------ */
+
+const FAMILLES_AFFICHEES: { famille: FamilleDeRobots; libelle: () => string; detail: () => string }[] = [
+  { famille: 'moteurs', libelle: () => t('Moteurs de recherche'), detail: () => t('Google, Bing : le site apparaît dans leurs résultats') },
+  { famille: 'recherche', libelle: () => t('IA de recherche'), detail: () => t('ChatGPT, Perplexity, Claude : elles peuvent citer vos pages dans leurs réponses') },
+  { famille: 'agents', libelle: () => t('Assistants qui visitent à la demande'), detail: () => t('Quand quelqu’un demande à son IA d’ouvrir une page du site') },
+  { famille: 'entrainement', libelle: () => t('IA d’entraînement'), detail: () => t('GPTBot, ClaudeBot… apprennent sur votre contenu, sans vous citer') },
+];
+
+/**
+ * L'ACCÈS DES ROBOTS (carte « Sécurité, rapports et marketing restructurés », 22/11/2026, maquette #9542) : en tête du
+ * rapport, un interrupteur « Protection active » et quatre familles de sources. Chaque geste part au démon, qui
+ * l'APPLIQUE sur le serveur du site (Caddy rechargé, jamais redémarré) et rend le nouvel état ; le geste le dit dès le
+ * clic. Un site servi ailleurs le dit au lieu de proposer des cases sans effet.
+ */
+function AccesDesRobots({ projectId }: { projectId: string }) {
+  const [etat, setEtat] = React.useState<EtatDesRobots | null | undefined>(undefined);
+  const [envoi, setEnvoi] = React.useState<string | null>(null);
+  const [panne, setPanne] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let vivant = true;
+    setEtat(undefined);
+    client
+      .call<EtatDesRobots>({ type: 'securite.robots.lire', projectId }, 45000)
+      .then((r) => vivant && setEtat(r))
+      .catch((e) => {
+        if (!vivant) return;
+        setEtat(null);
+        setPanne((e as Error)?.message ?? String(e));
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [projectId]);
+
+  const regler = async (cle: string, reglage: ReglageRobots) => {
+    if (!etat) return;
+    setEnvoi(cle);
+    setPanne(null);
+    const avant = etat;
+    setEtat({ ...etat, reglage });
+    try {
+      setEtat(await client.call<EtatDesRobots>({ type: 'securite.robots.regler', projectId, reglage }, 90000));
+    } catch (e) {
+      setEtat(avant);
+      setPanne(t('Réglage non appliqué : {v0}', { v0: (e as Error)?.message ?? String(e) }));
+    } finally {
+      setEnvoi(null);
+    }
+  };
+
+  if (etat === undefined) return <div className="h-[52px] animate-pulse rounded-xl bg-surface" data-securite-robots="chargement" />;
+  if (etat === null)
+    return (
+      <p className="text-[12.5px] text-danger" data-securite-robots="erreur">
+        {panne}
+      </p>
+    );
+  const r = etat.reglage;
+  const resume = r.protection
+    ? t('{v0} sources sur 4 autorisées', { v0: famillesAutorisees(r) })
+    : t('Protection coupée');
+  const hote = etat.hote ?? '';
+  return (
+    <BlocRepliable
+      titre={t('Accès des robots')}
+      repere="securite-robots"
+      clef="securite-robots-ouvert"
+      defautOuvert={false}
+      resumeReplie={etat.reglable ? resume : undefined}
+      action={
+        etat.reglable ? (
+          <label className="flex items-center gap-2.5 text-[13px] text-muted">
+            <span className="max-sm:hidden">{t('Protection active')}</span>
+            <Switch
+              checked={r.protection}
+              attente={envoi === 'protection'}
+              disabled={envoi !== null}
+              onCheckedChange={(v) => void regler('protection', { ...r, protection: v })}
+              aria-label="Protection active"
+              data-securite-robots-protection={r.protection ? 'active' : 'coupee'}
+            />
+          </label>
+        ) : null
+      }
+    >
+      <div className="flex flex-col gap-3" data-securite-robots={etat.application}>
+        {!etat.reglable ? (
+          <p className="text-[13px] text-muted" data-securite-robots-ailleurs="">
+            {etat.application === 'sans-adresse'
+              ? t('Ce projet n’a pas d’adresse : rien à régler.')
+              : t('{v0} est servi hors de nos serveurs : ce site gère ses robots lui-même, dans son propre fichier robots.txt.', { v0: hote })}
+          </p>
+        ) : (
+          <>
+            <p className="text-[13px] text-muted">
+              {t('Cochez les sources qui peuvent lire {v0}. Les autres sont renvoyées vers une page d’explication.', { v0: hote })}
+            </p>
+            <div className={cn('flex flex-col gap-3', !r.protection && 'opacity-50')}>
+              {FAMILLES_AFFICHEES.map(({ famille, libelle, detail }) => {
+                const moteursAilleurs = famille === 'moteurs' && !etat.moteursReglables;
+                return (
+                  <div key={famille} className="flex items-start gap-3" data-securite-robots-famille={famille}>
+                    <CaseACocher
+                      checked={r[famille]}
+                      disabled={!r.protection || envoi !== null || moteursAilleurs}
+                      onCheckedChange={(v) => void regler(famille, { ...r, [famille]: v })}
+                      className="mt-0.5"
+                      title={libelle()}
+                      data-securite-robots-case={famille}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="flex items-center gap-2 text-[13.5px] text-text">
+                        {libelle()}
+                        {envoi === famille ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" /> : null}
+                      </span>
+                      <span className="text-[12.5px] text-muted">
+                        {moteursAilleurs ? t('Sur le serveur des sites publics, ce choix se règle dans le fichier robots.txt du site.') : detail()}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[12.5px] text-faint">
+              {etat.application === 'garde-absente'
+                ? t('La garde n’est pas encore installée sur le serveur des sites publics : ce réglage est gardé et s’appliquera dès son installation.')
+                : t('Couper l’interrupteur laisse passer toutes les sources.')}
+            </p>
+          </>
+        )}
+        {panne ? <p className="text-[12.5px] text-danger">{panne}</p> : null}
+      </div>
+    </BlocRepliable>
   );
 }
 
@@ -761,9 +938,9 @@ function VisiteursBloques({ projectId }: { projectId: string }) {
   return (
     /* Remonté une fois la liste lue : « ouvert d'office » ne se décide qu'à la pose du bloc, et il s'ouvre s'il y a des bannis. */
     <BlocRepliable key={etat ? 'lu' : 'attente'} titre={t('Visiteurs bloqués')} repere="securite-bloques" defautOuvert={visiteurs.length > 0} compte={etat ? visiteurs.length : undefined}>
-      <div className="flex flex-col gap-1.5 pt-1" data-securite-bloques="">
+      <div className="flex flex-col gap-1.5" data-securite-bloques="">
         {etat === undefined ? (
-          <div className="h-12 animate-pulse rounded-xl bg-surface" />
+          <div className="h-12 animate-pulse rounded-xl bg-raised" />
         ) : etat === null ? null : !visiteurs.length ? (
           <p className="text-[13px] text-muted">
             {etat.gardeActif === false
@@ -778,7 +955,7 @@ function VisiteursBloques({ projectId }: { projectId: string }) {
               {t('Un blocage vaut pour tout le serveur qui sert ce projet. Pastille pleine : banni pour toujours ; anneau : coupé pour une durée.')}
             </p>
             <ZoneDefilement className="max-h-[320px]">
-              <div className="flex flex-col gap-0.5 rounded-2xl bg-surface p-1.5">
+              <div className="flex flex-col gap-0.5 rounded-xl bg-raised p-1.5">
                 {visiteurs.map((v) => (
                   <div key={v.ip} className="flex items-center gap-3 rounded-xl px-3 py-2.5" data-securite-bloque={v.ip}>
                     <span
@@ -855,7 +1032,7 @@ function BlocDeGravite({
         ) : null
       }
     >
-      <div className="flex flex-col gap-1.5 pt-1">
+      <div className="flex flex-col gap-1.5">
         {constats.map((c) => {
           const empreinte = empreinteDuConstat(c);
           const point = etats.get(empreinte);
@@ -885,7 +1062,7 @@ function PointDuRapport({
   const cochable = etat === 'a-traiter' && !!onDeposer;
   const coche = cochable && dansLeChamp;
   return (
-    <div className="flex items-start gap-2.5 rounded-lg bg-surface px-3 py-2.5" data-securite-point={empreinteDuConstat(c)} data-securite-etat-point={etat}>
+    <div className="flex items-start gap-2.5 rounded-lg bg-raised px-3 py-2.5" data-securite-point={empreinteDuConstat(c)} data-securite-etat-point={etat}>
       <button
         type="button"
         role="checkbox"

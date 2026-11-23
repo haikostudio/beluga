@@ -20,8 +20,14 @@ import {
   normaliserLeNomDOrdinateur,
   repereDOrdinateur,
   type GenreDeNavigateur,
+  type MarqueDeNavigateur,
   type Ordinateur,
   type ProgrammeDuMac,
+  choixEffectif,
+  choixValable,
+  genreDeNavigateur,
+  marqueDuNavigateur,
+  marqueValable,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
@@ -32,11 +38,12 @@ interface LigneOrdinateur {
   nom: string;
   cree_le: number;
   droits: string | null;
+  navigateurs?: string | null;
 }
 
 function lignesDuCompte(compteId: string): LigneOrdinateur[] {
   return getDb()
-    .prepare('SELECT id, compte_id, nom, cree_le, droits FROM ordinateurs WHERE compte_id = ? AND revoque_le IS NULL ORDER BY cree_le')
+    .prepare('SELECT id, compte_id, nom, cree_le, droits, navigateurs FROM ordinateurs WHERE compte_id = ? AND revoque_le IS NULL ORDER BY cree_le')
     .all(compteId) as LigneOrdinateur[];
 }
 
@@ -44,7 +51,7 @@ function lignesDuCompte(compteId: string): LigneOrdinateur[] {
 export function ligneDOrdinateur(compteId: string, id: string | null | undefined): LigneOrdinateur | null {
   if (!id) return null;
   return (
-    (getDb().prepare('SELECT id, compte_id, nom, cree_le, droits FROM ordinateurs WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').get(id, compteId) as
+    (getDb().prepare('SELECT id, compte_id, nom, cree_le, droits, navigateurs FROM ordinateurs WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').get(id, compteId) as
       | LigneOrdinateur
       | undefined) ?? null
   );
@@ -102,6 +109,51 @@ export function changerUnDroit(compteId: string, id: string, droit: DroitDOrdina
   return droits;
 }
 
+/**
+ * LES NAVIGATEURS CHOISIS D'UN ORDINATEUR (carte « Navigateurs facultatifs à la liaison », 22/11/2026) : `null` tant
+ * que rien n'est choisi, `[]` pour « sans navigateur ». Relus à chaque attente de Beluga Connect : l'automatisme
+ * n'équipe et ne répare que ceux-là.
+ */
+export function navigateursChoisisDe(ligne: Pick<LigneOrdinateur, 'navigateurs'> | null | undefined): MarqueDeNavigateur[] | null {
+  if (!ligne?.navigateurs) return null;
+  try {
+    const brut = JSON.parse(ligne.navigateurs);
+    return Array.isArray(brut) ? choixValable(brut) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * CHOISIR LES NAVIGATEURS : enregistre le choix et rend ce qui change — les marques AJOUTÉES (Beluga Connect les
+ * équipe) et RETIRÉES (Beluga Connect retire leur module, leurs fiches sont déliées). Un premier choix (`avant` nul)
+ * ne retire rien : les navigateurs reliés avant le choix et laissés décochés le sont aussi.
+ */
+export function choisirLesNavigateurs(
+  compteId: string,
+  id: string,
+  brut: unknown,
+): { choisis: MarqueDeNavigateur[]; ajoutes: MarqueDeNavigateur[]; retires: MarqueDeNavigateur[] } | null {
+  const ligne = ligneDOrdinateur(compteId, id);
+  if (!ligne) return null;
+  const choisis = choixValable(brut);
+  const relies = (
+    getDb().prepare('SELECT navigateur, marque FROM chrome_appareils WHERE compte_id = ? AND ordinateur_id = ? AND revoque_le IS NULL').all(compteId, id) as {
+      navigateur: string | null;
+      marque: string | null;
+    }[]
+  ).map((r) => ({ genre: genreDeNavigateur(r.navigateur), marque: marqueValable(r.marque) }));
+  const avant = choixEffectif(navigateursChoisisDe(ligne), relies) ?? [];
+  getDb().prepare('UPDATE ordinateurs SET navigateurs = ? WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').run(JSON.stringify(choisis), id, compteId);
+  bus.emit({ type: 'extension.change' });
+  const reliees = new Set(relies.map((r) => marqueDuNavigateur(r)));
+  return {
+    choisis,
+    ajoutes: choisis.filter((m) => !avant.includes(m)),
+    retires: [...new Set([...avant, ...reliees])].filter((m) => !choisis.includes(m)),
+  };
+}
+
 /** Le nom d'un ordinateur change quand le vrai nom du Mac arrive et que l'actuel n'était qu'un nom par défaut. */
 export function proposerLeVraiNom(compteId: string, id: string, vraiNom: string): void {
   const ligne = ligneDOrdinateur(compteId, id);
@@ -128,6 +180,7 @@ interface NavigateurRelie {
   nom: string;
   ordinateurId: string | null;
   genre: GenreDeNavigateur;
+  marque?: MarqueDeNavigateur | null;
   enLigne: boolean;
   version: string | null;
   incognito?: boolean | null;
@@ -156,11 +209,13 @@ export function ordinateursAssembles(
       repere: repereDOrdinateur(l.nom),
       creeLe: l.cree_le,
       droits: droitsDeLOrdinateur(l.droits),
+      navigateursChoisis: navigateursChoisisDe(l),
       navigateurs: navigateurs
         .filter((n) => n.ordinateurId === l.id)
         .map((n) => ({
           id: n.id,
           genre: n.genre,
+          marque: n.marque ?? null,
           enLigne: n.enLigne,
           version: n.version,
           incognito: n.incognito ?? null,
@@ -176,6 +231,9 @@ export function ordinateursAssembles(
             autorisations: p.autorisations ?? null,
             connect: p.connect ?? null,
             preparation: p.preparation ?? null,
+            safari: p.safari ?? null,
+            installes: p.installes ?? null,
+            autres: p.autres ?? null,
             systeme: p.systeme ?? 'mac',
             relieLe: p.relieLe ?? null,
           }

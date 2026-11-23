@@ -4,6 +4,7 @@ import type { Attachment } from '@beluga/shared';
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, TELEPHONE_SOUS_LA_BARRE, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
+import { useDansUnePageDeService, useSansLigneDeTitre } from '@/components/fenetre-de-service';
 import { cn } from '@/lib/utils';
 import { useEspace } from './contexte';
 
@@ -31,6 +32,7 @@ export function PageEnPlace({
   aligne = false,
   haut,
   plein = false,
+  colonneDuService = false,
   children,
   ...reste
 }: {
@@ -56,10 +58,20 @@ export function PageEnPlace({
       rangée — la conversation de la campagne et le volet de son plan, chacun avec son propre défilement. Absent : le
       contenu défile, centré à 920 px, comme avant. */
   plein?: boolean;
+  /**
+   * OPT-IN (la liste des campagnes, 22/11/2026, maquette #abb0) : dans une page de service sur ordinateur, la page ne
+   * pose ni en-tête (le titre de la page le dit déjà), ni colonne de 920 px, ni défilement à elle : son contenu suit
+   * exactement la colonne du service, aligné au pixel sur le titre.
+   */
+  colonneDuService?: boolean;
   children: React.ReactNode;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'title'>) {
   const telephone = useTelephone();
-  const avecEntete = !!titre || !!droite || (!!retour && !telephone) || (aligne && !!sousTitre) || !!haut;
+  const dansUnePage = useDansUnePageDeService();
+  const dansLaColonne = colonneDuService && dansUnePage && !telephone && !plein;
+  /* La page d'une campagne (conversation + volet) : pas de ligne de titre au-dessus (22/11/2026). */
+  useSansLigneDeTitre(!!plein);
+  const avecEntete = !dansLaColonne && (!!titre || !!droite || (!!retour && !telephone) || (aligne && !!sousTitre) || !!haut);
   return (
     /* SANS FOND À ELLE (carte « Média du calendrier en aperçu ») : la page prend celui qui la porte — la zone, ou la
        feuille du bas d'une campagne —, pour qu'un tiroir n'ait qu'UN fond, de la poignée au pied. */
@@ -94,14 +106,21 @@ export function PageEnPlace({
         <div className={cn('flex min-h-0 min-w-0 flex-1', !avecEntete && TELEPHONE_SOUS_LA_BARRE)} data-contenu-en-place data-contenu-plein>
           {children}
         </div>
+      ) : dansLaColonne ? (
+        /* DANS UNE PAGE DE SERVICE (22/11/2026, maquette #abb0) : la page porte déjà la colonne commune et son défilement.
+           Une seconde colonne de 920 px, recentrée et défilant chez elle, posait le tableau en retrait, plus étroit que
+           le titre, et l'étirait en hauteur : le contenu suit ici exactement la colonne du service. */
+        <div className="flex min-w-0 flex-col gap-5" data-contenu-en-place data-contenu-dans-la-page-de-service>
+          {children}
+        </div>
       ) : (
         <ZoneDefilement className={cn('px-4 pb-6 sm:px-6', avecEntete ? 'pt-1' : cn('pt-3', TELEPHONE_SOUS_LA_BARRE))}>
           <div className="mx-auto flex w-full min-w-0 max-w-[920px] flex-col gap-5 max-sm:gap-4" data-contenu-en-place>{children}</div>
         </ZoneDefilement>
       )}
       {pied ? (
-        <div className="shrink-0 px-4 pb-3 pt-2 sm:px-6" data-communication-pied-en-place>
-          <div className="mx-auto flex w-full max-w-[920px] min-w-0">{pied}</div>
+        <div className={cn('shrink-0', dansLaColonne ? 'pt-4' : 'px-4 pb-3 pt-2 sm:px-6')} data-communication-pied-en-place>
+          <div className={cn('flex w-full min-w-0', !dansLaColonne && 'mx-auto max-w-[920px]')}>{pied}</div>
         </div>
       ) : modifier ? (
         <BoutonDeModifications modifier={modifier} />

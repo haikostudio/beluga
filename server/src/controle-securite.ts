@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import type { ReglageRobots } from '@beluga/shared';
 import {
   carteDeCorrection,
   clesEcrites,
@@ -51,6 +52,8 @@ export interface OptionsDuControle {
   adresse?: string;
   /** Force la visibilité du dépôt (sinon lue sur GitHub). */
   depotPublic?: boolean;
+  /** Le réglage « Accès des robots » du site, s'il en a un à lui : l'audit juge alors d'après lui (22/11/2026). */
+  reglageRobots?: ReglageRobots | null;
 }
 
 export interface ResultatDuControle {
@@ -295,8 +298,8 @@ export async function controlerLaSecurite(options: OptionsDuControle): Promise<R
       const { releverLesRobots } = await import('./garde-des-robots.js');
       const releve = await releverLesRobots(options.adresse);
       if (!releve.ia && !releve.google) throw new Error("l'adresse ne répond pas");
-      constats.push(...constatsDeRobots(releve));
-      etapes.push({ nom: 'Protection contre les robots', etat: 'fait', note: noteDeLEtapeRobots(releve) });
+      constats.push(...constatsDeRobots(releve, options.reglageRobots ?? null));
+      etapes.push({ nom: 'Protection contre les robots', etat: 'fait', note: noteDeLEtapeRobots(releve, options.reglageRobots ?? null) });
     } catch (e) {
       etapes.push({ nom: 'Protection contre les robots', etat: 'non-verifie', note: (e as Error).message });
     }

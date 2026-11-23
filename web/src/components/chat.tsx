@@ -67,7 +67,7 @@ import {
   temoinDeTravail,
   carteRangee,
   decisionDePlanOuverte,
-  libellePrecedents,
+  PRECEDENTS_PAR_PAQUET,
   ligneDeSuggestion,
   lignesDeSuggestions,
   peutRepartir,
@@ -1046,15 +1046,18 @@ function FilDeConversation({
           titre: t('Aucun échange pour le moment'),
           indice: t('Posez une question ou demandez une action.'),
         };
-  // Les échanges d'avant le dernier nouveau départ sont repliés par défaut.
-  const [tout, setTout] = React.useState(false);
+  /* LA CONVERSATION SANS FIN (22/11/2026) : les échanges d'avant le dernier « Repartir de zéro » restent AFFICHÉS,
+     au-dessus d'un trait « Nouvelle session » — l'agent, lui, ne les relit pas. Ils arrivent par paquets, les plus
+     récents d'abord ; « Afficher les échanges plus anciens » demande le paquet suivant. */
+  const [paquets, setPaquets] = React.useState(1);
   const precedents = agent ? (state.precedents[agent.id] ?? 0) : 0;
+  const depart = agent ? (state.departs[agent.id] ?? 0) : 0;
 
-  React.useEffect(() => setTout(false), [agent?.id, cardId]);
+  React.useEffect(() => setPaquets(1), [agent?.id, cardId]);
 
   React.useEffect(() => {
-    if (agent) client.send({ type: 'agent.open', id: agent.id, tout });
-  }, [agent?.id, tout]);
+    if (agent) client.send({ type: 'agent.open', id: agent.id, precedents: paquets * PRECEDENTS_PAR_PAQUET });
+  }, [agent?.id, paquets]);
 
   /*
    * La carte est SOUS LES YEUX : dès que l'agent se tait, sa réponse est lue.
@@ -1448,6 +1451,9 @@ function FilDeConversation({
             centrée dessus. Sans lui, deux bulles collées pouvaient être écrites
             à trois jours d'écart sans que rien ne le dise (`separateurDeJour`,
             `shared/src/heure-message.ts`). */}
+        {depart && index > 0 && message.createdAt >= depart && messages[index - 1]!.createdAt < depart ? (
+          <SeparateurDeSession date={depart} />
+        ) : null}
         {separateurDeJour(messages, index) ? <SeparateurDeJour date={message.createdAt} /> : null}
         {/* Une carte a souvent eu plusieurs agents : un repère sépare le compte
             rendu de l'analyse de celui de l'exécution. */}
@@ -1996,10 +2002,9 @@ function FilDeConversation({
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 px-3 pt-2">
             <BarreNouveauDepart
               agent={agent}
-              messages={messages}
-              precedents={precedents}
-              tout={tout}
-              onTout={setTout}
+              messages={depart ? messages.filter((m) => m.createdAt >= depart) : messages}
+              plusAnciens={Math.max(0, precedents - (depart ? messages.filter((m) => m.createdAt < depart).length : 0))}
+              onPlusAnciens={() => setPaquets((n) => n + 1)}
             />
           </div>
         ) : null}
@@ -2138,22 +2143,21 @@ function FilDeConversation({
 function BarreNouveauDepart({
   agent,
   messages,
-  precedents,
-  tout,
-  onTout,
+  plusAnciens,
+  onPlusAnciens,
 }: {
   agent: Agent | null;
+  /** Les seuls messages depuis le dernier nouveau départ : c'est sur eux que « Repartir de zéro » se juge. */
   messages: Message[];
-  precedents: number;
-  tout: boolean;
-  onTout: (valeur: boolean) => void;
+  /** Combien d'échanges d'avant ne sont pas encore chargés au-dessus. */
+  plusAnciens: number;
+  onPlusAnciens: () => void;
 }) {
   const [aConfirmer, setAConfirmer] = React.useState(false);
   const verdict = peutRepartir(agent, messages);
 
   const repartir = () => {
     if (!agent) return;
-    onTout(false);
     void client.geste({ type: 'agent.reset', agentId: agent.id }, t('Repartir de zéro'));
   };
 
@@ -2161,14 +2165,15 @@ function BarreNouveauDepart({
     /* Deux commandes posées PAR-DESSUS le fil : elles ne prennent plus de
        ligne à elles seules, et seul leur propre rectangle capte le doigt. */
     <div className="pointer-events-none flex w-full items-start gap-2">
-      {precedents ? (
+      {plusAnciens ? (
         <button
           type="button"
-          onClick={() => onTout(!tout)}
+          onClick={onPlusAnciens}
           className="pointer-events-auto flex min-w-0 items-center gap-1 rounded bg-raised/90 px-2 sm:px-1.5 py-1 sm:py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
+          data-plus-anciens={plusAnciens}
         >
-          <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
-          <span className="truncate">{tout ? t('Replier les échanges précédents') : libellePrecedents(precedents)}</span>
+          <ChevronUp className="h-3 w-3 shrink-0" />
+          <span className="truncate">{t('Afficher {v0} échange(s) plus ancien(s)', { v0: Math.min(plusAnciens, PRECEDENTS_PAR_PAQUET) })}</span>
         </button>
       ) : null}
 
@@ -2194,7 +2199,7 @@ function BarreNouveauDepart({
       <ConfirmDialog
         open={aConfirmer}
         title={t('Repartir sur une conversation neuve ?')}
-        description={t('L\'agent oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d\'un clic.')}
+        description={t('L’agent oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés : ils restent affichés au-dessus, séparés par un trait.')}
         confirmLabel={t('Repartir de zéro')}
         onConfirm={repartir}
         onClose={() => setAConfirmer(false)}
@@ -2224,6 +2229,22 @@ function SeparateurDeJour({ date }: { date: number }) {
         {jourDuMessage(date)}
       </span>
       <span className="h-px flex-1 bg-faint/30" aria-hidden />
+    </div>
+  );
+}
+
+/**
+ * LE TRAIT « NOUVELLE SESSION » (22/11/2026) : posé devant le premier message d'après « Repartir de zéro ». Ce qui est
+ * au-dessus reste lisible et copiable, mais l'agent ne le relit plus.
+ */
+function SeparateurDeSession({ date }: { date: number }) {
+  return (
+    <div className="flex items-center gap-2 py-2" data-separateur-session="">
+      <span className="h-px flex-1 bg-faint/40" aria-hidden />
+      <span className="shrink-0 text-center text-[12.5px] text-muted">
+        {t('Nouvelle session — l’agent repart de zéro')} · {jourDuMessage(date)}
+      </span>
+      <span className="h-px flex-1 bg-faint/40" aria-hidden />
     </div>
   );
 }

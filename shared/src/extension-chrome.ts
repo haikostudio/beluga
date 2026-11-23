@@ -15,9 +15,10 @@
  */
 
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
+import type { MarqueDeNavigateur } from './navigateurs-de-l-ordinateur.js';
 
 /** La version de l'extension SERVIE par ce démon. Une extension reliée plus ancienne voit « nouvelle version ». */
-export const VERSION_EXTENSION_CHROME = '1.0.16';
+export const VERSION_EXTENSION_CHROME = '1.0.17';
 
 /**
  * LA PLUS ANCIENNE EXTENSION QUI SAIT OUVRIR UNE FENÊTRE PRIVÉE RÉDUITE (`fenetre: 'privee-reduite'`, 18/11/2026). Les
@@ -460,6 +461,8 @@ export interface ChromeRelie {
   ordinateurId: string | null;
   /** Chrome ou Safari : l'extension Beluga existe pour les deux. */
   genre: GenreDeNavigateur;
+  /** Le vrai navigateur (edge, brave, firefox…) annoncé par l'extension 1.0.17 ; `null` : celui du genre. */
+  marque?: MarqueDeNavigateur | null;
 }
 
 export interface SiteDuChrome {

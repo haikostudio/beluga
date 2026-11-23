@@ -102,12 +102,25 @@ export function agentApresNouveauDepart<T extends AgentAOublier>(agent: T): T {
 }
 
 /** Combien d'échanges sont mis de côté par le repère. */
+/**
+ * LA CONVERSATION SANS FIN (carte « Sécurité, rapports et marketing restructurés », 22/11/2026) : après « Repartir de
+ * zéro », l'ancien fil reste AFFICHÉ au-dessus du nouveau, séparé par un trait — l'agent, lui, ne le relit pas (son
+ * contexte est bien vidé). Les échanges d'avant arrivent par PAQUETS, les plus récents d'abord : un fil de milliers
+ * de messages ne part jamais d'un bloc.
+ */
+export const PRECEDENTS_PAR_PAQUET = 200;
+
+/** Les messages depuis le nouveau départ, précédés des `combien` derniers d'avant. */
+export function messagesAvecPrecedents<T extends MessageDatable>(messages: T[], depuis: unknown, combien: number): T[] {
+  const repere = typeof depuis === 'number' && Number.isFinite(depuis) && depuis > 0 ? depuis : 0;
+  if (!repere) return messages;
+  const avant = messages.filter((m) => m.createdAt < repere);
+  const apres = messages.filter((m) => m.createdAt >= repere);
+  const n = Math.max(0, Math.floor(combien));
+  return [...(n ? avant.slice(Math.max(0, avant.length - n)) : []), ...apres];
+}
+
 export function comptePrecedents(messages: MessageDatable[], depuis: unknown): number {
   return messages.length - messagesDepuis(messages, depuis).length;
 }
 
-/** Ce que dit le lien qui rouvre les échanges d'avant. */
-export function libellePrecedents(nombre: number): string {
-  if (nombre <= 0) return '';
-  return nombre === 1 ? 'Voir le message précédent' : `Voir les ${nombre} messages précédents`;
-}

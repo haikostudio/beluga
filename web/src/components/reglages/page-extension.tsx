@@ -7,6 +7,7 @@ import {
   ordinateurEnLigne,
   ordinateurReconnu,
   programmeEnLigne,
+  choixEffectif,
   etapesDeLaPreparation,
   ordinateurVuLe,
   travailEnCoursSurUnOrdinateur,
@@ -40,7 +41,8 @@ import { client } from '@/lib/client';
 import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { EtapesDeChrome, EtatDesServices, FenetreSafari, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { EtapesDeChrome, EtatDesServices, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { ChoixDesNavigateursDeLaPage, marqueDeCetAppareil } from './choix-des-navigateurs';
 import { useSousPageDeReglages, type PartieDeSommaire } from './sous-page';
 
 /** Le nom propre de l'application : le même dans toutes les langues. */
@@ -621,11 +623,11 @@ function PageDUnOrdinateur({
   const chromeDeLaPage = ordinateur.navigateurs.filter((n) => n.genre === 'chrome').sort((a, b) => Number(b.enLigne) - Number(a.enLigne))[0] ?? null;
   const preparationDeLaPage = ordinateur.programme?.preparation ?? null;
   const montrerLesEtapes =
+    (choixEffectif(ordinateur.navigateursChoisis, ordinateur.navigateurs) ?? []).includes('chrome') &&
     programmeEnLigne(ordinateur.programme) &&
     !!ordinateur.programme?.connect &&
     (!chromeDeLaPage ||
       (!!preparationDeLaPage && preparationDeLaPage.etat !== 'fait' && etapesDeLaPreparation(preparationDeLaPage, chromeDeLaPage, estUnMac).some((e) => e.etat !== 'fait')));
-  const [safariOuvert, setSafariOuvert] = React.useState(false);
   const [delier, setDelier] = React.useState<string | null>(null);
 
   /* LE SOMMAIRE DANS LA COLONNE DE GAUCHE : un bouton par partie, la partie lue surlignée d'après le défilement. */
@@ -781,7 +783,11 @@ function PageDUnOrdinateur({
       </div>
 
       <div className="scroll-mt-2" data-partie-ordinateur="navigateurs">
-      <RubriqueDeReglages titre={t('Navigateurs')} description={t('Les navigateurs de cet ordinateur où les agents travaillent.')}>
+      <RubriqueDeReglages
+        titre={t('Navigateurs')}
+        description={t('Cochez ceux où les agents travaillent : {v0} les équipe tout seul. Décocher retire le module de ce navigateur.', { v0: CONNECT })}
+        avant={<ChoixDesNavigateursDeLaPage ordinateur={ordinateur} ici={ici === ordinateur.id ? marqueDeCetAppareil() : null} />}
+      >
         {ordinateur.navigateurs.length
           ? ordinateur.navigateurs.map((n) => (
             <LigneDeReglage
@@ -810,20 +816,11 @@ function PageDUnOrdinateur({
             <EtapesDeChrome ordinateur={ordinateur} nav={chromeDeLaPage} mac={estUnMac} />
           </div>
         ) : !ordinateur.navigateurs.length ? (
-          <p className="px-3.5 py-3 text-[13.5px] text-muted">{t('Aucun navigateur relié : Beluga Connect ne répond pas sur cet ordinateur.')}</p>
+          <p className="px-3.5 py-3 text-[13.5px] text-muted">
+            {programmeEnLigne(ordinateur.programme) ? t('Aucun navigateur relié pour l’instant.') : t('Aucun navigateur relié : Beluga Connect ne répond pas sur cet ordinateur.')}
+          </p>
         ) : null}
-        {estUnMac && safari && !ordinateur.navigateurs.some((n) => n.genre === 'safari') ? (
-          <LigneDeReglage
-            libelle={t('Beluga pour Safari')}
-            detail={t('Pour travailler aussi dans Safari : Beluga Connect l’installe et la relie, sans rien télécharger.')}
-            controle={
-              <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => setSafariOuvert(true)} data-ajouter-safari>
-                <Plus className="h-3.5 w-3.5" />
-                {t('Ajouter Safari')}
-              </Button>
-            }
-          />
-        ) : null}
+        {/* « Ajouter Safari » n'existe plus : Safari se coche dans la liste ci-dessus (carte « Navigateurs facultatifs »). */}
       </RubriqueDeReglages>
       </div>
 
@@ -832,7 +829,6 @@ function PageDUnOrdinateur({
           <AutorisationsDeMacOS ordinateur={ordinateur} />
         </div>
       ) : null}
-      <FenetreSafari ordinateur={ordinateur} ouverte={safariOuvert} onClose={() => setSafariOuvert(false)} />
     </div>
   );
 }

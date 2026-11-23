@@ -13,7 +13,7 @@
  */
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Loader2 } from '@/components/ui/icones';
+import { ChevronDown, EllipsisVertical, Loader2 } from '@/components/ui/icones';
 import { EnLignesDeMenu, useContenuDuMenuDuHaut, type RegistreDuMenuDuHaut } from '@/components/entete-de-zone';
 import type { VueCentrale } from '@beluga/shared';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui';
@@ -136,10 +136,13 @@ export function ChevronDesOptions({
   registre,
   gestes,
   cibleDuBas,
+  enPoints = false,
 }: {
   registre: RegistreDuMenuDuHaut;
   gestes: ElementDeListe[];
   cibleDuBas: HTMLElement | null;
+  /** Trois points au lieu du chevron : le menu « … » de la ligne du titre d'une page de service (22/11/2026). */
+  enPoints?: boolean;
 }) {
   const declarees = [...useContenuDuMenuDuHaut(registre).entries()].filter(([, e]) => e.genre === 'options');
   const optionsEnCours = declarees.some(([, e]) => e.enCours);
@@ -203,7 +206,7 @@ export function ChevronDesOptions({
                 data-options-de-zone
                 data-options-en-cours={optionsEnCours ? '' : undefined}
               >
-                {optionsEnCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+                {optionsEnCours ? <Loader2 className="h-4 w-4 animate-spin" /> : enPoints ? <EllipsisVertical className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="sm:w-[240px]" data-options-de-zone-menu>

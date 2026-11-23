@@ -43,7 +43,7 @@ import {
 } from '@/components/ui';
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { TitreEtSous } from '@/components/ui/apercu-de-ligne';
-import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
+import { BasculeDePage, RechercheDuService, useSansLigneDeTitre } from '@/components/fenetre-de-service';
 import { colonneProjet } from '@/components/ui/colonne-projet';
 import { CarteDeTableau } from '@/components/ui/carte-de-tableau';
 import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
@@ -641,6 +641,8 @@ function CharteAvecSonAgent({
   onMarque: () => void;
 }) {
   const state = useApp();
+  /* Conversation à gauche, volet à droite : pas de ligne de titre au-dessus (22/11/2026). */
+  useSansLigneDeTitre();
   const telephone = useTelephone();
   const [placeDeLaRangee, setRangee] = usePlaceDeLaRangee();
   const { width, start, reset } = useResizable(CLE_DE_LARGEUR_DE_LA_CHARTE, bornesDuVoletDuPlan(placeDeLaRangee));

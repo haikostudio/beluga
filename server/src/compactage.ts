@@ -4,6 +4,7 @@ import { PATHS } from './config.js';
 import { publicationsEnCours } from './demon.js';
 import { agentsActifs } from './runtime.js';
 import { log } from './logger.js';
+import { octetsVidesEnAttente, remettreLaPlaceVideeAZero } from './journal-carte.js';
 
 /**
  * Compactage de la base vive (PLAN — carte « Compacter la base »). Les quatre
@@ -24,6 +25,10 @@ export interface ResultatCompactage {
   avantOctets?: number;
   apresOctets?: number;
   dureeMs?: number;
+  /** Un agent ou une publication bloque : à retenter plus tard dans la nuit. */
+  reporte?: boolean;
+  /** Rien à faire : sous le seuil, le jour est consommé. */
+  sousLeSeuil?: boolean;
 }
 
 /**
@@ -31,26 +36,33 @@ export interface ResultatCompactage {
  * un agent travaille : même principe que le refus de redémarrage du démon
  * (`decisionDeRedemarrage`), transposé au verrou exclusif d'un VACUUM.
  */
-export function compacterLaBase(options: { force?: boolean } = {}): ResultatCompactage {
+export function compacterLaBase(options: { force?: boolean; silencieux?: boolean } = {}): ResultatCompactage {
   const publications = publicationsEnCours();
   if (publications.length > 0) {
     const raison = `publication en cours (${publications.join(', ')})`;
-    log.info(`compactage de la base reporté : ${raison}`);
-    return { fait: false, raison };
+    if (!options.silencieux) log.info(`compactage de la base reporté : ${raison}`);
+    return { fait: false, raison, reporte: true };
   }
   const agents = agentsActifs();
   if (agents.length > 0) {
     const raison = `${agents.length} agent(s) au travail`;
-    log.info(`compactage de la base reporté : ${raison}`);
-    return { fait: false, raison };
+    if (!options.silencieux) log.info(`compactage de la base reporté : ${raison}`);
+    return { fait: false, raison, reporte: true };
   }
 
   const db = getDb();
   const pageSize = db.pragma('page_size', { simple: true }) as number;
   const freelistCount = db.pragma('freelist_count', { simple: true }) as number;
   const freeOctets = pageSize * freelistCount;
-  if (!options.force && freeOctets < SEUIL_PAGES_LIBRES_OCTETS) {
-    return { fait: false, raison: `${Math.round(freeOctets / 1024 / 1024)} Mo de pages libres, sous le seuil de 100 Mo` };
+  // L'allègement des journaux vide des lignes sans rien rendre à la liste des
+  // pages libres : on ajoute la place qu'il a comptée (cumul dans `meta`).
+  const videsOctets = octetsVidesEnAttente();
+  if (!options.force && freeOctets + videsOctets < SEUIL_PAGES_LIBRES_OCTETS) {
+    return {
+      fait: false,
+      sousLeSeuil: true,
+      raison: `${Math.round(freeOctets / 1024 / 1024)} Mo de pages libres + ${Math.round(videsOctets / 1024 / 1024)} Mo vidés par l'allègement, sous le seuil de 100 Mo`,
+    };
   }
 
   const avantOctets = fs.statSync(PATHS.db).size;
@@ -61,6 +73,7 @@ export function compacterLaBase(options: { force?: boolean } = {}): ResultatComp
   // fichier principal ne rétrécit pas tant qu'un checkpoint ne l'a pas
   // reversé. TRUNCATE force ce reversement ET tronque le fichier -wal.
   db.pragma('wal_checkpoint(TRUNCATE)');
+  remettreLaPlaceVideeAZero();
   const dureeMs = Date.now() - t0;
   const apresOctets = fs.statSync(PATHS.db).size;
   log.info(
@@ -69,23 +82,70 @@ export function compacterLaBase(options: { force?: boolean } = {}): ResultatComp
   return { fait: true, avantOctets, apresOctets, dureeMs };
 }
 
+export const HEURE_DEBUT_COMPACTAGE = 4;
+export const HEURE_FIN_COMPACTAGE = 8; // exclue : le ménage des compétences démarre à 5 h et peut occuper un agent
+
+/** Clé du jour AAAA-MM-JJ (un jour du mois seul reviendrait chaque mois). */
+export function cleDuJour(now: Date): string {
+  return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+}
+
+export interface EtatDeNuit {
+  /** Dernier jour réglé : compacté, ou jugé inutile. */
+  dernierJour: string | null;
+  /** Dernier jour où un report ou un passage sous le seuil a été journalisé. */
+  dernierJourJournalise: string | null;
+}
+
+/** Faut-il tenter un passage maintenant ? Fonction pure. */
+export function ilFautEssayer(now: Date, dernierJour: string | null): boolean {
+  const h = now.getHours();
+  return h >= HEURE_DEBUT_COMPACTAGE && h < HEURE_FIN_COMPACTAGE && cleDuJour(now) !== dernierJour;
+}
+
 /**
- * Vers 4 h, entre l'auto-amélioration (3 h) et le ménage des compétences (5 h) : un
- * contrôle toutes les cinq minutes, comme la sauvegarde nocturne, une seule
- * tentative par jour.
+ * Un passage de nuit. Le jour n'est consommé que si le compactage est fait ou
+ * jugé inutile ; un report (agent, publication) se retente au passage suivant.
+ * Une trace par nuit au plus pour un report ou un essai sous le seuil.
+ */
+export function passerLaNuit(
+  now: Date,
+  etat: EtatDeNuit,
+  compacter: (o: { silencieux: boolean }) => ResultatCompactage = compacterLaBase,
+): void {
+  if (!ilFautEssayer(now, etat.dernierJour)) return;
+  const jour = cleDuJour(now);
+  const premiereTrace = etat.dernierJourJournalise !== jour;
+  const res = compacter({ silencieux: true });
+  if (res.fait) {
+    etat.dernierJour = jour;
+    return;
+  }
+  if (premiereTrace) {
+    etat.dernierJourJournalise = jour;
+    log.info(
+      res.sousLeSeuil
+        ? `compactage de la base inutile cette nuit : ${res.raison}`
+        : `compactage de la base reporté, nouvel essai dans 5 min : ${res.raison}`,
+    );
+  }
+  if (res.sousLeSeuil) etat.dernierJour = jour;
+}
+
+/**
+ * Entre 4 h et 8 h, un contrôle toutes les cinq minutes (comme la sauvegarde
+ * nocturne) : l'agent d'auto-amélioration (3 h) tourne souvent encore à 4 h et
+ * le ménage des compétences prend des places dès 5 h, donc un report se
+ * retente jusqu'à ce que la base soit compactée ou jugée sous le seuil.
  */
 export function planifierCompactage(): NodeJS.Timeout {
-  let lastDay = -1;
+  const etat: EtatDeNuit = { dernierJour: null, dernierJourJournalise: null };
   return setInterval(
     () => {
-      const now = new Date();
-      if (now.getHours() === 4 && now.getDate() !== lastDay) {
-        lastDay = now.getDate();
-        try {
-          compacterLaBase();
-        } catch (err: any) {
-          log.warn('compactage nocturne impossible', err?.message ?? err);
-        }
+      try {
+        passerLaNuit(new Date(), etat);
+      } catch (err: any) {
+        log.warn('compactage nocturne impossible', err?.message ?? err);
       }
     },
     5 * 60 * 1000,

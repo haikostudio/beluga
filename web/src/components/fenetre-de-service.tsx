@@ -54,7 +54,6 @@ import {
   ZoneDefilement,
   buttonVariants,
 } from '@/components/ui';
-import { ChampDeRecherche } from '@/components/ui/champ-de-recherche';
 import { RechercheEnIcone } from '@/components/ui/recherche-en-icone';
 import { t } from '@/lib/langue';
 import { usePref } from '@/lib/prefs';
@@ -287,6 +286,12 @@ const RechercheDansLaRangee = versLEmplacement('recherche');
 export const BasculeDePage = versLEmplacement('bascule');
 /** Les réglages propres au service (le mois du calendrier, la période), après le filtre des projets. */
 export const DroiteDePage = versLEmplacement('droite');
+/**
+ * LA LIGNE D'INFORMATIONS SOUS LE TITRE (carte « Sécurité, rapports et marketing restructurés », 22/11/2026, maquette
+ * #1173) : ce que la page montre, en petit — pour un projet des Statistiques, son adresse, depuis quand il est suivi et
+ * la fraîcheur des données. Sans elle, le titre reste seul.
+ */
+export const InfosDePage = versLEmplacement('infos');
 
 /**
  * L'EMPLACEMENT DES OUTILS D'UN TABLEAU (son bouton filtre, sa recherche s'il la porte) dans la rangée de la page :
@@ -316,13 +321,11 @@ export function RechercheDuService({
   placeholder?: string;
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
   const telephone = useTelephone();
+  /* UNE LOUPE, SUR LES DEUX TAILLES (22/11/2026, « la recherche se réduit à une loupe qui ouvre le champ ») : un clic
+     ouvre le champ sur place ; vide, il se referme par Échap ou un clic ailleurs ; une recherche en cours le garde ouvert. */
   return (
     <RechercheDansLaRangee>
-      {telephone ? (
-        <RechercheEnIcone valeur={valeur} onChange={onChange} placeholder={placeholder} largeur="w-40" {...reperes} />
-      ) : (
-        <ChampDeRecherche valeur={valeur} onChange={onChange} placeholder={placeholder ?? t('Rechercher…')} className="w-[220px] min-w-0 shrink" {...reperes} />
-      )}
+      <RechercheEnIcone valeur={valeur} onChange={onChange} placeholder={placeholder} largeur={telephone ? 'w-40' : 'w-[220px]'} {...reperes} />
     </RechercheDansLaRangee>
   );
 }
@@ -431,10 +434,11 @@ function RangeeDesEmplacements({
   cibleDesGestes,
   chevron,
   telephone = false,
-  retour,
+  sousPage = false,
 }: {
-  /** Une sous-page est ouverte dans la feuille du téléphone : la flèche qui remonte d'un cran ouvre la rangée. */
-  retour?: () => void;
+  /** Une sous-page est ouverte : les outils de la LISTE (rubriques, recherche, bascule) s'effacent — ils restent
+   *  montés, le service y écrit. */
+  sousPage?: boolean;
   filtre?: React.ReactNode;
   definir: (cle: keyof EmplacementsDeLaPage, el: HTMLElement | null) => void;
   cibleDesGestes: (el: HTMLElement | null) => void;
@@ -453,19 +457,7 @@ function RangeeDesEmplacements({
       data-rangee-de-la-page
       data-rangee-forme={telephone ? 'feuille' : 'page'}
     >
-      {retour ? (
-        <button
-          type="button"
-          onClick={retour}
-          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-raised text-muted transition-colors hover:bg-fond-survol hover:text-text"
-          aria-label="Revenir à la liste"
-          title={t('Revenir à la liste')}
-          data-retour-de-la-feuille
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-      ) : null}
-      <div ref={rubriques} className="flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
+      <div ref={rubriques} className={cn('flex min-w-0 shrink-0 items-center empty:hidden', sousPage && 'hidden')} data-rubriques-de-la-page />
       {/* Sur téléphone, le filtre des projets prend la place qui reste : il ouvre la rangée. Sans lui, un vide pousse
           le reste à droite. */}
       {telephone ? (
@@ -477,8 +469,8 @@ function RangeeDesEmplacements({
           <span className="min-w-0 flex-1" aria-hidden />
         )
       ) : null}
-      <div ref={recherche} className={cn('flex items-center empty:hidden', telephone ? 'shrink-0' : 'min-w-[140px] shrink')} data-recherche-de-la-page />
-      <div ref={bascule} className="flex shrink-0 items-center empty:hidden" data-bascule-de-la-page />
+      <div ref={recherche} className={cn('flex items-center empty:hidden', telephone ? 'shrink-0' : 'min-w-[140px] shrink', sousPage && 'hidden')} data-recherche-de-la-page />
+      <div ref={bascule} className={cn('flex shrink-0 items-center empty:hidden', sousPage && 'hidden')} data-bascule-de-la-page />
       {!telephone && filtre ? <div className="flex shrink-0" data-filtre-de-la-rangee>{filtre}</div> : null}
       <div ref={droite} className="flex shrink-0 items-center gap-2 empty:hidden" data-droite-du-service />
       <div ref={cibleDesGestes} data-gestes-de-page="rangee-de-service" data-rangee-de-boutons className="flex shrink-0 items-center gap-2 empty:hidden" />
@@ -488,12 +480,26 @@ function RangeeDesEmplacements({
 }
 
 function useEmplacements(): [EmplacementsDeLaPage, (cle: keyof EmplacementsDeLaPage, el: HTMLElement | null) => void] {
-  const [emplacements, setEmplacements] = React.useState<EmplacementsDeLaPage>({ rubriques: null, recherche: null, bascule: null, droite: null });
+  const [emplacements, setEmplacements] = React.useState<EmplacementsDeLaPage>({ rubriques: null, recherche: null, bascule: null, droite: null, infos: null });
   const definir = React.useCallback(
     (cle: keyof EmplacementsDeLaPage, el: HTMLElement | null) => setEmplacements((avant) => (avant[cle] === el ? avant : { ...avant, [cle]: el })),
     [],
   );
   return [emplacements, definir];
+}
+
+/**
+ * LE GESTE DE L'EN-TÊTE DE LA FEUILLE (téléphone, 22/11/2026, maquette #ccad) : une sous-page ouverte dans la feuille
+ * d'un service peut poser UN bouton icône à droite du titre de la feuille (« Lancer un audit » de Sécurité). Hors d'une
+ * feuille de service, rien n'est posé : la page garde son geste chez elle.
+ */
+const CibleDuGesteDeLEntete = React.createContext<HTMLElement | null | undefined>(undefined);
+export function useDansUneFeuilleDeService(): boolean {
+  return React.useContext(CibleDuGesteDeLEntete) !== undefined;
+}
+export function GesteDeLEnteteDeFeuille({ children }: { children: React.ReactNode }) {
+  const cible = React.useContext(CibleDuGesteDeLEntete);
+  return cible ? createPortal(children, cible) : null;
 }
 
 /**
@@ -545,13 +551,38 @@ function FeuilleDeService({
     }),
     [parent, signalerParent],
   );
+  const [cibleDuGeste, setCibleDuGeste] = React.useState<HTMLElement | null>(null);
+  /*
+   * LE RETOUR VIT DANS L'EN-TÊTE (22/11/2026, capture #7ae7 : « les boutons back doivent être dans l'entête ») : dans une
+   * sous-page, la flèche prend la place de l'icône du service, à gauche du titre. La rangée dessous ne paraît que si elle
+   * porte quelque chose (filtre, rubriques, recherche, gestes, menu) — plus de ligne qui ne tenait que la flèche
+   * (styles.css, `[data-tete-de-la-feuille-de-service]`).
+   */
+  const gauche = sousPage ? (
+    <button
+      type="button"
+      onClick={() => retour.current?.()}
+      className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-fond-survol hover:text-text"
+      aria-label="Revenir à la liste"
+      title={t('Revenir à la liste')}
+      data-retour-de-la-feuille
+    >
+      <ArrowLeft className="h-4 w-4" />
+    </button>
+  ) : (
+    <span className="ml-1 flex shrink-0 text-muted [&>svg]:h-4 [&>svg]:w-4">{icone}</span>
+  );
   return (
     <Drawer feuille hauteurFixe open={open} onClose={onClose}>
-      <EnteteDeFeuille titre={titre} gauche={<span className="ml-1 flex shrink-0 text-muted [&>svg]:h-4 [&>svg]:w-4">{icone}</span>} />
+      <EnteteDeFeuille
+        titre={titre}
+        gauche={gauche}
+        droite={<span ref={setCibleDuGeste} className="flex shrink-0 items-center gap-1 empty:hidden" data-geste-de-l-entete-de-feuille />}
+      />
       <div className="shrink-0 px-4 pb-3" data-tete-de-la-feuille-de-service>
         <RangeeDesEmplacements
           telephone
-          retour={sousPage ? () => retour.current?.() : undefined}
+          sousPage={sousPage}
           filtre={sousPage ? undefined : filtre}
           definir={definir}
           cibleDesGestes={setCible}
@@ -559,6 +590,7 @@ function FeuilleDeService({
         />
       </div>
       <DansUneFenetreDeService.Provider value>
+        <CibleDuGesteDeLEntete.Provider value={cibleDuGeste}>
         <Emplacements.Provider value={emplacements}>
           <FournirLaSuiteDuFil value={suite}>
           <FournirLaCibleDesGestes value={cible}>
@@ -574,6 +606,7 @@ function FeuilleDeService({
           </FournirLaCibleDesGestes>
           </FournirLaSuiteDuFil>
         </Emplacements.Provider>
+        </CibleDuGesteDeLEntete.Provider>
       </DansUneFenetreDeService.Provider>
       <div ref={setBas} className="shrink-0 px-4 pb-3 pt-2 empty:hidden" data-geste-en-bas="feuille" />
     </Drawer>
@@ -625,6 +658,57 @@ function EnteteDansLaPageDeService({ fermer, onCibleDuTitre, onCibleDesGestes }:
   );
 }
 
+/**
+ * LE TITRE D'UNE SOUS-PAGE, LU DANS LE FIL (22/11/2026) : le dernier cran (le titre posé par la page ouverte, sinon le
+ * dernier `CranDuFil` écrit par le service). Relu à chaque changement du fil, sans rendu par cran de défilement.
+ */
+function useTitreDuDernierCran(nav: HTMLElement | null, actif: boolean): string {
+  const [titre, setTitre] = React.useState('');
+  React.useEffect(() => {
+    if (!nav || !actif) {
+      setTitre('');
+      return;
+    }
+    const lire = () => {
+      /* Le texte qui suit le DERNIER séparateur « / » : le cran de la sous-page, quelle que soit sa forme (simple
+         cran, sélecteur de site à menu, titre posé par la page ouverte). Une précision discrète (`sousTitre`) en est
+         écartée : elle n'est pas le nom. */
+      const separateurs = nav.querySelectorAll('[data-separateur-du-fil]');
+      const dernier = separateurs[separateurs.length - 1];
+      if (!dernier) return setTitre('');
+      const plage = document.createRange();
+      plage.setStartAfter(dernier);
+      plage.setEnd(nav, nav.childNodes.length);
+      const fragment = plage.cloneContents();
+      fragment.querySelectorAll('.text-faint, [aria-hidden], svg').forEach((n) => n.remove());
+      setTitre((fragment.textContent ?? '').replace(/\s+/g, ' ').trim());
+    };
+    lire();
+    const observateur = new MutationObserver(lire);
+    observateur.observe(nav, { subtree: true, childList: true, characterData: true });
+    return () => observateur.disconnect();
+  }, [nav, actif]);
+  return titre;
+}
+
+/**
+ * PAS DE LIGNE DE TITRE AU-DESSUS D'UNE CONVERSATION + VOLET (22/11/2026, retour de l'utilisateur : « pas besoin de
+ * mettre des titres dans les services qui ont un chat à gauche et un volet à droite »). La ligne du titre ne vaut que
+ * pour les pages de liste ou de tableau. Une vue « conversation à gauche, volet à droite » (Sécurité d'un projet, dossier
+ * Marketing, campagne, charte, création du Studio) le dit par `useSansLigneDeTitre()` : la page cache sa ligne du titre,
+ * colle le corps sous la barre du fil et reporte ses gestes et son menu « … » à droite de cette barre. Le signal part
+ * d'un effet de mise en page : la ligne ne paraît jamais pour disparaître ensuite.
+ */
+const SignalSansLigneDeTitre = React.createContext<((present: boolean) => void) | null>(null);
+export function useSansLigneDeTitre(actif = true): void {
+  const signaler = React.useContext(SignalSansLigneDeTitre);
+  React.useLayoutEffect(() => {
+    if (!actif || !signaler) return;
+    signaler(true);
+    return () => signaler(false);
+  }, [actif, signaler]);
+}
+
 function PageDeService({
   repere,
   titre,
@@ -661,7 +745,23 @@ function PageDeService({
   const recherche = React.useCallback((el: HTMLElement | null) => definir('recherche', el), [definir]);
   const bascule = React.useCallback((el: HTMLElement | null) => definir('bascule', el), [definir]);
   const droiteDuService = React.useCallback((el: HTMLElement | null) => definir('droite', el), [definir]);
+  const infos = React.useCallback((el: HTMLElement | null) => definir('infos', el), [definir]);
+  const [navDuFil, setNavDuFil] = React.useState<HTMLElement | null>(null);
+  const titreDeLaSousPage = useTitreDuDernierCran(navDuFil, sousPage);
   const tete = useTeteReduite();
+  const [vuesSansTitre, setVuesSansTitre] = React.useState(0);
+  const signalerSansTitre = React.useCallback((present: boolean) => setVuesSansTitre((n) => Math.max(0, n + (present ? 1 : -1))), []);
+  const sansTitre = vuesSansTitre > 0;
+  /* Les réglages du service, les gestes de la page et le menu « … » : sur la ligne du titre, ou — sans elle — à droite
+     de la barre du fil, comme avant la ligne du titre. Un seul exemplaire monté, jamais deux. */
+  const outilsDeDroite = (
+    <>
+      <div ref={droiteDuService} className="flex shrink-0 items-center gap-2 empty:hidden" data-droite-du-service />
+      <div ref={setGestesDeLaSousPage} className="flex shrink-0 items-center gap-2 empty:hidden" data-gestes-de-page="sous-page" />
+      <div ref={setCible} data-gestes-de-page="rangee-de-service" data-rangee-de-boutons className="flex shrink-0 items-center gap-2 empty:hidden" />
+      <ChevronDesOptions registre={registre} gestes={[]} cibleDuBas={bas} enPoints />
+    </>
+  );
   const page = (
     <div
       /* Part sous la bande orange de l'extension (`--hauteur-banniere`, 0 sans elle) : elle reste au-dessus de tout. */
@@ -678,7 +778,9 @@ function PageDeService({
         service, les gestes de la page et le menu « … ». Plus jamais de second en-tête sous elle dans une sous-page.
       */}
       <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-5" data-barre-de-la-page-de-service>
-        <nav aria-label="Fil d'Ariane" className="flex min-w-0 flex-1 items-center gap-1 text-[14px]" data-fil-de-la-page-de-service>
+        {/* LE BANDEAU NE GARDE QUE LE FIL D'ARIANE (22/11/2026, maquettes #1173 et #60a3) : réglages, gestes et menu « … »
+            descendent sur la ligne du titre, au-dessus du contenu. */}
+        <nav ref={setNavDuFil} aria-label="Fil d'Ariane" className="flex min-w-0 flex-1 items-center gap-1 text-[14px]" data-fil-de-la-page-de-service>
           {fil ? <FournirLaSuiteDuFil value={suite}>{fil}</FournirLaSuiteDuFil> : (
             <button
               type="button"
@@ -692,12 +794,11 @@ function PageDeService({
           <div ref={setCibleDuFil} className="contents" data-suite-du-fil="page-de-service" />
           <div ref={setFilDeLaSousPage} className="contents" data-fil-de-la-sous-page />
         </nav>
-        <div className="flex shrink-0 items-center gap-2">
-          <div ref={droiteDuService} className="flex shrink-0 items-center gap-2 empty:hidden" data-droite-du-service />
-          <div ref={setGestesDeLaSousPage} className="flex shrink-0 items-center gap-2 empty:hidden" data-gestes-de-page="sous-page" />
-          <div ref={setCible} data-gestes-de-page="rangee-de-service" data-rangee-de-boutons className="flex shrink-0 items-center gap-2 empty:hidden" />
-          <ChevronDesOptions registre={registre} gestes={[]} cibleDuBas={bas} />
-        </div>
+        {sansTitre ? (
+          <div className="flex shrink-0 items-center gap-2" data-outils-dans-la-barre>
+            {outilsDeDroite}
+          </div>
+        ) : null}
       </div>
       {/*
         C'EST LE PANNEAU QUI DÉFILE, PLUS LA COLONNE (15/11/2026, « sur toutes les pages, c'est le panneau qui défile, barre
@@ -716,36 +817,47 @@ function PageDeService({
       {/* `shrink-0` : sans lui, ce bloc — élément d'une colonne flexible — se tassait à la hauteur de la zone, et c'était
           encore la liste du service qui défilait dans sa colonne. */}
       <div className="flex min-h-full shrink-0 flex-col" data-contenu-de-la-page-de-service>
-      {/* L'ACCUEIL DU SERVICE : son titre, puis à droite ses rubriques, sa recherche et la bascule de sa liste. Dans une
-          sous-page, cette rangée — qui ne vaut que pour la liste — s'efface (elle reste montée : le service y écrit). */}
+      {/* LA LIGNE DU TITRE, SUR TOUTES LES PAGES (22/11/2026) : le titre à gauche et ses informations dessous (pour un
+          projet : son adresse, depuis quand il est suivi, la fraîcheur) ; à droite les rubriques, la loupe, la bascule,
+          le filtre des projets, les réglages du service (périodes), les gestes et le menu « … ». Dans une sous-page, le
+          titre devient celui de la sous-page (le dernier cran du fil) et les outils de la LISTE s'effacent — ils restent
+          montés : le service y écrit. */}
       <div
         ref={tete}
-        className={cn(CLASSE_COLONNE_DE_SERVICE, 'flex shrink-0 items-center gap-3 pt-7 [--gain-de-tete:12px]', sousPage && 'hidden')}
+        className={cn(CLASSE_COLONNE_DE_SERVICE, 'flex shrink-0 items-center gap-3 pt-7 [--gain-de-tete:12px]', sansTitre && 'hidden')}
         data-tete-de-la-page-de-service
         data-tete-collante
+        data-sans-ligne-de-titre={sansTitre ? '' : undefined}
       >
         {/* L'ombre tient dans la colonne, sa marge intérieure exclue (`px-10` de la colonne). */}
         <OmbreDeTete className="inset-x-10" />
-        <h1
-          className="min-w-0 shrink-0 truncate text-[30px] font-semibold leading-9 tracking-tight text-text"
-          data-titre-de-page-de-service
-          data-titre-collant
-        >
-          {titre}
-        </h1>
-        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-3" data-rangee-de-la-page data-rangee-forme="page">
-          <div ref={rubriques} className="flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
-          <div className="flex min-w-0 shrink items-center gap-2">
-            <div ref={recherche} className="flex min-w-[140px] shrink items-center gap-2 empty:hidden" data-recherche-de-la-page />
-            <div ref={bascule} className="flex shrink-0 items-center gap-2 empty:hidden" data-bascule-de-la-page />
-          </div>
-          {droite ? (
-            <div className="flex shrink-0" data-filtre-de-la-rangee>
-              {droite}
+        <div className="flex min-w-0 shrink flex-col gap-0.5">
+          <h1
+            className="min-w-0 truncate text-[30px] font-semibold leading-9 tracking-tight text-text"
+            data-titre-de-page-de-service
+            data-titre-collant
+          >
+            {sousPage ? titreDeLaSousPage || titre : titre}
+          </h1>
+          <div ref={infos} className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] text-muted empty:hidden" data-infos-de-la-page />
+        </div>
+        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2" data-rangee-de-la-page data-rangee-forme="page">
+          <div className={cn('flex min-w-0 items-center justify-end gap-3', sousPage && 'hidden')}>
+            <div ref={rubriques} className="flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
+            <div className="flex min-w-0 shrink items-center gap-2">
+              <div ref={recherche} className="flex shrink items-center gap-2 empty:hidden" data-recherche-de-la-page />
+              <div ref={bascule} className="flex shrink-0 items-center gap-2 empty:hidden" data-bascule-de-la-page />
             </div>
-          ) : null}
+            {droite ? (
+              <div className="flex shrink-0" data-filtre-de-la-rangee>
+                {droite}
+              </div>
+            ) : null}
+          </div>
+          {sansTitre ? null : outilsDeDroite}
         </div>
       </div>
+      <SignalSansLigneDeTitre.Provider value={signalerSansTitre}>
       <DansUneFenetreDeService.Provider value>
         <DansUnePageDeService.Provider value>
           <CadreDesPagesDeFenetre.Provider value={cadreDesPages}>
@@ -759,7 +871,7 @@ function PageDeService({
                           <Emplacements.Provider value={emplacements}>
                             <div
                               ref={setCadreDesPages}
-                              className={cn(CLASSE_COLONNE_DE_SERVICE, 'relative flex min-h-0 flex-1 flex-col pb-6', sousPage ? 'mt-6' : 'mt-5')}
+                              className={cn(CLASSE_COLONNE_DE_SERVICE, 'relative flex min-h-0 flex-1 flex-col pb-6', sansTitre ? 'mt-0' : sousPage ? 'mt-6' : 'mt-5')}
                               data-corps-de-la-page-de-service
                             >
                               {children}
@@ -775,6 +887,7 @@ function PageDeService({
           </CadreDesPagesDeFenetre.Provider>
         </DansUnePageDeService.Provider>
       </DansUneFenetreDeService.Provider>
+      </SignalSansLigneDeTitre.Provider>
       </div>
       </ZoneDefilement>
       {/* Le geste principal de la LISTE (« Nouveau site ») ne vaut pas pour une sous-page : il s'efface avec sa rangée. */}

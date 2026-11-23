@@ -79,7 +79,7 @@ interface LigneChrome {
 
 function ligneDuChrome(chromeId: string): LigneChrome | undefined {
   return getDb()
-    .prepare('SELECT id, compte_id, nom, version, ordinateur_id, extension_id, mise_a_jour_le FROM chrome_appareils WHERE id = ? AND revoque_le IS NULL')
+    .prepare('SELECT id, compte_id, nom, version, ordinateur_id, extension_id, mise_a_jour_le, marque FROM chrome_appareils WHERE id = ? AND revoque_le IS NULL')
     .get(chromeId) as LigneChrome | undefined;
 }
 
@@ -230,6 +230,8 @@ export async function mettreAJourLExtension(compteId: string, chromeId: string, 
         empreinte,
         version: VERSION_EXTENSION_CHROME,
         extensionId: ligne.extension_id,
+        /* Le navigateur de cette extension (relais 9) : Edge, Brave… ; absent ou inconnu : Chrome. */
+        marque: (ligne as { marque?: string | null }).marque ?? 'chrome',
         relancer: facon === 'relancer-chrome',
       },
       150_000,

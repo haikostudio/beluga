@@ -68,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 8;
+const VERSION_DU_RELAIS = 9;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -363,6 +363,79 @@ function jouer(commande) {
 const DOSSIERS_D_APPLICATIONS = ['/Applications', '/System/Applications', '/Applications/Utilities', '/System/Applications/Utilities'];
 const NAVIGATEURS = { chrome: 'com.google.Chrome', safari: 'com.apple.Safari' };
 
+/*
+ * LES NAVIGATEURS AU CHOIX (relais 9, carte « Navigateurs facultatifs à la liaison », 22/11/2026). Chaque navigateur de
+ * la famille Chromium reçoit LA MÊME extension que Chrome, par le même déroulé (mode développeur posé dans ses
+ * préférences, « Charger l'extension non empaquetée » sur SA page d'extensions, code de liaison posé à côté) : seuls
+ * changent son identifiant d'application, son nom de processus, le dossier de ses profils et sa page d'extensions.
+ * `NAV` est le navigateur visé par le geste EN COURS (le relais joue un geste à la fois) ; Chrome par défaut.
+ */
+const SUPPORT = `${$.NSHomeDirectory().js}/Library/Application Support`;
+const FICHES_CHROMIUM = {
+  chrome: { marque: 'chrome', nom: 'Chrome', bundle: 'com.google.Chrome', processus: 'Google Chrome', prefs: `${SUPPORT}/Google/Chrome`, page: 'chrome://extensions/' },
+  edge: { marque: 'edge', nom: 'Edge', bundle: 'com.microsoft.edgemac', processus: 'Microsoft Edge', prefs: `${SUPPORT}/Microsoft Edge`, page: 'edge://extensions/' },
+  brave: { marque: 'brave', nom: 'Brave', bundle: 'com.brave.Browser', processus: 'Brave Browser', prefs: `${SUPPORT}/BraveSoftware/Brave-Browser`, page: 'brave://extensions/' },
+  arc: { marque: 'arc', nom: 'Arc', bundle: 'company.thebrowser.Browser', processus: 'Arc', prefs: `${SUPPORT}/Arc/User Data`, page: 'arc://extensions/' },
+  opera: { marque: 'opera', nom: 'Opera', bundle: 'com.operasoftware.Opera', processus: 'Opera', prefs: `${SUPPORT}/com.operasoftware.Opera`, page: 'opera://extensions/' },
+  vivaldi: { marque: 'vivaldi', nom: 'Vivaldi', bundle: 'com.vivaldi.Vivaldi', processus: 'Vivaldi', prefs: `${SUPPORT}/Vivaldi`, page: 'vivaldi://extensions/' },
+  chromium: { marque: 'chromium', nom: 'Chromium', bundle: 'org.chromium.Chromium', processus: 'Chromium', prefs: `${SUPPORT}/Chromium`, page: 'chrome://extensions/' },
+};
+/** Tous les navigateurs que le relais sait reconnaître, Chromium ou non (détection). */
+const BUNDLES_DES_NAVIGATEURS = {
+  chrome: 'com.google.Chrome',
+  safari: 'com.apple.Safari',
+  firefox: 'org.mozilla.firefox',
+  edge: 'com.microsoft.edgemac',
+  brave: 'com.brave.Browser',
+  arc: 'company.thebrowser.Browser',
+  opera: 'com.operasoftware.Opera',
+  vivaldi: 'com.vivaldi.Vivaldi',
+  chromium: 'org.chromium.Chromium',
+  orion: 'com.kagi.kagimacOS',
+};
+let NAV = FICHES_CHROMIUM.chrome;
+
+/** Viser un navigateur de la famille Chromium pour le geste en cours ; une marque inconnue est refusée. */
+function viser(marque) {
+  const fiche = FICHES_CHROMIUM[marque || 'chrome'];
+  if (!fiche) throw new Error(`navigateur inconnu : ${marque}`);
+  NAV = fiche;
+  return fiche;
+}
+
+/** Le dossier fixe de l'extension pour le navigateur visé : un par navigateur (chacun lit SON code de liaison). */
+function dossierFixe() {
+  return NAV.marque === 'chrome' ? DOSSIER_EXTENSION_FIXE : `${SUPPORT}/Beluga/extension-${NAV.marque}`;
+}
+
+/**
+ * LES NAVIGATEURS INSTALLÉS (geste `navigateurs_installes`) : cherchés PAR IDENTIFIANT D'APPLICATION, jamais par
+ * chemin (un navigateur peut vivre dans ~/Applications ou Setapp), avec leur version et celui ouvert par défaut.
+ */
+function navigateursInstalles() {
+  const ws = $.NSWorkspace.sharedWorkspace;
+  let parDefaut = '';
+  try {
+    const url = ws.URLForApplicationToOpenURL($.NSURL.URLWithString('https://example.com'));
+    const b = url && !url.isNil() ? $.NSBundle.bundleWithURL(url) : null;
+    parDefaut = b && !b.isNil() ? ObjC.unwrap(b.bundleIdentifier) : '';
+  } catch (e) {}
+  const trouves = [];
+  for (const marque of Object.keys(BUNDLES_DES_NAVIGATEURS)) {
+    const bundle = BUNDLES_DES_NAVIGATEURS[marque];
+    const url = ws.URLForApplicationWithBundleIdentifier(bundle);
+    if (!url || url.isNil()) continue;
+    let version = null;
+    try {
+      const b = $.NSBundle.bundleWithURL(url);
+      const v = b && !b.isNil() ? b.objectForInfoDictionaryKey('CFBundleShortVersionString') : null;
+      version = v && !v.isNil() ? ObjC.unwrap(v) : null;
+    } catch (e) {}
+    trouves.push({ marque, version, parDefaut: bundle === parDefaut });
+  }
+  return { navigateurs: trouves };
+}
+
 /** Les applications installées : nom (sans « .app ») → chemin. Lu sur le disque, jamais par une commande composée. */
 function applicationsInstallees() {
   const gestionnaire = $.NSFileManager.defaultManager;
@@ -393,6 +466,13 @@ function ouvrirUneApplication(demandee) {
   const ok = $.NSWorkspace.sharedWorkspace.openURL(url);
   if (!ok) throw new Error(`« ${trouvee} » ne s’ouvre pas`);
   return trouvee;
+}
+
+/** Ouvrir (ou passer devant) le navigateur Chromium visé par le geste en cours. */
+function ouvrirLeNavigateurVise() {
+  const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(NAV.bundle);
+  if (!url || url.isNil()) throw new Error(`${NAV.nom} n’est pas installé`);
+  $.NSWorkspace.sharedWorkspace.openURL(url);
 }
 
 function relancerLeNavigateur(genre) {
@@ -429,7 +509,10 @@ function garderEveille() {
 
 // --- L'extension Chrome et le relais lui-même : mises à jour vérifiées ------------------------------------------
 
-const PREFERENCES_CHROME = `${$.NSHomeDirectory().js}/Library/Application Support/Google/Chrome`;
+/** Le dossier des profils du navigateur visé (Chrome par défaut). */
+function preferencesDuNavigateur() {
+  return NAV.prefs;
+}
 /** Chrome range une extension « chargée non empaquetée » sous ce genre (Manifest::Location UNPACKED). */
 const EXTENSION_NON_EMPAQUETEE = 4;
 
@@ -463,13 +546,15 @@ function dossierBeluga(chemin) {
  * (extension d'avant 1.0.11), on garde les dossiers Beluga dont la configuration vise le même serveur que ce relais.
  */
 function dossiersDeLExtension(config, extensionId) {
-  const profils = (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(PREFERENCES_CHROME, null)) || []).filter(
+  const profils = (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(preferencesDuNavigateur(), null)) || []).filter(
     (n) => n === 'Default' || /^Profile \d+$/.test(n),
   );
+  /* Opera range son profil à la racine de son dossier, sans « Default ». */
+  if (existe(`${preferencesDuNavigateur()}/Preferences`)) profils.push('.');
   const trouves = {};
   for (const profil of profils) {
     for (const fichier of ['Secure Preferences', 'Preferences']) {
-      const prefs = lireJson(`${PREFERENCES_CHROME}/${profil}/${fichier}`);
+      const prefs = lireJson(`${preferencesDuNavigateur()}/${profil}/${fichier}`);
       const reglages = (prefs && prefs.extensions && prefs.extensions.settings) || {};
       for (const id of Object.keys(reglages)) {
         const r = reglages[id] || {};
@@ -495,17 +580,17 @@ function telechargerVerifie(config, chemin, fichier, empreinte) {
 
 /** Chrome tourne-t-il ? */
 function chromeOuvert() {
-  return $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.chrome).count > 0;
+  return $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAV.bundle).count > 0;
 }
 
 /** Quitter Chrome PROPREMENT (comme Cmd+Q) et attendre sa fermeture ; forcée au bout de 20 s. */
 function quitterChrome() {
-  const lesquels = () => $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAVIGATEURS.chrome);
+  const lesquels = () => $.NSRunningApplication.runningApplicationsWithBundleIdentifier(NAV.bundle);
   const ouverts = lesquels();
   for (let i = 0; i < ouverts.count; i++) ouverts.objectAtIndex(i).terminate;
   for (let essai = 0; essai < 40 && lesquels().count > 0; essai++) delay(0.5);
   if (lesquels().count > 0) {
-    journal('Chrome ne s’est pas fermé en 20 s : fermeture forcée');
+    journal(`${NAV.nom} ne s’est pas fermé en 20 s : fermeture forcée`);
     const restants = lesquels();
     for (let i = 0; i < restants.count; i++) restants.objectAtIndex(i).forceTerminate;
     delay(2);
@@ -520,9 +605,9 @@ function quitterChrome() {
  */
 function rouvrirChrome() {
   const essais = [
-    () => sh(`/usr/bin/open -b ${q(NAVIGATEURS.chrome)} --args --restore-last-session`),
-    () => sh(`/usr/bin/open -a 'Google Chrome' --args --restore-last-session`),
-    () => relancerLeNavigateur('chrome'),
+    () => sh(`/usr/bin/open -b ${q(NAV.bundle)} --args --restore-last-session`),
+    () => sh(`/usr/bin/open -a ${q(NAV.processus)} --args --restore-last-session`),
+    () => ouvrirLeNavigateurVise(),
   ];
   for (const ouvrir of essais) {
     try {
@@ -536,7 +621,7 @@ function rouvrirChrome() {
       return true;
     }
   }
-  journal('Chrome ne s’est pas rouvert');
+  journal(`${NAV.nom} ne s’est pas rouvert`);
   return false;
 }
 
@@ -547,6 +632,16 @@ function quitterEtRouvrirChrome() {
 }
 
 function mettreAJourLExtension(config, a) {
+  /* Relais 9 : la mise à jour vise le navigateur de l'extension (Edge, Brave…), Chrome par défaut. */
+  viser(FICHES_CHROMIUM[a.marque] ? a.marque : 'chrome');
+  try {
+    return mettreAJourLExtensionVisee(config, a);
+  } finally {
+    viser('chrome');
+  }
+}
+
+function mettreAJourLExtensionVisee(config, a) {
   if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet absente');
   if (!/^\/api\/relais-mac\/extension\.zip\?jeton=[A-Za-z0-9_-]{8,64}$/.test(String(a.chemin || ''))) throw new Error('adresse du paquet refusée');
   if (!/^\d+(\.\d+){1,3}$/.test(String(a.version || ''))) throw new Error('version attendue absente');
@@ -681,8 +776,8 @@ const TITRE_EXTENSIONS = /^(extensions|erweiterungen|extensiones|扩展程序)( 
 function ouvrirDansChrome(adresse, attendu, { fenetreAPart = false } = {}) {
   const se = Application('System Events');
   if (!chromeOuvert()) rouvrirChrome();
-  else relancerLeNavigateur('chrome');
-  const proc = se.processes.byName('Google Chrome');
+  else ouvrirLeNavigateurVise();
+  const proc = se.processes.byName(NAV.processus);
   for (let i = 0; i < 20; i++) {
     try {
       if (proc.windows().length > 0) break;
@@ -732,9 +827,10 @@ function refermerLOnglet(proc, attendu) {
 
 /** Les fichiers « Preferences » des profils de Chrome (« Default », « Profile N »). */
 function preferencesDesProfils() {
-  return (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(PREFERENCES_CHROME, null)) || [])
+  return (ObjC.deepUnwrap($.NSFileManager.defaultManager.contentsOfDirectoryAtPathError(preferencesDuNavigateur(), null)) || [])
     .filter((n) => n === 'Default' || /^Profile \d+$/.test(n))
-    .map((n) => `${PREFERENCES_CHROME}/${n}/Preferences`)
+    .concat(existe(`${preferencesDuNavigateur()}/Preferences`) ? ['.'] : [])
+    .map((n) => `${preferencesDuNavigateur()}/${n}/Preferences`)
     .filter((f) => existe(f));
 }
 
@@ -797,7 +893,7 @@ function extensionPresente(config, dossier, delaiS) {
 /** Un essai d'ajout : la page des extensions, l'interrupteur s'il le faut, « Charger l'extension non empaquetée », le chemin. */
 function unEssaiDAjout(dossier) {
   const se = Application('System Events');
-  const { proc, ouvert } = ouvrirDansChrome('chrome://extensions/', TITRE_EXTENSIONS);
+  const { proc, ouvert } = ouvrirDansChrome(NAV.page, TITRE_EXTENSIONS);
   try {
     let charger = chercherDansChrome(proc, ['AXButton'], LIBELLES.charger, 4);
     if (!charger) {
@@ -871,10 +967,19 @@ function ajouterDansChrome(config, dossier) {
  * privée réduite, ouverte puis refermée : geste `verifier_prive`).
  */
 function autoriserLaNavigationPrivee(a) {
+  viser(a.marque);
+  try {
+    return autoriserLaNavigationPriveeVisee(a);
+  } finally {
+    viser('chrome');
+  }
+}
+
+function autoriserLaNavigationPriveeVisee(a) {
   const id = /^[a-p]{32}$/.test(String(a.extensionId || '')) ? a.extensionId : null;
   if (!id) throw new Error('identifiant de l’extension absent');
   if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
-  const { proc, ouvert } = ouvrirDansChrome(`chrome://extensions/?id=${id}`, TITRE_EXTENSIONS, { fenetreAPart: true });
+  const { proc, ouvert } = ouvrirDansChrome(`${NAV.page}?id=${id}`, TITRE_EXTENSIONS, { fenetreAPart: true });
   try {
     const caseP = chercherDansChrome(proc, ['AXCheckBox', 'AXSwitch', 'AXToggle'], LIBELLES.prive, 15);
     if (!caseP) throw new Error('case « Autoriser en navigation privée » introuvable dans Chrome');
@@ -1129,13 +1234,23 @@ function chercherDansFenetre(racine, roles, motif, delaiS) {
 
 /** Poser (ou remettre) l'extension dans son dossier fixe, avec le code de liaison, puis l'ajouter à Chrome. */
 function installerLExtension(config, a) {
+  viser(a.marque);
+  try {
+    return installerLExtensionVisee(config, a);
+  } finally {
+    viser('chrome');
+  }
+}
+
+function installerLExtensionVisee(config, a) {
   if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet absente');
   if (!/^\/api\/relais-mac\/extension\.zip\?jeton=[A-Za-z0-9_-]{8,64}$/.test(String(a.chemin || ''))) throw new Error('adresse du paquet refusée');
   if (!/^\d+(\.\d+){1,3}$/.test(String(a.version || ''))) throw new Error('version attendue absente');
   if (!/^\d{6}$/.test(String(a.code || ''))) throw new Error('code de liaison absent');
   /* Une extension Beluga déjà connue de Chrome garde son dossier (même identifiant) ; sinon le dossier fixe. */
   const connus = dossiersDeLExtension(config, null);
-  const cible = connus.length ? connus[0].chemin : DOSSIER_EXTENSION_FIXE;
+  const fixe = dossierFixe();
+  const cible = connus.length ? connus[0].chemin : fixe;
   const travail = `${DOSSIER}/extension-neuve`;
   sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)} ${q(cible)}`);
   try {
@@ -1154,9 +1269,10 @@ function installerLExtension(config, a) {
      chargé l'extension depuis un autre dossier que le premier trouvé (autre profil, ancien dossier). `liaison.json`
      est posé dans TOUS les dossiers Beluga connus de Chrome et dans le dossier fixe, avec l'adresse du Beluga qui a
      émis le code : l'extension s'y relie même si son `config.json` vise un autre serveur. */
-  const fiche = JSON.stringify({ code: String(a.code), adresse: config.base });
+  /* `marque` (relais 9) : l'extension la redit à Beluga — Arc et Vivaldi ne se distinguent pas de Chrome de l'intérieur. */
+  const fiche = JSON.stringify({ code: String(a.code), adresse: config.base, marque: NAV.marque });
   const poses = [];
-  for (const d of [cible].concat(connus.map((x) => x.chemin), existe(DOSSIER_EXTENSION_FIXE) ? [DOSSIER_EXTENSION_FIXE] : [])) {
+  for (const d of [cible].concat(connus.map((x) => x.chemin), existe(fixe) ? [fixe] : [])) {
     if (poses.indexOf(d) >= 0 || !existe(`${d}/manifest.json`)) continue;
     $.NSString.alloc.initWithUTF8String(fiche).writeToFileAtomicallyEncodingError(`${d}/liaison.json`, true, $.NSUTF8StringEncoding, null);
     poses.push(d);
@@ -1407,6 +1523,74 @@ function mettreALaCorbeille(brut) {
   return { corbeille: chemin };
 }
 
+/**
+ * RETIRER LE MODULE D'UN NAVIGATEUR DÉCOCHÉ (relais 9, carte « Navigateurs facultatifs à la liaison ») : l'extension
+ * 1.0.17 se retire déjà elle-même quand Beluga la délie ; ici, le relais efface en plus ce qui la ferait revenir —
+ * le dossier fixe de ce navigateur (Chromium), l'application « Beluga » pour Safari (à la corbeille), ou rien de plus
+ * pour Firefox (le module signé s'est retiré). Rien d'autre n'est touché : les autres navigateurs gardent le leur.
+ */
+function retirerLExtension(a) {
+  const marque = String(a.marque || '');
+  if (marque === 'safari') {
+    const app = applicationSafari();
+    if (!app) return { retire: false, detail: 'Beluga pour Safari n’est pas installé' };
+    $.NSFileManager.defaultManager.trashItemAtURLResultingItemURLError($.NSURL.fileURLWithPath(app), null, null);
+    return { retire: true, chemin: app };
+  }
+  if (marque === 'firefox') return { retire: true, detail: 'le module Firefox se retire lui-même' };
+  viser(marque);
+  try {
+    const fixe = dossierFixe();
+    /* Seulement le dossier propre à CE navigateur : celui de Chrome sert à Chrome. */
+    if (marque !== 'chrome' && existe(fixe)) sh(`rm -rf ${q(fixe)}`);
+    if (marque === 'chrome' && existe(`${fixe}/liaison.json`)) sh(`rm -f ${q(`${fixe}/liaison.json`)}`);
+    return { retire: true, dossier: fixe };
+  } finally {
+    viser('chrome');
+  }
+}
+
+/**
+ * FIREFOX (relais 9) : le module SIGNÉ par Mozilla est téléchargé par la voie signée, vérifié (empreinte), puis ouvert
+ * dans Firefox, qui demande « Ajouter Beluga ? » : le relais appuie sur « Ajouter » (accessibilité). Le code de liaison
+ * voyage ensuite par une adresse de Beluga ouverte dans Firefox (`#beluga-liaison=`), que seul le module lit.
+ */
+const LIBELLES_FIREFOX = { ajouter: /^(ajouter|add|añadir|hinzufügen|添加)$/i };
+function installerFirefox(config, a) {
+  if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du module absente');
+  if (String(a.chemin || '') !== '/api/relais-mac/extension-firefox.xpi') throw new Error('adresse du module refusée');
+  if (!/^\d{6}$/.test(String(a.code || ''))) throw new Error('code de liaison absent');
+  if (accessibiliteAccordee() !== true) throw new Error('l’autorisation « Contrôler le Mac » n’est pas encore donnée');
+  const firefox = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(BUNDLES_DES_NAVIGATEURS.firefox);
+  if (!firefox || firefox.isNil()) throw new Error('Firefox n’est pas installé');
+  const dossier = `${SUPPORT}/Beluga/extension-firefox`;
+  sh(`mkdir -p ${q(dossier)}`);
+  const xpi = `${dossier}/beluga.xpi`;
+  telechargerVerifie(config, a.chemin, xpi, a.empreinte);
+  sh(`/usr/bin/open -b ${q(BUNDLES_DES_NAVIGATEURS.firefox)} ${q(xpi)}`);
+  const se = Application('System Events');
+  let ajoutee = false;
+  let detail = '';
+  for (let essai = 0; essai < 30 && !ajoutee; essai++) {
+    delay(1);
+    try {
+      const proc = se.processes.byName('Firefox');
+      proc.frontmost = true;
+      const bouton = chercherDansChrome(proc, ['AXButton'], LIBELLES_FIREFOX.ajouter, 1);
+      if (bouton) {
+        appuyer(bouton);
+        ajoutee = true;
+      }
+    } catch (e) {
+      detail = String(e && e.message ? e.message : e);
+    }
+  }
+  if (!ajoutee) return { ajoutee: false, detail: detail || 'la demande « Ajouter Beluga ? » de Firefox n’est pas apparue' };
+  delay(3);
+  sh(`/usr/bin/open -b ${q(BUNDLES_DES_NAVIGATEURS.firefox)} ${q(`${config.base}/#beluga-liaison=${a.code}`)}`);
+  return { ajoutee: true, developpeur: true, rouvert: true, essais: 1, detail: '' };
+}
+
 function jouerSurLOrdinateur(commande) {
   const a = commande.args || {};
   switch (commande.geste) {
@@ -1416,6 +1600,12 @@ function jouerSurLOrdinateur(commande) {
       return seMettreAJour(lireConfig(), a);
     case 'installer_extension':
       return installerLExtension(lireConfig(), a);
+    case 'installer_firefox':
+      return installerFirefox(lireConfig(), a);
+    case 'retirer_extension':
+      return retirerLExtension(a);
+    case 'navigateurs_installes':
+      return navigateursInstalles();
     case 'autoriser_navigation_privee':
       return autoriserLaNavigationPrivee(a);
     case 'installer_safari':

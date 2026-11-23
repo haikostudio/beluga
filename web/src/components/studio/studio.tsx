@@ -2,7 +2,7 @@ import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { ApercuAuSurvol, BasculeTableauCartes, CorpsDApercu, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { ApercuDeLigne, TitreEtSous, dateDeLigne } from '@/components/ui/apercu-de-ligne';
 import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
-import { BasculeDePage, RechercheDuService } from '@/components/fenetre-de-service';
+import { BasculeDePage, RechercheDuService, useSansLigneDeTitre } from '@/components/fenetre-de-service';
 import { colonneProjet } from '@/components/ui/colonne-projet';
 import * as React from 'react';
 import { EtatVideDuProjet, useProjetDeLObjetOuvert, useProjetDuService } from '@/components/projet-du-service';
@@ -621,6 +621,8 @@ function useAgentLu(agentId: string | null): Agent | null {
 
 export function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRetour: () => void; onOuvrir: (id: string) => void }) {
   const telephone = useTelephone();
+  /* Conversation à gauche, volet à droite : pas de ligne de titre au-dessus (22/11/2026). */
+  useSansLigneDeTitre();
   /* Sur ordinateur, « Bibliothèque » et « Style » sont des rubriques de la colonne de gauche — sauf dans une carte, qui n'en a pas. */
   const colonneDeService = useColonneDeService();
   const dansLaColonne = colonneDeService;

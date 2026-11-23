@@ -125,6 +125,86 @@ export function estAdresseDeTravail(hote: string, zone: string = zoneDesProjets(
   return h === z || h.endsWith(`.${z}`);
 }
 
+/* ------------------------------------------------------------------------------------------------------------------
+ * L'ACCÈS DES ROBOTS, RÉGLÉ SITE PAR SITE (carte « Sécurité, rapports et marketing restructurés », 22/11/2026,
+ * maquette #9542) : un interrupteur « Protection active » et quatre familles de sources. Une famille cochée LIT le
+ * site ; décochée, ses robots d'IA sont renvoyés vers /pour-les-ia, et les MOTEURS décochés ferment le site à
+ * l'indexation (X-Robots-Tag noindex + robots.txt « Disallow: / »). Protection coupée = tout passe.
+ * Sans réglage enregistré, un site garde EXACTEMENT sa protection d'avant (`reglageRobotsParDefaut`).
+ * ---------------------------------------------------------------------------------------------------------------- */
+
+export type FamilleDeRobots = 'moteurs' | 'recherche' | 'agents' | 'entrainement';
+export const FAMILLES_DE_ROBOTS: readonly FamilleDeRobots[] = ['moteurs', 'recherche', 'agents', 'entrainement'];
+
+export interface ReglageRobots {
+  /** Coupée : aucun renvoi, aucune fermeture — le réglage des familles est gardé pour le jour où on la rallume. */
+  protection: boolean;
+  /** Vrai = la famille LIT le site. */
+  moteurs: boolean;
+  recherche: boolean;
+  agents: boolean;
+  entrainement: boolean;
+}
+
+/** La famille d'un rôle de robot d'IA. */
+export function familleDuRole(role: RoleDeRobotIA): FamilleDeRobots {
+  return role === 'agent' ? 'agents' : role;
+}
+
+/** La protection d'avant le réglage : adresse de travail fermée à tous ; adresse publique ouverte sauf entraînement. */
+export function reglageRobotsParDefaut(hote: string, zone: string = zoneDesProjets()): ReglageRobots {
+  return estAdresseDeTravail(hote, zone)
+    ? { protection: true, moteurs: false, recherche: false, agents: false, entrainement: false }
+    : { protection: true, moteurs: true, recherche: true, agents: true, entrainement: false };
+}
+
+/** Un réglage lu en base (ou envoyé par l'écran), borné ; illisible → la valeur par défaut de l'hôte. */
+export function reglageRobotsLu(brut: unknown, hote: string, zone: string = zoneDesProjets()): ReglageRobots {
+  const defaut = reglageRobotsParDefaut(hote, zone);
+  if (!brut || typeof brut !== 'object') return defaut;
+  const o = brut as Record<string, unknown>;
+  const lire = (cle: keyof ReglageRobots) => (typeof o[cle] === 'boolean' ? (o[cle] as boolean) : defaut[cle]);
+  return { protection: lire('protection'), moteurs: lire('moteurs'), recherche: lire('recherche'), agents: lire('agents'), entrainement: lire('entrainement') };
+}
+
+export function memeReglageRobots(a: ReglageRobots, b: ReglageRobots): boolean {
+  return a.protection === b.protection && FAMILLES_DE_ROBOTS.every((f) => a[f] === b[f]);
+}
+
+/** Les rôles de robots d'IA RENVOYÉS vers /pour-les-ia par ce réglage (aucun si la protection est coupée). */
+export function rolesRenvoyes(r: ReglageRobots): RoleDeRobotIA[] {
+  if (!r.protection) return [];
+  return (['entrainement', 'recherche', 'agent'] as RoleDeRobotIA[]).filter((role) => !r[familleDuRole(role)]);
+}
+
+/** Le site est-il fermé à l'indexation (moteurs décochés, protection active) ? */
+export function fermeAuxMoteurs(r: ReglageRobots): boolean {
+  return r.protection && !r.moteurs;
+}
+
+/** Combien de familles lisent le site : « 3 sources sur 4 autorisées » (protection coupée : les quatre). */
+export function famillesAutorisees(r: ReglageRobots): number {
+  return r.protection ? FAMILLES_DE_ROBOTS.filter((f) => r[f]).length : FAMILLES_DE_ROBOTS.length;
+}
+
+/** Un site au réglage PARTICULIER (différent de sa valeur par défaut), pour la génération des serveurs. */
+export interface ReglageParticulier {
+  hotes: string[];
+  reglage: ReglageRobots;
+}
+
+/** Un nom d'hôte sûr à écrire dans une configuration (lettres, chiffres, points, tirets) ; sinon null. */
+export function hoteSur(hote: string): string | null {
+  const h = hote.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}\.)+[a-z0-9-]{1,63}$/.test(h) ? h : null;
+}
+
+function particuliersSurs(particuliers: readonly ReglageParticulier[]): ReglageParticulier[] {
+  return particuliers
+    .map((p) => ({ hotes: [...new Set(p.hotes.map(hoteSur).filter((h): h is string => !!h))].sort(), reglage: p.reglage }))
+    .filter((p) => p.hotes.length > 0);
+}
+
 /** User-Agent d'essai, pour les contrôles (Sécurité, Marketing) : jamais une vraie identité de robot qu'on usurpe ailleurs. */
 export const UA_ESSAI_ROBOT_IA = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot';
 /** Un robot de RECHERCHE d'IA (celui qui fait citer une page par ChatGPT) : il doit lire tout le site public. */
@@ -149,32 +229,45 @@ export const ROBOTS_TXT_FERME = 'User-agent: *\nDisallow: /\n';
  * `handle /robots.txt` (chemin seul) passe AVANT les `handle` à matcher nommé ou sans matcher des sites : Caddy trie
  * les blocs d'une même directive par spécificité du chemin.
  */
-export function blocCaddyGardeRobots(zone: string = zoneDesProjets()): string {
+export function blocCaddyGardeRobots(zone: string = zoneDesProjets(), particuliers: readonly ReglageParticulier[] = []): string {
   /* Sans zone réglée : une adresse qui ne correspond à rien, le bloc reste valide. */
   const hotes = zone ? `${zone} *.${zone}` : 'zone-non-reglee.invalid';
   const libres = CHEMINS_LIBRES_POUR_IA.join(' ');
-  return [
+  const sites = particuliersSurs(particuliers);
+  /* Les sites au réglage particulier sortent de la règle commune : chacun reçoit la sienne, plus bas. */
+  const horsParticuliers = sites.length ? [`\t\tnot host ${sites.flatMap((p) => p.hotes).join(' ')}`] : [];
+  const lignes = [
     '# Garde des robots (Beluga, cartes « Anti-robots et référencement des projets » et « Audit et suivi du GEO », 18/11/2026).',
     '# GÉNÉRÉ par `node scripts/garde-robots.mjs caddy` depuis shared/src/robots-ia.ts : ne pas modifier à la main.',
     "# Règle par rôle : les robots d'entraînement sont renvoyés partout ; recherche et agents seulement sur les adresses de travail.",
+    ...(sites.length ? ["# Réglages par site (service Sécurité, « Accès des robots ») : écrits par le démon, jamais à la main."] : []),
     '(garde-robots) {',
     '\t@robot-ia-entrainement {',
     `\t\theader_regexp robot_entrainement User-Agent ${motifRobotsIAPourServeur(ROBOTS_IA_ENTRAINEMENT)}`,
     `\t\tnot path ${libres}`,
+    ...horsParticuliers,
     '\t}',
     `\tredir @robot-ia-entrainement ${PAGE_POUR_LES_IA} 307`,
     '\t@robot-ia-travail {',
     `\t\thost ${hotes}`,
     `\t\theader_regexp robot_ia User-Agent ${motifRobotsIAPourServeur()}`,
     `\t\tnot path ${libres}`,
+    ...horsParticuliers,
     '\t}',
     `\tredir @robot-ia-travail ${PAGE_POUR_LES_IA} 307`,
     '',
-    `\t@adresse-de-travail host ${hotes}`,
+  ];
+  if (sites.length) {
+    lignes.push(`\t@adresse-de-travail {`, `\t\thost ${hotes}`, ...horsParticuliers, '\t}');
+  } else {
+    lignes.push(`\t@adresse-de-travail host ${hotes}`);
+  }
+  lignes.push(
     '\theader @adresse-de-travail >X-Robots-Tag "noindex, nofollow"',
     '\t@robots-travail {',
     `\t\thost ${hotes}`,
     '\t\tpath /robots.txt',
+    ...horsParticuliers,
     '\t}',
     '\thandle @robots-travail {',
     '\t\theader Content-Type "text/plain; charset=utf-8"',
@@ -182,9 +275,41 @@ export function blocCaddyGardeRobots(zone: string = zoneDesProjets()): string {
     ...ROBOTS_TXT_FERME.trimEnd().split('\n').map((l) => `\t\t\t${l}`),
     '\t\t\tROBOTS 200',
     '\t}',
-    '}',
-    '',
-  ].join('\n');
+  );
+  sites.forEach((p, i) => {
+    const n = i + 1;
+    const roles = rolesRenvoyes(p.reglage);
+    const robots = ROBOTS_IA.filter((r) => roles.includes(r.role));
+    lignes.push('', `\t# Site ${n} : ${p.hotes.join(', ')} — ${p.reglage.protection ? `lisent : ${FAMILLES_DE_ROBOTS.filter((f) => p.reglage[f]).join(', ') || 'aucune famille'}` : 'protection coupée'}.`);
+    if (robots.length) {
+      lignes.push(
+        `\t@robot-ia-site-${n} {`,
+        `\t\thost ${p.hotes.join(' ')}`,
+        `\t\theader_regexp robot_site_${n} User-Agent ${motifRobotsIAPourServeur(robots)}`,
+        `\t\tnot path ${libres}`,
+        '\t}',
+        `\tredir @robot-ia-site-${n} ${PAGE_POUR_LES_IA} 307`,
+      );
+    }
+    if (fermeAuxMoteurs(p.reglage)) {
+      lignes.push(
+        `\t@ferme-site-${n} host ${p.hotes.join(' ')}`,
+        `\theader @ferme-site-${n} >X-Robots-Tag "noindex, nofollow"`,
+        `\t@robots-site-${n} {`,
+        `\t\thost ${p.hotes.join(' ')}`,
+        '\t\tpath /robots.txt',
+        '\t}',
+        `\thandle @robots-site-${n} {`,
+        '\t\theader Content-Type "text/plain; charset=utf-8"',
+        '\t\trespond <<ROBOTS',
+        ...ROBOTS_TXT_FERME.trimEnd().split('\n').map((l) => `\t\t\t${l}`),
+        '\t\t\tROBOTS 200',
+        '\t}',
+      );
+    }
+  });
+  lignes.push('}', '');
+  return lignes.join('\n');
 }
 
 /**
@@ -193,11 +318,16 @@ export function blocCaddyGardeRobots(zone: string = zoneDesProjets()): string {
  * site. Les robots de recherche et les agents lisent tout (règle par rôle, 18/11/2026). Les sites publics NE reçoivent
  * PAS de noindex : seul ce renvoi s'y applique.
  */
-export function fichierTraefikGardeRobots(pointDEntree = 'websecure', resolveur?: string): string {
+export function fichierTraefikGardeRobots(pointDEntree = 'websecure', resolveur?: string, particuliers: readonly ReglageParticulier[] = []): string {
   const exclusions = CHEMINS_LIBRES_POUR_IA.map((c) =>
     c.endsWith('/*') ? `!PathPrefix(\`${c.slice(0, -1)}\`)` : `!Path(\`${c}\`)`,
   ).join(' && ');
-  const motif = motifRobotsIAPourServeur(ROBOTS_IA_ENTRAINEMENT).replace(/\\/g, '\\\\');
+  const motifDe = (robots: readonly RobotIA[]) => motifRobotsIAPourServeur(robots).replace(/\\/g, '\\\\');
+  const motif = motifDe(ROBOTS_IA_ENTRAINEMENT);
+  /* LES SITES AU RÉGLAGE PARTICULIER (22/11/2026) sortent de la règle commune et reçoivent un routeur à eux, plus
+     prioritaire. Traefik ne sert pas robots.txt : les moteurs s'y règlent dans le robots.txt du site lui-même. */
+  const sites = particuliersSurs(particuliers);
+  const horsSites = sites.length ? ` && ${sites.flatMap((p) => p.hotes).map((h) => `!Host(\`${h}\`)`).join(' && ')}` : '';
   const lignes = [
     '# Garde des robots — serveur Clients (Beluga, cartes « Anti-robots et référencement » et « Audit et suivi du GEO », 18/11/2026).',
     "# Seuls les robots d'entraînement sont renvoyés : la recherche et les agents des IA lisent tout le site public.",
@@ -205,14 +335,29 @@ export function fichierTraefikGardeRobots(pointDEntree = 'websecure', resolveur?
     'http:',
     '  routers:',
     '    garde-robots-ia:',
-    `      rule: "HeaderRegexp(\`User-Agent\`, \`${motif}\`) && ${exclusions}"`,
+    `      rule: "HeaderRegexp(\`User-Agent\`, \`${motif}\`) && ${exclusions}${horsSites}"`,
     '      priority: 100000',
     `      entryPoints: ["${pointDEntree}"]`,
     '      middlewares: ["renvoi-pour-les-ia"]',
     '      service: "noop@internal"',
   ];
-  if (resolveur) lignes.push('      tls:', `        certResolver: "${resolveur}"`);
-  else lignes.push('      tls: {}');
+  const tls = () => (resolveur ? lignes.push('      tls:', `        certResolver: "${resolveur}"`) : lignes.push('      tls: {}'));
+  tls();
+  sites.forEach((p, i) => {
+    const roles = rolesRenvoyes(p.reglage);
+    const robots = ROBOTS_IA.filter((r) => roles.includes(r.role));
+    if (!robots.length) return;
+    const hotes = p.hotes.map((h) => `Host(\`${h}\`)`).join(' || ');
+    lignes.push(
+      `    garde-robots-site-${i + 1}:`,
+      `      rule: "(${hotes}) && HeaderRegexp(\`User-Agent\`, \`${motifDe(robots)}\`) && ${exclusions}"`,
+      '      priority: 100001',
+      `      entryPoints: ["${pointDEntree}"]`,
+      '      middlewares: ["renvoi-pour-les-ia"]',
+      '      service: "noop@internal"',
+    );
+    tls();
+  });
   lignes.push(
     '  middlewares:',
     '    renvoi-pour-les-ia:',

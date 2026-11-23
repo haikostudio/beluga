@@ -577,7 +577,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
 
   // Agents & conversations
   /** `tout` rouvre aussi les échanges d'avant le dernier nouveau départ. */
-  z.object({ type: z.literal('agent.open'), id: z.string(), tout: z.boolean().optional() }),
+  /** `precedents` : combien d'échanges d'avant le dernier nouveau départ envoyer (par paquets, 22/11/2026). */
+  z.object({ type: z.literal('agent.open'), id: z.string(), tout: z.boolean().optional(), precedents: z.number().int().min(0).max(1_000_000).optional() }),
   /**
    * « D'AUTRES IDÉES » : trois suites de plus pour une réponse, cherchées à part
    * par le moteur de la carte, sans tour (`server/src/autres-idees.ts`). La
@@ -1336,7 +1337,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Rouvrir sur le Mac l'écran des réglages d'une autorisation, ou (`aide`) la fenêtre « Activer » de Beluga Connect. */
   z.object({ type: z.literal('relaisMac.reglage'), ordinateurId: z.string(), reglage: z.enum(['accessibilite', 'ecran', 'aide']) }),
   /** Beluga Connect prépare (ou répare) Chrome sur ce Mac : extension posée, reliée, navigation privée (20/11/2026). */
-  z.object({ type: z.literal('relaisMac.preparer'), ordinateurId: z.string() }),
+  z.object({ type: z.literal('relaisMac.preparer'), ordinateurId: z.string(), marque: z.string().max(20).optional() }),
   /** « Installer dans Safari » : Beluga Connect de cet ordinateur pose et relie l'extension Safari (carte « Beluga Connect : liaison sans fenêtre »). */
   z.object({ type: z.literal('relaisMac.preparerSafari'), ordinateurId: z.string() }),
   /* Le code de secours d'un ordinateur (étape « Chrome prêt », page de l'ordinateur) : partagé avec Beluga Connect. */
@@ -1351,6 +1352,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ordinateur.delier'), id: z.string() }),
   /* Allumer ou éteindre un droit de Beluga sur un ordinateur (Réglages › Extension › l'ordinateur). */
   z.object({ type: z.literal('ordinateur.droits'), id: z.string(), droit: z.enum(['applications', 'reglages', 'pilotage_apps', 'ecran', 'terminal']), actif: z.boolean() }),
+  /* LES NAVIGATEURS CHOISIS (carte « Navigateurs facultatifs à la liaison ») : Beluga Connect équipe ceux-là, retire les autres. */
+  z.object({ type: z.literal('ordinateur.navigateurs'), id: z.string(), choisis: z.array(z.string().max(20)).max(12) }),
   z.object({ type: z.literal('ordinateur.etat'), agentId: z.string().optional(), cardId: z.string().optional() }),
   z.object({ type: z.literal('ordinateur.choisir'), agentId: z.string().optional(), cardId: z.string().optional(), ordinateurId: z.string().nullable() }),
   z.object({ type: z.literal('extension.delier'), id: z.string() }),
@@ -1530,6 +1533,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Les adresses bloquées par le garde du serveur qui sert le projet, et « Libérer » (une IP validée côté démon). */
   z.object({ type: z.literal('securite.bloques'), projectId: z.string() }),
   z.object({ type: z.literal('securite.liberer'), projectId: z.string(), ip: z.string().min(3).max(45) }),
+  /**
+   * L'ACCÈS DES ROBOTS D'UN SITE (22/11/2026) : `lire` rend l'état (réglage, où il s'applique) ; `regler` l'enregistre et
+   * l'APPLIQUE sur le serveur qui sert le site (Caddy rechargé, jamais redémarré), puis rend l'état.
+   */
+  z.object({ type: z.literal('securite.robots.lire'), projectId: z.string() }),
+  z.object({
+    type: z.literal('securite.robots.regler'),
+    projectId: z.string(),
+    reglage: z.object({ protection: z.boolean(), moteurs: z.boolean(), recherche: z.boolean(), agents: z.boolean(), entrainement: z.boolean() }),
+  }),
   /** « Corriger la sélection » : une carte de correction par projet coché, créée PUIS lancée. */
   z.object({ type: z.literal('securite.corriger'), projets: z.array(z.string()).min(1).max(200) }),
   /**
@@ -2539,6 +2552,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     queue: z.array(QueuedPrompt),
     /** Combien d'échanges dorment derrière le dernier nouveau départ. */
     precedents: z.number().optional(),
+    /** L'heure du dernier nouveau départ : le trait « Nouvelle session » se pose devant le premier message d'après. */
+    depuis: z.number().optional(),
   }),
   z.object({
     type: z.literal('card.conversation'),

@@ -115,7 +115,7 @@ function ListeDesCampagnesV2() {
     </>
   );
   return (
-    <PageEnPlace barre={false} titre={t('Campagnes')} invite={null} pied={pied} data-v2-campagnes={donnees?.campagnes.length ?? ''}>
+    <PageEnPlace barre={false} titre={t('Campagnes')} invite={null} pied={pied} colonneDuService data-v2-campagnes={donnees?.campagnes.length ?? ''}>
       {!donnees ? (
         <SilhouetteMarketing />
       ) : donnees.campagnes.length ? (

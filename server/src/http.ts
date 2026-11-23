@@ -1494,6 +1494,15 @@ export function createHttpServer(): http.Server {
           res.writeHead(200, { 'content-type': 'application/zip', 'content-length': zip.length, 'cache-control': 'no-store' });
           return res.end(zip);
         }
+        /* LE MODULE FIREFOX SIGNÉ PAR MOZILLA (carte « Navigateurs facultatifs à la liaison »), posé par Beluga Connect. */
+        if (route === '/api/relais-mac/extension-firefox.xpi' && req.method === 'GET') {
+          const { paquetFirefox } = await import('./extension-firefox.js');
+          const xpi = paquetFirefox();
+          if (!xpi) return json(res, 404, { ok: false, raison: 'Le module Firefox n’est pas encore signé.' });
+          const octets = fs.readFileSync(xpi.chemin);
+          res.writeHead(200, { 'content-type': 'application/x-xpinstall', 'content-length': octets.length, 'cache-control': 'no-store' });
+          return res.end(octets);
+        }
         /* Le menu de Beluga Connect : son état, et ses deux gestes (« Mettre à jour maintenant », « Réparer »). */
         if (route === '/api/relais-mac/statut' && req.method === 'POST') {
           return json(res, 200, await relaisMac.statutPourConnect(voie.appareilId, voie.compteId));

@@ -12,6 +12,7 @@
 import { minusculesSansAccents } from './mots.js';
 import type { EtatDuRelais } from './relais-mac.js';
 import type { DroitsDOrdinateur } from './droits-d-ordinateur.js';
+import type { MarqueDeNavigateur, NavigateurInstalle } from './navigateurs-de-l-ordinateur.js';
 
 /** Au plus vingt ordinateurs par compte. */
 export const ORDINATEURS_MAX = 20;
@@ -26,7 +27,7 @@ export const NAVIGATEURS = ['chrome', 'safari'] as const;
 export type GenreDeNavigateur = (typeof NAVIGATEURS)[number];
 
 export function genreDeNavigateur(brut: unknown): GenreDeNavigateur {
-  return brut === 'safari' ? 'safari' : 'chrome';
+  return brut === 'safari' || brut === 'firefox' || brut === 'orion' ? 'safari' : 'chrome';
 }
 
 export const LIBELLE_DU_NAVIGATEUR: Record<GenreDeNavigateur, string> = { chrome: 'Chrome', safari: 'Safari' };
@@ -76,6 +77,8 @@ export function repereDOrdinateur(nom: string): string {
 export interface NavigateurDOrdinateur {
   id: string;
   genre: GenreDeNavigateur;
+  /** Le vrai navigateur (Chrome, Edge, Brave, Firefox…) annoncé par l'extension 1.0.17 ; absent : celui du genre. */
+  marque?: MarqueDeNavigateur | null;
   enLigne: boolean;
   version: string | null;
   /** Autorisée en navigation privée (extension 1.0.11 et plus) ; `null`/absent quand elle ne le dit pas. */
@@ -124,6 +127,10 @@ export interface ProgrammeDuMac {
   preparation?: PreparationDeChrome | null;
   /** Beluga Connect installe Safari, APRÈS Chrome (carte « Beluga Connect : liaison sans fenêtre ») ; `null` : rien. */
   safari?: PreparationDeSafari | null;
+  /** Les navigateurs trouvés sur l'ordinateur par Beluga Connect (carte « Navigateurs facultatifs ») ; `null` : pas encore dit. */
+  installes?: NavigateurInstalle[] | null;
+  /** La préparation des AUTRES navigateurs (Edge, Brave, Firefox…), par marque ; Chrome et Safari gardent la leur. */
+  autres?: Partial<Record<MarqueDeNavigateur, PreparationDeChrome>> | null;
 }
 
 /**
@@ -281,6 +288,11 @@ export interface Ordinateur {
   creeLe: number;
   /** Ce que Beluga a le droit d'y faire (`droits-d-ordinateur.ts`) ; absent : les défauts. */
   droits?: DroitsDOrdinateur;
+  /**
+   * LES NAVIGATEURS CHOISIS (carte « Navigateurs facultatifs à la liaison », 22/11/2026) : ceux que Beluga Connect équipe
+   * et répare, et eux seuls. `null` : pas encore choisi (étape « Navigateurs » du parcours) ; `[]` : sans navigateur.
+   */
+  navigateursChoisis?: MarqueDeNavigateur[] | null;
   navigateurs: NavigateurDOrdinateur[];
   programme: ProgrammeDuMac | null;
 }
@@ -294,7 +306,12 @@ export interface Ordinateur {
 export const RELECTURE_DES_ORDINATEURS_MS = 5_000;
 
 export function travailEnCoursSurUnOrdinateur(ordinateurs: readonly Pick<Ordinateur, 'programme'>[] | null | undefined): boolean {
-  return (ordinateurs ?? []).some((o) => o.programme?.preparation?.etat === 'en-cours' || o.programme?.safari?.etat === 'en-cours');
+  return (ordinateurs ?? []).some(
+    (o) =>
+      o.programme?.preparation?.etat === 'en-cours' ||
+      o.programme?.safari?.etat === 'en-cours' ||
+      Object.values(o.programme?.autres ?? {}).some((p) => p?.etat === 'en-cours'),
+  );
 }
 
 /** Le programme du Mac répond-il (même si la recopie de l'iPhone est fermée) ? */

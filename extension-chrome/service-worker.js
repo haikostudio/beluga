@@ -57,12 +57,37 @@ async function signer(secret, message) {
 
 /* `adresseImposee` : celle du Beluga qui a émis le code (posée par Beluga Connect dans `liaison.json`) ; retenue à la
    liaison, pour que la voie s'ouvre sur le MÊME Beluga même si `config.json` en vise un autre. */
-async function relier(code, nom, adresseImposee) {
+/**
+ * 1.0.17 — LE VRAI NAVIGATEUR (carte « Navigateurs facultatifs à la liaison », 22/11/2026) : Chrome, Edge, Brave,
+ * Opera, Vivaldi, Arc, Chromium, Firefox ou Safari. Celui que Beluga Connect a écrit dans la fiche de liaison fait foi
+ * (Arc et Vivaldi ne se distinguent pas de Chrome de l'intérieur) ; sinon, ce que le navigateur dit de lui.
+ */
+function marqueDuNavigateur(imposee) {
+  if (typeof imposee === 'string' && /^[a-z]{2,12}$/.test(imposee)) return imposee;
+  const ua = navigator.userAgent || '';
+  if (/Firefox\//.test(ua)) return 'firefox';
+  if (SAFARI) return 'safari';
+  const marques = (navigator.userAgentData?.brands ?? []).map((b) => String(b.brand));
+  if (marques.some((b) => /Edge/.test(b)) || /Edg\//.test(ua)) return 'edge';
+  if (marques.some((b) => /Brave/.test(b)) || navigator.brave) return 'brave';
+  if (marques.some((b) => /Opera/.test(b)) || /OPR\//.test(ua)) return 'opera';
+  if (marques.some((b) => /Vivaldi/.test(b))) return 'vivaldi';
+  if (marques.length && !marques.some((b) => b === 'Google Chrome') && marques.some((b) => b === 'Chromium')) return 'chromium';
+  return 'chrome';
+}
+
+async function relier(code, nom, adresseImposee, marqueImposee) {
   const adresse = adresseImposee || (await configuration()).adresse;
   const r = await fetch(`${adresse}/api/extension-chrome/relier`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code, nom: nom || (SAFARI ? 'Safari · macOS' : navigator.userAgentData?.platform ?? ''), version: chrome.runtime.getManifest().version, navigateur: SAFARI ? 'safari' : 'chrome' }),
+    body: JSON.stringify({
+      code,
+      nom: nom || (SAFARI && !/Firefox\//.test(navigator.userAgent) ? 'Safari · macOS' : navigator.userAgentData?.platform ?? ''),
+      version: chrome.runtime.getManifest().version,
+      navigateur: SAFARI ? 'safari' : 'chrome',
+      marque: marqueDuNavigateur(marqueImposee),
+    }),
   });
   /* Beluga qui redémarre (502, 503…) n'a rien refusé : l'appelant réessaiera. */
   if (r.status >= 500) throw new Error(`Beluga indisponible (${r.status})`);
@@ -123,8 +148,10 @@ async function connecter() {
       clearInterval(battement);
       if (voie === ws) voie = null;
       diffuser({ type: 'liaison', relie: true, enLigne: false });
-      /* Délié depuis Beluga (4001) : on oublie la clé. */
+      /* Délié depuis Beluga (4001) : on oublie la clé. RETIRÉ (4002, 1.0.17 : la personne a décoché ce navigateur dans
+         Beluga) : la clé est oubliée et le module se retire lui-même du navigateur, sans fenêtre de confirmation. */
       if (e.code === 4001) void delier();
+      else if (e.code === 4002) void delier().then(() => chrome.management?.uninstallSelf?.({ showConfirmDialog: false })).catch(() => {});
       /* REFUSÉE À L'OUVERTURE (1.0.15) : un refus (clé révoquée pendant que Chrome était fermé) et un démon qui redémarre
          se ressemblent (1006). On demande au démon, signé : seule une réponse ferme « plus valable » fait oublier la clé,
          et `liaison.json` peut alors relier ce Chrome de nouveau. Démon injoignable : la clé est gardée. */
@@ -557,6 +584,8 @@ void reprendreLesGroupes();
  * de l'équipe, et l'application « Beluga » la rend par la messagerie native — aucun code à taper dans Safari.
  */
 async function ficheDeLiaison() {
+  /* FIREFOX (1.0.17) : module signé, sans fichier à côté de lui ; le code arrive par une adresse de Beluga (plus bas). */
+  if (/Firefox\//.test(navigator.userAgent)) return null;
   if (SAFARI) {
     try {
       const r = await chrome.runtime.sendNativeMessage('studio.haiko.beluga', { type: 'liaison' });
@@ -590,7 +619,7 @@ async function lierParLeFichier() {
   await chrome.storage.local.set({ liaisonEssayee: { code, fini: false, essais } });
   let issue;
   try {
-    issue = await relier(code, undefined, adresse);
+    issue = await relier(code, undefined, adresse, fiche?.marque);
   } catch (err) {
     const fini = essais >= 20;
     await chrome.storage.local.set({ liaisonEssayee: { code, fini, essais } });
@@ -615,6 +644,25 @@ async function signalerLEchec(code, raison, adresseImposee) {
     /* rien à faire de plus : l'écran de Beluga passera au code de secours */
   }
 }
+
+/**
+ * 1.0.17 — LA LIAISON PAR L'ADRESSE (Firefox, carte « Navigateurs facultatifs à la liaison ») : Beluga Connect, après
+ * avoir posé le module, ouvre dans ce navigateur « <Beluga>/#beluga-liaison=<code> ». Le module n'accepte ce code que
+ * sur l'adresse de SON Beluga (`config.json`, figée à la fabrication), et seulement tant qu'il n'est pas relié ;
+ * l'onglet se referme une fois relié.
+ */
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  const m = /^(https?:\/\/[^/#?]+)[^#]*#beluga-liaison=(\d{6})$/.exec(change.url ?? '');
+  if (!m) return;
+  void (async () => {
+    const { identifiant } = await liaison();
+    const { adresse } = await configuration();
+    if (identifiant || !adresse || m[1] !== String(adresse).replace(/\/+$/, '')) return;
+    const issue = await relier(m[2], undefined, m[1]).catch((err) => ({ ok: false, raison: String(err?.message ?? err) }));
+    if (issue?.ok) await chrome.tabs.remove(tabId).catch(() => {});
+    else void signalerLEchec(m[2], issue?.raison ?? 'refusé', m[1]);
+  })();
+});
 
 const seReveiller = () => void lierParLeFichier().finally(() => connecter());
 chrome.alarms.create('beluga-reveil', { periodInMinutes: 0.5 });

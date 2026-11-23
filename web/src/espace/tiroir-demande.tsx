@@ -519,6 +519,7 @@ export function TiroirDemande({
                     defautOuvert={false}
                     compte={activite.length}
                     className="px-2"
+                    sobre
                   >
                     <ZoneDefilement fond="hsl(var(--bg))" hauteur={24} className="max-h-[40dvh]">
                       <div data-historique={activite.length}>

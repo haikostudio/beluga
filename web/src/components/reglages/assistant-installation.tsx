@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { ArrowRight, Check, ChevronDown, ChevronUp, Copy, Download, Folder, Loader2, LoaderCircle, RefreshCw, Wrench, X } from '@/components/ui/icones';
 import {
-  LIBELLE_DU_NAVIGATEUR,
   VERSION_EXTENSION_CHROME,
   autorisationsDonnees,
   codeDeLiaisonLisible,
@@ -17,13 +16,19 @@ import {
   travailEnCoursSurUnOrdinateur,
   versionAuMoins,
   type EtatDeLExtension,
-  type GenreDeNavigateur,
   type NavigateurDOrdinateur,
   type Ordinateur,
   type PreparationDeSafari,
   type SystemeDOrdinateur,
+  MARQUES,
+  choixEffectif,
+  navigateurDeLaMarque,
+  navigateurPret,
+  navigateursNommes,
+  type MarqueDeNavigateur,
 } from '@beluga/shared';
-import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input } from '@/components/ui';
+import { EtapeNavigateurs, marqueDeCetAppareil } from './choix-des-navigateurs';
+import { Button, Input } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { cn } from '@/lib/utils';
@@ -51,7 +56,8 @@ import { noterLaConnexionEnCours } from './suivi-de-connect';
  * Mac ? » (`FenetreDeLiaison`, page `?liaison=`). La page n'ouvre jamais de lien `beluga-connect://` (Chrome le bloque).
  */
 
-type Cle = 'installation' | 'mac' | 'chrome' | 'safari';
+/** Les volets : installation, ce Mac, le choix des navigateurs, puis un par navigateur choisi. */
+type Cle = 'installation' | 'mac' | 'navigateurs' | MarqueDeNavigateur;
 /** Les noms propres : les mêmes dans toutes les langues. */
 const CONNECT = ['Beluga', 'Connect'].join(' ');
 /** L'orange des réponses attendues : c'est à la personne (ou à son ordinateur) de faire le geste. */
@@ -101,23 +107,12 @@ function chromeDe(o: Ordinateur | null): NavigateurDOrdinateur | null {
   return o?.navigateurs.filter((n) => n.genre === 'chrome').sort((a, b) => Number(b.enLigne) - Number(a.enLigne) || (b.vuLe ?? 0) - (a.vuLe ?? 0))[0] ?? null;
 }
 
-/** L'ordinateur a-t-il tout ce qu'il faut ? Beluga Connect en marche, autorisations (Mac), Chrome prêt. */
-export function ordinateurPret(o: Ordinateur | null): boolean {
-  if (!o) return false;
-  const p = o.programme;
-  const nav = chromeDe(o);
-  const mac = (p?.systeme ?? 'mac') === 'mac';
-  return (
-    programmeEnLigne(p) &&
-    !!p?.connect &&
-    autorisationsDonnees(p) &&
-    !!nav?.enLigne &&
-    versionAuMoins(nav.version, VERSION_EXTENSION_CHROME) &&
-    (!mac || nav.incognito === true) &&
-    /* Sur un Mac, Safari aussi (posé d'office après Chrome, carte « Beluga Connect : liaison sans fenêtre »). */
-    (!mac || o.navigateurs.some((n) => n.genre === 'safari' && n.enLigne))
-  );
-}
+/**
+ * L'ordinateur a-t-il tout ce qu'il faut ? Règle commune (`shared/src/navigateurs-de-l-ordinateur.ts`, carte
+ * « Navigateurs facultatifs à la liaison ») : Beluga Connect en marche, autorisations (Mac), un choix de navigateurs
+ * fait, et chaque navigateur CHOISI prêt — aucun n'est obligatoire.
+ */
+export { ordinateurPret } from '@beluga/shared';
 
 /**
  * L'adresse du paquet de Beluga Connect pour un système, personnalisée par le code. Windows / Linux : le code voyage
@@ -287,14 +282,15 @@ export function ParcoursDeConnexion({
 
   const safariNav = cible?.navigateurs.filter((n) => n.genre === 'safari').sort((a, b) => Number(b.enLigne) - Number(a.enLigne))[0] ?? null;
   /* LES VOLETS DE BELUGA CONNECT (carte « Ordinateurs : pannes et volets alignés », 22/11/2026) : les mêmes que la
-     fenêtre de l'application, dans le même ordre — Installation, Ce Mac, Chrome, Safari ; deux sur Windows et Linux. */
-  const etapes: Cle[] = mac ? ['installation', 'mac', 'chrome', 'safari'] : ['installation', 'chrome'];
-  const chromeFait = !!nav?.enLigne && versionAuMoins(nav.version, VERSION_EXTENSION_CHROME) && (!mac || nav.incognito === true);
-  const faite: Record<Cle, boolean> = {
+     fenêtre de l'application, dans le même ordre — Installation, Ce Mac, puis NAVIGATEURS (carte « Navigateurs
+     facultatifs à la liaison » : la confirmation, et la liste à cocher), puis un volet par navigateur CHOISI. */
+  const choixNav = cible ? choixEffectif(cible.navigateursChoisis, cible.navigateurs) : null;
+  const etapes: Cle[] = [...(mac ? (['installation', 'mac', 'navigateurs'] as Cle[]) : (['installation', 'navigateurs'] as Cle[])), ...(choixNav ?? [])];
+  const faite: Record<string, boolean> = {
     installation: relie,
     mac: relie && autorisationsDonnees(programme),
-    chrome: chromeFait,
-    safari: !!safariNav?.enLigne,
+    navigateurs: relie && !!choixNav,
+    ...Object.fromEntries((choixNav ?? []).map((m) => [m, !!cible && navigateurPret(cible, m)])),
   };
   const toutFait = etapes.every((e) => faite[e]);
   const courante = etapes.find((e) => !faite[e]) ?? null;
@@ -306,7 +302,13 @@ export function ParcoursDeConnexion({
   const chromeEnEchec = !faite.chrome && preparationVue(programme?.preparation ?? null)?.etat === 'echec';
   const prepSafari = programme?.safari ?? null;
   const safariEnEchec = !faite.safari && prepSafari?.etat === 'echec';
-  const enEchec: Record<Cle, boolean> = { installation: false, mac: false, chrome: chromeEnEchec, safari: safariEnEchec };
+  const enEchec: Record<string, boolean> = {
+    chrome: chromeEnEchec,
+    safari: safariEnEchec,
+    ...Object.fromEntries(
+      (choixNav ?? []).filter((m) => m !== 'chrome' && m !== 'safari').map((m) => [m, !faite[m] && preparationVue(programme?.autres?.[m] ?? null)?.etat === 'echec']),
+    ),
+  };
 
   /* UN SEUL VOLET OUVERT : celui en panne, sinon celui en cours. Un clic en ouvre un autre (et referme le premier) ; le
      choix tient tant que le volet ouvert d'office ne change pas — l'étape suivante s'ouvre alors d'elle-même. */
@@ -334,16 +336,10 @@ export function ParcoursDeConnexion({
 
   const nomVise = cible?.nom ?? (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : t('Cet ordinateur'));
   const titreDe = (e: Cle): string => {
-    switch (e) {
-      case 'installation':
-        return t('Installation');
-      case 'mac':
-        return t('Ce Mac');
-      case 'chrome':
-        return 'Chrome';
-      case 'safari':
-        return 'Safari';
-    }
+    if (e === 'installation') return t('Installation');
+    if (e === 'mac') return t('Ce Mac');
+    if (e === 'navigateurs') return t('Navigateurs');
+    return MARQUES[e].nom;
   };
 
   /* LES LIGNES DE CHAQUE VOLET, CELLES DE L'APPLICATION : rond, libellé, état calé à droite. */
@@ -403,9 +399,21 @@ export function ParcoursDeConnexion({
         return points;
       }
       case 'safari': {
-        const lignes = etapesDeSafari(prepSafari, !!safariNav?.enLigne, !faite.chrome);
+        const lignes = etapesDeSafari(prepSafari, !!safariNav?.enLigne, !!choixNav?.includes('chrome') && !faite.chrome);
         const textes: Record<string, string> = { installee: t('Extension installée'), activee: t('Activée dans Safari'), reliee: t('Reliée à Beluga') };
         return lignes.map((l) => ({ cle: l.cle, texte: textes[l.cle]!, etat: l.etat }));
+      }
+      case 'navigateurs': {
+        const lignes: Point[] = [{ cle: 'connect', texte: t('{v0} est relié.', { v0: CONNECT }), etat: relie ? 'fait' : 'a-venir', valeur: '' }];
+        if (choixNav) lignes.push({ cle: 'choix', texte: t('Navigateurs retenus'), etat: 'fait', valeur: choixNav.length ? navigateursNommes(choixNav, t('et')) : t('Aucun') });
+        return lignes;
+      }
+      default: {
+        /* UN AUTRE NAVIGATEUR (Edge, Brave, Firefox…) : les mêmes lignes que Chrome hors Mac — ajoutée, reliée. */
+        const autre = navigateurDeLaMarque(cible, e);
+        const brute = etapesDeLaPreparation(preparationVue(programme?.autres?.[e] ?? null), autre, false);
+        const textes: Record<string, string> = { ajoutee: t('Extension ajoutée'), reliee: t('Reliée à Beluga') };
+        return brute.map((x) => ({ cle: x.cle, texte: textes[x.cle] ?? x.cle, etat: faite[e] ? 'fait' : courante !== e && !enEchec[e] ? 'a-venir' : x.etat }));
       }
     }
   };
@@ -414,8 +422,8 @@ export function ParcoursDeConnexion({
   const statutDe = (e: Cle, points: Point[]): { texte: string; ton: TonDuResume } => {
     if (faite[e]) return { texte: e === 'installation' ? t('Terminée') : t('{n} sur {total}', { n: points.length, total: points.length }), ton: 'doux' };
     if (enEchec[e]) return { texte: t('À réparer'), ton: 'echec' };
-    if (e !== courante) return { texte: e === 'safari' && !faite.chrome ? t('Après Chrome') : t('À venir'), ton: 'doux' };
-    const aVous = (e === 'installation' && (!installe || secoursOuvert)) || e === 'mac';
+    if (e !== courante) return { texte: e === 'safari' && choixNav?.includes('chrome') && !faite.chrome ? t('Après Chrome') : t('À venir'), ton: 'doux' };
+    const aVous = (e === 'installation' && (!installe || secoursOuvert)) || e === 'mac' || e === 'navigateurs';
     return { texte: aVous ? t('À vous') : t('En cours'), ton: 'attend' };
   };
 
@@ -459,11 +467,15 @@ export function ParcoursDeConnexion({
         );
       case 'safari':
         return <EtapeSafari ordinateur={cible} preparation={prepSafari} />;
+      case 'navigateurs':
+        return cible ? <EtapeNavigateurs ordinateur={cible} ici={marqueDeCetAppareil()} /> : null;
+      default:
+        return <EtapeAutreNavigateur ordinateur={cible} marque={e} />;
     }
   };
 
   /* LE BANDEAU DE TÊTE, COMME CELUI DE L'APPLICATION : le nom de l'ordinateur, puis le pire état. */
-  const tousLesPoints = Object.fromEntries(etapes.map((e) => [e, pointsDe(e)])) as Record<Cle, Point[]>;
+  const tousLesPoints = Object.fromEntries(etapes.map((e) => [e, pointsDe(e)])) as Record<string, Point[]>;
   const aReparer = etapes.flatMap((e) => tousLesPoints[e]).filter((p) => p.etat === 'echec').length || etapes.filter((e) => enEchec[e]).length;
   const travail = preparationVue(programme?.preparation ?? null);
   const enReparation = (travail?.etat === 'en-cours' && !!travail.travail && travail.travail !== 'installation') || (prepSafari?.etat === 'en-cours' && faite.chrome && !!safariNav);
@@ -518,7 +530,11 @@ export function ParcoursDeConnexion({
           <div className="min-w-0 flex-1">
             <p className="text-[14.5px] font-semibold text-text">{t('{nom} est prêt', { nom: nomVise })}</p>
             <p className="text-[13.5px] leading-relaxed text-muted">
-              {mac ? t('Les agents peuvent travailler dans Chrome et Safari sur ce Mac.') : t('Les agents peuvent maintenant travailler dans Chrome sur cet ordinateur.')}
+              {choixNav?.length
+                ? mac
+                  ? t('Les agents peuvent travailler dans {navs} sur ce Mac.', { navs: navigateursNommes(choixNav, t('et')) })
+                  : t('Les agents peuvent maintenant travailler dans {navs} sur cet ordinateur.', { navs: navigateursNommes(choixNav, t('et')) })
+                : t('Relié sans navigateur : les agents passent par {v0}. Les navigateurs se choisissent à tout moment sur la page de l’ordinateur.', { v0: CONNECT })}
             </p>
           </div>
           {(onFermer || onVoir) && !integre ? (
@@ -1027,6 +1043,43 @@ function EtapeSafari({ ordinateur, preparation }: { ordinateur: Ordinateur | nul
   );
 }
 
+/**
+ * UN AUTRE NAVIGATEUR CHOISI (Edge, Brave, Opera, Vivaldi, Arc, Firefox) : Beluga Connect y pose le même module que
+ * dans Chrome et le relie ; ici, l'explication, la raison d'un échec et « Réessayer ».
+ */
+function EtapeAutreNavigateur({ ordinateur, marque }: { ordinateur: Ordinateur | null; marque: MarqueDeNavigateur }) {
+  const [envoi, setEnvoi] = React.useState(false);
+  const preparation = preparationVue(ordinateur?.programme?.autres?.[marque] ?? null);
+  const echec = preparation?.etat === 'echec';
+  const reessayer = async () => {
+    if (!ordinateur) return;
+    setEnvoi(true);
+    try {
+      await client.call({ type: 'relaisMac.preparer', ordinateurId: ordinateur.id, marque });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-3" data-etape-autre-navigateur={marque} data-etat={preparation?.etat ?? 'aucune'}>
+      <p className="text-[13.5px] leading-relaxed text-text">{t('Rien à faire de votre côté : {v0} prépare {nav}.', { v0: CONNECT, nav: MARQUES[marque].nom })}</p>
+      {echec && preparation?.message ? (
+        <p className="text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]" data-raison-echec>
+          {preparation.message}
+        </p>
+      ) : null}
+      {echec ? (
+        <Button variant="subtle" size="md" className="self-start bg-surface hover:bg-surface/70 max-sm:w-full" onClick={() => void reessayer()} disabled={envoi || !ordinateur} data-autre-reessayer={marque}>
+          {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          {t('Réessayer')}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 /** Le dossier fixe de l'extension, par système (affiché seulement si l'ajout à Chrome a échoué). */
 const DOSSIER_PAR_DEFAUT: Record<SystemeDOrdinateur, string> = {
   mac: '~/Library/Application Support/Beluga/extension-chrome',
@@ -1232,163 +1285,6 @@ function CodeDeSecours({ ordinateurId, fond }: { ordinateurId: string; fond: 'ra
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Safari : l'application signée et son code (seul geste encore à la main) */
-/* ------------------------------------------------------------------ */
-
-const heure = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-/**
- * BELUGA POUR SAFARI (page d'un Mac). CARTE « BELUGA CONNECT : LIAISON SANS FENÊTRE » (22/11/2026) : quand Beluga
- * Connect répond sur ce Mac, « Installer dans Safari » lui demande de poser l'application, de cocher l'extension dans
- * les réglages de Safari et de la relier — plus aucun fichier à télécharger, plus aucun code à taper. Les trois lignes
- * se cochent ici en direct. Sans Beluga Connect joignable seulement : l'ancien chemin (télécharger, puis le code).
- */
-export function FenetreSafari({ ordinateur, ouverte, onClose }: { ordinateur: Ordinateur; ouverte: boolean; onClose: () => void }) {
-  const connect = programmeEnLigne(ordinateur.programme) && !!ordinateur.programme?.connect && (ordinateur.programme?.systeme ?? 'mac') === 'mac';
-  return (
-    <Dialog open={ouverte} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent adresse="installation-safari" className="sm:w-[min(620px,100%)]" data-fenetre-safari>
-        <DialogHeader>
-          <DialogTitle>{t('Beluga pour Safari')}</DialogTitle>
-        </DialogHeader>
-        {ouverte ? connect ? <SafariParConnect ordinateur={ordinateur} /> : <SafariALaMain ordinateur={ordinateur} /> : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function SafariParConnect({ ordinateur }: { ordinateur: Ordinateur }) {
-  const [envoi, setEnvoi] = React.useState(false);
-  const p = ordinateur.programme?.safari ?? null;
-  const safari = ordinateur.navigateurs.find((n) => n.genre === 'safari' && n.enLigne) ?? null;
-  const lignes = etapesDeSafari(p, !!safari, false);
-  const textes: Record<string, string> = { installee: t('Extension installée'), activee: t('Activée dans Safari'), reliee: t('Reliée à Beluga') };
-  const enCours = p?.etat === 'en-cours';
-  const installer = async () => {
-    setEnvoi(true);
-    try {
-      await client.call({ type: 'relaisMac.preparerSafari', ordinateurId: ordinateur.id });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
-    } finally {
-      setEnvoi(false);
-    }
-  };
-  return (
-    <div className="flex flex-col gap-4 pb-1" data-safari-par-connect>
-      <p className="text-[13.5px] leading-relaxed text-text">
-        {t('{v0} installe l’extension sur « {nom} », l’active dans les réglages de Safari et la relie : rien à télécharger, aucun code à taper.', { v0: CONNECT, nom: ordinateur.nom })}
-      </p>
-      <Encadre repere="lignes-safari" className="flex flex-col gap-0.5">
-        {lignes.map((l) => (
-          <LigneDEtat key={l.cle} repere={l.cle} etat={!p && !safari ? 'a-venir' : l.etat}>
-            {textes[l.cle]}
-          </LigneDEtat>
-        ))}
-      </Encadre>
-      {p?.etat === 'echec' && p.message ? <p className="text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">{p.message}</p> : null}
-      {safari ? null : (
-        <Button variant="creation" size="md" className="self-start max-sm:w-full" onClick={() => void installer()} disabled={envoi || enCours} data-assistant-installer="safari">
-          {envoi || enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {enCours ? t('Installation en cours…') : p?.etat === 'echec' ? t('Réessayer') : t('Installer dans Safari')}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/** Sans Beluga Connect joignable sur ce Mac : l'application signée à télécharger, puis le code (ancien chemin). */
-function SafariALaMain({ ordinateur }: { ordinateur: Ordinateur }) {
-  return (
-    <div className="flex flex-col gap-5 pb-1">
-      <div className="flex flex-col gap-4">
-        <p className="text-[13px] text-muted">{t('{v0} ne répond pas sur ce Mac : l’extension s’installe alors à la main.', { v0: CONNECT })}</p>
-        <Button asChild variant="default" size="md" className="self-start max-sm:w-full" data-assistant-telecharger="safari">
-          <a href="/api/extension-safari.zip" download="Beluga-Safari.zip">
-            <Download className="h-3.5 w-3.5" />
-            {t('Télécharger Beluga pour Safari')}
-          </a>
-        </Button>
-        <Encadre repere="gestes-safari">
-          <EtapesNumerotees
-            repere="safari"
-            etapes={[
-              t('Décompressez le fichier, glissez « Beluga » dans Applications, puis ouvrez-la une fois.'),
-              t('Dans Safari, ouvrez Réglages → Extensions et cochez « Beluga », sur tous les sites.'),
-              t('Cliquez sur l’icône Beluga dans Safari, puis saisissez ce code.'),
-            ]}
-          />
-        </Encadre>
-      </div>
-      <CodeDeLiaison ordinateur={ordinateur} navigateur="safari" />
-    </div>
-  );
-}
-
-function CodeDeLiaison({ ordinateur, navigateur }: { ordinateur: Ordinateur; navigateur: GenreDeNavigateur }) {
-  const [code, setCode] = React.useState<{ code: string; expireLe: number; emisLe: number } | null>(null);
-  const [enCours, setEnCours] = React.useState(false);
-  const ordinateurId = ordinateur.id;
-  const demander = React.useCallback(async () => {
-    setEnCours(true);
-    try {
-      const r = await client.call<{ code: string; expireLe: number }>({ type: 'extension.code', ordinateurId });
-      setCode({ ...r, emisLe: Date.now() });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
-    } finally {
-      setEnCours(false);
-    }
-  }, [ordinateurId]);
-  React.useEffect(() => {
-    setCode(null);
-    void demander();
-  }, [demander]);
-  const reussi = !!code && ordinateur.navigateurs.some((n) => n.genre === navigateur && n.enLigne && (n.creeLe ?? 0) >= code.emisLe - 5_000);
-  React.useEffect(() => {
-    if (!code || reussi) return;
-    const minuteur = window.setTimeout(() => void demander(), Math.max(1_000, code.expireLe - Date.now() + 500));
-    return () => window.clearTimeout(minuteur);
-  }, [code, reussi, demander]);
-  const nomNav = LIBELLE_DU_NAVIGATEUR[navigateur];
-  if (reussi) {
-    return (
-      <Encadre repere="liaison-reussie">
-        <LigneDEtat repere="liaison" etat="fait">
-          <span className="text-coche">{t('Relié avec succès')}</span>
-          <span className="text-muted"> · {t('{navigateur} sur « {nom} »', { navigateur: nomNav, nom: ordinateur.nom })}</span>
-        </LigneDEtat>
-      </Encadre>
-    );
-  }
-  return (
-    <div className="flex flex-col">
-      {code ? (
-        <Encadre repere="code" className="flex flex-col items-center gap-2 py-5">
-          <p className="font-mono text-[34px] font-semibold tracking-[0.25em] text-text sm:text-[40px]" data-code-de-liaison={code.code}>
-            {codeDeLiaisonLisible(code.code)}
-          </p>
-          <p className="text-[12.5px] text-muted">{t('Valable jusqu’à {h}, puis renouvelé tout seul.', { h: heure(code.expireLe) })}</p>
-        </Encadre>
-      ) : (
-        <div className="h-[112px] animate-pulse rounded-xl bg-raised" data-silhouette />
-      )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {code ? (
-          <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => copier(code.code, t('Code copié.'))} data-copier-code>
-            <Copy className="h-3.5 w-3.5" />
-            {t('Copier le code')}
-          </Button>
-        ) : null}
-        <Button variant="subtle" size="md" className="max-sm:w-full" onClick={() => void demander()} disabled={enCours} data-code-navigateur>
-          {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          {t('Nouveau code')}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* L'état par service d'un ordinateur (page de l'ordinateur)            */
@@ -1447,6 +1343,8 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
   if (!p) return null;
   const relie = programmeEnLigne(p) && !!p.connect;
   const enPreparation = preparation?.etat === 'en-cours';
+  /* SEULS LES NAVIGATEURS CHOISIS ont leur section (carte « Navigateurs facultatifs à la liaison »). */
+  const choixNav = choixEffectif(ordinateur.navigateursChoisis, ordinateur.navigateurs) ?? [];
   const sections: SectionDeService[] = [];
   sections.push({
     cle: 'connect',
@@ -1488,7 +1386,7 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
       : []),
   ];
   const koChrome = lignesChrome.filter((l) => l.etat === 'echec').length;
-  sections.push({
+  if (choixNav.includes('chrome')) sections.push({
     cle: 'chrome',
     titre: t('Extension Chrome'),
     etat: enPreparation ? 'en-cours' : koChrome ? 'echec' : 'fait',
@@ -1496,10 +1394,10 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
     lignes: lignesChrome,
     reparer: relie ? () => client.call({ type: 'relaisMac.preparer', ordinateurId: ordinateur.id }) : undefined,
   });
-  /* SAFARI (carte « Beluga Connect : liaison sans fenêtre ») : posé par Beluga Connect après Chrome. */
-  if (mac) {
+  /* SAFARI (carte « Beluga Connect : liaison sans fenêtre ») : posé par Beluga Connect, après Chrome si Chrome est choisi. */
+  if (mac && choixNav.includes('safari')) {
     const safari = ordinateur.navigateurs.find((n) => n.genre === 'safari' && n.enLigne) ?? null;
-    const lignesSafari = etapesDeSafari(p.safari ?? null, !!safari, !nav?.enLigne);
+    const lignesSafari = etapesDeSafari(p.safari ?? null, !!safari, choixNav.includes('chrome') && !nav?.enLigne);
     const textes: Record<string, string> = { installee: t('Extension installée'), activee: t('Activée dans Safari'), reliee: t('Reliée à Beluga') };
     const lignes: LigneDeService[] = lignesSafari.map((l) => ({
       cle: `safari-${l.cle}`,
@@ -1518,8 +1416,27 @@ export function EtatDesServices({ ordinateur }: { ordinateur: Ordinateur }) {
       reparer: relie ? () => client.call({ type: 'relaisMac.preparerSafari', ordinateurId: ordinateur.id }) : undefined,
     });
   }
+  /* LES AUTRES NAVIGATEURS CHOISIS (Edge, Brave, Firefox…) : extension ajoutée, reliée. */
+  for (const m of choixNav.filter((x) => x !== 'chrome' && x !== 'safari')) {
+    const autre = navigateurDeLaMarque(ordinateur, m);
+    const prep = preparationVue(p.autres?.[m] ?? null);
+    const lignes: LigneDeService[] = [
+      { cle: `${m}-ajoutee`, libelle: t('Extension ajoutée'), etat: autre ? 'fait' : prep?.etat === 'echec' ? 'echec' : 'neutre', valeur: autre ? t('Oui') : '—' },
+      { cle: `${m}-reliee`, libelle: t('Reliée à Beluga'), etat: autre?.enLigne ? 'fait' : 'neutre', valeur: !autre ? '—' : autre.enLigne ? t('Oui') : t('Fermé') },
+    ];
+    const enCoursAutre = prep?.etat === 'en-cours';
+    const ko = lignes.some((l) => l.etat === 'echec');
+    sections.push({
+      cle: m,
+      titre: MARQUES[m].nom,
+      etat: enCoursAutre ? 'en-cours' : ko ? 'echec' : autre ? 'fait' : 'neutre',
+      resume: enCoursAutre ? t('Installation…') : ko ? t('À réparer') : autre ? t('Relié') : t('À venir'),
+      lignes,
+      reparer: relie ? () => client.call({ type: 'relaisMac.preparer', ordinateurId: ordinateur.id, marque: m }) : undefined,
+    });
+  }
   const aJour = !nav || versionAuMoins(nav.version, VERSION_EXTENSION_CHROME);
-  sections.push({
+  if (choixNav.includes('chrome')) sections.push({
     cle: 'mises-a-jour',
     titre: t('Mises à jour'),
     etat: aJour ? 'fait' : 'echec',
