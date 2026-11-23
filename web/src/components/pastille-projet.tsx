@@ -171,7 +171,8 @@ export const RETRAIT_MEMBRE_DE_MENU = 'pl-7';
  * trait plein dessinait une charpente dans une colonne qui n'a plus aucun
  * cadre. Un trait qui porte une information suit `--faint`.
  */
-export const CLASSE_TRAIT_DE_BRANCHE = 'pointer-events-none absolute border-dotted border-faint opacity-60';
+/** En TIRETS, jamais en points (demande du 23/11/2026), comme les branches de la colonne (`BranchesDArbre`). */
+export const CLASSE_TRAIT_DE_BRANCHE = 'pointer-events-none absolute border-dashed border-faint opacity-60';
 
 /**
  * LA BRANCHE D'ARBORESCENCE D'UN MEMBRE DANS UNE LISTE DE CHOIX — le pendant,

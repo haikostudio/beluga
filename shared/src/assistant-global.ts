@@ -131,6 +131,9 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'board_list_cards':
     case 'assistant_resume':
     case 'voix_dossier':
+    case 'voix_souvenirs':
+    case 'voix_montrer':
+    case 'voix_confirmer':
     case 'surveillance_essai':
       return 'lecture';
     case 'carte_demande':

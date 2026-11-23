@@ -61,6 +61,7 @@ import {
   type ColumnKey,
   type GenreDeGeste,
   type Card,
+  REFUS_D_ECRITURE_NON_DEMANDEE,
 } from '@beluga/shared';
 import { getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
@@ -198,7 +199,7 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
 /* ------------------------------------------------------------------ */
 
 /** Les deux outils qui ont déjà leur propre « projet » (le projet à gérer). */
-const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier', 'voix_confirmer']);
+const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_dossier', 'voix_confirmer', 'voix_montrer', 'voix_souvenirs']);
 
 /**
  * LES OUTILS DE LA CONVERSATION VOCALE SEULE (carte « Jarvis plus fiable et vérifié », 18/11/2026) : servis au cerveau
@@ -206,6 +207,25 @@ const OUTILS_A_PROJET_PROPRE = new Set(['project_manage', 'group_manage', 'voix_
  * l'appelle (18/11/2026) : plus de recherche d'office, plus d'étapes dites à voix haute, plus de « voix_silence ».
  */
 const OUTILS_DE_LA_VOIX: ToolDef[] = [
+  {
+    name: 'voix_montrer',
+    description:
+      "MONTRER À L'ÉCRAN, DANS TA BULLE D'INFORMATION (décision de l'utilisateur, 22/11/2026) : ton SEUL espace pour faire LIRE quelque chose — des liens, un tableau, une liste, plusieurs chiffres, une adresse, un extrait. La bulle se pose au-dessus de ta bulle vocale, en Markdown (liens [texte](https://…) cliquables, tableaux, listes), et reste dans l'historique de la discussion. « titre » : quelques mots ; « contenu » : le Markdown. À voix haute, dis seulement qu'elle est « dans la bulle juste au-dessus ». N'annonce JAMAIS un affichage sans un retour réussi de cet outil ; n'écris JAMAIS dans un champ de l'utilisateur pour lui montrer quelque chose.",
+    inputSchema: {
+      type: 'object',
+      required: ['contenu'],
+      properties: {
+        titre: { type: 'string', description: 'Le titre de la bulle, en quelques mots.' },
+        contenu: { type: 'string', description: 'Ce qui se lit, en Markdown : liens, tableau, liste, chiffres.' },
+      },
+    },
+  },
+  {
+    name: 'voix_souvenirs',
+    description:
+      "À APPELER AVANT TOUTE RECHERCHE (décision de l'utilisateur, 23/11/2026) : relit, SANS AUCUN QUOTA, ce que vous vous êtes dit ces TROIS DERNIERS JOURS (phrases et bulles affichées, la plus récente d'abord) — pour savoir de quoi on parlait. « demande » (facultatif) : quelques mots pour ne garder que les discussions qui en parlent (les plus anciennes si rien ne sort dans les trois jours). S'il ne suffit pas, alors seulement « voix_dossier ».",
+    inputSchema: { type: 'object', properties: { demande: { type: 'string', description: 'Le sujet, en quelques mots.' } } },
+  },
   {
     name: 'voix_dossier',
     description:
@@ -417,6 +437,12 @@ export function preparerLAppel(nom: string, brut: Record<string, any>): AppelPre
   return { ok: true, projectId, args, pourquoi, genre: genreDeLAppel(nom, args) };
 }
 
+/** LES CHAMPS DE L'UTILISATEUR NE SONT PAS À JARVIS (22/11/2026) : une écriture à la voix doit avoir été demandée. */
+async function ecritureAutoriseeALaVoix(agentId: string): Promise<boolean> {
+  const { ecritureAutorisee } = await import('./voix-directe.js');
+  return ecritureAutorisee(agentId);
+}
+
 /** Exécute un appel de l'assistant. Aucune porte d'accord : il confirme lui-même l'irréversible par `ask_user`. */
 export async function executerPourLAssistant(
   ctx: ToolContext,
@@ -431,6 +457,14 @@ export async function executerPourLAssistant(
       case 'voix_dossier': {
         const { dossierPourLeCerveau } = await import('./voix-directe.js');
         return await dossierPourLeCerveau(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);
+      }
+      case 'voix_montrer': {
+        const { montrerUneInformation } = await import('./voix-directe.js');
+        return montrerUneInformation(ctx.agentId, String(args.titre ?? ''), String(args.contenu ?? ''));
+      }
+      case 'voix_souvenirs': {
+        const { souvenirsDesDerniersJours } = await import('./voix-directe.js');
+        return souvenirsDesDerniersJours(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);
       }
       case 'voix_confirmer': {
         const { poserUneConfirmation } = await import('./voix-directe.js');
@@ -447,8 +481,12 @@ export async function executerPourLAssistant(
       case 'assistant_gestes':
         return await gestes(args, projetVise);
       case 'assistant_ecran':
+        if (ctx.voix && Array.isArray(args.gestes) && args.gestes.some((g: any) => g?.action === 'saisir') && !(await ecritureAutoriseeALaVoix(ctx.agentId))) {
+          return { ok: false, text: REFUS_D_ECRITURE_NON_DEMANDEE };
+        }
         return await outilEcran(args, projetVise);
       case 'carte_demande':
+        if (ctx.voix && !(await ecritureAutoriseeALaVoix(ctx.agentId))) return { ok: false, text: REFUS_D_ECRITURE_NON_DEMANDEE };
         return await ecrireDansLaDemande(args, projetVise);
       case 'beluga_commande':
         return await commandeGenerale(args);

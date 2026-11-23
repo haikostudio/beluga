@@ -108,6 +108,7 @@ import {
   LigneFormulaire,
 } from '@/components/ui';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
+import { BranchesDArbre } from '@/components/branches-d-arbre';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
 import { ouvrirLesFichiers } from '@/lib/ouvrir-les-fichiers';
 import { useServicesOuverts } from '@/components/services';
@@ -915,13 +916,14 @@ export function Sidebar({
         {ouvert ? (
           <div
             className={cn(
-              /* LE RETRAIT DES MEMBRES est constant (`pl-4`) : la
-                 poignée de rangement a quitté la gauche de la ligne, plus rien
-                 ne décale la pile d'icônes du projet réuni. */
-              bandeSeule ? 'px-0' : 'pl-4',
+              /* LE RETRAIT DES MEMBRES est constant (`RETRAIT_DES_ENFANTS`), le même à
+                 chaque niveau : les icônes d'un même niveau restent alignées. */
+              bandeSeule ? 'px-0' : cn('relative', RETRAIT_DES_ENFANTS),
             )}
             data-membres-regroupement={project.id}
           >
+            {/* L'ARBRE EN TIRETS (23/11/2026) : de la pile du projet réuni vers chaque membre. */}
+            <BranchesDArbre actif={!bandeSeule} trouverLeParent={iconeDuDossierParent} />
             {membresAffiches.map((membre) =>
               bandeSeule ? (
                 ligne(membre, {
@@ -932,7 +934,7 @@ export function Sidebar({
                   sansPoignee: true,
                 })
               ) : (
-                /* PLUS AUCUN TRAIT D'ARBORESCENCE (demande du 31/10/2026) : le retrait seul dit l'appartenance. */
+                /* LES TRAITS D'ARBORESCENCE SONT REVENUS (demande du 23/11/2026, en tirets) : `BranchesDArbre` ci-dessus. */
                 <div key={membre.id} className="relative flow-root">
                   {ligneEtTaches(membre, {
                     emboite: 'reuni',
@@ -1606,9 +1608,12 @@ export function Sidebar({
                         title={replie ? t('Déplier le groupe') : t('Replier le groupe')}
                         className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[14px] text-text"
                       >
-                        <ChevronRight
-                          className={cn('h-4 w-4 shrink-0 text-faint transition-transform', !replie && 'rotate-90')}
-                        />
+                        {/* LE DOSSIER DIT SON ÉTAT PAR SON ICÔNE (23/11/2026) : fermé replié, ouvert déplié — plus de flèche. */}
+                        {replie ? (
+                          <Folder className="h-4 w-4 shrink-0 text-faint" data-icone-de-branche data-dossier-icone="ferme" />
+                        ) : (
+                          <FolderOpen className="h-4 w-4 shrink-0 text-faint" data-icone-de-branche data-dossier-icone="ouvert" />
+                        )}
                         <span className="min-w-0 truncate">{entry.group.name}</span>
                       </button>
                       {/* Replié, le dossier porte ce que ses projets ont rendu sans
@@ -1682,7 +1687,9 @@ export function Sidebar({
                     </EnteteGroupe>
 
                     {!replie ? (
-                      <div className={bandeSeule ? undefined : 'pl-3'}>
+                      <div className={bandeSeule ? undefined : cn('relative', RETRAIT_DES_ENFANTS)} data-membres-du-dossier={entry.id}>
+                        {/* L'ARBRE EN TIRETS : de l'icône du dossier vers chacun de ses projets. */}
+                        <BranchesDArbre actif={!bandeSeule} trouverLeParent={iconeDuDossierParent} />
                         {/* FIXÉ EN TÊTE du groupe « Local » : aucune prise pour la
                             souris, les projets glissés ici se rangent sous lui. */}
                         {local ? (
@@ -2328,6 +2335,17 @@ function RepereLigne({
   return null;
 }
 
+/**
+ * LE RETRAIT DES ENFANTS DANS LA COLONNE (projets d'un dossier, membres d'un projet réuni) : assez large pour
+ * loger la branche en tirets entre l'axe du parent et l'icône de l'enfant, et le même partout.
+ */
+const RETRAIT_DES_ENFANTS = 'pl-6';
+
+/** Le parent d'un niveau : la première icône marquée de son enveloppe (dossier, ou pile du projet réuni). */
+function iconeDuDossierParent(conteneur: HTMLElement): Element | null {
+  return conteneur.parentElement?.querySelector('[data-icone-de-branche]') ?? null;
+}
+
 function Trait({ ou }: { ou?: 'before' | 'after' }) {
   if (!ou) return null;
   return (
@@ -2454,7 +2472,7 @@ function LigneEspaceDev({
         {/* L'ICÔNE DE L'APPLICATION RESTE TOUJOURS LÀ. L'état (un agent
             travaille, une publication part, une réponse attend) se pose EN
             INCRUSTATION sur son coin (`RepereRobot mini`). */}
-        <span className="relative inline-flex shrink-0 items-center">
+        <span className="relative inline-flex shrink-0 items-center" data-icone-de-branche>
           <img src="/icon.svg" alt="" aria-hidden data-espace-dev-favicon className="h-[15px] w-[15px] shrink-0 rounded-[3px]" />
           {running || publie || icone || rendus ? (
             <RepereRobot running={running} publie={publie} icone={icone} rendus={rendus} mini />
@@ -2872,7 +2890,7 @@ function ProjectRow({
         {/* L'icône du projet (ou ses initiales) reste TOUJOURS en premier, à sa
             taille et sa place fixes : c'est la seule couleur de la ligne.
             L'état se pose EN INCRUSTATION sur son coin haut droit. */}
-        <span className="relative inline-flex shrink-0 items-center">
+        <span className="relative inline-flex shrink-0 items-center" data-icone-de-branche>
           {/* Un projet réuni montre la pile des icônes de ses membres. */}
           {sousGroupe?.membres.length ? (
             <PastillesEmpilees projects={sousGroupe.membres} />

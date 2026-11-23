@@ -628,9 +628,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
     agentId: z.string(),
     text: z.string(),
     attachments: z.array(z.string()).optional(),
-    /* L'ACCORD de l'utilisateur, donné par le bouton « Ouvrir une nouvelle
-       carte » : sous une carte ordinaire déjà en ligne, le démon refuse le
-       message sans lui (`TEXTE_ACCORD_NOUVELLE_CARTE`). */
+    /* Posé par le champ d'écriture sous une carte ordinaire déjà en ligne :
+       l'envoi y ouvre une nouvelle carte (message posé dans son champ, rien
+       n'est lancé). Sans lui, le démon refuse (`TEXTE_ACCORD_NOUVELLE_CARTE`). */
     ouvrirNouvelleCarte: z.boolean().optional(),
   }),
   /* `cardId` : l'arrêt part du tiroir de CETTE carte, et ne vaut que pour elle
@@ -2011,6 +2011,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voix.direct.repondre'), id: z.string().max(40), reponse: z.string().max(200) }),
   /* Jarvis prêt à l'avance (17/11/2026) : l'écran qui a la voix activée le redit toutes les quelques minutes. */
   z.object({ type: z.literal('voix.direct.preparer') }),
+  /* L'HISTORIQUE DES BULLES (23/11/2026) : une page de tours anciens, du plus récent au plus ancien, avant `avant`. */
+  z.object({ type: z.literal('voix.historique'), agentId: z.string().max(80).optional(), avant: z.number().int().optional(), limite: z.number().int().min(1).max(200).optional() }),
+  /* Un travail de Jarvis continue-t-il, voix coupée ? L'écran qui (re)charge fait tourner le bouton du bord (23/11/2026). */
+  z.object({ type: z.literal('voix.direct.travail') }),
   z.object({ type: z.literal('voix.direct.voix') }),
   z.object({ type: z.literal('voix.direct.extrait'), sdp: z.string().max(200_000), voix: z.string() }),
   /**
@@ -2916,6 +2920,18 @@ export const ServerEvent = z.discriminatedUnion('type', [
     agentId: z.string(),
     cardId: z.string(),
     projectId: z.string(),
+  }),
+  /**
+   * UNE BULLE D'INFORMATION DE JARVIS (« voix_montrer », 23/11/2026) : liens, tableau, liste, chiffres — en Markdown,
+   * posée au-dessus de la bulle vocale.
+   */
+  z.object({
+    type: z.literal('voix.direct.information'),
+    id: z.string(),
+    agentId: z.string(),
+    titre: z.string().default(''),
+    contenu: z.string(),
+    le: z.number().optional(),
   }),
   /** LE TRAVAIL FAIT PENDANT LA VEILLE EST FINI (20/11/2026) : l'écran rouvre la conversation, Jarvis dit le résultat. */
   z.object({

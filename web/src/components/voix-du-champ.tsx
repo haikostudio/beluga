@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BAS_CHAT_TELEPHONE, DROITE_DE_JARVIS, dernieresBulles } from '@beluga/shared';
+import { BAS_CHAT_TELEPHONE, DROITE_DE_JARVIS, dernieresBulles, separateurDeDiscussion } from '@beluga/shared';
 import { BAS_DES_RONDS } from '@/components/rangee-des-ronds';
 import { Markdown } from '@/lib/markdown';
 import { Check, ChevronDown, ChevronUp, Loader2, MicOff, PanelRight, Square, Volume2, X } from '@/components/ui/icones';
@@ -12,6 +12,7 @@ import type { ActiviteDuDirect, QuestionDuDirect, TourDuDirect } from '@/lib/dir
 import { useAgentDeLAssistant } from '@/lib/assistant-global';
 import { activerLeSonDuDirect, arreterJarvis, basculerLaSourdine, basculerLesBulles, useBullesRepliees, useDirectVu } from '@/lib/etat-vocal';
 import { cn } from '@/lib/utils';
+import { useHistoriqueDesBulles } from '@/lib/historique-des-bulles';
 import { useMorphingDuBord, useSurfaceDeJarvis } from '@/lib/morphing-du-bord';
 import { t } from '@/lib/langue';
 
@@ -91,7 +92,7 @@ function ZoneVocale() {
   const deLAssistant = !!assistant && (direct.agentId ?? direct.redaction) === assistant;
   return (
     <div data-zone-vocale className="relative flex flex-col">
-      <BullesDuDirect fil={direct.fil} recapitulatif={redaction} repliable />
+      <BullesDuDirect fil={direct.fil} recapitulatif={redaction} repliable historique={direct.agentId ?? assistant} />
       <PiedVocal fenetre={deLAssistant ? 'replier' : undefined} enRedaction={redaction} />
     </div>
   );
@@ -196,6 +197,7 @@ const RANGEE_DU_BOUTON_PHOTO = 64;
  */
 export function BulleVocale({ nom, telephone }: { nom: string; telephone: boolean }) {
   const direct = useDirectVu();
+  const assistant = useAgentDeLAssistant();
   const redaction = direct.etat === 'eteint' && !!direct.redaction;
   /* LE BOUTON DU BORD DEVIENT CETTE BULLE, ET ELLE REDEVIENT BOUTON (17/11/2026, illustration #0666) : `lib/morphing-du-bord.ts`. */
   const racine = React.useRef<HTMLDivElement | null>(null);
@@ -262,7 +264,7 @@ export function BulleVocale({ nom, telephone }: { nom: string; telephone: boolea
       style={{ ...place, maxWidth: 'calc(100vw - 32px)' }}
     >
       {/* Le bouton photo du pied se pose juste au-dessus de la bulle, à droite : la pile lui laisse sa rangée. */}
-      <BullesDuDirect fil={direct.fil} sansVoile recapitulatif={redaction} repliable reserveEnBas={cameraDessus ? RANGEE_DU_BOUTON_PHOTO : undefined} />
+      <BullesDuDirect fil={direct.fil} sansVoile recapitulatif={redaction} repliable reserveEnBas={cameraDessus ? RANGEE_DU_BOUTON_PHOTO : undefined} historique={direct.agentId ?? assistant} />
       <div className="flex items-center gap-2 px-4 pt-3 text-[13px]">
         <IconeTroisBarres className="shrink-0 scale-[0.6] text-text" vivante={direct.etat === 'ecoute'} />
         <span className="font-medium text-text">{nom}</span>
@@ -289,6 +291,7 @@ export function BullesDuDirect({
   recapitulatif,
   repliable,
   reserveEnBas,
+  historique,
 }: {
   fil: readonly TourDuDirect[];
   sansVoile?: boolean;
@@ -298,8 +301,19 @@ export function BullesDuDirect({
   repliable?: boolean;
   /** Une rangée laissée libre sous la pile (px), à côté du chevron : le bouton photo posé au-dessus de la bulle. */
   reserveEnBas?: number;
+  /**
+   * L'HISTORIQUE AU-DESSUS (décision de l'utilisateur, 23/11/2026) : l'agent dont les appels précédents se chargent
+   * au-dessus du fil vivant, une ligne de date entre deux appels, les plus anciens quand on remonte. Absent : la pile
+   * ne montre que l'appel en cours (l'encadré d'action au-dessus du champ).
+   */
+  historique?: string | null;
 }) {
-  const bulles = dernieresBulles(fil);
+  const vivantes = dernieresBulles(fil);
+  const avecHistorique = historique !== undefined;
+  const passe = useHistoriqueDesBulles(avecHistorique, historique);
+  const bulles = React.useMemo(() => [...passe.tours, ...vivantes], [passe.tours, vivantes]);
+  /* La position gardée quand une page ancienne s'ajoute EN HAUT : sans elle, la pile sautait de toute sa hauteur. */
+  const avantLAjout = React.useRef<{ hauteur: number; haut: number } | null>(null);  
   const replieesPartout = useBullesRepliees();
   const repliees = !!repliable && replieesPartout;
   const pileRef = React.useRef<HTMLDivElement | null>(null);
@@ -327,7 +341,14 @@ export function BullesDuDirect({
   React.useLayoutEffect(() => {
     const pile = pileRef.current;
     if (!pile) return;
+    const ajout = avantLAjout.current;
+    if (ajout && !passe.charge) {
+      avantLAjout.current = null;
+      if (!colleEnBas.current) pile.scrollTop = ajout.haut + (pile.scrollHeight - ajout.hauteur);
+    }
     if (colleEnBas.current) pile.scrollTop = pile.scrollHeight;
+    // Une pile qui ne défile pas encore n'a pas de « haut » à atteindre : la page suivante vient d'elle-même.
+    if (avecHistorique && !passe.fin && !passe.charge && pile.scrollHeight <= pile.clientHeight + 4 && passe.tours.length) passe.chargerPlus();
     const haute = pile.scrollHeight > pile.clientHeight + 4 || pile.clientHeight > 220;
     pile.style.maskImage = haute ? 'linear-gradient(to bottom, transparent 0, #000 42%)' : '';
     pile.style.webkitMaskImage = pile.style.maskImage;
@@ -360,6 +381,12 @@ export function BullesDuDirect({
   }, [bulles.length > 0 || !!recapitulatif]);
 
   if (!bulles.length && !recapitulatif) return null;
+  const remonter = () => {
+    const pile = pileRef.current;
+    if (!pile || passe.fin || passe.charge) return;
+    avantLAjout.current = { hauteur: pile.scrollHeight, haut: pile.scrollTop };
+    passe.chargerPlus();
+  };
   /* LE CHEVRON (décision du 18/11/2026, captures #2901f et #0750) : un petit bouton rond, CENTRÉ entre la pile et le
      panneau vocal, qui replie les bulles (vers le bas) ou les rouvre (vers le haut). Sur téléphone, elles se replient
      d'elles-mêmes quand Jarvis agit (`voix-assistant.tsx`). Seul le bouton prend les appuis : la ligne les laisse passer. */
@@ -409,6 +436,7 @@ export function BullesDuDirect({
         onScroll={(e) => {
           const el = e.currentTarget;
           colleEnBas.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          if (avecHistorique && el.scrollTop < 80) remonter();
         }}
         /* AUCUN RETRAIT SUR LES CÔTÉS (17/11/2026) : la pile a la largeur du composant qu'elle surmonte ; les bulles de
            Jarvis touchent son bord gauche, les vôtres son bord droit — sauf dans le volet ouvert et la feuille du téléphone (`retrait`). */
@@ -418,11 +446,31 @@ export function BullesDuDirect({
       >
         {/* LA LIGNE D'UNE BULLE LAISSE PASSER LES APPUIS (18/11/2026) : elle a la largeur du composant (bulles collées
             aux bords), seule la bulle elle-même les prend — le fil derrière reste cliquable à côté d'elle. */}
-        {bulles.map((tour) => (
-          <div key={tour.id} className="pointer-events-none animate-slide-up">
-            <Bulle tour={tour} />
+        {avecHistorique && passe.charge && passe.tours.length ? (
+          <div data-historique-en-chargement className="pointer-events-none flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('Chargement des échanges plus anciens…')}
           </div>
-        ))}
+        ) : null}
+        {bulles.map((tour, i) => {
+          /* LA LIGNE DE DATE (maquette #f1e9) : avant le premier tour de chaque appel précédent, puis avant l'appel en cours. */
+          const precedent = bulles[i - 1];
+          const debutAncien = tour.ancien && (!precedent?.ancien || precedent.ancien.discussion !== tour.ancien.discussion) ? tour.ancien.debut : null;
+          const debutVivant = !tour.ancien && precedent?.ancien ? (tour.le ?? Date.now()) : null;
+          const debut = debutAncien ?? debutVivant;
+          return (
+            <React.Fragment key={tour.id}>
+              {debut !== null ? (
+                <p data-separateur-de-discussion className="pointer-events-none py-1 text-center text-[11px] text-muted">
+                  {separateurDeDiscussion(debut)}
+                </p>
+              ) : null}
+              <div data-bulle-ancienne={tour.ancien ? '' : undefined} className={cn('pointer-events-none', !tour.ancien && 'animate-slide-up')}>
+                <Bulle tour={tour} />
+              </div>
+            </React.Fragment>
+          );
+        })}
         {recapitulatif ? (
           <div className="pointer-events-none animate-slide-up">
             <BulleDuRecapitulatif />
@@ -597,8 +645,30 @@ function BulleDeProduction({ messageId }: { messageId: string }) {
   );
 }
 
+/*
+ * LA BULLE D'INFORMATION DE JARVIS (« voix_montrer », décision de l'utilisateur du 22/11/2026, maquette #0f92) : son
+ * SEUL espace pour faire lire quelque chose — liens cliquables, tableau, liste, chiffres —, posée dans la pile au-dessus
+ * de sa bulle vocale. Un petit intitulé dit d'où elle vient ; le contenu se lit comme le fil.
+ */
+function BulleDInformation({ information }: { information: NonNullable<TourDuDirect['information']> }) {
+  return (
+    <div data-bulle="information" className="flex justify-start">
+      <div className="pointer-events-auto w-full min-w-0 max-w-[90%] rounded-lg rounded-bl-sm bg-surface px-3 py-2 text-[13px] text-text shadow-[0_1px_3px_rgb(0_0_0/0.08)]">
+        <p className="mb-1 truncate text-[11px] text-muted">
+          {t('Jarvis · information')}
+          {information.titre ? ` — ${information.titre}` : ''}
+        </p>
+        <div data-contenu-de-l-information className="min-w-0 break-words">
+          <Markdown content={information.contenu} enTexte className="texte-de-bulle" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Bulle({ tour }: { tour: TourDuDirect }) {
   if (tour.question) return <BulleDeQuestion question={tour.question} />;
+  if (tour.information) return <BulleDInformation information={tour.information} />;
   if (tour.production) return <BulleDeProduction messageId={tour.production.messageId} />;
   if (tour.verifications) return <ListeDesVerifications etapes={tour.verifications.etapes} />;
   if (tour.activite) {

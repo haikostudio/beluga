@@ -1485,6 +1485,17 @@ html[data-terminal-ouvert] [data-app-racine] {
   border-bottom-left-radius: 14px;
   border-bottom-right-radius: 14px;
 }
+/* LA PAGE OUVERTE DANS LA ZONE PRINCIPALE REMONTE AVEC L'APPLICATION (23/11/2026, capture #b8c1) : posée en
+   portail hors de `[data-app-racine]` (`DrawerContent enPage`, `fixed` sur toute la hauteur), elle ne suivait pas la
+   translation et passait par-dessus le terminal. Elle prend la même. Une page posée DANS LE CADRE d'un service
+   (`data-page-dans-un-cadre`) mesure déjà ce cadre, qui remonte : elle n'en reprend pas une seconde. */
+[data-page-de-zone] {
+  transition: transform 190ms ease-out;
+}
+html[data-terminal-ouvert] [data-page-de-zone]:not([data-page-dans-un-cadre]) {
+  transform: translateY(calc(-1 * var(--hauteur-terminal, 0px)));
+  border-bottom-right-radius: 14px;
+}
 html[data-terminal-ouvert],
 html[data-terminal-ouvert] body {
   background: #0a0a0a;

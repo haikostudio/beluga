@@ -2365,6 +2365,7 @@ class Client {
       case 'voix.direct.action':
       case 'voix.direct.activite':
       case 'voix.direct.production':
+      case 'voix.direct.information':
       case 'voix.direct.question':
       case 'voix.direct.ouvrir':
       case 'voix.direct.reprendre':

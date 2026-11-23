@@ -94,6 +94,17 @@ export function terminerUnMedia(
   return apres;
 }
 
+/**
+ * Le bloc disparaît du fil, sans laisser de tuile d'échec : un EXEMPLE DE CHOIX raté (décision du 23/11/2026,
+ * capture #cc2e) n'a rien à montrer à l'utilisateur — la raison ne sert qu'à l'agent, qui la lit dans le
+ * résultat de son outil. La liste étant diffusée entière, le retrait suffit à l'effacer de tous les écrans.
+ */
+export function retirerUnMedia(id: string): boolean {
+  if (!liste.some((m) => m.id === id)) return false;
+  ecrire(liste.filter((m) => m.id !== id));
+  return true;
+}
+
 /** Les blocs encore ouverts d'un agent, pour l'outil (fermer celui qu'on vient d'ouvrir). */
 export function blocOuvertDeLAgent(agentId: string, id?: string): MediaEnFabrication | null {
   const ouverts = liste.filter((m) => m.agentId === agentId && m.etat === 'en-cours' && m.suivi !== 'service');

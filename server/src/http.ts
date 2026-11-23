@@ -1095,6 +1095,11 @@ export function createHttpServer(): http.Server {
             if (refusDroits) return json(res, 200, { ok: false, text: refusDroits });
             result = await callTool(contexteDeLAppel, body.name, body.args ?? {});
           }
+          // CHAQUE OUTIL DE JARVIS LAISSE SA LIGNE AU JOURNAL DU SERVICE (23/11/2026).
+          if (pourLaVoix) {
+            const { tracerLOutilDeLaVoix } = await import('./voix-directe.js');
+            tracerLOutilDeLaVoix(agentId, String(body.name), body.args ?? {}, result);
+          }
           /*
            * TOUT APPEL D'OUTIL REJOINT LE JOURNAL DE LA CARTE, réussi ou non.
            * `consultationsMemoire`, juste en dessous, ne garde que la mémoire

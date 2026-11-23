@@ -17,7 +17,7 @@ import type { EntreeDuDirect } from './mot-de-reveil';
 import { ID_DE_L_ONGLET } from './gestes-de-jarvis';
 import { joindreAuChamp } from './joindre-au-champ';
 import { readPref, writePref } from './prefs';
-import { brouillonApresSynthese, creerControleDeVie, type MesureDuMicro } from '@beluga/shared';
+import { brouillonApresSynthese, creerControleDeVie, fermetureGardeLeTravail, type MesureDuMicro } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { signalerErreur } from './erreurs';
 import { plateformeNative } from './natif';
@@ -90,6 +90,10 @@ export interface TourDuDirect {
   question?: QuestionDuDirect;
   /** Ce que Jarvis a PRODUIT (carte proposée, image, document…) : le message qui le porte, rendu dans la bulle (20/11/2026). */
   production?: { messageId: string };
+  /** Une BULLE D'INFORMATION posée par Jarvis (« voix_montrer », 23/11/2026) : liens, tableau, liste, en Markdown. */
+  information?: { id: string; titre: string; contenu: string };
+  /** Un tour relu de l'HISTORIQUE (appels précédents) : jamais animé, et la ligne de date le précède. */
+  ancien?: { discussion: number; debut: number };
 }
 
 export interface QuestionDuDirect {
@@ -198,9 +202,14 @@ function canalOuvert(canal: RTCDataChannel, delaiMs: number): Promise<void> {
  * raison posée (page rechargée, écran quitté) le dit aussi.
  */
 let pageQuittee = false;
+/** Prévenir le démon que la page part, pendant une conversation : posé par la session ouverte (23/11/2026). */
+let prevenirAuDepart: (() => void) | null = null;
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => {
     pageQuittee = true;
+    /* Le démontage React ne joue pas au rechargement : la fermeture part ICI, avec sa raison, pour que le travail en
+       cours continue (fermeture automatique, décision de l'utilisateur du 23/11/2026). */
+    prevenirAuDepart?.();
   });
 }
 
@@ -339,6 +348,14 @@ export function filApres(fil: TourDuDirect[], evenement: any, prochainId: () => 
     if (!messageId || fil.some((tour) => tour.production?.messageId === messageId)) return fil;
     return [...fil, { id: prochainId(), le: Date.now(), role: 'assistant' as const, texte: '', final: true, projets: [], production: { messageId } }].slice(-TOURS_A_L_ECRAN);
   }
+  /* UNE BULLE D'INFORMATION (23/11/2026) : liens, tableau, liste — son seul espace pour faire lire quelque chose. */
+  if (evenement?.type === 'voix.direct.information') {
+    const id = String(evenement.id ?? '');
+    const contenu = String(evenement.contenu ?? '');
+    if (!id || !contenu || fil.some((tour) => tour.information?.id === id)) return fil;
+    const information = { id, titre: String(evenement.titre ?? ''), contenu };
+    return [...fil, { id: prochainId(), le: Number(evenement.le) || Date.now(), role: 'assistant' as const, texte: '', final: true, projets: [], information }].slice(-TOURS_A_L_ECRAN);
+  }
   /* CE QUE JARVIS FAIT, EN DIRECT (16/11/2026) : chaque appel d'outil pose sa ligne, mise à jour en place à sa fin. */
   if (evenement?.type === 'voix.direct.activite') {
     const activite: ActiviteDuDirect = {
@@ -383,6 +400,27 @@ export function useDirectCodex(actif: boolean, entree: EntreeDuDirect | null = n
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   /** Jarvis a-t-il déjà dit quelque chose dans cette session ? (Le contrôle de la réponse au salut le lit.) */
   const aReponduRef = React.useRef(false);
+
+  /* LE ROND DU BOUTON DU BORD APRÈS UN RECHARGEMENT (23/11/2026) : l'écran qui (re)charge demande au démon si un
+     travail de Jarvis continue, voix coupée — à l'ouverture, puis à chaque retour sur l'onglet. */
+  React.useEffect(() => {
+    const demander = () =>
+      void client
+        .call<{ agentId: string | null }>({ type: 'voix.direct.travail' })
+        .then((r) => {
+          if (r?.agentId) poserLeTravailEnVeille(true);
+        })
+        .catch(() => undefined);
+    const minuterie = window.setTimeout(demander, 800);
+    const auRetour = () => {
+      if (document.visibilityState === 'visible') demander();
+    };
+    document.addEventListener('visibilitychange', auRetour);
+    return () => {
+      window.clearTimeout(minuterie);
+      document.removeEventListener('visibilitychange', auRetour);
+    };
+  }, []);
 
   // Les nouvelles du démon : le fil, les tâches, l'état et les pannes.
   React.useEffect(() => {
@@ -451,10 +489,15 @@ export function useDirectCodex(actif: boolean, entree: EntreeDuDirect | null = n
       setErreur(null);
       return;
     }
-    // UNE SESSION NEUVE, DES BULLES NEUVES : le fil d'avant ne se mélange pas à celui-ci.
+    // UNE SESSION NEUVE, DES BULLES NEUVES : le fil d'avant ne se mélange pas à celui-ci (l'historique, lui, se
+    // recharge au-dessus, depuis le démon — `BullesDuDirect`).
     setFil([]);
     setAgentId(cible);
     let vivant = true;
+    prevenirAuDepart = () => {
+      prevenirAuDepart = null;
+      void client.call({ type: 'voix.direct.arreter', raison: 'page quittée ou rechargée', garderLeTravail: true }).catch(() => undefined);
+    };
     let prise: PriseMicro | null = null;
     let pc: RTCPeerConnection | null = null;
     let contexteVoix: AudioContext | null = null;
@@ -635,7 +678,10 @@ export function useDirectCodex(actif: boolean, entree: EntreeDuDirect | null = n
       entree?.finir();
       const raison = prendreLaRaisonDeFermeture() ?? (pageQuittee ? 'page quittée ou rechargée' : document.visibilityState === 'hidden' ? 'écran caché' : 'conversation démontée');
       /* La MISE EN VEILLE garde le travail du cerveau en cours (20/11/2026) : le démon ne coupe que la voix. */
-      void client.call({ type: 'voix.direct.arreter', raison, ...(/silence|veille/.test(raison) ? { garderLeTravail: true } : {}) }).catch(() => undefined);
+      prevenirAuDepart = null;
+      /* SEUL LE BOUTON ARRÊTER COUPE LE TRAVAIL (décision de l'utilisateur, 23/11/2026) : toute autre fermeture — silence,
+         veille, écran caché, page rechargée, bulle démontée — le garde (`fermetureGardeLeTravail`). */
+      void client.call({ type: 'voix.direct.arreter', raison, ...(fermetureGardeLeTravail(raison) ? { garderLeTravail: true } : {}) }).catch(() => undefined);
       try {
         pc?.close();
       } catch {

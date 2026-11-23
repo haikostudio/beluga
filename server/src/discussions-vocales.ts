@@ -11,8 +11,13 @@ import {
   DISCUSSIONS_RENDUES_MAX,
   PERTINENCE_MIN_DISCUSSION,
   TOURS_MAX_PAR_DISCUSSION,
+  FENETRE_DU_RECIT_MS,
+  SIGNES_MAX_PAR_TOUR,
+  TOURS_PAR_PAGE_D_HISTORIQUE,
   idDeDiscussion,
   pertinenceDUneDiscussion,
+  quiParle,
+  type RoleDUnTourVocal,
   reunirLesMarques,
   tourAGarder,
 } from '@beluga/shared';
@@ -84,8 +89,10 @@ export function marquerDiscussion(numero: number, projets: string[]): void {
  * Écrit un tour FINALISÉ. Rend faux quand rien n'a été écrit (texte vide, discussion pleine ou inconnue) :
  * la session continue, seule l'écriture s'arrête.
  */
-export function ajouterTour(numero: number, role: 'user' | 'assistant', texte: string, projets: string[] = []): boolean {
-  const propre = tourAGarder(texte);
+export function ajouterTour(numero: number, role: RoleDUnTourVocal, texte: string, projets: string[] = []): boolean {
+  /* Une BULLE D'INFORMATION (« voix_montrer », 23/11/2026) garde ses retours à la ligne : c'est du Markdown (tableaux,
+     listes) qu'on réaffiche tel quel en remontant dans la pile. */
+  const propre = role === 'information' ? texteDUneInformation(texte) : tourAGarder(texte);
   if (!propre) return false;
   const ligne = getDb().prepare('SELECT tours FROM discussions_vocales WHERE id = ?').get(numero) as { tours: number } | undefined;
   if (!ligne || ligne.tours >= TOURS_MAX_PAR_DISCUSSION) return false;
@@ -96,6 +103,12 @@ export function ajouterTour(numero: number, role: 'user' | 'assistant', texte: s
   })();
   marquerDiscussion(numero, projets);
   return true;
+}
+
+function texteDUneInformation(texte: string): string | null {
+  const net = (texte ?? '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (!net) return null;
+  return net.length > SIGNES_MAX_PAR_TOUR ? `${net.slice(0, SIGNES_MAX_PAR_TOUR - 1)}…` : net;
 }
 
 /** Ferme une discussion. Une discussion sans aucun tour est retirée : il n'y a rien à retrouver. */
@@ -176,7 +189,7 @@ export function texteDUneDiscussion(numero: number): string | null {
   const d = lireDiscussion(numero);
   if (!d) return null;
   const tete = `# ${d.id} — discussion vocale du ${quand(d.debut)}${d.fin ? ` au ${quand(d.fin)}` : ' (en cours)'}\nProjets : ${nomsDesProjets(d.projets)}\n`;
-  const corps = d.echanges.map((e) => `${e.role === 'user' ? 'Utilisateur' : 'Assistant'} : ${e.texte}`).join('\n');
+  const corps = d.echanges.map((e) => `${e.role === 'user' ? 'Utilisateur' : e.role === 'information' ? 'Assistant (bulle affichée)' : 'Assistant'} : ${e.texte}`).join('\n');
   return `${tete}\n${corps}`;
 }
 
@@ -204,6 +217,52 @@ export function chercherDiscussionsPourLaVoix(demande: string, o: { projectId?: 
 export function derniersEchanges(numero: number, signes = 600): string {
   const d = lireDiscussion(numero);
   if (!d) return '';
-  const texte = d.echanges.map((e) => `${e.role === 'user' ? 'Toi' : 'Jarvis'} : ${e.texte}`).join(' / ');
+  const texte = d.echanges.map((e) => `${quiParle(e.role)} : ${e.texte}`).join(' / ');
   return texte.length > signes ? `…${texte.slice(-signes)}` : texte;
+}
+
+/* ------------------------------------------------------------------ */
+/* L'historique des bulles et le récit des derniers jours (23/11/2026)  */
+/* ------------------------------------------------------------------ */
+
+export interface TourDHistorique {
+  /** L'identifiant du tour (croissant dans toute la table : il sert de curseur). */
+  id: number;
+  discussion: number;
+  /** Le début de sa discussion : la ligne de date de la pile. */
+  debut: number;
+  quand: number;
+  role: string;
+  texte: string;
+}
+
+/**
+ * UNE PAGE DE L'HISTORIQUE DES BULLES (décision de l'utilisateur, 23/11/2026 : « quand je remonte, ça charge les
+ * précédentes bulles ») : les tours des discussions de cet agent, du plus récent au plus ancien, avant le tour
+ * `avant` (exclu). `sauf` écarte les tours de l'appel en cours (sa discussion, depuis son ouverture) : ils vivent déjà
+ * dans la pile — une reprise rouvre la même discussion, dont le début reste, lui, dans l'historique. Un appel où
+ * l'utilisateur n'a rien dit (le salut seul, une ouverture par erreur) n'encombre pas la pile.
+ * Rendue dans l'ordre CHRONOLOGIQUE ; `fin` dit qu'il n'y a plus rien au-dessus.
+ */
+export function pageDHistorique(agentId: string, o: { avant?: number; limite?: number; sauf?: { discussion: number; depuis: number } } = {}): { tours: TourDHistorique[]; fin: boolean } {
+  const limite = Math.max(1, Math.min(200, o.limite ?? TOURS_PAR_PAGE_D_HISTORIQUE));
+  const lignes = getDb()
+    .prepare(
+      `SELECT t.id, t.discussion_id AS discussion, d.debut, t.quand, t.role, t.texte
+         FROM discussions_vocales_tours t JOIN discussions_vocales d ON d.id = t.discussion_id
+        WHERE d.agent_id = ? AND t.id < ? AND NOT (d.id = ? AND t.quand >= ?)
+          AND EXISTS (SELECT 1 FROM discussions_vocales_tours u WHERE u.discussion_id = d.id AND u.role = 'user')
+        ORDER BY t.id DESC LIMIT ?`,
+    )
+    .all(agentId, o.avant ?? Number.MAX_SAFE_INTEGER, o.sauf?.discussion ?? -1, o.sauf?.depuis ?? 0, limite + 1) as TourDHistorique[];
+  const fin = lignes.length <= limite;
+  return { tours: lignes.slice(0, limite).reverse(), fin };
+}
+
+/** Les discussions de cet agent ouvertes dans la fenêtre du récit (72 h), avec leurs échanges. */
+export function discussionsDesDerniersJours(agentId: string, maintenant = Date.now()): { id: string; debut: number; echanges: { quand: number; role: string; texte: string }[] }[] {
+  const ids = getDb()
+    .prepare('SELECT id FROM discussions_vocales WHERE agent_id = ? AND tours > 0 AND debut >= ? ORDER BY id DESC LIMIT 40')
+    .all(agentId, maintenant - FENETRE_DU_RECIT_MS) as { id: number }[];
+  return ids.map((l) => lireDiscussion(l.id)).filter((d): d is NonNullable<typeof d> => !!d);
 }

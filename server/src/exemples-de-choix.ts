@@ -58,7 +58,7 @@ import { getDb } from './db.js';
 type NatureDExemple = (typeof NATURES_D_EXEMPLE)[number];
 import * as store from './store.js';
 import { joindreUnFichier } from './joindre-fichier.js';
-import { annoncerUnMedia, terminerUnMedia } from './medias-en-fabrication.js';
+import { annoncerUnMedia, retirerUnMedia, terminerUnMedia } from './medias-en-fabrication.js';
 import { log } from './logger.js';
 
 export interface ContexteDExemple {
@@ -545,7 +545,10 @@ export async function fabriquerLesExemples(ctx: ContexteDExemple, args: Record<s
   const fermer = (i: number, fin: { piece?: string | null; echec?: string }) => {
     if (fermes.has(i)) return;
     fermes.add(i);
-    terminerUnMedia(blocs[i].id, fin.piece ? { attachmentId: fin.piece, legende: phraseDe(i) } : { echec: fin.echec ?? 'exemple non fabriqué' });
+    /* UN EXEMPLE RATÉ NE S'AFFICHE PAS (décision du 23/11/2026, capture #cc2e) : son bloc est RETIRÉ du fil, jamais
+       refermé en tuile d'échec. La raison reste dans le texte rendu à l'agent (`lignes`). */
+    if (fin.piece) terminerUnMedia(blocs[i].id, { attachmentId: fin.piece, legende: phraseDe(i) });
+    else retirerUnMedia(blocs[i].id);
   };
   const dossier = dossierDeTravail();
   const lignes: string[] = [];

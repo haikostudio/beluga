@@ -258,15 +258,25 @@ const FENETRE_ENVOI_REJOUE_MS = 60_000;
  * Le travail d'une carte « Archivé » avec sa date de mise en ligne est publié :
  * on ne le réécrit pas sur place (`messageOuvreUneNouvelleCarte`). Le texte et
  * les pièces jointes du message ouvrent donc une carte neuve du même projet —
- * elle naît dans « Planifié », comme celle du « + » —, dont le cadrage reçoit
- * le message exactement comme un premier message tapé dans une carte vide.
- * RIEN NE PART AU MOTEUR AVANT LE LANCEMENT : c'est un tour de cadrage.
+ * elle naît dans « Planifié », comme celle du « + ». Depuis le 23/11/2026, le
+ * message n'y est plus ENVOYÉ : texte et pièces sont posés dans le champ de son
+ * agent de cadrage (`draft.<agent>` / `draftAttachments.<agent>`), et rien ne
+ * démarre tant que l'utilisateur n'a pas envoyé lui-même.
  *
  * L'ancienne carte n'est pas touchée, hors une note qui pointe vers la
  * nouvelle (une proposition déjà acceptée, que le fil affiche comme un lien).
  * Un envoi rejoué dans la minute rend la même carte au lieu d'en créer une
  * autre. Le verrou de publication est vérifié par l'appelant, AVANT.
  */
+/** Le brouillon du champ d'un agent : mêmes réglages que ceux qu'écrit le champ d'écriture, diffusés à tous les écrans. */
+export function poserLeBrouillonDeLaNouvelleCarte(agentId: string, texte: string, attachments: readonly string[]): void {
+  const pieces = attachments.map((id) => store.getAttachment(id)).filter((piece) => !!piece);
+  const reglages: Record<string, unknown> = { [`draft.${agentId}`]: texte };
+  if (pieces.length) reglages[`draftAttachments.${agentId}`] = pieces;
+  for (const [cle, valeur] of Object.entries(reglages)) store.writePreference(cle, valeur);
+  bus.emit({ type: 'prefs', prefs: reglages, partiel: true });
+}
+
 export async function ouvrirUneNouvelleCarteDepuis(
   agentId: string,
   texte: string,
@@ -299,7 +309,7 @@ export async function ouvrirUneNouvelleCarteDepuis(
       agentId,
       role: 'assistant',
       content:
-        "Cette carte est déjà en ligne : je ne la modifie pas sur place. Votre message a ouvert une nouvelle carte, qui suit tout le parcours.",
+        "Cette carte est déjà en ligne : je ne la modifie pas sur place. Votre message vous attend dans une nouvelle carte : relisez-le et envoyez-le pour lancer son parcours.",
       proposals: [
         {
           id: store.newId(),
@@ -314,8 +324,9 @@ export async function ouvrirUneNouvelleCarteDepuis(
   );
   bus.emit({ type: 'message.upsert', message: note });
 
-  void sendPrompt(cadrage.id, texte, { attachments }).catch((err) =>
-    log.error(`le cadrage de la carte ouverte depuis « ${mere.title} » n'a pas pu partir`, err),
-  );
+  /* RIEN NE PART (décision du 23/11/2026) : le message et ses pièces sont posés dans le CHAMP de la
+     nouvelle carte — le brouillon de son agent de cadrage, comme si on venait de les y écrire. Aucun tour
+     ne démarre : l'utilisateur relit, complète et envoie lui-même. */
+  poserLeBrouillonDeLaNouvelleCarte(cadrage.id, texte, attachments);
   return card;
 }

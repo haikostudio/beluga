@@ -277,6 +277,7 @@ export * from './reprise-moteur.js';
 export * from './agent-unique-de-carte.js';
 export * from './routage-vocal.js';
 export * from './voix-directe.js';
+export * from './jarvis-dans-ses-bulles.js';
 export * from './dossier-de-la-voix.js';
 export * from './nouvelles-de-jarvis.js';
 export * from './morphing-du-bord.js';

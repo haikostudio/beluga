@@ -65,6 +65,11 @@ import {
   type NouvellesDites,
   INTITULE_DE_LA_VOIX,
   Message,
+  annonceUnAffichage,
+  CORRECTION_D_AFFICHAGE_PRETENDU,
+  ecritureDemandee,
+  fermetureGardeLeTravail,
+  recitDesDerniersJours,
   type Agent,
   type CompteUtilisateur,
   type ProjetJoignable,
@@ -231,6 +236,15 @@ interface Session {
   travail?: TravailDuCerveau;
   /** Un point d'avancement vient d'être passé : la prochaine phrase de la voix est ce point, pas la réponse. */
   pointEnAttente?: boolean;
+  /**
+   * CE QUI S'EST AFFICHÉ DEPUIS LA DERNIÈRE PHRASE DE L'UTILISATEUR (23/11/2026) : une bulle d'information, une
+   * production, un geste d'écran réussi. Sans rien de tout ça, une annonce « je te les ai mis » est reprise
+   * (`CORRECTION_D_AFFICHAGE_PRETENDU`), une seule fois par phrase de l'utilisateur.
+   */
+  affichageDuTour?: boolean;
+  correctionDuTour?: boolean;
+  /** La dernière parole de l'utilisateur, dite OU touchée dans une bulle : elle seule autorise une écriture. */
+  derniereParole?: string;
   /** Rouverte après un travail fait pendant la veille : Jarvis dit ce résultat au lieu de saluer (20/11/2026). */
   travailARapporter?: { resultat: string; fini: boolean };
 }
@@ -420,9 +434,14 @@ async function prendreLaReserve(agentId: string): Promise<Reserve | null> {
  * Pour les tests : une session vocale FACTICE (sans Codex) qui reçoit les notifications comme une vraie, et le
  * moyen de la retirer. Sert à prouver qu'une phrase ne fait plus chercher Beluga d'office.
  */
-export function sessionDEssai(agentId: string, discussion: number): { notifier: (method: string, params: Record<string, unknown>) => void; retirer: () => void } {
+export function sessionDEssai(
+  agentId: string,
+  discussion: number,
+  appels?: { methode: string; params: any }[],
+): { notifier: (method: string, params: Record<string, unknown>) => void; retirer: () => void } {
   const fausse = {
-    tour: `essai-${agentId}`, agentId, compteId: 'essai', serveur: { fermer() {}, appeler: async () => ({}) } as unknown as AppServer,
+    tour: `essai-${agentId}`, agentId, compteId: 'essai',
+    serveur: { fermer() {}, estFerme: () => false, appeler: async (methode: string, params: any) => (appels?.push({ methode, params }), {}) } as unknown as AppServer,
     threadId: 'essai', discussion, voix: 'essai', enCours: { user: '', assistant: '' }, transcription: [], destinataire: 'essai', cwd: os.tmpdir(),
     sourcesEnAttente: 0, projetsEnAttente: [], appelEnAttente: false, prenom: '', salue: true, salutVoulu: false, arret: false, ouverteLe: Date.now(),
   } satisfies Session;
@@ -448,6 +467,7 @@ export function poserLOuvertureVocalePourEssai(valeur: { agentId: string; tour: 
 export function messageDeLaSessionVocale(agentId: string, tour: string | undefined): string | undefined {
   const courante = session && session.agentId === agentId && session.tour === tour ? session : detachee?.session.agentId === agentId && detachee.session.tour === tour ? detachee.session : null;
   if (!courante) return undefined;
+  courante.affichageDuTour = true;
   /* Appelée à CHAQUE production : l'écran la pose dans les bulles du mode vocal (plus de volet, 20/11/2026). */
   if (courante.messageId && store.getMessage(courante.messageId)) {
     bus.emit({ type: 'voix.direct.production', agentId, messageId: courante.messageId });
@@ -1050,6 +1070,9 @@ export async function demarrerLeDirect(
  * reprenant le fil (`saluerLeDirect`). Un seul travail détaché à la fois, borné à `PLAFOND_DU_TRAVAIL_EN_VEILLE_MS`.
  */
 export async function arreterLeDirect(raison?: string, o: { garderLeTravail?: boolean } = {}): Promise<{ ok: true; detache?: boolean }> {
+  /* LE BOUTON ARRÊTER COUPE TOUT, LE RESTE GARDE LE TRAVAIL (décision de l'utilisateur, 23/11/2026) : la règle se
+     juge ICI aussi, sur la raison — un écran d'avant qui ne disait « garder » que pour silence et veille est suivi. */
+  o = { garderLeTravail: o.garderLeTravail === true || (raison !== undefined && fermetureGardeLeTravail(raison)) };
   const courante = session;
   if (!courante) return { ok: true };
   courante.arret = true;
@@ -1103,6 +1126,7 @@ export async function repondreALaConfirmation(id: string, reponse: string): Prom
   const courante = session;
   if (!posee || !courante || courante.agentId !== posee.agentId || courante.arret) return { ok: false };
   bus.emit({ type: 'voix.direct.question', id, agentId: posee.agentId, question: '', choix: posee.choix, reponse });
+  courante.derniereParole = reponse;
   await courante.serveur
     .appeler('thread/realtime/appendText', { threadId: courante.threadId, text: `L’utilisateur a répondu en touchant l’écran : « ${reponse} ». Continue d’après cette réponse.`, role: 'developer' }, 5000)
     .catch((err) => log.warn(`direct vocal : la réponse touchée n’a pas pu partir — ${(err as Error).message}`));
@@ -1294,6 +1318,9 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       courante.transcription.push({ role, texte });
       // La phrase devient celle des étapes à venir ; RIEN n'est cherché tant que le cerveau ne le demande pas.
       if (role === 'user') {
+        courante.derniereParole = texte;
+        courante.affichageDuTour = false;
+        courante.correctionDuTour = false;
         ouvrirLaPhrase(courante, texte);
         // Une nouvelle phrase de l'utilisateur : les nouvelles du travail précédent s'arrêtent.
         finirLeTravail(courante);
@@ -1304,6 +1331,7 @@ function traiterLaNotification(courante: Session, n: Notification): void {
       if (role === 'assistant') {
         courante.pointEnAttente = false;
         if (courante.travail) courante.travail.dites.derniereParoleLe = Date.now();
+        reprendreUnAffichagePretendu(courante, texte);
       }
       bus.emit({ type: 'voix.direct.tour', role, texte, final: true, projets: projets.map(nomDuProjet), ...(sources ? { sources } : {}), ...(avancement ? { avancement: true } : {}) });
       return;
@@ -1387,6 +1415,12 @@ function traiterLaNotification(courante: Session, n: Notification): void {
     }
     case 'thread/realtime/closed': {
       if (courante.arret) return;
+      /* LA LIGNE TOMBE PENDANT UN TRAVAIL (page rechargée sans avoir pu prévenir, réseau coupé — 23/11/2026) : c'est
+         une fermeture automatique, le cerveau finit son travail comme pendant la veille. */
+      if (courante.travail && !courante.serveur.estFerme()) {
+        void arreterLeDirect(`ligne fermée (${String(p.reason ?? 'sans raison')})`);
+        return;
+      }
       clore(courante);
       annoncer('arrete', { message: p.reason && p.reason !== 'requested' ? `Le direct s’est fermé (${p.reason}).` : undefined });
       return;
@@ -1432,4 +1466,120 @@ export async function extraitDeVoix(offre: string, voixDemandee: string): Promis
     serveur.fermer();
     throw new Error(erreurLisible((err as Error).message));
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Jarvis parle dans ses bulles (carte du 23/11/2026)                   */
+/* ------------------------------------------------------------------ */
+
+/** La session vocale de cet agent, ouverte ou détachée (travail pendant la veille). */
+function sessionDe(agentId: string): Session | null {
+  if (session && session.agentId === agentId && !session.arret) return session;
+  if (detachee && detachee.session.agentId === agentId) return detachee.session;
+  return null;
+}
+
+/**
+ * « voix_montrer » : UNE BULLE D'INFORMATION au-dessus de la bulle vocale (décision de l'utilisateur, 22/11/2026 :
+ * liens, tableaux et informations passent par les bulles posées au-dessus de Jarvis). L'écran la rend en Markdown ;
+ * elle est gardée dans la discussion (rôle « information ») pour se retrouver en remontant la pile, et dans les
+ * souvenirs. Le résultat ne dit « affichée » qu'une fois l'événement parti.
+ */
+export function montrerUneInformation(agentId: string, titre: string, contenu: string): { ok: boolean; text: string } {
+  const courante = sessionDe(agentId);
+  const net = contenu.replace(/\r/g, '').trim().slice(0, 3800);
+  const tete = titre.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!net) return { ok: false, text: 'Rien à montrer : donne le « contenu » (Markdown : liens, tableau, liste).' };
+  if (!courante) return { ok: false, text: 'Aucune conversation vocale ouverte : rien ne peut s’afficher dans les bulles.' };
+  const id = crypto.randomBytes(6).toString('hex');
+  bus.emit({ type: 'voix.direct.information', id, agentId, titre: tete, contenu: net, le: Date.now() });
+  courante.affichageDuTour = true;
+  discussions.ajouterTour(courante.discussion, 'information', tete ? `**${tete}**\n\n${net}` : net);
+  courante.transcription.push({ role: 'assistant', texte: `[bulle affichée] ${tete} ${net}`.slice(0, 600) });
+  return { ok: true, text: 'Affiché à l’écran, dans une bulle d’information juste au-dessus de ta bulle vocale. Dis-le en une phrase courte (« c’est dans la bulle juste au-dessus »), sans relire son contenu.' };
+}
+
+/**
+ * « voix_souvenirs » : LE RÉCIT DES TROIS DERNIERS JOURS, relu LOCALEMENT avant toute recherche qui consomme du quota
+ * (décision de l'utilisateur, 23/11/2026). Avec « demande » : les discussions des trois jours qui en parlent, puis
+ * tout l'historique si rien ne sort — par les racines des mots, jamais par le sens (mesuré et écarté le 18/11/2026,
+ * voir `discussions-vocales.ts`).
+ */
+export function souvenirsDesDerniersJours(agentId: string, demande?: string): { ok: boolean; text: string } {
+  try {
+    const recentes = discussions.discussionsDesDerniersJours(agentId);
+    const voulue = (demande ?? '').trim();
+    if (voulue) {
+      const trouvees = discussions.chercherDiscussionsPourLaVoix(voulue, { limite: 5 });
+      const recentesTrouvees = trouvees.filter((d) => recentes.some((r) => r.id === d.id));
+      const retenues = (recentesTrouvees.length ? recentesTrouvees : trouvees)
+        .map((d) => discussions.lireDiscussion(d.numero))
+        .filter((d): d is NonNullable<typeof d> => !!d);
+      if (retenues.length) {
+        const recit = recitDesDerniersJours(retenues, Date.now(), undefined, recentesTrouvees.length ? undefined : Number.POSITIVE_INFINITY);
+        return { ok: true, text: `CE QUI A ÉTÉ DIT SUR « ${voulue} »${recentesTrouvees.length ? ' ces trois derniers jours' : ' (plus ancien que trois jours)'} :\n${recit}\n\nSi ça ne suffit pas, « voix_dossier ».` };
+      }
+    }
+    const recit = recitDesDerniersJours(recentes);
+    if (!recit) return { ok: true, text: 'Aucune discussion ces trois derniers jours. Si la demande l’exige, « voix_dossier ».' };
+    return { ok: true, text: `VOS DISCUSSIONS DES TROIS DERNIERS JOURS (la plus récente d’abord) :\n${recit}\n\nSi ça ne répond pas à la demande, « voix_dossier ».` };
+  } catch (err) {
+    return { ok: false, text: `Récit illisible : ${(err as Error).message}` };
+  }
+}
+
+/**
+ * ÉCRIRE DANS UN CHAMP OU UNE CARTE N'EST PERMIS QUE DEMANDÉ (décision de l'utilisateur, 22/11/2026, après DISC-0062
+ * où Jarvis a réécrit le champ et effacé les captures). Rend vrai quand la dernière parole de l'utilisateur —
+ * dite ou touchée — le demande. Hors voix (aucune session), rien n'est bloqué ici.
+ */
+export function ecritureAutorisee(agentId: string): boolean {
+  const courante = sessionDe(agentId);
+  if (!courante) return true;
+  return ecritureDemandee(courante.derniereParole);
+}
+
+/** Jarvis annonce un affichage qui n'a pas eu lieu : Beluga le reprend, une fois par phrase de l'utilisateur. */
+function reprendreUnAffichagePretendu(courante: Session, texte: string): void {
+  if (courante.affichageDuTour || courante.correctionDuTour || !annonceUnAffichage(texte)) return;
+  courante.correctionDuTour = true;
+  log.info(`direct vocal : affichage annoncé sans bulle (« ${texte.replace(/\s+/g, ' ').slice(0, 80)} ») — correction passée à la voix`);
+  courante.serveur
+    .appeler('thread/realtime/appendText', { threadId: courante.threadId, text: CORRECTION_D_AFFICHAGE_PRETENDU, role: 'developer' }, 5000)
+    .catch((err) => log.warn(`direct vocal : la correction d’affichage n’a pas pu partir — ${(err as Error).message}`));
+}
+
+/**
+ * CHAQUE OUTIL DE JARVIS LAISSE SA LIGNE AU JOURNAL (23/11/2026 : pour DISC-0062, impossible de savoir ce qu'il avait
+ * tenté). Le nom, l'action ou le geste, l'issue et la raison courte d'un refus — jamais le contenu.
+ */
+export function tracerLOutilDeLaVoix(agentId: string, nom: string, args: Record<string, unknown>, resultat: { ok: boolean; text?: string }): void {
+  const action = typeof args.action === 'string' ? args.action : typeof args.geste === 'string' ? args.geste : '';
+  const gestes = Array.isArray(args.gestes) ? (args.gestes as { action?: unknown }[]).map((g) => String(g?.action ?? '')).filter(Boolean) : [];
+  const detail = [action, gestes.length ? `gestes ${gestes.join('+')}` : ''].filter(Boolean).join(', ');
+  const issue = resultat.ok ? 'ok' : /^refus/i.test(resultat.text ?? '') ? 'refusé' : 'erreur';
+  const raison = resultat.ok ? '' : ` — ${(resultat.text ?? '').replace(/\s+/g, ' ').slice(0, 100)}`;
+  log.info(`direct vocal : outil ${nom}${detail ? ` (${detail})` : ''} → ${issue}${raison}`);
+  /* Un geste d'écran réussi montre quelque chose : il compte comme un affichage du tour. */
+  if (resultat.ok && (nom === 'assistant_ecran' || nom === 'voix_montrer')) {
+    const courante = sessionDe(agentId);
+    if (courante) courante.affichageDuTour = true;
+  }
+}
+
+/** Le travail détaché en cours, pour l'écran qui (re)charge : le bouton du bord tourne aussitôt (23/11/2026). */
+export function etatDuTravailEnVeille(): { agentId: string | null } {
+  const t = travailEnVeille();
+  return { agentId: t && !t.fini ? t.agentId : null };
+}
+
+/**
+ * UNE PAGE DE L'HISTORIQUE DES BULLES (23/11/2026). L'agent est celui de l'assistant par défaut ; la discussion de
+ * l'appel en cours (ou détaché) est écartée : elle vit déjà dans la pile.
+ */
+export function historiqueDesBulles(agentId: string | undefined, avant?: number, limite?: number) {
+  const agent = agentId || agentAssistantGlobal()?.id || '';
+  if (!agent) return { tours: [], fin: true };
+  const courante = sessionDe(agent);
+  return discussions.pageDHistorique(agent, { avant, limite, ...(courante ? { sauf: { discussion: courante.discussion, depuis: courante.ouverteLe } } : {}) });
 }

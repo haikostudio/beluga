@@ -6010,6 +6010,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
     case 'voix.direct.arreter': {
       const { arreterLeDirect } = await import('./voix-directe.js');
+      // La raison décide aussi côté démon (`fermetureGardeLeTravail`) : seul le bouton Arrêter coupe le travail.
       return arreterLeDirect(cmd.raison, { garderLeTravail: cmd.garderLeTravail === true });
     }
     case 'voix.direct.repondre': {
@@ -6024,6 +6025,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'voix.direct.preparer': {
       const { preparerLeDirect } = await import('./voix-directe.js');
       return preparerLeDirect();
+    }
+    case 'voix.historique': {
+      const { historiqueDesBulles } = await import('./voix-directe.js');
+      return historiqueDesBulles(cmd.agentId, cmd.avant, cmd.limite);
+    }
+    case 'voix.direct.travail': {
+      const { etatDuTravailEnVeille } = await import('./voix-directe.js');
+      return etatDuTravailEnVeille();
     }
     case 'voix.direct.voix': {
       const { voixDuDirect } = await import('./voix-directe.js');

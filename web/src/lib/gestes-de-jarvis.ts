@@ -13,6 +13,7 @@
  */
 import { client } from './client';
 import { t } from './langue';
+import { texteApresAjout } from '@beluga/shared';
 
 /** L'identifiant de cet onglet, le temps de sa vie : c'est à lui seul que le démon envoie les gestes. */
 export const ID_DE_L_ONGLET = `onglet-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
@@ -281,14 +282,28 @@ function champTapable(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/** Tape un texte dans un champ que React tient : le réglage natif de la valeur, puis l'événement « input ». */
+/**
+ * Tape un texte dans un champ que React tient : le réglage natif de la valeur, puis l'événement « input ».
+ * À LA SUITE DANS UNE ZONE D'ÉCRITURE (décision de l'utilisateur, 22/11/2026, après DISC-0062 où la saisie avait
+ * remplacé le champ entier et effacé les pastilles des captures) : ce qui s'y trouve reste, le texte s'ajoute après
+ * (`texteApresAjout`). Un champ d'une seule ligne se remplace.
+ */
 async function taper(cible: HTMLElement, texte: string): Promise<void> {
   const el = champTapable(cible);
   if (!el) throw new Error(t('Ce que je vise n’est pas un champ où écrire.'));
   el.focus({ preventScroll: true });
   if (el.isContentEditable) {
-    document.execCommand('selectAll');
-    document.execCommand('insertText', false, texte);
+    // Le curseur va à la FIN, rien n'est sélectionné : l'insertion s'ajoute, elle ne remplace pas.
+    const selection = window.getSelection();
+    if (selection) {
+      const plage = document.createRange();
+      plage.selectNodeContents(el);
+      plage.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(plage);
+    }
+    const deja = (el.textContent ?? '').trim();
+    document.execCommand('insertText', false, deja ? `\n${texte}` : texte);
     return;
   }
   const champ = el as HTMLInputElement | HTMLTextAreaElement;
@@ -299,13 +314,18 @@ async function taper(cible: HTMLElement, texte: string): Promise<void> {
     else champ.value = v;
     champ.dispatchEvent(new Event('input', { bubbles: true }));
   };
+  /* À LA SUITE dans une ZONE D'ÉCRITURE (plusieurs lignes : messages, demandes, pastilles des captures) ; un petit
+     champ d'UNE ligne (adresse, recherche, réglage) se remplace, comme on le retape à la main — il ne porte jamais de
+     pastille « [fichier: …] » (contrôle `verif-gestes-jarvis` : deux adresses collées faisaient échouer le geste). */
+  const multiligne = champ instanceof HTMLTextAreaElement;
+  const avant = multiligne ? champ.value : '';
   // Lettre par lettre, mais vite : une vingtaine d'étapes au plus, quelle que soit la longueur.
   const pas = Math.max(1, Math.ceil(texte.length / 24));
   for (let i = pas; i < texte.length; i += pas) {
-    ecrire(texte.slice(0, i));
+    ecrire(texteApresAjout(avant, texte.slice(0, i), multiligne));
     await attendre(dureeDuTrajet() ? PAUSES_DES_GESTES.lettre : 0);
   }
-  ecrire(texte);
+  ecrire(texteApresAjout(avant, texte, multiligne));
   champ.dispatchEvent(new Event('change', { bubbles: true }));
 }
 

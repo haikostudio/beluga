@@ -335,10 +335,11 @@ export function Composer({
   /* UN PROJET ARCHIVÉ SE LIT, IL NE LANCE RIEN (`shared/src/archivage-projet.ts`) : le champ le dit, le serveur refuse. */
   const projetArchive = projetFigeParLArchive(state.projects.find((p) => p.id === (agent?.projectId ?? projectId)));
   /* UNE CARTE DÉJÀ EN LIGNE NE SE MODIFIE PAS SUR PLACE : un message qu'on y
-     écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`) — mais
-     seulement sur ACCORD : l'envoi garde le texte et demande « Ouvrir une
-     nouvelle carte » (`accordNouvelleCarte`). Le champ le dit, et l'envoi
-     n'affiche pas d'écho « Demande envoyée » ici. JAMAIS dans le volet d'un
+     écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`), d'office
+     depuis le 23/11/2026 — plus de barre d'accord : l'envoi EST le geste. Le
+     message n'y part pas : il est posé dans le champ de la nouvelle carte, qui
+     s'ouvre, et rien ne démarre. Le champ le dit, et l'envoi n'affiche pas
+     d'écho « Demande envoyée » ici. JAMAIS dans le volet d'un
      agent de volet (Studio, Marketing, surveillance, sauvegardes) : on lui
      écrit, il répond (`estAgentDeVolet`). */
   const carteDuChamp = state.cards[agent?.cardId ?? cardId ?? ''];
@@ -348,9 +349,6 @@ export function Composer({
     !!carteDuChamp &&
     messageOuvreUneNouvelleCarte(carteDuChamp) &&
     !estAgentDeVolet(agent, carteDuChamp);
-  /** L'utilisateur a tenté d'envoyer sous une carte en ligne : on attend son accord. */
-  const [accordNouvelleCarte, setAccordNouvelleCarte] = React.useState(false);
-  React.useEffect(() => setAccordNouvelleCarte(false), [agent?.id, ouvreUneNouvelleCarte]);
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<EditionDeMessage | null>(null);
@@ -1759,7 +1757,7 @@ export function Composer({
     return true;
   };
 
-  const submit = async (asProposal = false, accord = false) => {
+  const submit = async (asProposal = false) => {
     /* En cours de modification, le bouton d'envoi enregistre la modification.
        `ok` dit l'issue au bouton : une modification restée dans le champ n'y
        pose pas de coche. */
@@ -1786,13 +1784,6 @@ export function Composer({
       client.pushToast('warning', t('Projet archivé : désarchivez-le d’abord pour lancer un agent ou une mise en ligne.'));
       return;
     }
-    /* AUCUNE CARTE SANS CLIC (MEM-0354) : sous une carte déjà en ligne, l'envoi
-       ne part pas, le texte reste dans le champ, et la barre demande l'accord. */
-    if (ouvreUneNouvelleCarte && !asProposal && !accord) {
-      if (text.trim()) setAccordNouvelleCarte(true);
-      return;
-    }
-    setAccordNouvelleCarte(false);
 
     /*
      * L'ESPACE INSÉCABLE DES TAGS NE SORT PAS DU CHAMP DE SAISIE. Il n'est là
@@ -1858,10 +1849,10 @@ export function Composer({
         agentId: agent.id,
         text: body,
         attachments: jointesEnvoyees.map((a) => a.id),
-        ...(ouvreUneNouvelleCarte && accord ? { ouvrirNouvelleCarte: true } : {}),
+        ...(ouvreUneNouvelleCarte ? { ouvrirNouvelleCarte: true } : {}),
       });
       if (reponse?.nouvelleCarteId) {
-        client.pushToast('success', t('Nouvelle carte créée : votre demande y suit son parcours.'));
+        client.pushToast('success', t('Nouvelle carte créée : votre message vous y attend, prêt à envoyer.'));
         client.openCard(reponse.nouvelleCarteId);
       }
     } catch (err: any) {
@@ -2071,23 +2062,6 @@ export function Composer({
       {/* `data-rangee-principale` : clavier ouvert, c'est elle qui cède la
           hauteur si la barre ne tient plus, jamais le champ (`styles.css`). */}
       {boutonPrincipal ? <div className="mb-2" data-rangee-principale>{boutonPrincipal}</div> : null}
-
-      {/* L'ACCORD AVANT UNE NOUVELLE CARTE : le message attend dans le champ. */}
-      {accordNouvelleCarte && ouvreUneNouvelleCarte ? (
-        <div data-accord-nouvelle-carte className="mb-1.5 rounded-lg bg-raised px-3 py-2 text-[13px]">
-          <p className="text-muted">
-            {t('Cette carte est déjà en ligne : votre message ouvrira une nouvelle carte, qui suivra tout le parcours.')}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button variant="default" size="sm" onClick={() => submit(false, true)}>
-              {t('Ouvrir une nouvelle carte')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setAccordNouvelleCarte(false)}>
-              {t('Annuler')}
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {/* LA COUPURE SE DIT AU CHAMP LUI-MÊME : verrouillé, il explique pourquoi,
           et rassure — rien de ce qui est écrit ou joint n'est perdu. */}
@@ -2420,7 +2394,7 @@ export function Composer({
               : enPublication
                 ? t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.')
               : ouvreUneNouvelleCarte
-                ? t('Cette carte est en ligne — un message vous proposera d’ouvrir une nouvelle carte…')
+                ? t('Cette carte est en ligne — votre message ouvrira une nouvelle carte, sans rien lancer…')
               : /*
                  * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
                  * TRAVAILLER » : il attend la réponse, qui se donne DANS la

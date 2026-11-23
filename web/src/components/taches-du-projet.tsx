@@ -9,6 +9,7 @@
  * la lecture du projet n'est pas encore arrivée (`FlecheDesTaches`).
  */
 import * as React from 'react';
+import { BranchesDArbre } from '@/components/branches-d-arbre';
 import { LignesDesAgentsSansCarte, LignesDesChefsAuTravail } from '@/components/chefs-au-travail';
 import { ChevronRight, Loader2 } from '@/components/ui/icones';
 import {
@@ -149,6 +150,11 @@ export function TachesTrouvees({
  * La géométrie du rangement l'englobe (`releverGeometrie`). La lecture part au
  * dépliage et se tient ensuite à jour par les événements (`listesApresCarte`).
  */
+/** Le parent des tâches : l'icône de la ligne de projet posée juste avant la liste. */
+function iconeDeLaLigneDuDessus(conteneur: HTMLElement): Element | null {
+  return conteneur.previousElementSibling?.querySelector('[data-icone-de-branche]') ?? null;
+}
+
 export function TachesDuProjet({
   projectId,
   taches,
@@ -224,7 +230,9 @@ export function TachesDuProjet({
   };
   const [menuPour, setMenuPour] = React.useState<string | null>(null);
   return (
-    <div role="list" className="mb-1.5 ml-3 flex flex-col gap-1 pl-1" data-taches-du-projet={projectId}>
+    <div role="list" className="relative mb-1.5 ml-3 flex flex-col gap-1 pl-4" data-taches-du-projet={projectId}>
+      {/* L'ARBRE EN TIRETS (23/11/2026) : de l'icône du projet, juste au-dessus, vers chaque tâche. */}
+      <BranchesDArbre trouverLeParent={iconeDeLaLigneDuDessus} />
       {/* LES CHEFS DE COMMUNICATION DE CE PROJET, au travail ou qui attendent une réponse (03/11/2026). */}
       <LignesDesChefsAuTravail projectId={projectId} compacte />
       {/* …ET SES AGENTS SANS CARTE AU TRAVAIL : la configuration du déploiement ou de la mise en production (04/11/2026). */}

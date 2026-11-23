@@ -2495,6 +2495,7 @@ function FeuilleDeTiroir({
         data-tiroir={plein ? 'plein' : 'normal'}
         data-tiroir-empile={empile ? 'oui' : undefined}
         data-page-de-zone
+        data-page-dans-un-cadre={boite ? '' : undefined}
         data-sous-le-haut={sousLeHaut ? '' : undefined}
         onWheel={defilerDepuisLesMarges}
         /* UNE PAGE N'EST PAS UNE FENÊTRE : à l'ouverture, le focus ne saute pas

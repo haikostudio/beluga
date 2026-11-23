@@ -101,16 +101,18 @@ export function messageDeLaCarteVaAuCadrage(carte: CarteRelancable): boolean {
  * Une carte rangée dans « Archivé » avec sa date de mise en ligne ne se modifie
  * pas sur place : le travail est publié, le réécrire après coup contournerait
  * la revue et la publication. Le message devient donc la demande d'une carte
- * neuve, qui suit tout le parcours (Demande, Compréhension, Travail). Mais
- * cette carte ne naît que d'un clic (MEM-0354) : le champ d'écriture garde le
- * texte et demande « Ouvrir une nouvelle carte », et le démon refuse un envoi
- * qui n'en porte pas l'accord (`TEXTE_ACCORD_NOUVELLE_CARTE`). Une carte
+ * neuve, qui suit tout le parcours (Demande, Compréhension, Travail). Elle
+ * naît du geste d'ENVOI lui-même (décision du 23/11/2026, plus de barre
+ * d'accord), et le message n'y part pas : il est posé dans son champ, rien ne
+ * démarre. Le démon refuse encore un envoi qui ne porte pas le drapeau
+ * `ouvrirNouvelleCarte` (`TEXTE_ACCORD_NOUVELLE_CARTE`) : un écran d'avant ne
+ * crée rien en douce. Une carte
  * archivée jamais publiée n'est pas concernée ; elle ne s'ouvre que sur geste
  * humain. Un agent DE VOLET n'est jamais concerné non plus
  * (`estAgentDeVolet`) : on lui écrit, il répond.
  */
 export const TEXTE_ACCORD_NOUVELLE_CARTE =
-  'Cette carte est déjà en ligne : votre message ouvrirait une nouvelle carte. Confirmez avec « Ouvrir une nouvelle carte ».';
+  'Cette carte est déjà en ligne : rechargez la page, votre message ouvrira alors une nouvelle carte.';
 
 export function messageOuvreUneNouvelleCarte(carte: { column: ColumnKey | string; deployedAt?: number | null }): boolean {
   return carte.column === 'archived' && !!carte.deployedAt;
