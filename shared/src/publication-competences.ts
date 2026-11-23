@@ -1,67 +1,60 @@
 /**
  * LES COMPÉTENCES QUI PARTENT AVEC LE CODE DE PRODUCTION — le tri, sans disque.
  *
- * Décision de l'utilisateur (14/10/2026) : les compétences d'INTERFACE — design,
- * composants, structure des sites, tableaux de bord, formulaires… — partent
- * avec le dépôt public, pour que toute installation en profite. Le tri se fait
- * PAR THÈME, avec un CONTRÔLE AUTOMATIQUE, jamais fiche par fiche à la main.
+ * Décision de l'utilisateur (23/11/2026, carte « Élargir le dépôt public ») :
+ * TOUTES les compétences génériques partent — fonctionnement de Beluga,
+ * cahier des charges, marketing, sécurité compris. La liste blanche de thèmes
+ * du 14/10/2026 est abandonnée. UNE FICHE PART, SAUF SI :
+ *  - elle vient de Philippe Pitton / Digital Tales (licence commerciale de son
+ *    auteur) : bibliothèque `digital-tales-*`, `brain.manifest.json`, ou une
+ *    LICENSE qui le nomme — JAMAIS publiée ;
+ *  - elle est NÉE D'UN PROJET autre que l'application elle-même : champ
+ *    `projets:` ou `provenance-projet:` qui ne vaut pas `PROJET_DE_L_APPLICATION`,
+ *    ou fiche qui nuance une commune pour un projet (`etend:`) ;
+ *  - elle vient d'une bibliothèque tierce dont la licence n'est pas dans
+ *    `LICENCES_REDISTRIBUABLES` (licence lue une fois, rangée dans un tableau
+ *    versionné côté privé, jamais devinée à l'envoi) ;
+ *  - elle n'est pas active ;
+ *  - un de ses fichiers porte un nom de projet ou de client, une adresse IP
+ *    réelle, un courriel réel, un chemin personnel ou une clé.
  *
- * UNE FICHE PART SI, ET SEULEMENT SI :
- *  - elle est commune (aucun champ `projets:`), active, écrite ici (pas importée
- *    d'une bibliothèque tierce, dont la licence n'est pas la nôtre), et ne
- *    décrit pas le fonctionnement interne de Beluga (nom en `beluga-`) ;
- *  - AU MOINS UN de ses thèmes est dans `THEMES_PUBLIES` et AUCUN dans
- *    `THEMES_PRIVES` (une fiche « interface + sécurité » reste privée) ;
- *  - aucun de ses fichiers ne porte un nom de projet ou de client, une adresse
- *    de ces projets, une adresse IP réelle, un courriel réel, un chemin
- *    personnel (`/root/`, `/home/`) ou quoi que ce soit qui ressemble à une clé.
- *
- * DANS LE DOUTE, ON RETIENT : chaque refus dit sa raison, et le script de
- * synchronisation (`scripts/synchroniser-miroir-public.mjs`) les affiche toutes.
- * Les lignes `provenance-*` (carte, projet, dates) ne partent jamais : elles
- * nomment le projet d'origine.
+ * DANS LE DOUTE, ON RETIENT : chaque refus dit sa raison. Les lignes
+ * `provenance-*` ne partent jamais.
  */
 
-export const THEMES_PUBLIES = [
-  'interface',
-  'design',
-  'design-system',
-  'composants',
-  'structure',
-  'navigation',
-  'tableaux',
-  'formulaires',
-  'icones',
-  'typographie',
-  'chargement',
-  'animation',
-  'mouvement',
-  'finition',
-  'css',
+/** Le projet qui EST l'application : ses fiches sont le mode d'emploi de Beluga, elles partent. */
+export const PROJET_DE_L_APPLICATION = 'Beluga';
+
+/** Les licences qui permettent de republier, avec attribution. */
+export const LICENCES_REDISTRIBUABLES = [
+  'MIT',
+  'Apache-2.0',
+  'BSD-2-Clause',
+  'BSD-3-Clause',
+  'ISC',
+  'CC0-1.0',
+  'CC-BY-4.0',
+  'Unlicense',
+  '0BSD',
+  'AGPL-3.0',
+  'AGPL-3.0-only',
+  'AGPL-3.0-or-later',
 ] as const;
 
-/** Un seul de ces thèmes garde la fiche privée, quels que soient les autres. */
-export const THEMES_PRIVES = [
-  'securite',
-  'coffre',
-  'authentification',
-  'paiement',
-  'stripe',
-  'abonnements',
-  'publication',
-  'deploiement',
-  'serveur',
-  'beluga',
-  'cartes',
-  'agents',
-  'quotas',
-  'comptes',
-  'outils',
-  'donnees',
-  'migration',
-  'statistiques',
-  'confidentialité',
-] as const;
+/** La famille de l'auteur dont les fiches ne partent jamais (Philippe Pitton, Digital Tales). */
+const AUTEUR_RESERVE = /philippe\s+pitton|digital[\s-]+tales/i;
+
+export interface LicenceDeBibliotheque {
+  /** Identifiant SPDX lu sur le dépôt d'origine, ou `AUCUNE`. */
+  licence: string;
+  /** Adresse du dépôt d'origine. */
+  source?: string;
+}
+
+export interface OptionsDuTri {
+  /** Bibliothèque (nom du pool) → sa licence. Absente = retenue. */
+  licences?: Readonly<Record<string, LicenceDeBibliotheque>>;
+}
 
 /** Le dossier du dépôt public qui porte les compétences publiées. */
 export const DOSSIER_DES_COMPETENCES_PUBLIEES = 'competences';
@@ -73,6 +66,8 @@ export interface FicheACommuniquer {
   texte: string;
   /** Les fichiers annexes TEXTE du dossier, chemin relatif → contenu. */
   annexes?: Record<string, string>;
+  /** Les noms de TOUS les fichiers du dossier, cachés et binaires compris. */
+  fichiers?: readonly string[];
 }
 
 export interface VerdictDeCompetence {
@@ -103,12 +98,6 @@ export function texteAPublier(texte: string): string {
     .join('\n');
   return `---\n${tete}\n---${texte.slice(m[0].length)}`;
 }
-
-const listeDesThemes = (valeur: string | undefined) =>
-  (valeur ?? '')
-    .split(',')
-    .map((theme) => theme.trim().toLowerCase())
-    .filter(Boolean);
 
 /** Le motif entier, masqué au milieu : un refus ne recopie pas ce qu'il retient. */
 function masquer(trouve: string): string {
@@ -211,28 +200,44 @@ export function premierePieceSensible(
  * leurs adresses (domaines, dépôts), lus du côté privé par l'appelant — ils ne
  * sont jamais écrits dans ce fichier, qui part lui-même au public.
  */
-export function jugerCompetence(fiche: FicheACommuniquer, nomsPrives: readonly string[]): VerdictDeCompetence {
+export function jugerCompetence(
+  fiche: FicheACommuniquer,
+  nomsPrives: readonly string[],
+  options: OptionsDuTri = {},
+): VerdictDeCompetence {
   const champs = champsDeLaFiche(fiche.texte);
-  const nom = champs.name || fiche.nom;
   if (!champs.name) return { publiee: false, raison: 'fiche sans en-tête lisible' };
-  if (fiche.nom.startsWith('beluga-') || nom.startsWith('beluga-')) {
-    return { publiee: false, raison: 'fonctionnement interne de Beluga (nom en « beluga- »)' };
+  const bibliotheque = champs['provenance-bibliotheque'];
+  const licenceLocale = Object.entries(fiche.annexes ?? {}).find(([chemin]) => /^licen[cs]e/i.test(chemin.split('/').pop() ?? ''));
+  if (
+    (bibliotheque && /^digital-tales/i.test(bibliotheque)) ||
+    (fiche.fichiers ?? []).some((f) => f === 'brain.manifest.json' || f === '.forge-brain-upgrade.json') ||
+    (licenceLocale && AUTEUR_RESERVE.test(licenceLocale[1])) ||
+    AUTEUR_RESERVE.test(champs.licence ?? '')
+  ) {
+    return { publiee: false, raison: 'licence commerciale de son auteur (Philippe Pitton, Digital Tales)' };
   }
-  if (champs['provenance-bibliotheque']) {
-    return { publiee: false, raison: `importée d’une bibliothèque tierce (${champs['provenance-bibliotheque']}) : licence d’autrui` };
+  if (champs.projets) {
+    const projets = champs.projets.split(',').map((p) => p.trim()).filter(Boolean);
+    if (projets.some((p) => p !== PROJET_DE_L_APPLICATION)) return { publiee: false, raison: 'fiche propre à un projet' };
   }
-  if (champs.projets) return { publiee: false, raison: 'fiche propre à un projet' };
+  const origine = champs['provenance-projet'];
+  if (origine && origine !== PROJET_DE_L_APPLICATION) return { publiee: false, raison: 'née d’un projet client ou personnel' };
   if (champs.etend) return { publiee: false, raison: 'nuance d’une fiche commune pour un projet' };
   if (champs.etat && champs.etat !== 'active') return { publiee: false, raison: `état « ${champs.etat} »` };
 
-  const themes = listeDesThemes(champs.themes);
-  const privee = themes.find((theme) => (THEMES_PRIVES as readonly string[]).includes(theme));
-  if (privee) return { publiee: false, raison: `thème privé « ${privee} »` };
-  const publie = themes.find((theme) => (THEMES_PUBLIES as readonly string[]).includes(theme));
-  if (!publie) return { publiee: false, raison: themes.length ? `aucun thème publié (${themes.join(', ')})` : 'aucun thème' };
+  let raison = 'fiche générique, contrôle passé';
+  if (bibliotheque) {
+    const licence = options.licences?.[bibliotheque]?.licence;
+    if (!licence) return { publiee: false, raison: `bibliothèque tierce (${bibliotheque}) : licence non relevée` };
+    if (!(LICENCES_REDISTRIBUABLES as readonly string[]).includes(licence)) {
+      return { publiee: false, raison: `bibliothèque tierce (${bibliotheque}) : licence ${licence}, lien seulement` };
+    }
+    raison = `bibliothèque tierce (${bibliotheque}) sous ${licence}, contrôle passé`;
+  }
 
   const fichiers: [string, string][] = [['SKILL.md', texteAPublier(fiche.texte)], ...Object.entries(fiche.annexes ?? {})];
   const sensible = premierePieceSensible(fichiers, nomsPrives);
   if (sensible) return { publiee: false, raison: sensible };
-  return { publiee: true, raison: `thème « ${publie} », contrôle passé` };
+  return { publiee: true, raison };
 }

@@ -1,0 +1,240 @@
+#!/usr/bin/env node
+/**
+ * LE POOL DE COMPÉTENCES EST-IL VRAIMENT UN POOL ?
+ *
+ * Avant, `data/competences/` ne portait qu'UNE entrée atteignable sur seize, un
+ * seul fichier était lu par dossier, et tout ce qui n'avait pas la bonne forme
+ * était écarté EN SILENCE. On contrôle ici, sur le VRAI pool de la machine et
+ * sur un pool FABRIQUÉ (pour les cas qu'on ne peut pas provoquer sur le vrai) :
+ *
+ *   1. le pool rend TOUTES ses fiches, liens vers le coffre personnel compris ;
+ *   2. ce qui est écarté sort avec sa RAISON — plus aucun refus muet ;
+ *   3. l'ARBRE est lu : la tête d'une fiche ET ses fichiers de détail ;
+ *   4. les deux fichiers d'entrée du pool sont écrits par le démon ;
+ *   5. le briefing porte un SOMMAIRE par thème, pas une ligne par fiche ;
+ *   6. l'écriture passe le contrôle de qualité, garde la provenance d'origine
+ *      et ne sort jamais du pool ;
+ *   7. une fiche ne se supprime pas : elle se déprécie ou s'archive ;
+ *   8. chaque fiche du VRAI pool passe la porte de la mémoire (unité
+ *      « operation » du classeur global, P2/P3), et une fiche de bibliothèque
+ *      n'est jamais énumérée en tête de session.
+ *
+ *   node scripts/verif-pool-competences.mjs
+ *
+ * Le script juge le code du dépôt d'où il PART, jamais celui du dossier
+ * principal, et n'écrit RIEN dans le vrai pool : ses écritures se font dans un
+ * dossier temporaire.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * La base du démon. Lancé depuis une COPIE DE TRAVAIL, ce script y trouve un
+ * `data/` fabriqué par les tests — base vide, pool vide : on préfère donc le
+ * dossier qui porte un pool RÉELLEMENT rempli, sinon le premier qui porte une
+ * base, sinon celui du dépôt.
+ */
+function dossierDonnees() {
+  const candidats = [
+    process.env.HAIKO_COMPETENCES_DATA,
+    path.join(RACINE, 'data'),
+    path.resolve(RACINE, '..', '..', 'data'),
+  ].filter(Boolean);
+  const pooolRempli = (dossier) => {
+    try {
+      return fs.readdirSync(path.join(dossier, 'competences')).some((nom) => !nom.startsWith('.'));
+    } catch {
+      return false;
+    }
+  };
+  return (
+    candidats.find(pooolRempli) ??
+    candidats.find((d) => fs.existsSync(path.join(d, 'beluga.db'))) ??
+    path.join(RACINE, 'data')
+  );
+}
+
+const DONNEES = dossierDonnees();
+process.env.BELUGA_DATA = DONNEES;
+
+const ESSAI = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-pool-'));
+const POOL_ESSAI = path.join(ESSAI, 'pool');
+fs.mkdirSync(POOL_ESSAI, { recursive: true });
+
+const {
+  lirePool,
+  listerCompetences,
+  ecrireLaFiche,
+  changerLEtat,
+  etatDuPoolPourLEcran,
+  dossierDesCompetences,
+} = await import('../server/dist/competences.js');
+const { briefing } = await import('../server/dist/memory.js');
+const shared = await import('../shared/dist/index.js');
+
+const resultats = [];
+function noter(nom, ok, detail = '') {
+  resultats.push({ nom, ok });
+  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
+}
+
+console.log(`  …  dépôt jugé : ${RACINE}`);
+console.log(`  …  données du démon : ${DONNEES}`);
+console.log(`  …  pool réel : ${dossierDesCompetences()}`);
+
+/* --- 1. Le vrai pool rend tout ce qu'il porte --- */
+const reel = lirePool();
+noter(
+  'le pool réel rend au moins une fiche',
+  reel.fiches.length > 0,
+  reel.fiches.map((f) => f.nom).join(', ') || 'aucune',
+);
+noter(
+  'chaque fiche porte un état, des anomalies relevées et son arbre',
+  reel.fiches.every((f) => typeof f.etat === 'string' && Array.isArray(f.anomalies) && Array.isArray(f.annexes)),
+);
+
+/* --- 2 et 3. Refus dits, arbre lu — sur un pool fabriqué --- */
+fs.mkdirSync(path.join(POOL_ESSAI, 'bonne', 'references'), { recursive: true });
+fs.writeFileSync(
+  path.join(POOL_ESSAI, 'bonne', 'SKILL.md'),
+  `---\nname: bonne\ndescription: Réparer la barre d'état. À utiliser dès qu'elle reste blanche.\nthemes: mobile\nsymptomes: barre blanche\n---\n\n# bonne\n\n## Vérification\n\nOn relance.\n`,
+  'utf8',
+);
+fs.writeFileSync(path.join(POOL_ESSAI, 'bonne', 'references', 'mesures.md'), '# Mesures\n', 'utf8');
+fs.mkdirSync(path.join(POOL_ESSAI, 'sans-tete'), { recursive: true });
+fs.writeFileSync(path.join(POOL_ESSAI, 'a-plat.md'), 'une note posée à plat', 'utf8');
+
+const fabrique = lirePool(POOL_ESSAI);
+const causes = new Map(fabrique.refus.map((r) => [r.nom, r.cause]));
+noter(
+  'un dossier sans mode d’emploi et un fichier à plat sont REFUSÉS, avec leur cause',
+  causes.get('sans-tete') === 'sans-mode-d-emploi' && causes.get('a-plat.md') === 'pas-un-dossier',
+  [...causes].map(([nom, cause]) => `${nom} : ${cause}`).join(' · '),
+);
+noter(
+  'chaque refus se dit en français, jamais par un code',
+  fabrique.refus.every((r) => shared.raisonDuRefus(r).length > 20),
+);
+noter(
+  'l’ARBRE d’une fiche est lu : sa tête ET ses fichiers de détail',
+  fabrique.fiches[0]?.annexes.includes('references/mesures.md'),
+  (fabrique.fiches[0]?.annexes ?? []).join(', '),
+);
+
+/* --- 4. Un projet d'essai, pour le briefing --- */
+const PROJET = path.join(ESSAI, 'projet');
+fs.mkdirSync(path.join(PROJET, 'docs'), { recursive: true });
+fs.writeFileSync(path.join(PROJET, 'CLAUDE.md'), '# Essai\n\n## Une règle\n\nDu texte.\n', 'utf8');
+
+/* --- 5. Le briefing porte un sommaire --- */
+const texteDuBriefing = shared.texteDesCompetences(listerCompetences(POOL_ESSAI), POOL_ESSAI);
+noter(
+  'le briefing porte un SOMMAIRE par thème, pas une ligne par fiche',
+  /rangés par thème/.test(texteDuBriefing) && /mobile \(1\) : bonne/.test(texteDuBriefing),
+);
+const briefingReel = briefing(PROJET, 'Essai', false, 'codex');
+noter('le briefing d’un vrai projet annonce toujours les compétences', /COMPÉTENCES PARTAGÉES/.test(briefingReel));
+
+/* --- 6. L'écriture, gardée --- */
+const refusee = ecrireLaFiche({ nom: 'vague', description: 'trop court' }, { dossier: POOL_ESSAI });
+noter(
+  'une fiche sans vérification ni déclenchement est REFUSÉE, avec ses raisons',
+  refusee.ok === false && (refusee.raisons ?? []).length > 0,
+  (refusee.raisons ?? []).join(' ; '),
+);
+const horsPool = ecrireLaFiche(
+  { nom: '../ailleurs', description: "Sortir du pool. À utiliser jamais.", verification: 'rien' },
+  { dossier: POOL_ESSAI },
+);
+noter('un nom qui sortirait du pool est refusé', horsPool.ok === false);
+
+const creee = ecrireLaFiche(
+  {
+    nom: 'preuve',
+    description: 'Une leçon prouvée. À utiliser dès que le symptôme revient.',
+    verification: 'On rejoue le contrôle.',
+    provenance: { projet: 'Beluga Build', carte: 'c-1' },
+  },
+  { dossier: POOL_ESSAI },
+);
+noter('une fiche complète est écrite', creee.ok === true && creee.geste === 'creee');
+
+const completee = ecrireLaFiche(
+  {
+    nom: 'preuve',
+    description: 'Une leçon prouvée. À utiliser dès que le symptôme revient.',
+    verification: 'On rejoue le contrôle, puis on regarde l’écran.',
+  },
+  { dossier: POOL_ESSAI, carte: { id: 'c-2', projet: 'Autre' } },
+);
+const apresCompletion = lirePool(POOL_ESSAI).fiches.find((f) => f.nom === 'preuve');
+noter(
+  'une fiche existante est COMPLÉTÉE : provenance d’origine gardée, carte ajoutée aux renforts',
+  completee.geste === 'completee' &&
+    apresCompletion?.provenance.carte === 'c-1' &&
+    (apresCompletion?.provenance.renforceePar ?? []).includes('Autre:c-2'),
+  JSON.stringify(apresCompletion?.provenance ?? {}),
+);
+noter(
+  'les deux fichiers d’entrée sont écrits par le démon',
+  fs.existsSync(path.join(POOL_ESSAI, 'SOMMAIRE.md')) && fs.existsSync(path.join(POOL_ESSAI, 'SYMPTOMES.md')),
+);
+
+/* --- 7. Rien ne se supprime --- */
+changerLEtat('preuve', 'depreciee', POOL_ESSAI);
+const depreciee = lirePool(POOL_ESSAI).fiches.find((f) => f.nom === 'preuve');
+changerLEtat('preuve', 'archivee', POOL_ESSAI);
+const archivee = lirePool(POOL_ESSAI).fiches.find((f) => f.nom === 'preuve');
+noter(
+  'une fiche se déprécie puis s’archive, et reste sur le disque',
+  depreciee?.etat === 'depreciee' &&
+    archivee?.etat === 'archivee' &&
+    fs.existsSync(path.join(POOL_ESSAI, 'preuve', 'SKILL.md')),
+);
+noter(
+  'une fiche archivée sort du service, mais pas de l’écran',
+  !listerCompetences(POOL_ESSAI).some((f) => f.nom === 'preuve') &&
+    etatDuPoolPourLEcran(POOL_ESSAI).fiches.some((f) => f.nom === 'preuve'),
+);
+
+/* --- 8. Le VRAI pool entre dans la mémoire --- */
+// Chaque fiche du pool réel devient une unité « operation » du classeur global :
+// on vérifie ici, AVANT que le démon ne la synchronise, que la porte d'écriture
+// l'accepterait (bornes du titre, du résumé et du détail) et qu'elle reste hors
+// de l'accueil (P2/P3, jamais P0/P1).
+const reelles = lirePool().fiches;
+const refusParLaPorte = [];
+for (const fiche of reelles) {
+  let texte = '';
+  try {
+    texte = fs.readFileSync(fiche.fichier, 'utf8');
+  } catch {
+    /* une tête illisible se voit déjà au point 2 */
+  }
+  const p = shared.propositionDeLaCompetence(fiche, texte, { confiance: 0.5 });
+  const juge = shared.jugerProposition(p, { quatreQuestions: false });
+  if (!juge.ok || !['P2', 'P3'].includes(p.importance)) refusParLaPorte.push(`${fiche.nom} : ${juge.ok ? p.importance : juge.raisons.join(' ; ')}`);
+}
+noter(
+  `les ${reelles.length} fiches du vrai pool passent la porte de la mémoire, en P2/P3`,
+  reelles.length > 0 && refusParLaPorte.length === 0,
+  refusParLaPorte.join(' | '),
+);
+const deBibliotheques = reelles.filter((f) => f.bibliotheque);
+const annonceReelle = shared.texteDesCompetences(reelles, dossierDesCompetences());
+noter(
+  `les ${deBibliotheques.length} fiche(s) de bibliothèque ne sont pas énumérées en tête de session`,
+  deBibliotheques.every((f) => !new RegExp(`[:,] ${f.nom}(,|\\n|$)`).test(annonceReelle)),
+  deBibliotheques.map((f) => `${f.nom} (${f.bibliotheque})`).join(', '),
+);
+
+fs.rmSync(ESSAI, { recursive: true, force: true });
+
+const echecs = resultats.filter((r) => !r.ok);
+console.log(`\n${resultats.length - echecs.length}/${resultats.length} contrôles passés.`);
+process.exit(echecs.length ? 1 : 0);

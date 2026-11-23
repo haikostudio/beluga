@@ -1,0 +1,405 @@
+#!/usr/bin/env node
+/**
+ * Une carte peut porter une DATE de départ : elle attend dans « Planifié » et
+ * part à l'heure dite, sans clic.
+ *
+ *   node scripts/verif-depart-programme.mjs
+ *
+ * Le script monte son PROPRE démon, sur un port libre, avec une base neuve et un
+ * dossier de projets vide : le démon de production n'est pas touché.
+ *
+ * Le plafond d'agents est mis à ZÉRO : aucun quota n'est dépensé, et c'est
+ * justement ce refus-là qui PROUVE le départ. Une carte que l'ordonnanceur tente
+ * de lancer se voit écrire sa raison d'attente par les portes dures ; une carte
+ * qu'il n'a même pas regardée n'en porte aucune. La raison écrite est donc la
+ * trace du départ, sans qu'un seul tour de moteur ait été payé.
+ *
+ * Quatre cartes, quatre cas :
+ *   - heure PASSÉE           → tentée (raison écrite) ;
+ *   - heure À VENIR          → intouchée, et la carte DIT quand elle partira ;
+ *   - heure passée, SUSPENDUE → intouchée : la main l'emporte sur la date ;
+ *   - SANS date              → intouchée : rien ne change pour elle.
+ *
+ * Puis l'interface : la mention sur la carte du tableau, et le champ de l'onglet
+ * « Détails » qui pose vraiment la date en base.
+ */
+import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { demarrerDemonDEssai } from './lib/demon-d-essai.mjs';
+
+/* La racine se déduit du script LUI-MÊME : lancé depuis une copie de travail
+   (`.worktrees/…`), il doit juger le code de CETTE copie, jamais celui du
+   dossier principal — sinon il déclare bon un changement jamais exécuté. */
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const Database = createRequire(import.meta.url)('better-sqlite3');
+const PORT = Number(process.env.BELUGA_VERIF_PORT || 7196);
+const BASE = `http://127.0.0.1:${PORT}`;
+
+const resultats = [];
+const noter = (nom, ok, detail = '') => {
+  resultats.push({ nom, ok });
+  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
+};
+
+/* ------------------------------------------------------------------ */
+/* Un démon à soi                                                      */
+/* ------------------------------------------------------------------ */
+
+const { TMP, DATA, PROJETS, DEPOT, demon, journal, attendrePort } = demarrerDemonDEssai({
+  prefixe: 'verif-depart-',
+  port: PORT,
+});
+
+/* ------------------------------------------------------------------ */
+/* Le décor : quatre cartes « Planifié », une session                   */
+/* ------------------------------------------------------------------ */
+
+const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
+const jeton = crypto.randomBytes(32).toString('hex');
+const PROJET_ID = 'p-essai';
+const PROJET_NOM = 'Essai départ';
+const HEURE = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+
+const PASSEE = 'Carte d’essai — heure passée';
+const FUTURE = 'Carte d’essai — heure à venir';
+const SUSPENDUE = 'Carte d’essai — heure passée mais suspendue';
+const SANS_DATE = 'Carte d’essai — sans date';
+const TITRES = [PASSEE, FUTURE, SUSPENDUE, SANS_DATE];
+
+function poserLeDecor() {
+  const db = new Database(path.join(DATA, 'beluga.db'));
+  const maintenant = Date.now();
+
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+    sha(jeton),
+    maintenant,
+    maintenant + 3600_000,
+    'vérification départ programmé',
+  );
+
+  /* Plafond d'agents à ZÉRO : aucun tour réel, et le refus attendu au lancement. */
+  const reglages = JSON.parse(db.prepare("SELECT value FROM meta WHERE key = 'settings'").get()?.value ?? '{}');
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('settings', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+  ).run(JSON.stringify({ ...reglages, maxAgents: 0 }));
+
+  db.prepare('DELETE FROM projects').run();
+  const projet = {
+    id: PROJET_ID,
+    name: PROJET_NOM,
+    path: DEPOT,
+    defaultEngine: 'claude',
+    isSelf: false,
+    rank: 1,
+    archived: false,
+    createdAt: maintenant,
+    updatedAt: maintenant,
+  };
+  db.prepare(
+    'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
+  ).run(projet.id, projet.name, projet.path, JSON.stringify(projet), maintenant, maintenant);
+
+  const ordonnancements = {
+    [PASSEE]: { asap: false, attempts: 0, restarts: 0, departPrevu: maintenant - 5 * 60 * 1000 },
+    [FUTURE]: { asap: false, attempts: 0, restarts: 0, departPrevu: maintenant + 3 * HEURE },
+    [SUSPENDUE]: {
+      asap: false,
+      attempts: 0,
+      restarts: 0,
+      departPrevu: maintenant - 5 * 60 * 1000,
+      suspendu: true,
+    },
+    [SANS_DATE]: { asap: false, attempts: 0, restarts: 0 },
+  };
+
+  TITRES.forEach((titre, index) => {
+    const carte = {
+      id: `c-essai-${index}`,
+      projectId: PROJET_ID,
+      title: titre,
+      description: 'Carte fabriquée par le script de vérification.',
+      labels: [],
+      column: 'planned',
+      position: index + 1,
+      origin: 'user',
+      run: { engine: 'claude', thinking: 'none', mode: 'direct' },
+      scheduling: ordonnancements[titre],
+      excludedFromDeploy: false,
+      horsTache: false,
+      createdAt: maintenant,
+      updatedAt: maintenant,
+    };
+    db.prepare(
+      `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(carte.id, PROJET_ID, 'planned', carte.position, titre, JSON.stringify(carte), maintenant, maintenant);
+  });
+  db.close();
+}
+
+/** L'état d'ordonnancement de chaque carte, lu en base : titre → scheduling. */
+function ordonnancementsEnBase() {
+  const db = new Database(path.join(DATA, 'beluga.db'), { readonly: true });
+  const lignes = db.prepare('SELECT title, data FROM cards').all();
+  db.close();
+  return Object.fromEntries(
+    lignes.map((l) => {
+      let scheduling = {};
+      try {
+        scheduling = JSON.parse(l.data)?.scheduling ?? {};
+      } catch {
+        /* carte illisible */
+      }
+      return [l.title, scheduling];
+    }),
+  );
+}
+
+/** La colonne de chaque carte, lue en base : titre → clé de colonne. */
+function colonnesEnBase() {
+  const db = new Database(path.join(DATA, 'beluga.db'), { readonly: true });
+  const lignes = db.prepare('SELECT title, column_key FROM cards').all();
+  db.close();
+  return Object.fromEntries(lignes.map((l) => [l.title, l.column_key]));
+}
+
+/** Combien d'agents de carte ont été créés ? Doit rester à zéro. */
+function agentsDeCarte() {
+  const db = new Database(path.join(DATA, 'beluga.db'), { readonly: true });
+  const n = db.prepare('SELECT COUNT(*) AS n FROM agents WHERE card_id IS NOT NULL').get()?.n ?? 0;
+  db.close();
+  return n;
+}
+
+/* ------------------------------------------------------------------ */
+/* Le navigateur                                                       */
+/* ------------------------------------------------------------------ */
+
+async function ouvrirLeTableau(navigateur) {
+  const contexte = await navigateur.newContext({
+    viewport: { width: 1400, height: 900 },
+    locale: 'fr-CH',
+    serviceWorkers: 'block',
+  });
+  await contexte.addCookies([
+    { name: 'beluga_session', value: jeton, url: BASE, httpOnly: true, sameSite: 'Lax' },
+  ]);
+  const page = await contexte.newPage();
+  const erreurs = [];
+  page.on('pageerror', (e) => erreurs.push(String(e)));
+  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(6000);
+  const onglet = page.getByRole('button', { name: /^Tableau$/ });
+  if (await onglet.count()) {
+    await onglet.first().click();
+    await page.waitForTimeout(2000);
+  }
+  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  return { page, erreurs };
+}
+
+/** Ouvre le tiroir d'une carte, sur son onglet « Détails ». */
+async function ouvrirDetails(page, titre) {
+  const panneauOuvert = page.locator('[role="dialog"]').last();
+  if (await panneauOuvert.count()) {
+    await panneauOuvert.locator('button').first().click({ force: true });
+    await panneauOuvert.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  }
+  const extrait = titre.slice(0, 30);
+  const carteVue = page.locator('article').filter({ hasText: extrait }).first();
+  await carteVue.scrollIntoViewIfNeeded().catch(() => {});
+  await carteVue.waitFor({ state: 'visible', timeout: 15000 });
+  await carteVue.click();
+  await page.waitForTimeout(1800);
+  const tiroir = page.locator('[role="dialog"]').last();
+  await tiroir.getByRole('tab', { name: 'Détails' }).click();
+  await page.waitForTimeout(900);
+  return tiroir;
+}
+
+async function main() {
+  if (!(await attendrePort())) {
+    console.error('Le démon d’essai n’a pas démarré :\n' + journal.join(''));
+    process.exit(1);
+  }
+  poserLeDecor();
+
+  /* La boucle de l'ordonnanceur passe toutes les quinze secondes : on lui laisse
+     deux passages, pour que le constat ne dépende pas d'une seconde près. */
+  console.log('… on laisse l’ordonnanceur passer (35 s)');
+  await new Promise((r) => setTimeout(r, 35000));
+
+  const apres = ordonnancementsEnBase();
+  const raison = (titre) => apres[titre]?.waitingReason ?? '';
+
+  noter(
+    'heure PASSÉE : la carte a été tentée, sa raison est écrite',
+    raison(PASSEE).length > 10,
+    raison(PASSEE) || 'aucune raison : la carte n’a pas été regardée',
+  );
+  noter(
+    'heure À VENIR : la carte n’a pas bougé, rien ne lui a été tenté',
+    !raison(FUTURE),
+    raison(FUTURE) || 'aucune raison, c’est ce qu’on veut',
+  );
+  noter(
+    'heure passée mais SUSPENDUE : la main l’emporte, rien n’est tenté',
+    !raison(SUSPENDUE),
+    raison(SUSPENDUE) || 'aucune raison, c’est ce qu’on veut',
+  );
+  noter(
+    'SANS date : rien ne change, la carte attend le geste',
+    !raison(SANS_DATE),
+    raison(SANS_DATE) || 'aucune raison, c’est ce qu’on veut',
+  );
+  noter(
+    'la date à venir est intacte en base',
+    typeof apres[FUTURE]?.departPrevu === 'number',
+    String(apres[FUTURE]?.departPrevu),
+  );
+  noter('aucun agent créé : aucun quota dépensé', agentsDeCarte() === 0, `${agentsDeCarte()} agent(s)`);
+
+  /* -------- L'interface -------- */
+
+  const navigateur = await chromium.launch({
+    channel: 'chrome',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+  const { page, erreurs } = await ouvrirLeTableau(navigateur);
+
+  /* La mention sur la carte du tableau : elle dit QUAND la carte partira. */
+  const mention = await page
+    .locator('[data-depart-programme]')
+    .allTextContents()
+    .catch(() => []);
+  noter(
+    'la carte du tableau annonce son départ programmé',
+    mention.some((t) => /Départ programmé/.test(t)),
+    mention.join(' | ') || 'aucune mention affichée',
+  );
+  noter(
+    'la mention dit que la carte partira TOUTE SEULE',
+    mention.some((t) => /toute seule/.test(t)),
+    mention.join(' | '),
+  );
+  /* Deux cartes seulement parlent : celle qui attend son heure, et celle dont
+     l'heure est atteinte. La suspendue se tait (la suspension dit mieux ce qui
+     bloque) et celle sans date n'a rien à dire. */
+  noter(
+    'seules les cartes DATÉES et non suspendues affichent une mention',
+    mention.length === 2 && mention.some((t) => /Heure de départ atteinte/.test(t)),
+    `${mention.length} mention(s) pour 4 cartes`,
+  );
+
+  /* Le champ de l'onglet « Détails » : il pose vraiment la date en base. */
+  const tiroir = await ouvrirDetails(page, SANS_DATE);
+  const champ = tiroir.locator('input[type="datetime-local"]');
+  noter('le détail d’une carte planifiée porte un champ de date', (await champ.count()) === 1);
+
+  const souhait = new Date(Date.now() + 26 * HEURE);
+  const deux = (n) => String(n).padStart(2, '0');
+  const valeur = `${souhait.getFullYear()}-${deux(souhait.getMonth() + 1)}-${deux(souhait.getDate())}T${deux(
+    souhait.getHours(),
+  )}:${deux(souhait.getMinutes())}`;
+  await champ.first().fill(valeur);
+  await page.waitForTimeout(2500);
+
+  const pose = ordonnancementsEnBase()[SANS_DATE]?.departPrevu;
+  noter(
+    'la date saisie à la main est enregistrée sur la carte',
+    typeof pose === 'number' && Math.abs(pose - souhait.getTime()) < 60_000,
+    `posé : ${pose ? new Date(pose).toLocaleString('fr-CH') : 'rien'}`,
+  );
+  noter(
+    'le détail dit alors quand la carte partira',
+    /Départ programmé/.test(await tiroir.innerText()),
+    'phrase absente du tiroir',
+  );
+
+  /* Retirer la date rend la carte à son geste de lancement. */
+  await tiroir.getByRole('button', { name: /Retirer la date/ }).click();
+  await page.waitForTimeout(2000);
+  const apresRetrait = ordonnancementsEnBase()[SANS_DATE];
+  noter(
+    'la date se retire, et la carte redit qu’elle attend le lancement',
+    !apresRetrait?.departPrevu && /attend votre lancement/.test(apresRetrait?.waitingReason ?? ''),
+    JSON.stringify(apresRetrait),
+  );
+
+  /* -------- Le champ de DÉPART du formulaire de création -------- */
+
+  // Refermer le tiroir : le formulaire vit sur le tableau, derrière lui.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(1200);
+
+  await page.locator('[data-column="planned"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="planned"] button[aria-label="Nouvelle tâche"]').click();
+  await page.waitForTimeout(800);
+
+  const bloc = page.locator('[data-depart-nouvelle-carte]');
+  noter('le formulaire de création porte un champ de départ', (await bloc.count()) === 1);
+
+  const prerempli = await bloc.locator('input[type="datetime-local"]').inputValue();
+  const luPrerempli = Date.parse(prerempli);
+  noter(
+    'il est pré-rempli à MAINTENANT, à la minute près',
+    Number.isFinite(luPrerempli) && Math.abs(luPrerempli - Date.now()) < 2 * MINUTE,
+    prerempli || '(vide)',
+  );
+  noter(
+    'sans y toucher, il annonce que la carte attendra le lancement',
+    /attendra votre lancement/.test(await bloc.innerText()),
+    (await bloc.innerText()).replace(/\n/g, ' '),
+  );
+
+  // Une heure POUSSÉE dans le futur, elle, programme vraiment le départ.
+  const voulu = new Date(Date.now() + 3 * HEURE);
+  const valeurNouvelle = `${voulu.getFullYear()}-${deux(voulu.getMonth() + 1)}-${deux(voulu.getDate())}T${deux(
+    voulu.getHours(),
+  )}:${deux(voulu.getMinutes())}`;
+  await bloc.locator('input[type="datetime-local"]').fill(valeurNouvelle);
+  await page.waitForTimeout(500);
+  noter(
+    'une heure à venir annonce le départ programmé',
+    /Départ programmé/.test(await bloc.innerText()),
+    (await bloc.innerText()).replace(/\n/g, ' '),
+  );
+
+  const TITRE_NEUF = 'Carte d’essai — créée avec son heure';
+  await page.locator('[data-column="planned"] input[placeholder="Titre de la tâche…"]').fill(TITRE_NEUF);
+  await page.locator('[data-column="planned"] button', { hasText: 'Ajouter la tâche' }).click();
+  await page.waitForTimeout(3000);
+
+  const neuve = Object.entries(ordonnancementsEnBase()).find(([titre]) => titre === TITRE_NEUF)?.[1];
+  noter(
+    'la carte naît dans « Planifié » avec sa date de départ',
+    typeof neuve?.departPrevu === 'number' && Math.abs(neuve.departPrevu - voulu.getTime()) < 60_000,
+    neuve?.departPrevu ? new Date(neuve.departPrevu).toLocaleString('fr-CH') : 'aucune date',
+  );
+  noter(
+    'elle reste dans « Planifié », rien n’est parti',
+    colonnesEnBase()[TITRE_NEUF] === 'planned',
+    colonnesEnBase()[TITRE_NEUF] ?? '(introuvable)',
+  );
+
+  noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
+  await page.screenshot({ path: path.join(TMP, 'depart-programme.png') });
+
+  await navigateur.close();
+  const echecs = resultats.filter((r) => !r.ok);
+  console.log(`\n${resultats.length - echecs.length}/${resultats.length} vérifications passées`);
+  if (echecs.length) console.log(`(journal dans ${TMP})`);
+  process.exit(echecs.length ? 1 : 0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  console.error(journal.slice(-20).join(''));
+  process.exit(1);
+});

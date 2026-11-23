@@ -1,0 +1,45 @@
+---
+name: venice-audio-music
+description: |
+  Music generation queueing, retrieval, and completion endpoints via Venice.ai. Suited for jingles, background loops, and prototype scoring.
+triggers:
+  - "venice music"
+  - "music gen"
+  - "jingle"
+  - "background loop"
+  - "score"
+od:
+  mode: audio
+  category: audio-music
+  upstream: "https://github.com/veniceai/skills"
+symptomes: créer une musique de fond, générer un jingle publicitaire, composer une mélodie pour une vidéo, besoin d'une boucle sonore, créer une bande-son de prototype, produire un court extrait musical
+resume-fr: À utiliser quand vous avez besoin de créer une ambiance sonore ou une illustration musicale. Cette compétence génère des pistes audio, des boucles de fond ou des jingles personnalisés via le service Venice.ai.
+---
+
+# venice-audio-music
+
+> Curated from the Venice.ai team.
+
+## What it does
+
+Music generation queueing, retrieval, and completion endpoints via Venice.ai. Suited for jingles, background loops, and prototype scoring.
+
+## Source
+
+- Upstream: https://github.com/veniceai/skills
+- Category: `audio-music`
+
+## How to use
+
+This catalogue entry advertises the skill in OpenDesign so the agent
+discovers it during planning. To run the full upstream workflow with
+its original assets, scripts, and references, install the upstream
+bundle into your active agent's skills directory:
+
+```bash
+# Inspect the upstream README for exact paths
+open https://github.com/veniceai/skills
+```
+
+Then ask the agent to invoke this skill by name (`venice-audio-music`) or with
+one of the trigger phrases listed in this skill's frontmatter.

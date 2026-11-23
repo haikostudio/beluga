@@ -1,0 +1,87 @@
+---
+name: codebase-onboarding
+description: "Use when someone is new to a repo or a tech lead needs an architecture brief, before writing docs by hand. Maps the codebase with codebase_analyzer.py and produces onboarding docs."
+themes: programmation, ventes, architecture
+symptomes: accueillir un nouveau développeur, documenter une architecture complexe, mettre à jour la documentation technique, faciliter la prise en main d'un projet, préparer un transfert de connaissances, créer un guide pour les nouveaux arrivants
+resume-fr: À utiliser quand vous devez intégrer rapidement un nouveau développeur ou mettre à jour une documentation technique devenue obsolète. Cette compétence analyse la structure de votre code source pour générer automatiquement un guide d'accueil complet et structuré.
+---
+
+# Codebase Onboarding
+
+**Tier:** POWERFUL  
+**Category:** Engineering  
+**Domain:** Documentation / Developer Experience
+
+---
+
+## Overview
+
+Analyze a codebase and generate onboarding documentation for engineers, tech leads, and contractors. This skill is optimized for fast fact-gathering and repeatable onboarding outputs.
+
+## Core Capabilities
+
+- Architecture and stack discovery from repository signals
+- Key file and config inventory for new contributors
+- Local setup and common-task guidance generation
+- Audience-aware documentation framing
+- Debugging and contribution checklist scaffolding
+
+---
+
+## When to Use
+
+- Onboarding a new team member or contractor
+- Rebuilding stale project docs after large refactors
+- Preparing internal handoff documentation
+- Creating a standardized onboarding packet for services
+
+---
+
+## Quick Start
+
+```bash
+# 1) Gather codebase facts
+python3 scripts/codebase_analyzer.py /path/to/repo
+
+# 2) Export machine-readable output
+python3 scripts/codebase_analyzer.py /path/to/repo --json
+
+# 3) Use the template to draft onboarding docs
+# See references/onboarding-template.md
+```
+
+---
+
+## Recommended Workflow
+
+1. Run `scripts/codebase_analyzer.py` against the target repository.
+2. Capture key signals: file counts, detected languages, config files, top-level structure.
+3. Fill the onboarding template in `references/onboarding-template.md`.
+4. Tailor output depth by audience:
+   - Junior: setup + guardrails
+   - Senior: architecture + operational concerns
+   - Contractor: scoped ownership + integration boundaries
+
+---
+
+## Onboarding Document Template
+
+Detailed template and section examples live in:
+- `references/onboarding-template.md`
+- `references/output-format-templates.md`
+
+---
+
+## Common Pitfalls
+
+- Writing docs without validating setup commands on a clean environment
+- Mixing architecture deep-dives into contractor-oriented docs
+- Omitting troubleshooting and verification steps
+- Letting onboarding docs drift from current repo state
+
+## Best Practices
+
+1. Keep setup instructions executable and time-bounded.
+2. Document the "why" for key architectural decisions.
+3. Update docs in the same PR as behavior changes.
+4. Treat onboarding docs as living operational assets, not one-time deliverables.

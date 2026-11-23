@@ -1,0 +1,11 @@
+[
+  { "demande": "ajouter une liste de choix dans un formulaire de Beluga", "attendu": ["MEM-0781"] },
+  { "demande": "une case à cocher et un choix de date dans un écran de réglages", "attendu": ["MEM-5799"] },
+  { "demande": "le bouton secondaire doit-il avoir un contour ?", "attendu": ["MEM-4858"] },
+  { "demande": "une longue liste qui défile dans une page", "attendu": ["MEM-0418"] },
+  { "demande": "sur téléphone un panneau monte du bas de l'écran", "attendu": ["MEM-6869"] },
+  { "demande": "où poser le bouton principal et les options d'une page", "attendu": ["MEM-4724"] },
+  { "demande": "le libellé d'un champ se met à gauche ou au-dessus ?", "attendu": ["DEC-351"] },
+  { "demande": "un bouton qui ouvre un panneau de choix, sur ordinateur et sur téléphone", "attendu": ["MEM-5805"] },
+  { "demande": "dessiner une plaquette PDF avec des formes décoratives", "attendu": ["MEM-6049"] }
+]

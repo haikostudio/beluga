@@ -1,0 +1,150 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildCodexArgs } from '../engines/codex.js';
+import { instantaneContexteEnvoye, mesureEntreeMoteur, tokensSousLaBulleDeReponse } from '../runtime.js';
+const PROMPT = 'DEMANDE : montre exactement ce nouveau contenu.';
+const BLOCS = [{ kind: 'request' as const, label: 'Demande utilisateur', characters: PROMPT.length }];
+
+test('premier tour : l’instantané porte le prompt exact remis à l’adaptateur', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'codex',
+    model: 'gpt-5.4',
+    nouvelleSession: true,
+    prompt: PROMPT,
+    systemPrompt: 'CONSIGNE COMPLÈTE',
+    blocks: BLOCS,
+    sentAt: 10,
+  });
+  const args = buildCodexArgs({
+    cwd: '/tmp',
+    prompt: PROMPT,
+    model: 'gpt-5.4',
+    systemPrompt: instantane.systemInstruction.content,
+    fullAccess: true,
+    onEvent: () => {},
+  });
+
+  assert.equal(instantane.prompt, PROMPT);
+  assert.equal(instantane.session, 'new');
+  assert.equal(instantane.systemInstruction.kind, 'full');
+  assert.equal(args.at(-1), `CONSIGNE COMPLÈTE\n\n---\n\n${instantane.prompt}`);
+});
+
+test('reprise : seul le nouveau prompt et le rappel sont montrés', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'claude',
+    nouvelleSession: false,
+    prompt: PROMPT,
+    systemPrompt: 'RAPPEL COURT',
+    blocks: BLOCS,
+  });
+
+  assert.equal(instantane.prompt, PROMPT);
+  assert.equal(instantane.session, 'resumed');
+  assert.equal(instantane.systemInstruction.kind, 'reminder');
+  assert.equal(instantane.systemInstruction.transport, 'separate');
+  assert.equal(instantane.history, 'retained_by_engine');
+  assert.doesNotMatch(JSON.stringify(instantane), /ancien message opaque/);
+});
+
+test('sans passage retrouvé, l’instantané porte la raison — jamais silencieux', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'claude',
+    nouvelleSession: false,
+    prompt: PROMPT,
+    systemPrompt: 'RAPPEL COURT',
+    blocks: BLOCS,
+    passagesRaison: 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil.',
+  });
+  assert.deepEqual(instantane.passages, []);
+  assert.equal(instantane.passagesRaison, 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil.');
+});
+
+test('des passages retrouvés effacent la raison — les deux ne coexistent jamais', () => {
+  const instantane = instantaneContexteEnvoye({
+    engine: 'claude',
+    nouvelleSession: true,
+    prompt: PROMPT,
+    systemPrompt: 'CONSIGNE COMPLÈTE',
+    blocks: BLOCS,
+    passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 100, texte: 'texte' }],
+    passagesRaison: 'ne devrait jamais apparaître',
+  });
+  assert.equal(instantane.passages.length, 1);
+  assert.equal(instantane.passagesRaison, undefined);
+});
+
+test('la mesure affichée vient de l’usage moteur et sépare le cache', () => {
+  assert.deepEqual(mesureEntreeMoteur({ inputTokens: 700, cachedTokens: 300, outputTokens: 120 }), {
+    inputTokens: 700,
+    cachedInputTokens: 300,
+    totalInputTokens: 700,
+  });
+  assert.deepEqual(mesureEntreeMoteur({ inputTokens: 700, outputTokens: 120 }), {
+    inputTokens: 700,
+    cachedInputTokens: undefined,
+    totalInputTokens: 700,
+  });
+});
+
+/*
+ * LE COMPTEUR SOUS UNE BULLE DE RÉPONSE ÉCARTE LE CACHE, MÊME SUR UN TOUR À
+ * DES DIZAINES D'ALLERS-RETOURS D'OUTILS. Le moteur ne rend qu'une mesure par
+ * tour, déjà cumulée sur tous ces allers-retours internes ; sans ce filtre,
+ * une réponse de trois phrases affichait des centaines de milliers de jetons
+ * (le contexte déjà connu, relu à chaque appel d'outil, payé en cache à
+ * chaque fois).
+ */
+test('le compteur de la bulle de réponse écarte le cache, même massif', () => {
+  // Un tour à outils longs : la mémoire et la consigne relues des dizaines de
+  // fois (gros cache), mais peu de contenu réellement neuf par appel.
+  assert.equal(tokensSousLaBulleDeReponse({ inputTokens: 900, cachedTokens: 640_000, outputTokens: 180 }), 1_080);
+});
+
+test('le compteur de la bulle de réponse grossit avec le travail réel, pas avec le cache', () => {
+  const tourCourt = tokensSousLaBulleDeReponse({ inputTokens: 300, cachedTokens: 4_000, outputTokens: 80 });
+  const tourLong = tokensSousLaBulleDeReponse({ inputTokens: 300, cachedTokens: 400_000, outputTokens: 80 });
+  // Même entrée fraîche et même sortie : rejouer cent fois plus de cache ne
+  // change RIEN au chiffre affiché — c'est tout l'objet du filtre.
+  assert.equal(tourCourt, tourLong);
+  assert.ok(tourLong < 1_000, `un tour d'outils long doit rester lisible, pas ${tourLong}`);
+});
+
+test('le compteur de la bulle de réponse reste défini sur une mesure absente', () => {
+  assert.equal(tokensSousLaBulleDeReponse(undefined), 0);
+});
+
+test('une demande mise en file ne reçoit aucun instantané avant son vrai départ', () => {
+  const ici = path.dirname(fileURLToPath(import.meta.url));
+  const runtime = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
+  const sendPrompt = runtime.split('export async function sendPrompt')[1].split('\n/**\n * Le bloc « carte en cours »')[0];
+  // La file s'ouvre dès la PRÉPARATION, pas au seul moteur lancé : deux demandes
+  // trop rapprochées se suivent au lieu de se doubler (`demandes-rapprochees`).
+  const file = sendPrompt.indexOf('if (live.has(agentId) || demarrant.has(agentId))');
+  const retour = sendPrompt.indexOf('return;', file);
+  const message = sendPrompt.indexOf('let userMessageId');
+  const depart = runtime.indexOf('adapter.run({');
+  const rattachement = runtime.indexOf('sentContext: instantane', depart);
+
+  assert.ok(file >= 0 && retour > file && message > retour, 'la file rend la main avant de créer le message utilisateur');
+  assert.ok(depart >= 0 && rattachement > depart, 'l’instantané n’est rattaché qu’après le lancement par l’adaptateur');
+  assert.doesNotMatch(sendPrompt.slice(message, message + 700), /text\.length \/ 4/);
+});
+
+test('un moteur lancé est suivi AVANT tout autre travail — aucune fenêtre aveugle', () => {
+  const ici = path.dirname(fileURLToPath(import.meta.url));
+  const runtime = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
+  const depart = runtime.indexOf('adapter.run({');
+  const suivi = runtime.indexOf('live.set(agent.id, runState)', depart);
+  const rattachement = runtime.indexOf('sentContext: instantane', depart);
+
+  // Entre le lancement du moteur et son inscription dans les tours vivants, une
+  // panne refermerait un tour BIEN VIVANT : bulle rouge sur un travail qui
+  // continue, et moteur laissé seul. Le suivi passe donc devant.
+  assert.ok(suivi > depart, 'le tour entre dans les tours vivants dès que le moteur est lancé');
+  assert.ok(rattachement > suivi, 'le contexte envoyé s’enregistre après, jamais avant le suivi');
+});
+

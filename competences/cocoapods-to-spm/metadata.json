@@ -1,0 +1,28 @@
+{
+  "version": "1.1.0",
+  "organization": "Capgo",
+  "date": "October 2026",
+  "abstract": "Migrates existing Capacitor iOS apps from CocoaPods to Swift Package Manager before CocoaPods Trunk becomes read-only (expected December 2, 2026). Covers how the CLI detects SPM, spm-migration-assistant behavior and manual Xcode steps, fresh SPM scaffolding, plugin compatibility checks, experimental.ios.spm options, Capacitor 9 optional Cordova product, verification commands, and real CLI/Xcode error strings.",
+  "triggers": [
+    "cocoapods to spm",
+    "migrate to swift package manager",
+    "remove cocoapods",
+    "spm-migration-assistant",
+    "CapApp-SPM",
+    "debug.xcconfig",
+    "cocoapods trunk read-only",
+    "Some installed Capacitor plugins are not compatible with SPM",
+    "does not have a Package.swift",
+    "packagemanager SPM",
+    "capacitor 9 spm",
+    "No such module 'Capacitor'"
+  ],
+  "references": [
+    "https://capacitorjs.com/docs/ios/spm",
+    "https://capacitorjs.com/docs/updating/8-0",
+    "https://github.com/ionic-team/capacitor/blob/main/ios-spm-template/App/CapApp-SPM/Package.swift",
+    "https://capacitorjs.com/docs/updating/8-5",
+    "https://blog.cocoapods.org/CocoaPods-Specs-Repo/",
+    "https://developer.apple.com/documentation/xcode/adding-package-dependencies-to-your-app"
+  ]
+}

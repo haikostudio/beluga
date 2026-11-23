@@ -1,0 +1,395 @@
+#!/usr/bin/env node
+/**
+ * Vérification, dans un VRAI navigateur, de la prévision d'épuisement du quota
+ * hebdomadaire : la ligne « épuisé lundi vers 17 h » se pose bien sous la barre
+ * « Semaine » de chaque moteur, elle porte l'heure exacte en infobulle, et elle
+ * se TAIT quand le calcul n'a pas de sens.
+ *
+ * Comme les vrais comptes n'ont pas forcément un rythme qui épuise la semaine,
+ * le script rejoue aussi le volet avec un historique fabriqué (relevés injectés
+ * dans la réponse « quota.history ») pour voir la ligne s'afficher pour de bon.
+ *
+ *   BELUGA_TOKEN=… BELUGA_URL=http://localhost:7100 node scripts/verif-prevision-quota.mjs
+ */
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
+import { cheminDeLaBaseServie } from './lib/base-servie.mjs';
+
+const BASE = process.env.BELUGA_URL || 'http://localhost:7099';
+const SHOTS = `${process.env.BELUGA_DATA || '/root/beluga/data'}/verification`;
+
+const base = () => {
+  const require = createRequire(import.meta.url);
+  return require('better-sqlite3')(cheminDeLaBaseServie());
+};
+
+/**
+ * Qui brûle son quota, qui reste au repos. Un compte d'un moteur qui en a
+ * plusieurs est choisi pour brûler : ses voisins du même moteur peuvent alors
+ * servir de compte de secours, ce qu'on veut justement voir affiché.
+ */
+function profils() {
+  const comptes = base()
+    .prepare('SELECT id, engine FROM accounts')
+    .all();
+  const parMoteur = {};
+  for (const compte of comptes) (parMoteur[compte.engine] ??= []).push(compte.id);
+  const moteurPartage = Object.values(parMoteur).find((ids) => ids.length > 1) ?? [];
+  const brulant = moteurPartage[0] ?? comptes[0]?.id;
+  const out = {};
+  for (const compte of comptes) out[compte.id] = compte.id === brulant ? 'brulant' : 'repos';
+  return out;
+}
+
+/** Une session d'essai : la colonne « token » garde le SHA-256 du cookie. */
+function poserSession() {
+  const db = base();
+  const cookie = crypto.randomBytes(24).toString('hex');
+  const maintenant = Date.now();
+  db.prepare('INSERT INTO sessions (token, created_at, expires_at, label) VALUES (?, ?, ?, ?)').run(
+    crypto.createHash('sha256').update(cookie).digest('hex'),
+    maintenant,
+    maintenant + 3600_000,
+    'vérification prévision quota',
+  );
+  return cookie;
+}
+
+const resultats = [];
+function record(nom, ok, detail = '') {
+  resultats.push({ nom, ok, detail });
+  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}${detail ? ` — ${detail}` : ''}`);
+}
+
+/** Ouvre le volet des quotas depuis la barre du haut. */
+async function ouvrirLeVolet(page) {
+  // L'application rouvre l'endroit quitté : un tiroir de carte restauré
+  // recouvre l'écran et intercepte le clic. On le referme d'abord, au clavier.
+  for (let essai = 0; essai < 3; essai++) {
+    if (!(await page.locator('[data-state="open"][aria-hidden="true"]').count())) break;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+  }
+  await page.locator('header button[title="Quotas des moteurs"]').click();
+  await page.waitForTimeout(1200);
+  return page.locator('[role="menu"]').last();
+}
+
+async function main() {
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const browser = await chromium.launch({
+    channel: 'chrome',
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--ignore-certificate-errors'],
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: 'fr-CH',
+    ignoreHTTPSErrors: true,
+    // Sinon c'est la version PUBLIÉE qui s'affiche, pas celle qu'on vérifie.
+    serviceWorkers: 'block',
+  });
+  await context.addCookies([
+    { name: 'beluga_session', value: poserSession(), url: new URL(BASE).origin, httpOnly: true, sameSite: 'Lax' },
+  ]);
+
+  const page = await context.newPage();
+  const erreurs = [];
+  page.on('pageerror', (error) => erreurs.push(String(error)));
+  page.on('console', (message) => message.type() === 'error' && erreurs.push(message.text()));
+
+  /*
+   * Les relevés arrivent par le canal temps réel : on remplace la réponse à
+   * « quota.history » à la volée, avant même que la page ne se charge, pour
+   * mettre le volet devant un rythme connu (1 % par heure sur trente heures).
+   */
+  await page.addInitScript((roles) => {
+    const vrai = WebSocket.prototype.send;
+    const attendus = new Set();
+    WebSocket.prototype.send = function (donnees) {
+      try {
+        const message = JSON.parse(donnees);
+        // La demande voyage enveloppée : { id, cmd: { type, … } }.
+        if (message?.cmd?.type === 'quota.history') attendus.add(message.id);
+      } catch {
+        /* message non JSON : rien à intercepter */
+      }
+      return vrai.call(this, donnees);
+    };
+    /*
+     * L'historique fabriqué : DEUX SEMAINES d'heure en heure avec une vraie
+     * nuit creuse ET des week-ends très calmes — entre 1 h et 7 h du matin, et
+     * du samedi au dimanche, le compte « brûlant » ne consomme presque rien ;
+     * le reste du temps il brûle 1,4 % par heure. Sa semaine repart de zéro il
+     * y a deux heures, en pleine activité : sans le profil de semaine, cette
+     * pente-là serait prolongée telle quelle et annoncerait un épuisement bien
+     * trop tôt. Deux semaines sont nécessaires pour que les quarante-huit
+     * tranches (jours ouvrés / week-end) soient toutes observées. Les autres
+     * comptes restent au repos, pour que l'un d'eux puisse servir de compte de
+     * secours.
+     */
+    const fabriquer = () => {
+      /*
+       * Deuxième passage : le même historique, mais SANS creux — le même
+       * rythme à toute heure. Le profil existe toujours, seule la pointe
+       * disparaît, et la ligne « le plus chargé entre … » doit se taire.
+       */
+      const plat = location.search.includes('verif=plat');
+      const maintenant = Date.now();
+      const brulant = [];
+      const repos = [];
+      let cumul = 0;
+      for (let i = 14 * 24; i >= 1; i--) {
+        const at = maintenant - i * 3600_000;
+        if (i === 2) cumul = 0; // la fenêtre hebdomadaire repart de zéro
+        brulant.push({ at, weekly: cumul, session: 5 });
+        repos.push({ at, weekly: 8, session: 3 });
+        const date = new Date(at);
+        const heure = date.getHours();
+        const jour = date.getDay();
+        const calme = jour === 0 || jour === 6 || (heure >= 1 && heure < 7);
+        // Les deux dernières heures brûlent toujours à plein régime, même si le
+        // script est lancé une nuit ou un samedi : sans cela, la pente « récente »
+        // serait nulle certains jours et la prévision se tairait pour de bonnes
+        // raisons — on ne verrait alors plus rien à vérifier.
+        // En mode « plat », le même rythme à toute heure : le profil existe
+        // toujours, mais aucune tranche ne se détache et la ligne se tait.
+        cumul += !plat && calme && i > 2 ? 0.05 : 1.4;
+      }
+      // La fenêtre courte repart de zéro il y a une demi-heure, puis s'emballe :
+      // son épuisement tombe alors AVANT sa propre remise à zéro.
+      brulant.push({ at: maintenant - 1800_000, weekly: cumul, session: 0 });
+      brulant.push({ at: maintenant, weekly: cumul + 0.7, session: 100 });
+      repos.push({ at: maintenant - 1800_000, weekly: 8, session: 3 });
+      repos.push({ at: maintenant, weekly: 8, session: 3 });
+      const history = {};
+      for (const compte of Object.keys(roles)) {
+        history[compte] = roles[compte] === 'brulant' ? brulant : repos;
+      }
+      return history;
+    };
+
+    // Le client pose un `onmessage`, pas un écouteur : c'est CETTE porte-là
+    // qu'il faut tenir pour glisser l'historique fabriqué.
+    const proprio = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
+    Object.defineProperty(WebSocket.prototype, 'onmessage', {
+      configurable: true,
+      get: proprio.get,
+      set(ecouteur) {
+        const filtre = function (evenement) {
+          try {
+            const message = JSON.parse(evenement.data);
+            if (message?.type === 'ack' && attendus.has(message.id)) {
+              window.__previsionSimulee = true;
+              return ecouteur.call(this, {
+                data: JSON.stringify({ ...message, data: { history: fabriquer() } }),
+              });
+            }
+          } catch {
+            /* message non JSON : on laisse passer */
+          }
+          return ecouteur.call(this, evenement);
+        };
+        proprio.set.call(this, filtre);
+      },
+    });
+  }, profils());
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4500);
+
+  const volet = await ouvrirLeVolet(page);
+  record('le volet des quotas s’ouvre', await volet.isVisible());
+
+  const texte = await volet.innerText();
+  const lignes = (texte.match(/épuisé [^\n]+/g) ?? []).map((l) => l.trim());
+  record(
+    'une prévision s’affiche sous la barre « Semaine »',
+    lignes.length > 0,
+    lignes.join(' | ') || 'aucune ligne « épuisé … »',
+  );
+
+  record(
+    'la formulation est en clair (« épuisé <jour> vers <heure> (dans <durée>) »)',
+    lignes.every((ligne) => /^épuisé (aujourd’hui|demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche) vers \d{1,2} h( 30)? \((dans (\d+ j( \d+ h)?|\d+ h( \d{2})?|\d+ min|moins d’une minute)|maintenant)\)$/.test(ligne)),
+    lignes.join(' | '),
+  );
+
+  // Chaque prévision vit SOUS sa propre barre, celle de la semaine comme celle
+  // de cinq heures — et jamais ailleurs.
+  const placement = await volet.evaluate((noeud) => {
+    const lignes = [...noeud.querySelectorAll('p')].filter((p) => p.textContent.startsWith('épuisé'));
+    const fenetres = lignes.map((ligne) => {
+      const bloc = ligne.parentElement?.textContent ?? '';
+      return bloc.includes('Semaine') ? 'semaine' : bloc.includes('Fenêtre 5 h') ? 'courte' : 'ailleurs';
+    });
+    return { semaine: fenetres.filter((f) => f === 'semaine').length, courte: fenetres.filter((f) => f === 'courte').length, ailleurs: fenetres.filter((f) => f === 'ailleurs').length };
+  });
+  record(
+    'chaque prévision est posée sous SA barre',
+    placement.ailleurs === 0 && placement.semaine > 0,
+    `semaine ${placement.semaine} · 5 h ${placement.courte}`,
+  );
+
+  record(
+    'la fenêtre de cinq heures a aussi sa prévision quand l’historique le permet',
+    placement.courte > 0,
+    `${placement.courte} ligne(s) sous « Fenêtre 5 h »`,
+  );
+
+  // Le compte de secours : proposé sous une prévision en manque, et jamais
+  // ailleurs.
+  const secours = await volet.evaluate((noeud) => {
+    const lignes = [...noeud.querySelectorAll('p')].filter((p) => p.textContent.startsWith('bascule possible sur'));
+    return lignes.map((ligne) => ({
+      texte: ligne.textContent,
+      // La ligne « épuisé … » juste au-dessus doit être un manque (orange).
+      surUnManque: /text-warning/.test(ligne.previousElementSibling?.querySelector('p')?.className ?? ligne.previousElementSibling?.className ?? ''),
+    }));
+  });
+  record(
+    'un compte de secours est proposé sous une prévision en manque',
+    secours.length > 0 && secours.every((s) => s.surUnManque),
+    secours.map((s) => s.texte).join(' | ') || 'aucune bascule proposée',
+  );
+
+  // La courbe se prolonge en pointillé jusqu'à la ligne du haut.
+  const pointille = await volet.evaluate((noeud) => {
+    const traits = [...noeud.querySelectorAll('svg path[stroke-dasharray]')];
+    return traits.map((trait) => ({ d: trait.getAttribute('d'), stroke: trait.getAttribute('stroke') }));
+  });
+  record(
+    'la prévision se prolonge en pointillé au bout de la courbe',
+    pointille.length > 0 &&
+      pointille.every((t) => /^M[\d.]+,[\d.]+( L[\d.]+,[\d.]+)+ L[\d.]+,0\.0$/.test(t.d)),
+    pointille.map((t) => t.d).join(' | ') || 'aucun trait pointillé',
+  );
+
+  // Le pointillé suit le profil : il n'est plus une droite. Une nuit creuse s'y
+  // voit comme un palier presque horizontal entre deux montées.
+  const brise = pointille.some((trait) => {
+    const points = [...trait.d.matchAll(/([\d.]+),([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    if (points.length < 3) return false;
+    const pentes = [];
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i][0] - points[i - 1][0];
+      if (dx > 0.01) pentes.push((points[i - 1][1] - points[i][1]) / dx);
+    }
+    if (pentes.length < 2) return false;
+    // Le rapport entre la pente la plus raide et la plus douce trahit le creux.
+    return Math.max(...pentes) > 3 * Math.min(...pentes);
+  });
+  record(
+    'le pointillé s’aplatit pendant les heures creuses',
+    brise,
+    brise ? 'palier de nuit visible' : 'le pointillé reste une droite',
+  );
+
+  // Une prévision serrée se distingue : couleur d'alerte et graisse.
+  const distinguee = await volet.evaluate((noeud) => {
+    const ligne = [...noeud.querySelectorAll('p')].find((p) => p.textContent.startsWith('épuisé'));
+    if (!ligne) return null;
+    return { classes: ligne.className, couleur: getComputedStyle(ligne).color };
+  });
+  record(
+    'une prévision qui manque est signalée en couleur d’alerte',
+    !!distinguee && /text-warning/.test(distinguee.classes),
+    distinguee ? `${distinguee.couleur}` : 'ligne introuvable',
+  );
+
+  // L'heure exacte et le rythme restent en infobulle, comme le temps restant.
+  const infobulle = await volet.evaluate((noeud) => {
+    const ligne = [...noeud.querySelectorAll('p')].find((p) => p.textContent.startsWith('épuisé'));
+    let parent = ligne;
+    while (parent && !parent.getAttribute?.('data-state') && !parent.hasAttribute?.('aria-describedby')) {
+      parent = parent.parentElement;
+    }
+    return !!parent;
+  });
+  record('l’heure exacte passe en infobulle', infobulle !== false);
+
+  // Et cette infobulle DIT sur quelle base le chiffre est calculé : sans cette
+  // phrase, une heure repoussée de six heures passerait pour une erreur.
+  // C'est la prévision de la SEMAINE qui parle des heures creuses : celle de la
+  // fenêtre de cinq heures ne les regarde pas.
+  const rang = await volet.evaluate((noeud) => {
+    const lignes = [...noeud.querySelectorAll('p')].filter((p) => p.textContent.startsWith('épuisé'));
+    return lignes.findIndex((ligne) => (ligne.parentElement?.textContent ?? '').includes('Semaine'));
+  });
+  await volet.locator('p', { hasText: /^épuisé / }).nth(Math.max(0, rang)).hover();
+  await page.waitForTimeout(700);
+  const texteInfobulle = await page.locator('[data-infobulle]').first().innerText().catch(() => '');
+  record(
+    'l’infobulle annonce que les heures creuses sont prises en compte',
+    /heures creuses/.test(texteInfobulle),
+    texteInfobulle || 'aucune infobulle affichée',
+  );
+
+  // Et, deux semaines d'historique aidant, que les week-ends ont été séparés
+  // des jours ouvrés : c'est le profil de semaine qui a servi, pas celui d'une
+  // journée type.
+  record(
+    'l’infobulle dit que le week-end est distingué des jours ouvrés',
+    /week-end/.test(texteInfobulle),
+    texteInfobulle || 'aucune infobulle affichée',
+  );
+
+  /*
+   * La tranche la plus chargée : une ligne sous la courbe, qui nomme une plage
+   * de PLEIN JOUR — la nuit fabriquée va de 1 h à 7 h, elle ne peut pas être la
+   * pointe.
+   */
+  const pointes = await volet.evaluate((noeud) =>
+    [...noeud.querySelectorAll('p')]
+      .filter((p) => p.textContent.startsWith('le plus chargé'))
+      .map((p) => p.textContent.trim()),
+  );
+  record(
+    'la tranche la plus chargée s’affiche sous la courbe',
+    pointes.length > 0,
+    pointes.join(' | ') || 'aucune ligne « le plus chargé … »',
+  );
+  record(
+    'elle nomme une plage de plein jour et chiffre l’écart',
+    pointes.length > 0 &&
+      pointes.every((ligne) => {
+        const bornes = ligne.match(/entre (\d{1,2}) h et (\d{1,2}) h/);
+        if (!bornes) return false;
+        const debut = Number(bornes[1]);
+        return debut >= 7 && debut <= 23 && /moyenne/.test(ligne);
+      }),
+    pointes.join(' | '),
+  );
+
+  await page.screenshot({ path: `${SHOTS}/prevision-quota.png` });
+
+  // Deuxième passage, historique PLAT : plus aucune pointe à annoncer.
+  await page.goto(`${BASE}?verif=plat`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4500);
+  const voletPlat = await ouvrirLeVolet(page);
+  const pointesPlates = await voletPlat.evaluate((noeud) =>
+    [...noeud.querySelectorAll('p')]
+      .filter((p) => p.textContent.startsWith('le plus chargé'))
+      .map((p) => p.textContent.trim()),
+  );
+  record(
+    'sur un historique plat, la ligne se tait',
+    pointesPlates.length === 0,
+    pointesPlates.join(' | ') || 'aucune pointe annoncée',
+  );
+  await page.screenshot({ path: `${SHOTS}/prevision-quota-plat.png` });
+
+  record('aucune erreur JavaScript', erreurs.length === 0, erreurs.slice(0, 3).join(' | '));
+
+  await browser.close();
+
+  const echecs = resultats.filter((r) => !r.ok);
+  console.log(`\n${resultats.length - echecs.length}/${resultats.length} contrôles passés.`);
+  process.exit(echecs.length ? 1 : 0);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

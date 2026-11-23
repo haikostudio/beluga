@@ -1,0 +1,55 @@
+---
+name: beluga-colonne-de-gauche-par-service
+description: À utiliser dès qu'on ajoute, déplace ou retire la navigation d'un service Beluga (messagerie, statistiques, studio, sauvegardes, surveillance, marketing, communication, charte, mémoire, coffre) ou ce qu'il montre dans un projet : dit où vit son menu propre aujourd'hui (nulle part dans la zone centrale, à gauche seulement dans les fenêtres Mémoire et Coffre-fort), quels outils s'ouvrent en grande fenêtre sans onglet, comment ils se restreignent au projet ouvert, comment le fil se lit « Service / Projet / Fiche », comment un service vide le dit (message sur son contenu flou), comment une page ouverte dans une fenêtre se cale sur sa part visible, la tête et le pied de la colonne des projets, et quels contrôles les lisent.
+etat: active
+themes: interface, navigation, structure
+symptomes: une liste ou une rangée de boutons en haut d'un service, un service qui montre d'autres projets que celui ouvert, une rubrique inatteignable sur ordinateur, le projet avant le service dans le fil d'Ariane, un morceau de fil au milieu d'une page, Communication qui liste toutes les marques, un onglet Backup ou Statistiques dans la barre du projet, une fiche de site qui recouvre toute la zone et chevauche une fenêtre, un bloc disparu de la page sur téléphone, une cloche en haut à droite sur ordinateur, le bouton du bas d'un volet sous le bas de l'écran, des tableaux à zéro sur un site sans suivi, un écran vide de service sans contenu derrière, le Calendrier dans le menu des services
+projets: Beluga
+---
+
+# beluga-colonne-de-gauche-par-service
+
+## Cause
+
+La navigation d'un service vivait dans SA colonne de gauche (`ColonneDeService`, carte « Barres latérales », 12/10/2026), puis dans une liste centrée en haut. Décisions de l'utilisateur du 13/11/2026 (carte « Onglets et tiroir Communication », commits 01b8a7f7 et c85a6014) : « je ne veux plus de ce menu en haut des services, le service est relatif au projet dans lequel on est », puis les outils de fonctionnement « dans une grande fenêtre, sans onglet ». La colonne de gauche garde TOUJOURS les projets. Précise `beluga-structure-de-l-interface`. Carte « Services et fils d'Ariane fiables » (20/11/2026, commits 2ec38054, 85917b5e, ff4115a5) : portée dans l'adresse, volet calé sur sa part visible, états vides sur fond flou. Carte « Fil d'Ariane et Communication repensés » (20/11/2026, commit d90980ea) : fil « Service / Projet / Fiche » partout, Communication en projets puis campagnes, Calendrier retiré des services.
+
+## Procédure
+
+1. OÙ VIT LE MENU PROPRE (`web/src/components/colonne-de-service.tsx`) : le contexte porte `absente`. Dans la zone centrale (`COLONNE_COUPEE`, app.tsx) et dans les fenêtres `FenetreDeService sansMenuDuService` (outils de création, outils de fonctionnement), `ColonneDeService` ne rend RIEN et `useColonneDeService()` rend faux — comme sur téléphone. Seules les fenêtres Mémoire et Coffre-fort posent le menu du service à gauche ; ses gestes (repères `data-…ajouter|nouve|gerer|creer…` ou icône « + ») sont rangés au chevron (`useMenuDuService`, `ChevronDesOptions`).
+2. QUI S'OUVRE OÙ (app.tsx) : Mémoire, Coffre-fort et les outils de FONCTIONNEMENT (Statistiques, Messagerie, Backup, Surveillance, Tâches récurrentes : `VUES_DE_FONCTIONNEMENT_EN_FENETRE`, shared/src/onglets-du-projet.ts) sont dans `VUES_EN_FENETRE` : leur adresse reste la leur (`#backups`, `#espace/<client>`…) mais la zone garde l'écran d'avant (`vueDuFond`) et une `FenetreDeService` se pose par-dessus ; la fermer (`fermerLaFenetre`) ramène l'écran d'avant. Les outils de CRÉATION (Studio, Communication, Charte, Marketing) s'ouvrent dans la page `fenetreDeCreation` ; leurs objets RÉELS (`adresseDObjetReel` : une création, une campagne, un document) s'ouvrent dans le projet, en onglet de zone. Le Résumé de tous les projets reste une page. LE CALENDRIER N'EST PLUS UN SERVICE (20/11/2026) : volet de chaque campagne ; `#calendrier…` ouvre Communication.
+3. CHAQUE SERVICE GARDE SA NAVIGATION DANS SA PAGE quand `!useColonneDeService()` : Résumé (liste déroulante des rubriques), Statistiques (bouton Audience/Parcours `data-stats-vue`), Communication (accueil = liste des projets `data-v2-accueil-projet` ; un projet = ses campagnes ; Comptes reliés et Réponses au menu « … » `data-v2-option`), Charte (liste des documents), Backup/Surveillance (options au chevron + `GestePrincipal`), Messagerie (fiches clients dans l'accueil).
+4. RESTREINDRE AU PROJET : lire `useProjetDuService()` et filtrer — Messagerie : clients et fiches dont `projets` contient l'id ; Marketing : dossiers `projectId` ; Communication : la portée ouvre la marque du projet, et une marque ouverte sur « Tous les projets » règle la portée sur son projet (`useChoixDeLaPortee`, fourni par la page de création) ; un projet sans marque propose `CreerLaMarqueDuProjet`. Un outil vide pour le projet le dit avec `EtatVideDuProjet`, et SEULEMENT une fois ses données reçues (avant : la silhouette de sa forme finale). La portée d'une page de service est `filtreDuServiceCentral`, ÉCRITE DANS L'ADRESSE (`#communication?projet=<id>`, champ `portee` d'`EcranNavigateur`) et relue par `appliquerEcran` ; sans elle, tous les projets. Un objet ouvert par son adresse rend actif son projet (`useProjetDeLObjetOuvert`).
+5. UN SERVICE VIDE MONTRE SON CONTENU EN FOND (décision du 20/11/2026, maquette #8494e) : `EtatVideDuProjet fond={…}` pose derrière le message la forme finale du service (`SilhouetteTableauDeService`, `SilhouetteBackups`, `SilhouetteSurveillance`, `SilhouetteTachesRecurrentes`, `SilhouetteStudio`), floue (3 px), à 30 %, `inert` + `aria-hidden` (repère `data-fond-de-l-etat-vide`), enveloppée dans `FondDEtatVide`. STATISTIQUES D'UN SITE : tant que `etatAffiche` ≠ `verifie`, `SuiviSansChiffres` remplace les onglets (repère `data-stats-sans-chiffres=<état>`).
+6. UNE PAGE OUVERTE DEPUIS UN OUTIL EN FENÊTRE (`Drawer` non `enPage`, la fiche d'un site, l'assistant « Installer le suivi ») se pose sur la partie droite de la fenêtre : `CadreDesPagesDeFenetre` (ui/index.tsx), `FeuilleDeTiroir` s'y cale en `z-[60]` sur sa PART VISIBLE. Échap ne ferme que la fiche.
+7. LES GESTES : options dans `OptionsDePage` (chevron du coin `data-options-de-zone` ; dans l'objet d'un service ouvert dans un projet, ⋮ `data-options-de-page="menu"` dans la barre du projet à côté de « Publier », `gestesDansLaBarreDuProjet`), geste de création dans `GestePrincipal` (en bas pleine largeur, `data-geste-en-bas`). Jamais une rangée de boutons en haut à gauche.
+8. LE FIL SE LIT « SERVICE / PROJET / FICHE » (décision du 20/11/2026) : `FilDesPagesDeService` (menus-de-la-colonne.tsx, `CranDeLaPageDeService`) pose le SERVICE, puis le PROJET seulement si la portée n'est pas « Tous les projets », puis les crans du service (`SuiteDuFil`). Noms seuls, chevron `ChevronDesVoisins` au survol : services groupés Créer/Suivre ; « Tous les projets » en premier choix puis les projets. Nom du service → accueil sur tous les projets (`onTousLesProjets`) ; nom du projet → accueil du service pour ce projet. Dans un projet, `FilDuProjet` avec `service` suit le même ordre (`data-fil-du-service-du-projet`). Sur « Tous les projets », le filtre des projets se pose à droite du titre (`filtreDeLaPage`, sauf Communication). Le menu « Services » ouvre toujours « Tous les projets » (`ouvrirServiceCentral`).
+9. LA TÊTE DE LA COLONNE DES PROJETS (sidebar.tsx) : menu ⋮ (`data-menu-dossier`) avec « Rechercher » et « Tous les projets ». LE PIED (`data-pied-colonne`) : état du moteur, CLOCHE (ordinateur seulement), réglages.
+10. TÉLÉPHONE, DANS UN PROJET : « Tâches » du haut (`data-taches-du-haut`) ouvre `FeuilleDesTaches` ; chaque fenêtre est la feuille du bas ; la flèche du haut remonte d'un cran (`SuiteDuFil retour`).
+
+## Vérification
+
+`npm run build` (SANS `NODE_ENV=development`) puis `npm test` (dont `scripts/exports-morts.test.mjs` et `scripts/verif-reperes-des-controles.test.mjs`). Puis, démons jetables : `env -u BELUGA_TOKEN -u BELUGA_URL node scripts/verif-services-et-fils.mjs` (12 services par l'adresse, le menu et le fil ; ordre « Service / Projet / Fiche », chevrons, aucun `[data-suite-du-fil="page"]` sur une campagne, Calendrier absent du menu ; 54/54 le 20/11/2026), `node scripts/verif-communication-v2.mjs` (125/126) et `node scripts/verif-installation-du-suivi.mjs`. Serveur d'essai sur un port à soi, puis `HAIKO_REFONTE_URL=… node scripts/verif-services-en-page.mjs`, `HAIKO_LANGUES_URL=… node scripts/verif-langues.mjs`, `HAIKO_THEMES_URL=… node scripts/verif-themes.mjs`. Au navigateur, 1440 et 390, clair et sombre (le schéma sombre suit `colorScheme: 'dark'` du contexte quand le thème est automatique).
+
+## Pièges
+
+- Un service qui n'a sa navigation QUE dans `ColonneDeService` devient inatteignable sur ordinateur : toujours un équivalent de page sous `!useColonneDeService()`.
+- `COLONNE_COUPEE` (écrans gardés cachés) porte aussi `absente` ; un écran caché reçoit `SUITE_MUETTE` : une suite fournie SANS cible ne se rend nulle part (rendue en ligne, elle cassait la page d'une campagne, capture #fe29).
+- Deux cibles de suite distinctes (`cibleDuFilDeZone`, `cibleDeLaBarreDuProjet`) : un seul état tenu par deux `ref` se faisait vider par l'élément qui partait.
+- Revenir à « Tous les projets » ne se DÉDUIT pas d'un changement de portée (une adresse sans `?projet=` remet aussi la portée) : c'est un geste du fil (`onTousLesProjets`).
+- Deux `[data-communication2]` peuvent coexister (page de service par-dessus, zone gardée dessous) : un contrôle vise `.last()`.
+- `useColonneDeService()` ne dit plus « ordinateur » : pour l'appareil, `!useTelephone()`.
+- Un nouvel outil de fonctionnement s'ajoute À LA FOIS à `VUES_DE_FONCTIONNEMENT_EN_FENETRE` et au bloc de la fenêtre dans app.tsx.
+- Un texte retiré de l'écran se retire aussi de shared/src/traductions.ts (clés en guillemets simples OU doubles) ; un `aria-label` ne passe jamais par `t()`.
+- Retirer un écran laisse des règles mortes dans shared : `exports-morts` les signale, à retirer avec leurs tests.
+- Essais : jamais « Créer la marque de … », « Lancer l'installation » ni changement de mode sur la base servie ; intercepter le canal.
+- Ne pas lancer prettier sur un fichier : le projet est en guillemets simples.
+
+## Ce qui ne marche pas
+
+- La liste centrée en haut des services, avec « Tous les projets » puis chaque projet : refusée le 13/11/2026.
+- Le fil « portée ⌄ / service ⌄ », puis « projet / service / projet / page » dans un projet : refusé le 20/11/2026 (captures #fe29, #c3d8).
+- Les onglets Campagnes / Connexion / Réponses dans la page d'une marque, et le tableau de toutes les campagnes en accueil de Communication : refusés le 20/11/2026 (#eca46, #958e).
+- Le Calendrier comme service : retiré le 20/11/2026.
+- Statistiques, Messagerie, Backup… en onglets de la barre du projet : remplacés par la grande fenêtre.
+- Caler un volet sur toute la hauteur du corps de la page de service : son pied tombait sous l'écran (#c7fe).
+- Un bandeau au-dessus de tableaux à zéro pour un site sans visite : refusé (#1fbc).
