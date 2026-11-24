@@ -17,8 +17,7 @@
  *
  * Ce fichier porte ce qui se décide sans réseau : la forme des questions et des
  * réponses, la lecture de ce que Jev rend, les seuils, la liste des usages et
- * leurs interrupteurs, et la NOTE PAR RÈGLES de la jauge quand Jev ne répond
- * pas. L'appel, ses garde-fous et la trace vivent dans
+ * leurs interrupteurs. L'appel, ses garde-fous et la trace vivent dans
  * `server/src/jugement-rapide.ts`.
  *
  * Laya, le modèle local qui l'avait remplacé (1,8 Go de mémoire vive, jamais
@@ -78,17 +77,15 @@ export const SEUIL_JUGE = 0.6;
  * comptes rendus. L'effort proposé tombait sur « léger » 19 fois sur 23, avec
  * une confiance à peine au-dessus du hasard.
  *
- * Ce qui les remplace : UN SEUL SIGNAL, MUET, sur ce qui compte vraiment — la
- * COMPRÉHENSION rendue par l'agent de cadrage, c'est-à-dire le dossier réel que
- * recevra celui qui exécutera. Il se lit sur un indicateur en trois barres posé
- * dans la barre d'écriture, et il ne bloque jamais le lancement.
+ * LA NOTE DE COMPRÉHENSION, qui les avait remplacés par une jauge à trois
+ * barres dans la barre d'écriture, est retirée à son tour (24/11/2026, carte
+ * « Champ d'écriture allégé ») : l'utilisateur l'a jugée sans effet utile.
  *
- * Les deux usages restants n'écrivent rien à l'écran non plus : l'un ORDONNE
- * les propositions de la nuit, l'autre pose une étiquette d'urgence sur une
- * carte arrivée sans l'utilisateur.
+ * Les usages restants n'écrivent rien à l'écran : l'un ORDONNE les propositions
+ * de la nuit, un autre pose une étiquette d'urgence sur une carte arrivée sans
+ * l'utilisateur, les autres conseillent ou trient sans rien décider.
  */
 export const USAGES_JUGE = [
-  'comprehension-carte',
   'tri-propositions',
   'urgence-demande',
   'genre-carte-auto',
@@ -116,12 +113,9 @@ export interface FicheDUsage {
    * 25.09.2026, portait sur un modèle local depuis retiré) : ils naissent donc
    * éteints, et l'écran du juge les rallume.
    *
-   * Trois usages restent allumés : ils ne décident de rien et n'écrivent aucun
-   * mot. La note de compréhension nourrit une jauge qui doit être notée à
-   * chaque échange (MEM-3393) — et qui l'est par des règles quand Jev ne
-   * répond pas (`comprehensionParRegles`) ; le tri des idées de la nuit et le
-   * départage du mode Création ne font qu'ordonner ou conseiller, et n'ont
-   * aucune vérité en base contre laquelle se mesurer.
+   * Le tri des idées de la nuit reste allumé : il ne décide de rien, n'écrit
+   * aucun mot et ne fait qu'ordonner — il n'a aucune vérité en base contre
+   * laquelle se mesurer.
    *
    * Un quatrième l'est sur demande expresse de l'utilisateur (28/10/2026) : la
    * pertinence des analyses Marketing pose une mention « peu pertinent » sous
@@ -131,13 +125,6 @@ export interface FicheDUsage {
 }
 
 export const FICHES_DES_USAGES: readonly FicheDUsage[] = [
-  {
-    cle: 'comprehension-carte',
-    titre: 'Compréhension suffisante',
-    explication:
-      'Note ce que l’agent a compris de votre demande — son texte, ses hypothèses et les détails techniques préparés. Se lit sur l’indicateur à trois barres de la barre d’écriture ; le lancement reste toujours possible.',
-    parDefaut: true,
-  },
   {
     cle: 'tri-propositions',
     titre: 'Tri des idées de la nuit',
@@ -461,101 +448,14 @@ export function tronquer(texte: string | undefined, plafond = PLAFOND_ETAT): str
  */
 export const SEUILS = {
   /**
-   * LA CONFIANCE MINIMALE POUR MONTRER UNE NOTE DE COMPRÉHENSION. Sur trois
-   * niveaux, le hasard pur donne 0,33 : en dessous de ce palier, le juge ne
-   * sait pas, et un indicateur tiré au sort vaut moins que pas d'indicateur du
-   * tout. C'est la leçon de l'effort proposé, qui affichait « léger » 19 fois
-   * sur 23 avec une confiance à peine au-dessus du hasard.
+   * LA CONFIANCE MINIMALE D'UNE NOTE QUI ORDONNE SANS RIEN DÉCIDER (le tri des
+   * idées de la nuit). Sur trois ou quatre niveaux, le hasard pur donne 0,25 à
+   * 0,33 : en dessous de ce palier, le juge ne sait pas.
    */
-  confianceDeLaComprehension: 0.4,
+  confianceDuTri: 0.4,
   /** Au-dessus, une demande entrante est jugée pressante. */
   demandeUrgente: 0.6,
 } as const;
-
-/* ------------------------------------------------------------------ */
-/* LA COMPRÉHENSION : LA SEULE CHOSE QUE LE JUGE NOTE ENCORE           */
-/* ------------------------------------------------------------------ */
-
-/**
- * LES TROIS NIVEAUX DE L'INDICATEUR, dans l'ordre du score rendu (0, 1, 2).
- * Ils deviennent 1, 2 ou 3 barres à l'écran — une barre rouge, deux jaune,
- * trois vert.
- */
-export const NIVEAUX_DE_COMPREHENSION = [
-  'Un agent partirait dans le vide : ce qui est compris ne dit ni ce qu’il faut obtenir, ni où, ni à quoi le reconnaître.',
-  'Exploitable, mais des zones floues demeurent : l’agent devra deviner une partie du travail ou de ses limites.',
-  'Le dossier suffit à lancer le travail : l’objectif, le résultat attendu et les contraintes y sont.',
-] as const;
-
-/**
- * LES MOTIFS DU MANQUE — UNE LISTE FERMÉE, JAMAIS DU TEXTE LIBRE.
- *
- * Le juge ne rend que trois primitives (`noul`, `choice`, `score`) : aucune
- * phrase. La phrase affichée au survol de l'indicateur se compose donc ICI, à
- * partir du motif choisi, ce qui la rend aussi traduisible dans les cinq
- * langues — une phrase inventée par le modèle ne le serait pas.
- */
-export const MOTIFS_DE_COMPREHENSION = {
-  'objectif-flou': 'L’objectif n’est pas délimité : on ne sait pas jusqu’où va le travail.',
-  'resultat-non-dit': 'Le résultat attendu n’est pas dit : rien ne permettra de reconnaître que c’est fait.',
-  'contraintes-absentes': 'Les contraintes techniques manquent : l’agent devra les deviner en chemin.',
-  'hypotheses-trop-nombreuses': 'Trop de points sont assumés sans réponse : une bonne part du travail repose sur des suppositions.',
-  'discussion-naissante': 'La discussion commence : l’agent n’a pas encore rendu ce qu’il a compris.',
-  'rien-ne-manque': 'Rien ne manque : le dossier suffit à lancer le travail.',
-} as const;
-
-export type MotifDeComprehension = keyof typeof MOTIFS_DE_COMPREHENSION;
-
-/** La phrase du survol, composée localement — le juge n'en écrit aucune. */
-export function phraseDuMotif(motif: string | undefined): string {
-  return (
-    MOTIFS_DE_COMPREHENSION[motif as MotifDeComprehension] ??
-    'Le dossier transmis a été relu automatiquement ; rien de précis n’est ressorti.'
-  );
-}
-
-/**
- * « OÙ EN EST CETTE DISCUSSION, POUR UN TRAVAIL ABOUTI ? »
- *
- * Deux questions d'un seul appel : une NOTE sur trois niveaux décrits un par
- * un, et le MOTIF du manque dans une liste fermée. Le jugement porte sur la
- * DISCUSSION ENTIÈRE — la demande, les questions tranchées, puis le dossier
- * réel transmis à celui qui exécutera — et plus seulement sur une compréhension
- * déjà rendue : la jauge se remplit à mesure que l'échange avance.
- *
- * DES REPÈRES ÉCRITS, PAS À DEVINER. L'ancien juge (Needle 3) routait sans
- * inférer (MEM-3232) ; Jev infère, mais un repère écrit reste plus sûr qu'une
- * déduction. Chaque niveau et chaque motif est
- * donc décrit par des REPÈRES qu'il trouve ÉCRITS en tête du dossier
- * (`reperesDuDossier`) : « Compréhension rendue : non », « Risques identifiés :
- * oui »… Il n'a plus qu'à rapprocher deux textes, ce qu'il sait faire.
- */
-export function questionComprehension(): Record<string, QuestionDuJuge> {
-  return {
-    score: {
-      type: 'score',
-      instructions:
-        'D’après les repères écrits en tête du dossier, où en est cette discussion pour lancer un travail abouti ?',
-      criteria: [
-        `Compréhension rendue : non. ${NIVEAUX_DE_COMPREHENSION[0]}`,
-        `Compréhension rendue : oui, mais étapes découpées : 0 ou risques identifiés : non. ${NIVEAUX_DE_COMPREHENSION[1]}`,
-        `Compréhension rendue : oui, étapes découpées et risques identifiés : oui. ${NIVEAUX_DE_COMPREHENSION[2]}`,
-      ],
-    },
-    motif: {
-      type: 'choice',
-      instructions: 'D’après les repères écrits en tête du dossier, qu’est-ce qui manque le plus pour lancer le travail ?',
-      criteria: {
-        'objectif-flou': MOTIFS_DE_COMPREHENSION['objectif-flou'],
-        'resultat-non-dit': MOTIFS_DE_COMPREHENSION['resultat-non-dit'],
-        'contraintes-absentes': `Étapes découpées : 0 ou risques identifiés : non. ${MOTIFS_DE_COMPREHENSION['contraintes-absentes']}`,
-        'hypotheses-trop-nombreuses': `Hypothèses assumées nombreuses, questions tranchées : 0. ${MOTIFS_DE_COMPREHENSION['hypotheses-trop-nombreuses']}`,
-        'discussion-naissante': `Compréhension rendue : non. ${MOTIFS_DE_COMPREHENSION['discussion-naissante']}`,
-        'rien-ne-manque': `Compréhension rendue : oui, étapes découpées, risques identifiés : oui. ${MOTIFS_DE_COMPREHENSION['rien-ne-manque']}`,
-      },
-    },
-  };
-}
 
 /** Deux notes sur une proposition de la nuit : le gain, puis l'ampleur. */
 export function questionsProposition(): Record<string, QuestionDuJuge> {
@@ -609,32 +509,7 @@ export function questionUrgence(): Record<string, QuestionDuJuge> {
  * (`JugementPose`, `JugementsDeCarte`) : une seule définition, celle que la
  * base valide. Ici, seule la LECTURE des réponses du juge.
  */
-import type { JugementDeComprehension, JugementPose } from './models.js';
-
-/**
- * LE VERDICT SUR LA COMPRÉHENSION, PRÊT À RANGER.
- *
- * Rien n'est rendu quand le juge n'a pas répondu, quand il a répondu d'un
- * autre genre, ou quand sa CONFIANCE reste sous le palier : un indicateur tiré
- * au sort est pire que pas d'indicateur. Le motif, lui, est facultatif — une
- * note sans motif s'affiche quand même, sa phrase de survol se contente d'être
- * générale.
- */
-export function verdictComprehension(
-  score: ReponseDuJuge | undefined,
-  motif: ReponseDuJuge | undefined,
-  at: number,
-): JugementDeComprehension | undefined {
-  if (score?.type !== 'score') return undefined;
-  if (score.confidence < SEUILS.confianceDeLaComprehension) return undefined;
-  /* Le score est un INDICE dans la liste des niveaux (0, 1, 2) : les barres
-     valent un de plus, et un juge qui déborde est ramené dans la fourchette
-     plutôt que d'être jeté. */
-  const barres = Math.min(3, Math.max(1, Math.round(score.score) + 1)) as 1 | 2 | 3;
-  const nomme =
-    motif?.type === 'choice' && motif.choice in MOTIFS_DE_COMPREHENSION ? motif.choice : undefined;
-  return { barres, confiance: score.confidence, motif: nomme, source: 'jev', at };
-}
+import type { JugementPose } from './models.js';
 
 /** Le verdict « demande pressante », prêt à ranger. */
 export function verdictUrgence(reponse: ReponseDuJuge | undefined, at: number): JugementPose | undefined {
@@ -731,15 +606,12 @@ export function bilanDesTraces(traces: readonly TraceDeJugement[]): {
 /* ------------------------------------------------------------------ */
 
 /*
- * DEUX PLACES, ET PAS UNE DE PLUS — ET AUCUNE PHRASE ÉCRITE D'OFFICE.
+ * UNE SEULE PLACE — ET AUCUNE PHRASE ÉCRITE D'OFFICE : l'URGENCE se lit en
+ * étiquette sur la carte arrivée sans l'utilisateur. (La jauge de compréhension
+ * de la barre d'écriture est retirée depuis le 24/11/2026.)
  *
- *  - la COMPRÉHENSION se lit sur l'indicateur à trois barres de la barre
- *    d'écriture, à gauche du micro : une barre rouge, deux jaune, trois vert,
- *    et une phrase courte AU SURVOL seulement ;
- *  - l'URGENCE se lit en étiquette sur la carte arrivée sans l'utilisateur.
- *
- * Aucun des deux n'éteint un bouton, n'efface un texte ni ne rouvre une carte :
- * ils ne font QUE se lire. C'est la contrepartie de leur présence — un signal
+ * Elle n'éteint aucun bouton, n'efface aucun texte ni ne rouvre une carte :
+ * elle ne fait QUE se lire. C'est la contrepartie de leur présence — un signal
  * qui bloque devient un verrou, et un verrou posé par un juge
  * optionnel n'a rien à faire sur ce chemin.
  */
@@ -766,221 +638,6 @@ export function avisSurLUrgence(carte: { jugements?: { urgence?: JugementPose } 
     phrase: 'Quelque chose semble cassé ou bloqué en ce moment : cette demande passe devant les autres.',
     valeur: juge.valeur,
   };
-}
-
-/* ------------------------------------------------------------------ */
-/* L'INDICATEUR À TROIS BARRES                                         */
-/* ------------------------------------------------------------------ */
-
-/** Les colonnes où une note de compréhension sert encore à quelque chose. */
-export const COLONNES_INDICATEUR: readonly string[] = ['planned'];
-
-/** Ce que l'indicateur affiche : un nombre de barres et sa phrase de survol. */
-export interface IndicateurDeComprehension {
-  /** 0 = pas encore évaluée : la jauge est là, ses trois barres éteintes. */
-  barres: 0 | 1 | 2 | 3;
-  /** La phrase du survol, composée depuis le motif — jamais écrite par le juge. */
-  phrase: string;
-  /** La confiance du juge, de 0 à 1 — dite au survol, pas affichée en gros. Absente sans note. */
-  confiance?: number;
-}
-
-/** La phrase du survol d'une jauge encore vide. */
-export const PHRASE_JAUGE_VIDE =
-  'Pas encore évaluée : la jauge se remplit à mesure que la discussion avance.';
-
-/**
- * L'INDICATEUR, TOUJOURS LÀ TANT QU'IL SERT.
- *
- * Il ne disparaît plus faute de note : une carte encore en cadrage montre sa
- * jauge dès l'ouverture, trois barres éteintes (`barres: 0`), puis la note de
- * Jev — ou des règles, s'il se tait — à chaque échange. Il ne s'efface qu'une fois le travail parti — une
- * note sur un dossier qu'on ne peut plus corriger n'éclaire aucune décision.
- */
-export function indicateurDeComprehension(carte: {
-  column: string;
-  parcours?: { comprehension?: { texte: string } };
-  jugements?: { comprehension?: JugementDeComprehension };
-}): IndicateurDeComprehension | undefined {
-  if (!COLONNES_INDICATEUR.includes(carte.column)) return undefined;
-  const note = carte.jugements?.comprehension;
-  if (!note) return { barres: 0, phrase: PHRASE_JAUGE_VIDE };
-  return { barres: note.barres, phrase: phraseDuMotif(note.motif), confiance: note.confiance };
-}
-
-/* ------------------------------------------------------------------ */
-/* CE QU'ON MONTRE AU JUGE : le dossier réel, jamais le projet entier  */
-/* ------------------------------------------------------------------ */
-
-/**
- * LE DOSSIER TRANSMIS À CELUI QUI EXÉCUTERA, mis à plat pour le juge.
- *
- * C'est le point de la correction : l'ancien avis jugeait le CHAMP
- * « description » de la carte — vide 56 fois sur 95 — alors que la demande
- * vivait dans le fil et que le vrai dossier est la COMPRÉHENSION rendue. On
- * envoie donc ce que l'agent d'exécution recevra, et rien d'autre : le texte
- * compris, les hypothèses assumées, la découpe du travail, les faits du projet
- * à respecter et ce qui risque de casser.
- */
-export interface DossierAJuger {
-  /** Les repères CHIFFRÉS, écrits en tête : c'est sur eux que le juge s'appuie. */
-  reperes: string[];
-  titre: string;
-  /** Ce que l'utilisateur a écrit, du plus ancien au plus récent (les derniers seulement). */
-  demandes: string[];
-  /** Les questions posées par l'agent ET tranchées, « question → réponse ». */
-  questions: string[];
-  comprehension: string;
-  hypotheses: string[];
-  taches: string[];
-  faits: string[];
-  risques: string;
-  /**
-   * Hors signature et hors repères : ce que seules les RÈGLES lisent
-   * (`comprehensionParRegles`). Le cahier dit-il à quoi reconnaître la
-   * réussite ? Combien de questions posées attendent encore leur réponse ?
-   */
-  criteresDeReussite?: boolean;
-  questionsOuvertes?: number;
-}
-
-/** Le nombre de lignes retenues par rubrique : de quoi juger, pas un journal. */
-export const DOSSIER_MAX = { hypotheses: 20, taches: 30, faits: 30, demandes: 6, questions: 10 } as const;
-
-/** Ce que la discussion a produit hors de la carte : les messages et les questions tranchées. */
-export interface EchangesDeLaCarte {
-  demandes?: readonly string[];
-  questions?: readonly { question: string; reponse: string }[];
-}
-
-/**
- * LES REPÈRES DU DOSSIER, ÉCRITS EN TOUTES LETTRES.
- *
- * Ce sont les mots mêmes que portent les niveaux et les motifs de
- * `questionComprehension` : le juge les retrouve des deux côtés et n'a rien à
- * deviner. Placés EN TÊTE, ils ne sont jamais coupés par le plafond.
- */
-export function reperesDuDossier(dossier: Omit<DossierAJuger, 'reperes'>): string[] {
-  const rendue = !!dossier.comprehension.trim();
-  return [
-    `Messages de l’utilisateur : ${dossier.demandes.length}`,
-    `Questions tranchées : ${dossier.questions.length}`,
-    `Compréhension rendue : ${rendue ? 'oui' : 'non'}`,
-    `Hypothèses assumées : ${dossier.hypotheses.length}`,
-    `Étapes découpées : ${dossier.taches.length}`,
-    `Faits du projet recopiés : ${dossier.faits.length}`,
-    `Risques identifiés : ${dossier.risques.trim() ? 'oui' : 'non'}`,
-  ];
-}
-
-export function dossierAJuger(
-  carte: {
-    title: string;
-    parcours?: {
-      comprehension?: {
-        texte: string;
-        hypotheses?: string[];
-        partieTechnique?: {
-          taches?: { titre: string; description?: string }[];
-          faits?: string[];
-          risques?: string;
-        };
-        cahierDesCharges?: { titre: string; contenu: string }[];
-        questionsEnAttente?: { reponse?: string }[];
-      };
-    };
-  },
-  echanges: EchangesDeLaCarte = {},
-): DossierAJuger | undefined {
-  const comprise = carte.parcours?.comprehension;
-  const demandes = (echanges.demandes ?? [])
-    .map((d) => d.trim())
-    .filter(Boolean)
-    .slice(-DOSSIER_MAX.demandes)
-    .map((d) => tronquer(d, 1500));
-  /* RIEN À JUGER tant que personne n'a rien dit ni rien compris. */
-  if (!comprise?.texte?.trim() && !demandes.length) return undefined;
-  const technique = comprise?.partieTechnique;
-  const sansReperes = {
-    titre: tronquer(carte.title, 300),
-    demandes,
-    questions: (echanges.questions ?? [])
-      .filter((q) => q.reponse.trim())
-      .slice(-DOSSIER_MAX.questions)
-      .map((q) => tronquer(`${q.question} → ${q.reponse}`, 500)),
-    comprehension: tronquer(comprise?.texte ?? ''),
-    hypotheses: (comprise?.hypotheses ?? []).slice(0, DOSSIER_MAX.hypotheses).map((h) => tronquer(h, 400)),
-    taches: (technique?.taches ?? [])
-      .slice(0, DOSSIER_MAX.taches)
-      .map((tache) => tronquer(`${tache.titre} — ${tache.description ?? ''}`.trim(), 600)),
-    faits: (technique?.faits ?? []).slice(0, DOSSIER_MAX.faits).map((fait) => tronquer(fait, 400)),
-    risques: tronquer(technique?.risques ?? '', 2000),
-  };
-  return {
-    reperes: reperesDuDossier(sansReperes),
-    ...sansReperes,
-    criteresDeReussite: (comprise?.cahierDesCharges ?? []).some(
-      (rubrique) => /r[ée]ussite|crit[èe]re|termin[ée]/i.test(rubrique.titre) && rubrique.contenu.trim().length > 0,
-    ),
-    questionsOuvertes: (comprise?.questionsEnAttente ?? []).filter((q) => !q.reponse?.trim()).length,
-  };
-}
-
-/** Au-delà, les hypothèses assumées pèsent plus que ce qui a été tranché. */
-export const HYPOTHESES_EN_TROP = 6;
-/** En deçà, un texte compris sans découpe ne délimite rien. */
-export const COMPREHENSION_TROP_COURTE = 160;
-
-/**
- * LA NOTE PAR RÈGLES, QUAND JEV SE TAIT.
- *
- * La jauge ne reste jamais sans barres après une compréhension rendue : clé
- * absente, panne, délai ou confiance sous le palier, ces règles notent à la
- * place, à partir de ce que le dossier PORTE vraiment — et dans la même liste
- * fermée de motifs, pour que la phrase du survol reste traduisible. Une règle
- * se lit en entier ; la première qui s'applique décide.
- */
-export function comprehensionParRegles(dossier: DossierAJuger, at: number): JugementDeComprehension {
-  const note = (barres: 1 | 2 | 3, motif: MotifDeComprehension): JugementDeComprehension => ({
-    barres,
-    confiance: 1,
-    motif,
-    source: 'regles',
-    at,
-  });
-  const texte = dossier.comprehension.trim();
-  if (!texte) return note(1, 'discussion-naissante');
-  if (texte.length < COMPREHENSION_TROP_COURTE && !dossier.taches.length) return note(1, 'objectif-flou');
-  if ((dossier.questionsOuvertes ?? 0) > 0) return note(2, 'objectif-flou');
-  if (!dossier.taches.length || !dossier.risques.trim()) return note(2, 'contraintes-absentes');
-  if (dossier.hypotheses.length >= HYPOTHESES_EN_TROP && !dossier.questions.length) {
-    return note(2, 'hypotheses-trop-nombreuses');
-  }
-  if (!dossier.criteresDeReussite) return note(2, 'resultat-non-dit');
-  return note(3, 'rien-ne-manque');
-}
-
-/**
- * LA SIGNATURE D'UN DOSSIER : ce qui décide qu'on rejuge, ou non.
- *
- * Elle couvre TOUT ce qui est envoyé — demandes, questions tranchées, texte
- * compris, hypothèses, tâches, faits, risques — et RIEN de volatil : aucun
- * horodatage, aucun identifiant de tour. Un nouveau message, une réponse ou une
- * nouvelle version de la compréhension changent donc la signature et redonnent
- * une note ; un déplacement de carte, un changement d'étiquette ou l'écriture
- * du verdict lui-même n'en redemandent aucune.
- */
-export function signatureDuDossier(dossier: DossierAJuger): string {
-  return JSON.stringify([
-    dossier.titre,
-    dossier.demandes,
-    dossier.questions,
-    dossier.comprehension,
-    dossier.hypotheses,
-    dossier.taches,
-    dossier.faits,
-    dossier.risques,
-  ]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1185,9 +842,8 @@ import { SEUIL_CONFIANCE_TRI } from './tri-automatique-moteur.js';
  * LE SEUIL ET LE DÉLAI PROPRES À UN USAGE (MEM-3380).
  *
  * Le seuil commun (`SEUIL_JUGE`, 0,6) vaut pour ce qui DÉCIDE (un moteur, une
- * famille d'erreur). La note de compréhension et le départage du mode Création
- * ne décident de rien — ils allument des barres ou conseillent — et portent le
- * palier de la compréhension (0,4, au-dessus du hasard sur trois niveaux).
+ * famille d'erreur). Le tri des idées de la nuit ne décide de rien — il
+ * ordonne — et porte un palier plus bas (0,4, au-dessus du hasard).
  *
  * Le délai court (`DELAI_JUGE_EXPRESS_MS`) tient les usages posés sur le
  * chemin d'un tour : un conseil ne retarde jamais un agent.
@@ -1199,8 +855,7 @@ export interface ReglageDUsage {
 }
 
 export const REGLAGES_DES_USAGES: Partial<Record<UsageDuJuge, ReglageDUsage>> = {
-  'comprehension-carte': { seuil: SEUILS.confianceDeLaComprehension },
-  'tri-propositions': { seuil: SEUILS.confianceDeLaComprehension },
+  'tri-propositions': { seuil: SEUILS.confianceDuTri },
   'urgence-demande': { seuil: 0.5 },
   'genre-carte-auto': { seuil: SEUIL_CONFIANCE_TRI },
   /* Une explication d'erreur ne retient pas une réponse : la phrase honnête

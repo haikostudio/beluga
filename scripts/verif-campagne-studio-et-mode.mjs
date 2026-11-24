@@ -331,18 +331,12 @@ async function main() {
       noter(`${nom} · rien ne déborde dans le fil`, (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0);
       await capturer(page, `fil-campagne-${nom}`);
 
-      /* -------- 3. L'étiquette du mode -------- */
+      /* -------- 3. Plus d'étiquette du mode dans le champ (24/11/2026) -------- */
       await page.goto(`${BASE}/#projet/p-essai/tache/${decor.carte.id}`, { waitUntil: 'domcontentloaded' });
-      const etiquette = page.locator('[data-etiquette-du-mode="studio"]').first();
-      noter(`${nom} · l’étiquette « Studio » est à côté du trombone`, await jusquA(async () => (await etiquette.count()) === 1 && (await etiquette.innerText()).trim() === 'Studio', 20000));
+      noter(`${nom} · le champ est là`, await jusquA(async () => (await page.locator('[data-composer] textarea').count()) >= 1, 20000));
       noter(`${nom} · plus aucun bouton de mode dans le champ`, (await page.locator('[data-interrupteur-plan], [data-interrupteur-creation], [data-interrupteur-realisation]').count()) === 0);
-      noter(`${nom} · l’étiquette n’est pas un bouton`, (await page.locator('button[data-etiquette-du-mode], [data-etiquette-du-mode] button').count()) === 0);
-      if (!telephone) {
-        await etiquette.hover();
-        noter(`${nom} · son info-bulle détaille le mode`, await jusquA(async () => /Mode Studio — Vidéo/.test((await page.locator('[role="tooltip"]').allInnerTexts().catch(() => [])).join(' ')), 5000));
-      }
       noter(`${nom} · rien ne déborde sur la carte`, (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0);
-      await capturer(page, `champ-etiquette-${nom}`);
+      await capturer(page, `champ-sans-etiquette-${nom}`);
 
       /* -------- 4. La demande d'une carte posée par l'agent de nuit -------- */
       await page.goto(`${BASE}/#projet/p-essai/tache/${decor.carteNuit.id}`, { waitUntil: 'domcontentloaded' });

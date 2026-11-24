@@ -3,11 +3,12 @@
  * Studio : série de retouches », DEC-513). Au premier tour, l'agent de cadrage juge ce que la demande appelle et POSE
  * le mode lui-même (`board_update_card`, champ « mode ») dès qu'il en est raisonnablement sûr (~70-80 %), en
  * l'annonçant en une ligne ; il ne pose une question « ask_user » que dans le VRAI doute. Défaut : aucun mode (cadrage
- * simple) ; gros chantier → Plan ; média à fabriquer → Studio avec son type. Le champ ne montre qu'une ÉTIQUETTE d'un
- * mot, avec son info-bulle — informative, non cliquable.
+ * simple) ; gros chantier → Plan ; média à fabriquer → Studio avec son type. Le champ d'écriture n'affiche RIEN du
+ * mode (décision de l'utilisateur du 24/11/2026, carte « Champ d'écriture allégé ») : l'ancienne étiquette d'un mot
+ * est retirée, c'est l'agent qui juge si un plan ou un cahier des charges est requis.
  *
  * LE MODE « CRÉATION » (plusieurs modèles + juge) EST RETIRÉ : trop proche du Studio. Une carte ancienne qui porte
- * encore `parcours.creationSouhaitee` n'affiche plus d'étiquette et suit le chemin ordinaire.
+ * encore `parcours.creationSouhaitee` suit le chemin ordinaire.
  */
 import { CHOIX_DE_DEPART, DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION, LIBELLES_TYPES_DE_MEDIA_DE_REALISATION, TYPES_DE_MEDIA_DE_REALISATION, type TypeDeMediaDeRealisation } from './mode-realisation.js';
 
@@ -21,35 +22,6 @@ export function estModeDeLaCarte(v: unknown): v is ModeDeLaCarte {
 export function estTypeDeMedia(v: unknown): v is TypeDeMediaDeRealisation {
   return typeof v === 'string' && (TYPES_DE_MEDIA_DE_REALISATION as readonly string[]).includes(v);
 }
-
-/** Ce que l'étiquette lit sur la carte. */
-export interface EtatDuModeLu {
-  parcours?: { planSouhaite?: boolean; realisationSouhaitee?: boolean } | null;
-  realisation?: { medias?: readonly string[] } | null;
-}
-
-/**
- * L'ÉTIQUETTE DU MODE : un mot, et la phrase de son info-bulle. Studio passe avant Plan (une création de média n'a
- * ni cahier ni plan) ; aucun mode : `null`, rien ne s'affiche.
- */
-export function etiquetteDuMode(
-  carte: EtatDuModeLu,
-): { mode: Exclude<ModeDeLaCarte, 'aucun'>; mot: string; detail: string; media?: string } | null {
-  const p = carte.parcours;
-  if (p?.realisationSouhaitee) {
-    const media = carte.realisation?.medias?.find(estTypeDeMedia);
-    /* Le DÉTAIL est un texte du dictionnaire, à trou : l'écran le traduit puis y pose le type, traduit lui aussi. */
-    return media
-      ? { mode: 'studio', mot: 'Studio', detail: DETAIL_STUDIO_AVEC_TYPE, media: LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[media] }
-      : { mode: 'studio', mot: 'Studio', detail: DETAIL_STUDIO };
-  }
-  if (p?.planSouhaite) return { mode: 'plan', mot: 'Plan', detail: DETAIL_PLAN };
-  return null;
-}
-
-const DETAIL_STUDIO_AVEC_TYPE = 'Mode Studio — {media} : l’agent réalise ce média dans le Studio, version gratuite d’abord ; chaque génération payante attend votre clic.';
-const DETAIL_STUDIO = 'Mode Studio : l’agent réalise un média dans le Studio, version gratuite d’abord ; chaque génération payante attend votre clic.';
-const DETAIL_PLAN = 'Mode Plan : le cadrage rend un cahier des charges et un plan complet avec sa compréhension, à relire avant de lancer.';
 
 /**
  * LE CHOIX DU MODE, joint au PREMIER tour de cadrage d'une carte qui n'a ni mode ni compréhension. L'agent CHOISIT

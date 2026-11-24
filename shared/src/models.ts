@@ -1174,36 +1174,16 @@ export type JugementPose = z.infer<typeof JugementPose>;
  * vivent dans le blob `data` — aucune migration, et une carte d'avant ne les a
  * simplement pas.
  */
-/**
- * LA NOTE DE COMPRÉHENSION, RANGÉE SUR LA CARTE — le seul verdict que l'écran
- * montre encore, et il ne montre qu'un NOMBRE DE BARRES : une rouge, deux
- * jaune, trois vert, avec une phrase courte au survol. Aucun message écrit.
- */
-export const JugementDeComprehension = z.object({
-  /** 1, 2 ou 3 barres. Jamais zéro : sans verdict, la jauge montre ses trois barres éteintes. */
-  barres: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  /** La confiance du service, de 0 à 1. */
-  confiance: z.number(),
-  /** Le motif du manque, choisi dans une liste fermée (`MOTIFS_DE_COMPREHENSION`). */
-  motif: z.string().optional(),
-  /** La signature du dossier jugé : inchangé, on ne rejuge pas. */
-  empreinte: z.string().optional(),
-  /** Qui a noté : Jev, ou les règles quand il s'est tu (`comprehensionParRegles`). */
-  source: z.enum(['jev', 'regles']).optional(),
-  at: z.number(),
-});
-export type JugementDeComprehension = z.infer<typeof JugementDeComprehension>;
-
 /*
  * LES CHAMPS DISPARUS — `description`, `plan`, `rapport`, `niveauPropose` —
- * portaient les quatre avis ÉCRITS, retirés au profit du seul indicateur. Les
+ * portaient les quatre avis ÉCRITS, retirés au profit d'un indicateur ;
+ * `comprehension` portait la note de cet indicateur à trois barres, retiré à
+ * son tour le 24/11/2026. Les
  * cartes déjà en base les portent encore dans leur JSON libre : Zod les ignore
  * silencieusement à la lecture, et ils s'effacent à la prochaine écriture.
  * Aucune migration, rien de destructif.
  */
 export const JugementsDeCarte = z.object({
-  /** Ce qui a été compris suffit-il à lancer le travail ? 1, 2 ou 3 barres. */
-  comprehension: JugementDeComprehension.optional(),
   /** La demande entrante presse-t-elle ? Signal = elle passe devant. */
   urgence: JugementPose.optional(),
   /** Les notes de tri d'une proposition de la nuit : gain, ampleur, rang. */

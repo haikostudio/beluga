@@ -378,6 +378,7 @@ export * from './perimetre-ecran.js';
 export * from './reprise-ecran.js';
 export * from './studio.js';
 export * from './agent-de-volet.js';
+export * from './agents-personnalises.js';
 export * from './studio-export.js';
 export * from './studio-reglages.js';
 export * from './studio-dessin.js';

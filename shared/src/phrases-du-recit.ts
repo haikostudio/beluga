@@ -263,6 +263,7 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   proposer_suites: { un: 'Je propose des suites possibles.' },
   bilan_du_travail: { un: 'Je fais le bilan de mon travail.' },
   veille_poser: { un: 'Je pose une veille qui me relancera.' },
+  agent_fiche: { un: 'Je complète ma fiche.' },
   cahier_des_charges: { un: 'Je mets le cahier des charges à jour.' },
 
   /* Les écrans, les appareils et les services de Beluga */

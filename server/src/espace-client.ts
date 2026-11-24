@@ -542,6 +542,11 @@ export function creerDemande(
   noterActivite(auteur, neuve, 'creation', neuve.titre);
   // L'AUTEUR A LU SA PROPRE DEMANDE : elle ne s'ouvre pas avec une pastille.
   marquerDemandeLue(neuve.id, auteur.id, maintenant);
+  /* LES AGENTS PERSONNALISÉS réglés « à chaque nouvelle demande client » (24/11/2026) : prévenus HORS du chemin de la
+     demande — une erreur de leur côté ne la fait jamais échouer. */
+  void import('./agents-personnalises.js')
+    .then((m) => m.signalerAuxAgents(neuve.projectId, 'messagerie.demande', `Nouvelle demande « ${neuve.titre} » (id ${neuve.id}), déposée par ${neuve.auteurNom}.`))
+    .catch(() => undefined);
   return neuve;
 }
 

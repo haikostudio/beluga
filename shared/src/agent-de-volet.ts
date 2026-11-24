@@ -25,9 +25,10 @@ import { LABEL_MARKETING } from './marketing.js';
 import { LABEL_STUDIO } from './studio.js';
 import { LABEL_SURVEILLANCE } from './surveillance.js';
 import { LABEL_SECURITE } from './service-securite.js';
+import { LABEL_AGENT_PERSO } from './agents-personnalises.js';
 
 /** Les étiquettes que pose la naissance d'un agent de volet sur sa carte. */
-export const LABELS_DE_VOLET: readonly string[] = [LABEL_MARKETING, LABEL_SURVEILLANCE, LABEL_BACKUP, LABEL_SECURITE];
+export const LABELS_DE_VOLET: readonly string[] = [LABEL_MARKETING, LABEL_SURVEILLANCE, LABEL_BACKUP, LABEL_SECURITE, LABEL_AGENT_PERSO];
 
 export function estAgentDeVolet(
   agent: { role?: string; workdir?: string | null } | null | undefined,
@@ -48,7 +49,7 @@ export function estAgentDeVolet(
  * n'est JAMAIS un agent de volet : il garde sa carte Système violette, qui ouvre
  * déjà son tiroir.
  */
-export type ServiceDeCarte = 'studio' | 'marketing' | 'surveillance' | 'backups' | 'securite';
+export type ServiceDeCarte = 'studio' | 'marketing' | 'surveillance' | 'backups' | 'securite' | 'agents';
 
 /** Le service de chaque étiquette de volet. */
 const SERVICE_PAR_ETIQUETTE: ReadonlyArray<readonly [string, ServiceDeCarte]> = [
@@ -57,6 +58,8 @@ const SERVICE_PAR_ETIQUETTE: ReadonlyArray<readonly [string, ServiceDeCarte]> = 
   [LABEL_BACKUP, 'backups'],
   /* L'agent de sécurité d'un projet suivi (service « Sécurité », 15/11/2026). */
   [LABEL_SECURITE, 'securite'],
+  /* Un agent personnalisé d'un projet (onglet « Agents », 24/11/2026) : sa carte ramène à SA page dans le projet. */
+  [LABEL_AGENT_PERSO, 'agents'],
 ];
 
 /** Le service de la carte d'un agent de volet, ou `null` pour toute autre carte. */
@@ -78,6 +81,7 @@ export const NOM_DU_SERVICE: Readonly<Record<ServiceDeCarte, string>> = {
   surveillance: 'Surveillance',
   backups: 'Sauvegardes',
   securite: 'Sécurité',
+  agents: 'Agents',
 };
 
 /**
@@ -85,8 +89,10 @@ export const NOM_DU_SERVICE: Readonly<Record<ServiceDeCarte, string>> = {
  * le projet d'un atelier, un site).
  */
 export type LieuDeService = {
-  vue: 'studio' | 'marketing' | 'surveillance' | 'backups' | 'securite';
+  vue: 'studio' | 'marketing' | 'surveillance' | 'backups' | 'securite' | 'agents';
+  /** Pour « agents » : l'identifiant de l'agent personnalisé ; son projet suit dans `projectId`. */
   elementId: string;
+  projectId?: string;
 };
 
 /** Un service dont la conversation de l'agent se lit dans son propre écran (tous). */

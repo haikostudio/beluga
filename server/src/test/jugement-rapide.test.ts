@@ -8,27 +8,16 @@ import {
   FICHES_DES_USAGES,
   SEUILS,
   USAGES_JUGE,
-  DOSSIER_MAX,
-  MOTIFS_DE_COMPREHENSION,
-  NIVEAUX_DE_COMPREHENSION,
   avisSurLUrgence,
   basculerUsage,
   basculerUsageAllume,
   bilanDesTraces,
-  comprehensionParRegles,
-  dossierAJuger,
-  indicateurDeComprehension,
-  PHRASE_JAUGE_VIDE,
-  phraseDuMotif,
-  questionComprehension,
   questionUrgence,
   questionsProposition,
   rangDUneProposition,
-  signatureDuDossier,
   tronquer,
   trierParInteret,
   usageAllume,
-  verdictComprehension,
   verdictInteret,
   verdictUrgence,
 } from '@beluga/shared';
@@ -46,8 +35,7 @@ process.env.BELUGA_DATA = bacASable;
  *
  * Ces essais verrouillent ce qui ne doit jamais changer par accident :
  *  - SANS CLÉ AU COFFRE = AUCUN APPEL, et aucune exception : l'appelant reçoit
- *    `undefined` et retombe sur le comportement d'avant — sauf la jauge, notée
- *    par les règles ;
+ *    `undefined` et retombe sur le comportement d'avant ;
  *  - UN USAGE ÉTEINT N'INTERROGE PAS Jev du tout ;
  *  - UN VERDICT EST CONSULTATIF : il allume un signal, il ne retire, ne refuse
  *    et ne réordonne jamais rien au point d'en perdre un élément ;
@@ -60,8 +48,8 @@ process.env.BELUGA_DATA = bacASable;
 
 test('sans geste, chaque usage suit sa fiche ; un geste l’emporte toujours', () => {
   for (const fiche of FICHES_DES_USAGES) assert.equal(usageAllume(fiche.cle, []), fiche.parDefaut, fiche.cle);
-  assert.equal(usageAllume('comprehension-carte', ['comprehension-carte']), false);
-  assert.equal(usageAllume('comprehension-carte', undefined), usageAllume('comprehension-carte', []));
+  assert.equal(usageAllume('tri-propositions', ['tri-propositions']), false);
+  assert.equal(usageAllume('tri-propositions', undefined), usageAllume('tri-propositions', []));
   for (const usage of USAGES_JUGE) {
     assert.equal(usageAllume(usage, [], [usage]), true, `${usage} rallumé à la main`);
     assert.equal(usageAllume(usage, [usage], [usage]), false, 'éteint à la main l’emporte');
@@ -69,27 +57,30 @@ test('sans geste, chaque usage suit sa fiche ; un geste l’emporte toujours', (
 });
 
 test('éteindre un usage ne touche jamais aux autres', () => {
-  const eteints = basculerUsage('comprehension-carte', false, []);
-  assert.deepEqual(eteints, ['comprehension-carte']);
+  const eteints = basculerUsage('tri-propositions', false, []);
+  assert.deepEqual(eteints, ['tri-propositions']);
   for (const usage of USAGES_JUGE) {
-    if (usage !== 'comprehension-carte') assert.equal(usageAllume(usage, eteints), usageAllume(usage, []));
+    if (usage !== 'tri-propositions') assert.equal(usageAllume(usage, eteints), usageAllume(usage, []));
   }
-  assert.deepEqual(basculerUsage('comprehension-carte', true, eteints), [], 'rallumer retire la ligne');
+  assert.deepEqual(basculerUsage('tri-propositions', true, eteints), [], 'rallumer retire la ligne');
   assert.deepEqual(basculerUsageAllume('pertinence-memoire', true, []), ['pertinence-memoire']);
   assert.deepEqual(basculerUsageAllume('pertinence-memoire', false, ['pertinence-memoire']), []);
 });
 
 /*
  * LES USAGES RETIRÉS NE LAISSENT AUCUNE CLÉ ORPHELINE. Les réglages déjà
- * écrits peuvent porter « description-carte » ou « fond-du-plan » : ils ne
- * font rien planter, et la première bascule les balaie.
+ * écrits peuvent porter « description-carte », « fond-du-plan » ou
+ * « comprehension-carte » (la jauge retirée le 24/11/2026) : ils ne font rien
+ * planter, et la première bascule les balaie.
  */
 test('un usage inconnu ou retiré ne s’écrit jamais dans les réglages', () => {
-  assert.deepEqual(basculerUsage('comprehension-carte', false, ['inventé']), ['comprehension-carte']);
+  assert.deepEqual(basculerUsage('tri-propositions', false, ['inventé']), ['tri-propositions']);
   assert.deepEqual(
-    basculerUsage('comprehension-carte', false, ['description-carte', 'fond-du-plan', 'coherence-rapport']),
-    ['comprehension-carte'],
+    basculerUsage('tri-propositions', false, ['description-carte', 'fond-du-plan', 'coherence-rapport', 'comprehension-carte']),
+    ['tri-propositions'],
   );
+  assert.deepEqual(basculerUsageAllume('urgence-demande', true, ['comprehension-carte']), ['urgence-demande']);
+  assert.equal((USAGES_JUGE as readonly string[]).includes('comprehension-carte'), false, 'la jauge n’a plus d’usage');
   assert.deepEqual(basculerUsageAllume('doublon-carte', true, ['inventé']), ['doublon-carte']);
   assert.equal(usageAllume('tri-propositions', ['coherence-rapport']), usageAllume('tri-propositions', []));
 });
@@ -112,46 +103,8 @@ test('chaque usage a sa fiche, et chaque fiche son usage', () => {
 /* LES VERDICTS : un signal, jamais un verrou                           */
 /* ------------------------------------------------------------------ */
 
-test('la note de compréhension va de une à trois barres', () => {
-  const note = (score: number) =>
-    verdictComprehension(
-      { type: 'score', score, legend: {}, probabilities: {}, confidence: 0.9 },
-      { type: 'choice', choice: 'objectif-flou', probabilities: {}, confidence: 0.9 },
-      1,
-    );
-  assert.equal(note(0)?.barres, 1);
-  assert.equal(note(1)?.barres, 2);
-  assert.equal(note(2)?.barres, 3);
-  assert.equal(note(0)?.motif, 'objectif-flou');
-});
-
-test('un score hors échelle est ramené dans la fourchette, jamais jeté', () => {
-  const note = (score: number) =>
-    verdictComprehension({ type: 'score', score, legend: {}, probabilities: {}, confidence: 0.9 }, undefined, 1);
-  assert.equal(note(-3)?.barres, 1);
-  assert.equal(note(9)?.barres, 3);
-  assert.equal(note(1.4)?.barres, 2, 'une note fractionnaire se lit au plus proche');
-});
-
-test('une confiance sous le palier ne rend AUCUNE note : le hasard ne s’affiche pas', () => {
-  const faible = verdictComprehension(
-    { type: 'score', score: 2, legend: {}, probabilities: {}, confidence: SEUILS.confianceDeLaComprehension - 0.01 },
-    undefined,
-    1,
-  );
-  assert.equal(faible, undefined);
-  const sure = verdictComprehension(
-    { type: 'score', score: 2, legend: {}, probabilities: {}, confidence: SEUILS.confianceDeLaComprehension },
-    undefined,
-    1,
-  );
-  assert.equal(sure?.barres, 3);
-});
-
 test('une réponse du mauvais type ne rend aucun verdict', () => {
   const mauvaise = { type: 'choice', choice: 'leger', probabilities: {}, confidence: 1 } as const;
-  assert.equal(verdictComprehension(mauvaise, undefined, 1), undefined);
-  assert.equal(verdictComprehension(undefined, mauvaise, 1), undefined);
   assert.equal(verdictUrgence(undefined, 1), undefined);
   assert.equal(verdictUrgence(mauvaise, 1), undefined);
 });
@@ -159,37 +112,6 @@ test('une réponse du mauvais type ne rend aucun verdict', () => {
 test('l’urgence s’allume en HAUT du seuil', () => {
   assert.equal(verdictUrgence({ type: 'noul', noul: SEUILS.demandeUrgente + 0.05 }, 1)?.signal, true);
   assert.equal(verdictUrgence({ type: 'noul', noul: SEUILS.demandeUrgente - 0.05 }, 1)?.signal, false);
-});
-
-/*
- * LE JUGE NE REND AUCUN TEXTE LIBRE : la phrase du survol se compose ICI,
- * depuis un motif d'une liste fermée. Un mot inventé par le modèle retombe sur
- * une phrase générale plutôt que de s'afficher tel quel.
- */
-test('la phrase du survol se compose depuis un motif fermé', () => {
-  for (const motif of Object.keys(MOTIFS_DE_COMPREHENSION)) {
-    assert.ok(phraseDuMotif(motif).length > 30, `le motif « ${motif} » a sa phrase`);
-  }
-  assert.ok(phraseDuMotif('inventé').length > 20, 'un motif inconnu retombe sur une phrase générale');
-  assert.ok(phraseDuMotif(undefined).length > 20);
-  const inventé = verdictComprehension(
-    { type: 'score', score: 1, legend: {}, probabilities: {}, confidence: 0.9 },
-    { type: 'choice', choice: 'inventé', probabilities: {}, confidence: 0.9 },
-    1,
-  );
-  assert.equal(inventé?.motif, undefined, 'un motif hors liste n’est pas rangé');
-});
-
-test('la question porte trois niveaux décrits et une liste fermée de motifs', () => {
-  const question = questionComprehension();
-  assert.equal(question.score.type, 'score');
-  assert.equal((question.score as { criteria: string[] }).criteria.length, 3);
-  assert.deepEqual(NIVEAUX_DE_COMPREHENSION.length, 3);
-  assert.equal(question.motif.type, 'choice');
-  assert.deepEqual(
-    Object.keys(question.motif.criteria!),
-    Object.keys(MOTIFS_DE_COMPREHENSION),
-  );
 });
 
 /* ------------------------------------------------------------------ */
@@ -242,177 +164,13 @@ test('les deux notes rendent un rang ; une seule ne rend rien', () => {
 /* CE QUI S'AFFICHE, ET OÙ                                              */
 /* ------------------------------------------------------------------ */
 
-const COMPRISE = { parcours: { comprehension: { texte: 'Ce qu’il faut faire, dit en clair.' } } };
-
-test('sans jugement sur la carte, la jauge est là, vide, et aucun avis ne s’écrit', () => {
-  const nue = { column: 'planned', run: {}, jugements: undefined, ...COMPRISE };
-  assert.deepEqual(indicateurDeComprehension(nue), { barres: 0, phrase: PHRASE_JAUGE_VIDE });
-  assert.equal(avisSurLUrgence(nue), undefined);
-});
-
-test('l’indicateur ne paraît qu’avant le travail', () => {
-  const juge = { comprehension: { barres: 2 as const, confiance: 0.8, at: 1 } };
-  assert.ok(indicateurDeComprehension({ column: 'planned', jugements: juge, ...COMPRISE }));
-  for (const colonne of ['running', 'done', 'to_deploy', 'archived']) {
-    assert.equal(
-      indicateurDeComprehension({ column: colonne, jugements: juge, ...COMPRISE }),
-      undefined,
-      `plus d’indicateur en « ${colonne} » : le lancement est passé`,
-    );
-  }
-});
-
-
-/*
- * LA JAUGE EST TOUJOURS LÀ TANT QUE LA CARTE SE DISCUTE : elle ne disparaît
- * plus faute de compréhension rendue, elle attend la note, barres éteintes.
- */
-test('sans compréhension ni note, la jauge reste affichée, vide', () => {
-  assert.equal(indicateurDeComprehension({ column: 'planned' })?.barres, 0);
-  const juge = { comprehension: { barres: 1 as const, confiance: 0.9, at: 1 } };
-  assert.equal(
-    indicateurDeComprehension({ column: 'planned', jugements: juge })?.barres,
-    1,
-    'une note donnée avant la compréhension se lit aussi',
-  );
-});
-
-test('l’indicateur porte sa phrase de survol, jamais un blocage', () => {
-  const lu = indicateurDeComprehension({
-    column: 'planned',
-    jugements: { comprehension: { barres: 1 as const, confiance: 0.9, motif: 'resultat-non-dit', at: 1 } },
-    ...COMPRISE,
-  });
-  assert.equal(lu?.barres, 1);
-  assert.equal(lu?.phrase, MOTIFS_DE_COMPREHENSION['resultat-non-dit']);
-  assert.equal(lu?.confiance, 0.9);
-});
-
-/* ------------------------------------------------------------------ */
-/* LE DOSSIER JUGÉ : la compréhension, pas le champ « description »     */
-/* ------------------------------------------------------------------ */
-
-const CARTE_CADREE = {
-  title: 'Revoir le machin',
-  parcours: {
-    comprehension: {
-      texte: 'Il faut que le bouton range la carte au lieu de la laisser ouverte.',
-      hypotheses: ['Je suppose que le raccourci clavier suit le même chemin.'],
-      partieTechnique: {
-        taches: [{ titre: 'Ranger la carte', description: 'au clic comme à la sortie' }],
-        faits: ['Un arrêt à la main ramène la carte en « Planifié ».'],
-        risques: 'Le balayage de nuit pourrait la reprendre.',
-      },
-    },
-  },
-};
-
-test('le dossier jugé est la compréhension, pas la description de la carte', () => {
-  const dossier = dossierAJuger(CARTE_CADREE);
-  assert.ok(dossier);
-  assert.match(dossier!.comprehension, /le bouton range la carte/);
-  assert.equal(dossier!.hypotheses.length, 1);
-  assert.equal(dossier!.taches.length, 1);
-  assert.equal(dossier!.faits.length, 1);
-  assert.ok(dossier!.risques.length > 10);
-});
-
-test('sans compréhension ni demande, il n’y a rien à juger', () => {
-  assert.equal(dossierAJuger({ title: 'Nouvelle tâche' }), undefined);
-  assert.equal(dossierAJuger({ title: 'x', parcours: { comprehension: { texte: '' } } }), undefined);
-  assert.equal(dossierAJuger({ title: 'x' }, { demandes: ['   '] }), undefined);
-});
-
-test('la première demande suffit à juger : la jauge se remplit dès le début', () => {
-  const dossier = dossierAJuger({ title: 'x' }, { demandes: ['Ajoute un bouton.'] });
-  assert.ok(dossier);
-  assert.deepEqual(dossier!.demandes, ['Ajoute un bouton.']);
-  assert.ok(dossier!.reperes.includes('Compréhension rendue : non'));
-  assert.ok(dossier!.reperes.includes('Messages de l’utilisateur : 1'));
-});
-
-test('les repères écrits sont ceux que portent les niveaux : le juge n’a qu’à les rapprocher', () => {
-  const dossier = dossierAJuger(CARTE_CADREE, {
-    demandes: ['Range la carte.'],
-    questions: [
-      { question: 'Au clic seulement ?', reponse: 'Aussi au clavier.' },
-      { question: 'Sans réponse ?', reponse: '  ' },
-    ],
-  })!;
-  assert.deepEqual(dossier.questions, ['Au clic seulement ? → Aussi au clavier.'], 'une question sans réponse ne compte pas');
-  assert.ok(dossier.reperes.includes('Compréhension rendue : oui'));
-  assert.ok(dossier.reperes.includes('Risques identifiés : oui'));
-  const niveaux = (questionComprehension().score as { criteria: string[] }).criteria;
-  assert.ok(niveaux[0].includes('Compréhension rendue : non'));
-  assert.ok(niveaux[2].includes('Risques identifiés : oui') || niveaux[2].includes('risques identifiés : oui'));
-  assert.equal(Object.keys(dossier)[0], 'reperes', 'les repères passent en tête : jamais coupés par le plafond');
-});
-
-test('un nouvel échange change la signature, donc redonne une note', () => {
-  const avant = signatureDuDossier(dossierAJuger(CARTE_CADREE, { demandes: ['a'] })!);
-  const apres = signatureDuDossier(dossierAJuger(CARTE_CADREE, { demandes: ['a', 'b'] })!);
-  assert.notEqual(avant, apres);
-});
-
-test('une compréhension sans partie technique se juge quand même', () => {
-  const dossier = dossierAJuger({ title: 'x', parcours: { comprehension: { texte: 'Compris.' } } });
-  assert.deepEqual(dossier?.hypotheses, []);
-  assert.deepEqual(dossier?.taches, []);
-  assert.equal(dossier?.risques, '');
-});
-
-test('ce qui part reste borné, rubrique par rubrique', () => {
-  const beaucoup = (n: number) => Array.from({ length: n }, (_, i) => `ligne ${i}`);
-  const dossier = dossierAJuger({
-    title: 'x',
-    parcours: {
-      comprehension: {
-        texte: 'y'.repeat(20_000),
-        hypotheses: beaucoup(200),
-        partieTechnique: {
-          taches: beaucoup(200).map((titre) => ({ titre, description: '' })),
-          faits: beaucoup(200),
-          risques: 'z'.repeat(20_000),
-        },
-      },
-    },
-  });
-  assert.equal(dossier!.hypotheses.length, DOSSIER_MAX.hypotheses);
-  assert.equal(dossier!.taches.length, DOSSIER_MAX.taches);
-  assert.equal(dossier!.faits.length, DOSSIER_MAX.faits);
-  assert.ok(dossier!.comprehension.length < 5000);
-  assert.ok(dossier!.risques.length < 2200);
-});
-
-/*
- * LA SIGNATURE DÉCIDE QU'ON REJUGE : elle couvre tout ce qui part et RIEN de
- * volatil. Un horodatage dedans relancerait un jugement à chaque écriture de
- * la carte, sans fin.
- */
-test('la signature change à chaque version, et pas autrement', () => {
-  const avant = signatureDuDossier(dossierAJuger(CARTE_CADREE)!);
-  assert.equal(signatureDuDossier(dossierAJuger(CARTE_CADREE)!), avant, 'le même dossier a la même signature');
-  const ailleurs = {
-    ...CARTE_CADREE,
-    parcours: {
-      comprehension: {
-        ...CARTE_CADREE.parcours.comprehension,
-        at: 999,
-        tourId: 'msg-1',
-      },
-    },
-  };
-  assert.equal(signatureDuDossier(dossierAJuger(ailleurs)!), avant, 'un horodatage ne rejuge rien');
-  const revu = {
-    ...CARTE_CADREE,
-    parcours: {
-      comprehension: {
-        ...CARTE_CADREE.parcours.comprehension,
-        hypotheses: ['Je suppose autre chose.'],
-      },
-    },
-  };
-  assert.notEqual(signatureDuDossier(dossierAJuger(revu)!), avant, 'une nouvelle version redonne une note');
+test('sans jugement sur la carte, aucun avis ne s’écrit ; une ancienne note de compréhension ne fait rien', () => {
+  assert.equal(avisSurLUrgence({ jugements: undefined }), undefined);
+  /* La jauge est retirée : une carte d'avant peut encore porter sa note dans son JSON. */
+  const ancienne = { jugements: { comprehension: { barres: 2, confiance: 0.9, at: 1 } } } as never;
+  assert.equal(avisSurLUrgence(ancienne), undefined);
+  const pressante = avisSurLUrgence({ jugements: { urgence: { valeur: 0.9, signal: true, at: 1 } } });
+  assert.equal(pressante?.cle, 'urgence');
 });
 
 /* ------------------------------------------------------------------ */
@@ -526,22 +284,17 @@ function rangerLaCle(cle = 'cle-essai'): void {
   if (r.ok) ficheId = r.acces.id;
 }
 
-const DOSSIER = dossierAJuger(CARTE_CADREE)!;
-const CARTE = { id: 'carte-essai', projectId: 'projet-essai' };
-
-test('sans clé au coffre : aucun appel, chaque jugement rend « rien » sans lever, la jauge vient des règles', async () => {
+test('sans clé au coffre : aucun appel, chaque jugement rend « rien » sans lever', async () => {
   store.saveSettings({ jugeEteints: [], jugeAllumes: [...USAGES_JUGE] });
   assert.equal(juge.jugeAllume(), false);
   assert.equal(juge.etatDuJuge().allume, false);
   const avant = appelsRecus;
-  const note = await juge.jugerLaComprehension(CARTE, DOSSIER);
-  assert.equal(note?.source, 'regles', 'une compréhension rendue n’est jamais laissée sans barres');
   assert.equal(await juge.noterUneProposition({ titre: 'T', description: 'D' }, {}), undefined);
   assert.equal(await juge.jugerLUrgence({ titre: 'T', description: 'D', origine: 'essai' }, {}), undefined);
   assert.equal(appelsRecus, avant, 'aucune requête ne part sans clé');
   assert.deepEqual(await juge.testerLaCle(), { etat: 'absente' });
   const traces = juge.listerLesTraces(10);
-  assert.ok(traces.length >= 3, 'chaque échec laisse sa trace');
+  assert.ok(traces.length >= 2, 'chaque échec laisse sa trace');
   for (const trace of traces) {
     assert.equal(trace.issue, 'echec');
     assert.match(trace.reponse, /aucune clé/);
@@ -552,7 +305,6 @@ test('un usage éteint n’interroge pas Jev du tout', async () => {
   rangerLaCle();
   store.saveSettings({ jugeEteints: [...USAGES_JUGE], jugeAllumes: [] });
   const avant = appelsRecus;
-  assert.equal(await juge.jugerLaComprehension(CARTE, DOSSIER), undefined);
   assert.equal(await juge.noterUneProposition({ titre: 'T', description: 'D' }, {}), undefined);
   assert.equal(await juge.jugerLUrgence({ titre: 'T', description: 'D', origine: 'essai' }, {}), undefined);
   assert.equal(await juge.classerLeGenreDeLaCarte('T', 'D'), 'indetermine');
@@ -568,19 +320,15 @@ test('clé rangée : les jugements rendent leur verdict en UN appel, et la trace
   assert.equal(etat.allume, true);
   assert.equal(etat.fiche?.id, ficheId);
   const avant = appelsRecus;
-  const note = await juge.jugerLaComprehension(CARTE, DOSSIER);
-  assert.equal(appelsRecus, avant + 1, 'la note et son motif partent en UN appel');
-  assert.equal(note?.barres, 3);
-  assert.equal(note?.motif, 'rien-ne-manque');
-  assert.equal(note?.source, 'jev');
   const interet = await juge.noterUneProposition({ titre: 'T', description: 'D' }, {});
+  assert.equal(appelsRecus, avant + 1, 'le gain et l’ampleur partent en UN appel');
   assert.deepEqual([interet?.gain, interet?.ampleur], [3, 3]);
   const urgence = await juge.jugerLUrgence({ titre: 'T', description: 'D', origine: 'essai' }, {});
   assert.equal(urgence?.signal, false, 'le faux Jev répond « non »');
   assert.equal(await juge.classerLeGenreDeLaCarte('T', 'D'), 'administratif', 'la dernière valeur offerte');
   assert.equal(await juge.proposerUnNiveau({ titre: 'T', description: 'D' }, {}), 'approfondi');
   assert.equal(await juge.classerLaFamilleDeLErreur('Error: bizarre'), 'bug-interne');
-  const [derniere] = juge.listerLesTraces(1, 'comprehension-carte');
+  const [derniere] = juge.listerLesTraces(1, 'tri-propositions');
   assert.equal(derniere.issue, 'repondu');
   assert.equal(derniere.jetonsEntree, 120);
   assert.equal(derniere.jetonsSortie, 8);
@@ -590,7 +338,7 @@ test('clé rangée : les jugements rendent leur verdict en UN appel, et la trace
   assert.deepEqual(await juge.testerLaCle(), { etat: 'acceptee' });
 });
 
-test('clé refusée, service en panne ou muet : « rien », jamais une exception — et la jauge reste notée', async () => {
+test('clé refusée, service en panne ou muet : « rien », jamais une exception', async () => {
   rangerLaCle();
   store.saveSettings({ jugeEteints: [], jugeAllumes: [...USAGES_JUGE] });
   try {
@@ -599,7 +347,6 @@ test('clé refusée, service en panne ou muet : « rien », jamais une exception
     assert.equal(await juge.jugerLUrgence({ titre: 'T', description: 'D', origine: 'essai' }, {}), undefined);
     assert.equal(appelsRecus, avant + 1, 'une clé refusée ne se retente pas');
     assert.equal((await juge.testerLaCle()).etat, 'refusee');
-    assert.equal((await juge.jugerLaComprehension(CARTE, DOSSIER))?.source, 'regles');
 
     mode = 'panne';
     avant = appelsRecus;
@@ -639,51 +386,4 @@ test('un état énorme laisse une trace courte, et toujours un JSON valide', asy
   const [trace] = juge.listerLesTraces(1, 'urgence-demande');
   assert.doesNotThrow(() => JSON.parse(trace.question));
   assert.ok(trace.question.length < 20_000, `trace de ${trace.question.length} signes`);
-});
-
-/* ------------------------------------------------------------------ */
-/* LA NOTE PAR RÈGLES, QUAND JEV SE TAIT                                */
-/* ------------------------------------------------------------------ */
-
-test('les règles notent toujours, dans la liste fermée des motifs', () => {
-  const at = 1;
-  const vide = { ...DOSSIER, comprehension: '', taches: [], risques: '' };
-  assert.deepEqual(
-    [comprehensionParRegles(vide, at).barres, comprehensionParRegles(vide, at).motif],
-    [1, 'discussion-naissante'],
-  );
-  const court = { ...DOSSIER, comprehension: 'Refaire le bouton.', taches: [] };
-  assert.equal(comprehensionParRegles(court, at).motif, 'objectif-flou');
-  const sansRisques = { ...DOSSIER, risques: '', criteresDeReussite: true, questionsOuvertes: 0 };
-  assert.deepEqual([comprehensionParRegles(sansRisques, at).barres, comprehensionParRegles(sansRisques, at).motif], [2, 'contraintes-absentes']);
-  const ouvertes = { ...DOSSIER, questionsOuvertes: 2 };
-  assert.equal(comprehensionParRegles(ouvertes, at).barres, 2);
-  const suppositions = { ...DOSSIER, hypotheses: Array.from({ length: 7 }, (_, i) => `h${i}`), questions: [], criteresDeReussite: true };
-  assert.equal(comprehensionParRegles(suppositions, at).motif, 'hypotheses-trop-nombreuses');
-  const sansCriteres = { ...DOSSIER, criteresDeReussite: false, questionsOuvertes: 0 };
-  assert.equal(comprehensionParRegles(sansCriteres, at).motif, 'resultat-non-dit');
-  const complet = { ...DOSSIER, criteresDeReussite: true, questionsOuvertes: 0 };
-  assert.deepEqual([comprehensionParRegles(complet, at).barres, comprehensionParRegles(complet, at).motif], [3, 'rien-ne-manque']);
-  for (const d of [vide, court, sansRisques, ouvertes, suppositions, sansCriteres, complet]) {
-    const n = comprehensionParRegles(d, at);
-    assert.ok(n.motif! in MOTIFS_DE_COMPREHENSION);
-    assert.equal(n.source, 'regles');
-  }
-});
-
-test('le dossier lit les critères de réussite du cahier et les questions restées ouvertes', () => {
-  const carte = {
-    ...CARTE_CADREE,
-    parcours: {
-      comprehension: {
-        ...CARTE_CADREE.parcours!.comprehension!,
-        cahierDesCharges: [{ titre: 'Critères de réussite', contenu: 'Le bouton répond.' }],
-        questionsEnAttente: [{ reponse: '' }, { reponse: 'oui' }],
-      },
-    },
-  };
-  const dossier = dossierAJuger(carte as typeof CARTE_CADREE)!;
-  assert.equal(dossier.criteresDeReussite, true);
-  assert.equal(dossier.questionsOuvertes, 1);
-  assert.equal(signatureDuDossier(dossier), signatureDuDossier(dossierAJuger(CARTE_CADREE)!), 'hors signature : pas de rejugement en masse');
 });

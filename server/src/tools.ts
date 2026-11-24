@@ -248,6 +248,7 @@ import { enregistrerSite, essayerLaRecette, essayerLesAcces, lireSite } from './
 import { enregistrerSurveillance, jouerRecette, lireSurveillance, rattacherLeProjetDuSite } from './surveillance.js';
 import { accueilDeLaProposition } from './proposition-de-site.js';
 import { estAgentAttitre } from './agent-attitre.js';
+import { estAgentPerso } from './agents-personnalises.js';
 import {
   adresseDeBeluga,
   assurerEspace,
@@ -1883,6 +1884,24 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'agent_fiche',
+    description:
+      "TA FICHE D'AGENT PERSONNALISÉ (onglet « Agents » du projet) : « lire » la rend ; « ecrire » inscrit UNE rubrique, dès que l'utilisateur l'a acceptée — la configuration se remplit sous ses yeux. " +
+      "Rubriques : nom (texte court) ; mission (une ou deux phrases) ; quand (liste de déclencheurs : {genre:'manuel'} | {genre:'horaire', rythme:'jour'|'semaine'|'mois', heure:'08:00', jours?:[1,3] (dimanche=0), jourDuMois?:1, joursExclus?:[0,6], report?:true} | {genre:'evenement', source:'messagerie.demande'|'surveillance.panne'|'publication.terminee'|'referencement.audit'|'backup.echec'|'securite.alerte'} | {genre:'veille', description:'…'}) ; " +
+      "seul (liste : ce qu'il fait sans demander) ; demande (liste : ce qu'il prépare puis soumet à l'accord ; [] = rien) ; jamais (liste : ce qu'il s'interdit en plus des gestes verrouillés ; [] = rien de plus) ; " +
+      "emporte ({competences:[…], acces:[noms de fiches du coffre-fort, JAMAIS une valeur], memoire:true|false}) ; limite ({passages:3, periode:'jour'|'semaine'|'mois'} ou 'aucune'). " +
+      "GESTES VERROUILLÉS, refusés dans « seul » même si l'utilisateur les demande : publier, mettre en ligne ou en production, envoyer à un client, payer, lancer une tâche, modifier le code, supprimer.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['lire', 'ecrire'] },
+        rubrique: { type: 'string', enum: ['nom', 'mission', 'quand', 'seul', 'demande', 'jamais', 'emporte', 'limite'] },
+        valeur: { description: 'La valeur de la rubrique (texte, liste ou objet selon la rubrique)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'veille_poser',
     description:
       "POSE UNE VEILLE SUR TA CARTE quand tu BUTES SUR UNE ATTENTE EXTÉRIEURE (un service qui valide un profil, un domaine qui se propage, un tiers qui doit répondre) : " +
@@ -2320,6 +2339,8 @@ export function outilServiA(nom: string, agentId: string): boolean {
    * agent du marketing (décision du 20/10/2026). Ni l'assistant général, ni le
    * cadrage (qui ne reçoit pas les outils de tâche), ni un agent sans carte.
    */
+  /* LA FICHE D'UN AGENT PERSONNALISÉ : le seul agent qui la porte (`agents-personnalises.ts`), jamais un autre. */
+  if (nom === 'agent_fiche') return estAgentPerso(agentId);
   if (nom === 'veille_poser') {
     const agent = store.getAgent(agentId);
     return !!agent && agent.role === 'task' && !!agent.cardId && !agent.assistantGlobal;
@@ -4297,6 +4318,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'services':
       return outilServices(ctx, args);
+
+    case 'agent_fiche': {
+      const perso = await import('./agents-personnalises.js');
+      if (!perso.estAgentPerso(ctx.agentId)) return { ok: false, text: 'Seul un agent personnalisé a une fiche.' };
+      if (args.action === 'lire') return { ok: true, text: perso.lireLaFicheDeLAgent(ctx.agentId) };
+      if (args.action !== 'ecrire') return { ok: false, text: 'Action : « lire » ou « ecrire » (avec « rubrique » et « valeur »).' };
+      const ecrite = perso.ecrireRubriqueDeLAgent(ctx.agentId, String(args.rubrique ?? ''), args.valeur);
+      return { ok: ecrite.ok, text: ecrite.texte };
+    }
 
     case 'veille_poser': {
       const { poserVeille } = await import('./veille-de-carte.js');

@@ -26,6 +26,7 @@ import {
   etapeDeCarteAbandonnee,
   INCIDENT_PLAN_NON_RENDU,
   fermetureDesQuestions,
+  LABEL_AGENT_PERSO,
   issueDeCarteOubliee,
   issueDeFinDeTour,
   issueDuPontMort,
@@ -84,7 +85,12 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number, 
    * travail rangé depuis longtemps, et son tour n'existait même plus. Le geste
    * vit dans `fermeture-questions.ts` et ne refuse jamais un déplacement.
    */
-  const aFermer = fermetureDesQuestions(card.column, target);
+  /*
+   * …SAUF LA CARTE D'UN AGENT PERSONNALISÉ (24/11/2026) : elle se range « Archivé » à la fin de CHAQUE passage, et la
+   * réponse qu'il vient de préparer (« Envoyer au client ? ») ou sa demande d'accord doit attendre le clic. Ses
+   * questions restent ouvertes, et la cloche les lit (`store.decisionsEnAttente`).
+   */
+  const aFermer = fermetureDesQuestions(card.column, target) && !(card.labels ?? []).includes(LABEL_AGENT_PERSO);
 
   const rangee = store.saveCard({
     ...card,

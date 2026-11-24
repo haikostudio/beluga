@@ -564,6 +564,13 @@ export function App() {
   /* L'onglet affiché dans la carte ouverte. « chat » est le défaut et ne
      s'écrit pas dans l'adresse (`ONGLET_DE_CARTE_PAR_DEFAUT`). */
   const [ongletCarte, setOngletCarte] = React.useState<string | null>(null);
+  /*
+   * L'ONGLET « AGENTS » DE L'ACCUEIL D'UN PROJET, et l'agent personnalisé ouvert (24/11/2026) : « #projet/<id>/agents »
+   * et « #projet/<id>/agents/<agent> ». Le choix Tâches / Agents est RETENU PAR PROJET (`accueil.agents.<projet>`) : il
+   * s'applique en entrant dans un projet par la colonne ; une adresse lue (lien collé, Précédent) fait foi.
+   */
+  const [accueilAgents, setAccueilAgents] = React.useState<{ projectId: string; agentPersoId?: string } | null>(null);
+  const projetDeLAdresseLue = React.useRef<string | null>(null);
   const dashboardOpen = vueCentrale === 'tableau-de-bord';
   /* Les écrans qui ne sont dans AUCUN projet : le menu du bas y propose
      « Nouvel agent » au lieu de Tableau / Fichiers. */
@@ -746,6 +753,8 @@ export function App() {
    */
   const ouvrirLeService = React.useCallback(
     (lieu: LieuDeService) => {
+      /* L'onglet « Agents » d'un projet s'ouvre par son adresse (`ouvrirServiceSinonCarte`), jamais comme un service. */
+      if (lieu.vue === 'agents') return;
       setSettingsOpen(false);
       setOpenCardId(null);
       setEspaceVise(undefined);
@@ -766,6 +775,13 @@ export function App() {
         /* LA CARTE DE L'AGENT DES RÉSEAUX OUVRE SA CONVERSATION : c'est elle qu'on venait chercher (sa question s'y
            répond), et Communication n'a qu'une conversation, celle du directeur — son ancien volet n'existe plus. */
         if (!lieu || lieu.vue === 'marketing') return sinon();
+        /* L'AGENT PERSONNALISÉ D'UN PROJET (24/11/2026) : sa carte ramène à SA page, dans l'onglet « Agents » du projet. */
+        if (lieu.vue === 'agents') {
+          if (!lieu.projectId) return sinon();
+          window.history.pushState(null, '', `#${construireFragment({ vue: 'projet', projectId: lieu.projectId, agents: true, agentPersoId: lieu.elementId })}`);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+          return;
+        }
         ouvrirLeService(lieu);
       });
     },
@@ -1038,6 +1054,8 @@ export function App() {
       return;
     }
     if (ecran.vue === 'projet') {
+      projetDeLAdresseLue.current = ecran.projectId;
+      setAccueilAgents(ecran.agents && !ecran.cardId ? { projectId: ecran.projectId, ...(ecran.agentPersoId ? { agentPersoId: ecran.agentPersoId } : {}) } : null);
       // Ne re-déclencher l'ouverture serveur que si le projet change vraiment.
       if (client.lireEtat().activeProjectId !== ecran.projectId) {
         client.setActiveProject(ecran.projectId);
@@ -1154,6 +1172,10 @@ export function App() {
           cardId: carteAffichee,
           titreCarte: titreCarteOuverte,
           onglet: ongletCarte,
+          agents:
+            vueCentrale === 'projet' && accueilAgents && accueilAgents.projectId === state.activeProjectId
+              ? { agentPersoId: accueilAgents.agentPersoId ?? null }
+              : null,
         });
     /* LA PORTÉE CHOISIE S'ÉCRIT au bout de l'adresse d'une page de service (outil de création ou de fonctionnement) ;
        la Charte limitée à un projet le dit déjà dans son chemin. */
@@ -1238,7 +1260,21 @@ export function App() {
     fenetreDeCreation,
     viseDeCreation,
     filtreDuServiceCentral,
+    accueilAgents,
   ]);
+
+  /* ENTRER DANS UN PROJET PAR LA COLONNE reprend son dernier choix Tâches / Agents ; une adresse lue a déjà tranché. */
+  React.useEffect(() => {
+    const id = state.activeProjectId;
+    /* Les préférences arrivent avec le premier état du serveur : on attend qu'il soit là pour lire le choix retenu. */
+    if (!id || !state.pret || projetDeLAdresseLue.current === id) return;
+    projetDeLAdresseLue.current = id;
+    setAccueilAgents(state.prefs[`accueil.agents.${id}`] === '1' ? { projectId: id } : null);
+  }, [state.activeProjectId, state.pret]);
+  const choisirLAccueil = React.useCallback((projectId: string, choix: { agentPersoId?: string } | null) => {
+    setAccueilAgents(choix ? { projectId, ...(choix.agentPersoId ? { agentPersoId: choix.agentPersoId } : {}) } : null);
+    if ((client.lireEtat().prefs[`accueil.agents.${projectId}`] === '1') !== !!choix) writePref(`accueil.agents.${projectId}`, choix ? '1' : '');
+  }, []);
 
   /*
    * TROIS ENDROITS OUVRENT LA CONFIGURATION D'UN PROJET, et aucun n'est parent
@@ -1668,7 +1704,10 @@ export function App() {
   /* LE NOM DE L'OBJET OUVERT DANS UN OUTIL (une création, une campagne) : le service l'écrit dans la suite du fil
      d'Ariane, restée montée, cachée ; l'onglet le lit là. */
   const serviceDuFond = vueDuFond !== 'projet' && CLES_DES_SERVICES.some((x) => x.cle === vueDuFond) ? vueDuFond : null;
-  const suiteDansLaBarreDuProjet = !!projetDesOnglets && !telephone && !!serviceDuFond && !carteAffichee;
+  /* L'ONGLET « AGENTS » DE L'ACCUEIL (24/11/2026) écrit lui aussi sa suite dans la barre : « projet / Agents / agent ». */
+  const suiteDeLAccueilDesAgents =
+    !!projetDesOnglets && !telephone && !serviceDuFond && !carteAffichee && vueDuFond === 'projet' && accueilAgents?.projectId === projetDesOnglets.id;
+  const suiteDansLaBarreDuProjet = !!projetDesOnglets && !telephone && (!!serviceDuFond || suiteDeLAccueilDesAgents) && !carteAffichee;
   const cibleDeLaSuite = suiteDansLaBarreDuProjet ? cibleDeLaBarreDuProjet : cibleDuFilDeZone;
   const [texteDeLaSuite, setTexteDeLaSuite] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -1895,7 +1934,9 @@ export function App() {
                       },
                       suite: <div ref={setCibleDeLaBarreDuProjet} data-suite-du-fil="barre-du-projet" className="contents" />,
                     }
-                  : {})}
+                  : suiteDeLAccueilDesAgents
+                    ? { suite: <div ref={setCibleDeLaBarreDuProjet} data-suite-du-fil="barre-du-projet" className="contents" /> }
+                    : {})}
               />
             ),
             droite: (
@@ -1910,7 +1951,7 @@ export function App() {
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projetDesOnglets, ongletsDuProjet, ongletCourant?.cle, ongletCourant?.titre, activerLOnglet, vueDuFond, ouvrirUnOutil, ouvrirServiceCentral, servicesOuvertsAuCompte.join(','), telephone, cleDesOnglets, suiteDansLaBarreDuProjet, serviceDuFond],
+    [projetDesOnglets, ongletsDuProjet, ongletCourant?.cle, ongletCourant?.titre, activerLOnglet, vueDuFond, ouvrirUnOutil, ouvrirServiceCentral, servicesOuvertsAuCompte.join(','), telephone, cleDesOnglets, suiteDansLaBarreDuProjet, serviceDuFond, suiteDeLAccueilDesAgents],
   );
   /* LE HAUT DU TÉLÉPHONE, SUR DEUX ÉTAGES (03/11/2026) : le service en petit, le projet en grand. Le projet est
      celui que la page a déclaré (Communication : sa marque), sinon le projet actif pour les vues qui le suivent. */
@@ -2610,7 +2651,12 @@ export function App() {
                    ordinateur — où la colonne liste les agents —, la liste en plein
                    écran sur téléphone. */
                 <Filet zone="Agents du projet">
-                  <PageDuProjet projectId={activeProject.id} onOuvrir={(card) => ouvrirCarteDuTableau(card.id)} />
+                  <PageDuProjet
+                    projectId={activeProject.id}
+                    onOuvrir={(card) => ouvrirCarteDuTableau(card.id)}
+                    agents={accueilAgents && accueilAgents.projectId === activeProject.id ? { ...(accueilAgents.agentPersoId ? { agentPersoId: accueilAgents.agentPersoId } : {}) } : null}
+                    onAgents={(choix) => choisirLAccueil(activeProject.id, choix)}
+                  />
                 </Filet>
               ) : !state.pret && !state.copieLocale ? (
                 /* LE PREMIER ÉTAT DU SERVEUR N'EST PAS ENCORE ARRIVÉ : aucun projet

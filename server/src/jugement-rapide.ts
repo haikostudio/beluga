@@ -1,6 +1,5 @@
 import {
   type JugementsDeCarte,
-  type DossierAJuger,
   type DocumentAJuger,
   type FamilleDErreur,
   type GenreCarte,
@@ -15,7 +14,6 @@ import {
   familleDeReponse,
   indicationDeNature,
   niveauPropose,
-  questionComprehension,
   questionDoublon,
   questionFamilleDErreur,
   questionGenreDeCarte,
@@ -24,7 +22,6 @@ import {
   questionUrgence,
   questionsDePertinence,
   questionsProposition,
-  signatureDuDossier,
   tronquer,
   PERTINENCE_MAX,
   SEUIL_DOUBLON,
@@ -36,7 +33,6 @@ import {
   type LectureDuJuge,
   adresseDuJuge as adresseDansLesFiches,
   cleDuJuge as cleDansLesFiches,
-  comprehensionParRegles,
   construireLaDemande,
   etatDepuisLeCode,
   ficheDuJuge,
@@ -44,7 +40,6 @@ import {
   meriteUneReprise,
   reponseRetenue,
   usageAllume,
-  verdictComprehension,
   verdictInteret,
   verdictUrgence,
   SEUILS,
@@ -472,35 +467,6 @@ export async function testerLaCle(): Promise<{ etat: EtatDeLaCle; detail?: strin
 /** L'empreinte d'un texte : rejuger deux fois la même chose ne sert à rien. */
 export function empreinte(texte: string): string {
   return crypto.createHash('sha1').update(texte).digest('hex').slice(0, 16);
-}
-
-/**
- * 1. CE QUI A ÉTÉ COMPRIS SUFFIT-IL À LANCER LE TRAVAIL ?
- *
- * LE SEUL JUGEMENT QUI SE LIT À L'ÉCRAN, et il ne s'y lit qu'en BARRES. Il
- * porte sur le DOSSIER RÉEL transmis à celui qui exécutera — le texte compris,
- * les hypothèses assumées, la découpe technique préparée — jamais sur le champ
- * « description » de la carte, qui n'est qu'un résumé et souvent vide.
- *
- * QUAND JEV SE TAIT — clé absente, panne, délai, confiance sous le palier —,
- * la note vient des RÈGLES (`comprehensionParRegles`) : une compréhension
- * rendue n'est jamais laissée sans barres. L'interrupteur de l'usage reste la
- * seule façon d'éteindre la jauge. Un verdict à une barre n'empêche JAMAIS de
- * lancer.
- */
-export async function jugerLaComprehension(
-  carte: { id: string; projectId: string },
-  dossier: DossierAJuger,
-): Promise<JugementsDeCarte['comprehension']> {
-  if (!usageDuJugeAllume('comprehension-carte')) return undefined;
-  const reponses = await interroger(dossier, questionComprehension(), {
-    usage: 'comprehension-carte',
-    cardId: carte.id,
-    projectId: carte.projectId,
-    suite: 'indicateur à trois barres dans la barre d’écriture ; le lancement reste possible',
-  });
-  const verdict = verdictComprehension(reponses?.score, reponses?.motif, Date.now()) ?? comprehensionParRegles(dossier, Date.now());
-  return { ...verdict, empreinte: empreinte(signatureDuDossier(dossier)) };
 }
 
 /**

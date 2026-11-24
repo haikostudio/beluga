@@ -402,7 +402,13 @@ async function executerAudit(projectId: string, auditId: string): Promise<void> 
   })();
   // Après une étude rédigée, ce contrôle est une base : rien n'y est « nouveau » (empreintes d'une autre famille).
   const graves = nouveauxPointsGraves(precedentDeComparaison(precedent)?.rapport ?? null, rapport);
-  // Décision de l'utilisateur : l'alerte se lit dans le tableau seulement. Aucun agent n'est réveillé ici.
+  // Décision de l'utilisateur : l'alerte se lit dans le tableau seulement. Aucun agent DE SÉCURITÉ n'est réveillé ici ;
+  // seuls les agents personnalisés que l'utilisateur a réglés sur cette alerte la reçoivent (hors du chemin de l'audit).
+  if (graves.length) {
+    void import('./agents-personnalises.js')
+      .then((m) => m.signalerAuxAgents(projectId, 'securite.alerte', `Audit de sécurité de « ${projet.name} » : ${graves.length} point(s) grave(s) nouveau(x) — ${graves.map((c) => c.titre).slice(0, 5).join(' ; ')}.`))
+      .catch(() => undefined);
+  }
   log.info(
     `sécurité : audit de « ${projet.name} » (${declencheur}) — ${rapport.constats.length} point(s), ${changements.length} changement(s), ${graves.length} grave(s) nouveau(x)`,
   );

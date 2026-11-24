@@ -86,7 +86,6 @@ const EXCEPTIONS = {
   "verif-extension-chrome.mjs": { reperes: ["data-comparer","data-extraire","data-outils"] },
   "verif-fil-de-publication.mjs": { reperes: ["data-message-id","data-processus-etapes"] },
   "verif-haiko-chat.mjs": { reperes: ["data-mon-nom"] },
-  "verif-indicateur-comprehension.mjs": { reperes: ["data-avis-avant-lancement","data-avis-du-juge","data-avis-sur-le-plan","data-effort-propose"] },
   "verif-indicateurs-de-projet.mjs": { reperes: ["data-loupe-projets","data-menu-des-projets","data-tiroir-projets"] },
   "verif-initialisation-production.mjs": { reperes: ["data-base-production","data-card-id","data-etude-apercu","data-etude-processus","data-etude-voir-plus","data-fermer-tiroir-production","data-info","data-liste-terminee","data-miroir-public","data-onglet-tiroir-production","data-processus-branche","data-prompt-production","data-systeme-non-lu","data-tiroir-etude-processus","data-type-cible-production"] },
   "verif-interface-maison.mjs": { reperes: ["data-bouton-central","data-tiroir-du-bas"] },

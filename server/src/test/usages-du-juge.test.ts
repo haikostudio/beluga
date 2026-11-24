@@ -88,7 +88,7 @@ test('chaque usage a son réglage, et les usages sans preuve naissent éteints',
   const allumes = FICHES_DES_USAGES.filter((f) => f.parDefaut).map((f) => f.cle).sort();
   /* La pertinence des analyses Marketing naît allumée sur demande expresse de l'utilisateur (28/10/2026) :
      elle ne retire, ne réordonne ni ne chiffre rien, une mention sous le curseur et c'est tout. */
-  assert.deepEqual(allumes, ['comprehension-carte', 'pertinence-analyses-marketing', 'tri-propositions']);
+  assert.deepEqual(allumes, ['pertinence-analyses-marketing', 'tri-propositions']);
   for (const usage of ['nature-demande', 'pertinence-competences', 'pertinence-memoire'] as const) {
     assert.equal(REGLAGES_DES_USAGES[usage]?.delaiMs, DELAI_JUGE_EXPRESS_MS, `${usage} est sur le chemin d’un tour : délai court`);
   }

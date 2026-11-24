@@ -1272,9 +1272,8 @@ function GestesDuChapitre({
           onClose={() => setConfigurationAValider(false)}
         />
       ) : null}
-      {/* PLUS AUCUN AVIS ÉCRIT AU-DESSUS DU LANCEMENT : la note du relecteur se
-          lit sur l'indicateur à trois barres de la barre d'écriture
-          (`web/src/components/indicateur-comprehension.tsx`). */}
+      {/* PLUS AUCUN AVIS ÉCRIT AU-DESSUS DU LANCEMENT, et plus de jauge de
+          qualité dans la barre d'écriture non plus (retirée le 24/11/2026). */}
       {/* UN BOUTON PAR LIGNE SUR TÉLÉPHONE : deux libellés côte à côte n'y
           tiennent pas, le texte sortait de l'écran. */}
       {(

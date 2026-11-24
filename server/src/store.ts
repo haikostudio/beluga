@@ -2863,6 +2863,25 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
     createdAt: number;
     colonne: string | null;
   }[];
+  /*
+   * LES AGENTS PERSONNALISÉS D'UN PROJET (24/11/2026) : leur carte se range « Archivé » après chaque passage, mais une
+   * réponse préparée ou une demande d'accord y attend encore le clic (`rangerLaCarte` ne les ferme pas). Une requête À
+   * PART, bornée par la petite table `agents_perso` : la règle « on ne relit jamais les cartes rangées » tient pour
+   * toutes les autres.
+   */
+  const desAgentsPerso = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              m.id AS messageId, json_extract(m.data, '$.questions') AS questions,
+              m.created_at AS createdAt, NULL AS colonne
+       FROM agents_perso ap
+       JOIN agents a ON a.id = ap.agent_id
+       JOIN messages m ON m.agent_id = a.id
+       LEFT JOIN cards c ON c.id = a.card_id
+       WHERE m.a_questions = 1 AND c.column_key IN (${SQL_COLONNES_FERMEES})`,
+    )
+    .all() as typeof rows;
+  rows.push(...desAgentsPerso);
   const ListeDeQuestions = AgentQuestion.array();
   for (const row of rows) {
     /*

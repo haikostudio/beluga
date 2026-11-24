@@ -375,11 +375,11 @@ async function main() {
   await attendre(() => cartes().length === 1);
   const carte = cartes()[0];
   noter('une carte neuve naît', !!carte);
-  /* PLUS DE BOUTONS DE MODE DANS LE CHAMP (11/11/2026) : le mode se confirme dans la discussion, puis une étiquette. */
+  /* PLUS DE BOUTONS DE MODE DANS LE CHAMP (11/11/2026), ni d'étiquette (24/11/2026) : le mode se confirme dans la discussion. */
   await page.waitForTimeout(1000);
   noter(
-    'le champ n’a plus de bouton de mode, ni d’étiquette tant qu’aucun mode n’est confirmé',
-    (await page.locator('[data-interrupteur-realisation], [data-interrupteur-plan], [data-interrupteur-creation], [data-etiquette-du-mode]').count()) === 0,
+    'le champ n’a plus de bouton de mode',
+    (await page.locator('[data-interrupteur-realisation], [data-interrupteur-plan], [data-interrupteur-creation]').count()) === 0,
   );
   noter('la carte naît sans le mode', !carte?.parcours?.realisationSouhaitee);
 
@@ -388,14 +388,13 @@ async function main() {
   await commande({ type: 'card.update', id: carte.id, patch: { title: 'Première vidéo de vente' } });
   /* Le mode Studio CONFIRMÉ (l'agent l'écrit par « board_update_card » ; le démon garde le même geste). */
   await commande({ type: 'card.realisation.souhaitee', cardId: carte.id, media: 'video' });
-  noter('le mode Studio (vidéo) s’écrit en base et l’étiquette « Studio » paraît', await attendre(async () => (await page.locator('[data-etiquette-du-mode="studio"]').count()) === 1, 10000) && !!(await attendre(() => !!cartes()[0]?.parcours?.realisationSouhaitee)));
+  noter('le mode Studio (vidéo) s’écrit en base', !!(await attendre(() => !!cartes()[0]?.parcours?.realisationSouhaitee)));
   noter('le type choisi s’écrit sur la carte (vidéo)', (cartes()[0]?.realisation?.medias ?? []).join() === 'video');
   noter('un clic l’allume en base', await attendre(() => !!cartes()[0]?.parcours?.realisationSouhaitee));
   noter('l’état du questionnaire est posé, sans genre', !!cartes()[0]?.realisation && !cartes()[0]?.realisation?.genre);
   noter('le plan n’est plus forcé', !cartes()[0]?.parcours?.planSouhaite);
   /* ALLUMER N'OUVRE PAS LE VOLET (décision du 19/10/2026) : la conversation
      reste ordinaire, seul le bouton est allumé. */
-  noter('l’étiquette est là', await attendre(async () => (await page.locator('[data-etiquette-du-mode="studio"]').count()) === 1, 10000));
   await page.waitForTimeout(1500);
   noter('aucun volet de réalisation avant l’envoi', (await page.locator('[data-volet-realisation]').count()) === 0);
   /* UNE CRÉATION DE MÉDIA A SON BOUTON DÈS L'ALLUMAGE (26/10/2026) : « Passer aux esquisses », éteint tant que le brief n'est pas écrit, jamais « Lancer ». */
@@ -410,7 +409,7 @@ async function main() {
   noter('la barre d’écriture ordinaire reste là pour écrire sa demande', (await page.locator('[data-composer] textarea:visible').count()) >= 1);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await ecarterLAssistant();
-  noter('le mode survit à un rechargement', await attendre(async () => (await page.locator('[data-etiquette-du-mode="studio"]').count()) === 1, 20000));
+  noter('le mode survit à un rechargement', await attendre(() => !!cartes()[0]?.parcours?.realisationSouhaitee, 20000));
   noter('toujours aucun volet ni tour de moteur après le rechargement', (await page.locator('[data-volet-realisation]').count()) === 0 && demandesRecues().length === 0);
 
   /* -------- 3. Le premier message lance le cadrage, qui pose la question -------- */

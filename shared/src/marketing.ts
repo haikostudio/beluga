@@ -1,3 +1,4 @@
+import { LABEL_AGENT_PERSO } from './agents-personnalises.js';
 import { carteDEntretienInvisible } from './entretien-invisible.js';
 import { slugEntier } from './slugs.js';
 import { CONSIGNE_DE_LA_VEILLE } from './veille-de-carte.js';
@@ -89,6 +90,9 @@ export function carteCacheeDesListes(
   agentActif = false,
 ): boolean {
   if (carteDEntretienInvisible(carte)) return true;
+  /* LA CARTE D'UN AGENT PERSONNALISÉ (24/11/2026) vit dans l'onglet « Agents » du projet : elle ne paraît dans les
+     listes de tâches que pendant qu'il travaille (« En cours » de la colonne), comme celle de l'atelier Marketing. */
+  if (carte?.labels?.includes(LABEL_AGENT_PERSO)) return !agentActif;
   if (carte?.labels?.includes('studio') && carte.parcours?.realisationSouhaitee) return false;
   return carteMarketingCachee(carte) && !agentActif;
 }

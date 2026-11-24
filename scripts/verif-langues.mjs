@@ -85,8 +85,6 @@ const {
   LIBELLE_ETAT_POINT,
   FICHES_DES_USAGES,
   PHRASES_DES_FAMILLES,
-  phraseDuMotif,
-  MOTIFS_DE_COMPREHENSION,
   avisSurLUrgence,
   ROLES_CREABLES,
   libelleDuRole,
@@ -223,8 +221,6 @@ const catalogues = [
   ...Object.values(PARCOURS_DES_CANAUX).flatMap((etapes) => etapes.flatMap((etape) => [etape.titre, etape.detail])),
   ...FICHES_DES_USAGES.map((fiche) => fiche.titre),
   ...FICHES_DES_USAGES.map((fiche) => fiche.explication),
-  ...Object.keys(MOTIFS_DE_COMPREHENSION).map(phraseDuMotif),
-  phraseDuMotif(undefined),
   ...[avisSurLUrgence({ jugements: { urgence: JUGEMENT_ALLUME } })].flatMap((avis) => [avis.titre, avis.phrase]),
   /* LES NIVEAUX DE COMPTE : le nom et l'aide de chaque niveau viennent d'un catalogue partagé
      (`shared/src/comptes-clients.ts`), passés à `t()` à l'affichage. */

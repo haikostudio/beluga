@@ -20,6 +20,12 @@ import { Button, CLASSE_LARGEUR_DE_CONTENU, CLASSE_MARGES_DE_PAGE } from '@/comp
 import { Archive, ArchiveRestore } from '@/components/ui/icones';
 import { ouvrirLArchivage } from '@/lib/archivage-projet';
 import { TableauDesTaches } from '@/components/tableau-des-taches';
+import { AgentsDuProjet } from '@/components/agents-du-projet';
+import { PageDeLAgent } from '@/components/page-de-l-agent';
+import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre, RubriquesDePage } from '@/components/fenetre-de-service';
+import { CranDuFil, SuiteDuFil } from '@/components/entete-de-zone';
+import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
+import { ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
@@ -28,7 +34,21 @@ import { cn } from '@/lib/utils';
 /* Le résumé ne se télécharge qu'à l'ouverture de l'accueil (un écran qu'on n'a pas ouvert ne se télécharge pas). */
 const Dashboard = React.lazy(() => import('@/components/dashboard').then((m) => ({ default: m.Dashboard })));
 
-export function PageDuProjet({ projectId, onOuvrir }: { projectId: string; onOuvrir: (card: Card) => void }) {
+/** CE QUE MONTRE L'ACCUEIL : l'onglet « Agents » (`null` : les tâches), et l'agent personnalisé ouvert. */
+export type AccueilDesAgents = { agentPersoId?: string } | null;
+
+export function PageDuProjet({
+  projectId,
+  onOuvrir,
+  agents = null,
+  onAgents,
+}: {
+  projectId: string;
+  onOuvrir: (card: Card) => void;
+  /** L'ONGLET « AGENTS » (carte « Agents personnalisés dans les projets », 24/11/2026), lu et écrit dans l'adresse. */
+  agents?: AccueilDesAgents;
+  onAgents?: (agents: AccueilDesAgents) => void;
+}) {
   const telephone = useTelephone();
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId) ?? null;
@@ -48,6 +68,60 @@ export function PageDuProjet({ projectId, onOuvrir }: { projectId: string; onOuv
    */
   const telephoneSansTableau = telephone;
   let facturation: React.ReactNode = null;
+  /*
+   * « TÂCHES | AGENTS » (24/11/2026, maquette #1df7) : un sélecteur dans la rangée du grand titre — JAMAIS un onglet
+   * d'en-tête (la barre d'onglets du projet n'a plus d'onglet « Tâches » depuis le 13/11/2026). Le choix est retenu par
+   * projet ; l'agent ouvert est une page à lui (conversation à gauche, configuration à droite).
+   */
+  const selecteur = onAgents ? (
+    <BarreDOnglets
+      repere="accueil-taches-agents"
+      pleineLargeur={telephone}
+      valeur={agents ? 'agents' : 'taches'}
+      onChange={(v) => onAgents(v === 'agents' ? {} : null)}
+      onglets={[
+        { cle: 'taches', libelle: t('Tâches') },
+        { cle: 'agents', libelle: t('Agents') },
+      ]}
+    />
+  ) : null;
+  if (agents && onAgents) {
+    if (agents.agentPersoId) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
+          <PageDeLAgent projectId={projectId} agentPersoId={agents.agentPersoId} onRetour={() => onAgents({})} />
+        </div>
+      );
+    }
+    const liste = <AgentsDuProjet projectId={projectId} onOuvrir={(id) => onAgents({ agentPersoId: id })} />;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
+        {projet ? <BandeauDuProjetArchive projet={projet} /> : null}
+        <SuiteDuFil onRacine={() => onAgents(null)}>
+          <CranDuFil data-cran-agents="">{t('Agents')}</CranDuFil>
+        </SuiteDuFil>
+        <div className="flex min-h-0 flex-1 flex-col" data-accueil-du-projet="agents">
+          {telephone ? (
+            <ZoneDefilement className="px-4 pb-6 pt-2" data-fil="agents-du-projet">
+              <div className="flex flex-col gap-4">
+                {selecteur}
+                {liste}
+              </div>
+            </ZoneDefilement>
+          ) : (
+            <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="sm:pb-20" data-fil="agents-du-projet">
+              <div className={CLASSE_COLONNE_DE_SERVICE} data-colonne-de-l-accueil>
+                <PageAGrandTitre titre={projet?.name ?? ''} repere="accueil-du-projet">
+                  <RubriquesDePage>{selecteur}</RubriquesDePage>
+                  {liste}
+                </PageAGrandTitre>
+              </div>
+            </ZoneDefilement>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
       {/* SUR ORDINATEUR, « PUBLIER » VIT DANS LA BARRE DU PROJET (`menu-publier.tsx`, refonte du 13/11/2026) ; sur
@@ -61,7 +135,16 @@ export function PageDuProjet({ projectId, onOuvrir }: { projectId: string; onOuv
                 filtre des tâches montent sur sa ligne, à droite, avec la période — plus de petit titre « Tâches ». */}
             <Dashboard
               titre={projet?.name}
-              avant={telephoneSansTableau ? null : <TableauDesTaches projectId={projectId} onOuvrir={onOuvrir} titre={null} />}
+              avant={
+                telephoneSansTableau ? (
+                  selecteur
+                ) : (
+                  <>
+                    {selecteur ? <RubriquesDePage>{selecteur}</RubriquesDePage> : null}
+                    <TableauDesTaches projectId={projectId} onOuvrir={onOuvrir} titre={null} />
+                  </>
+                )
+              }
               apres={facturation ? <div className="pt-6" data-facturation-de-l-accueil>{facturation}</div> : null}
             />
           </React.Suspense>

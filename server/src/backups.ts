@@ -638,6 +638,10 @@ export async function prendreUnBackup(
     if (point.statut === 'echec') {
       log.warn(`backup de « ${site.nom} » impossible : ${point.detail}`);
       bus.toast('error', `Backup de « ${site.nom} » impossible : ${point.detail}`, undefined, 'backup');
+      /* Les agents personnalisés du projet réglés « quand une sauvegarde échoue » : hors du chemin de la sauvegarde. */
+      void import('./agents-personnalises.js')
+        .then((m) => m.signalerAuxAgents(site.projectId, 'backup.echec', `La sauvegarde de « ${site.nom} » a échoué : ${point.detail}`))
+        .catch(() => undefined);
     } else {
       log.info(`backup de « ${site.nom} » (${point.statut}) : ${point.cheminArchive}`);
       if (origine === 'manuel') {

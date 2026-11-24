@@ -1523,6 +1523,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * l'état de chaque point, ce qui y est nouveau). `agent` rend l'agent de sécurité du projet, né au besoin. Les
    * changements reviennent par l'événement `securite`, qui ne porte que le projet : l'écran relit.
    */
+  /**
+   * LES AGENTS PERSONNALISÉS D'UN PROJET (`server/src/agents-personnalises.ts`, 24/11/2026) : la liste de l'onglet
+   * « Agents » avec son point du matin, la naissance d'un agent (sa ligne « Nouvel agent » et sa conversation), sa
+   * fiche et son journal, l'interrupteur, « Lancer maintenant ». Chaque commande nomme son projet : les droits sont
+   * ceux des cartes de ce projet. Les changements reviennent par l'événement `agentsPerso`, qui ne porte que le projet.
+   */
+  z.object({ type: z.literal('agentsPerso.lister'), projectId: z.string() }),
+  z.object({ type: z.literal('agentsPerso.creer'), projectId: z.string() }),
+  z.object({ type: z.literal('agentsPerso.lire'), projectId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('agentsPerso.allumer'), projectId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('agentsPerso.eteindre'), projectId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('agentsPerso.lancer'), projectId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('agentsPerso.supprimer'), projectId: z.string(), id: z.string() }),
   z.object({ type: z.literal('securite.lister') }),
   z.object({ type: z.literal('securite.ajouter'), projectId: z.string() }),
   z.object({ type: z.literal('securite.retirer'), projectId: z.string() }),
@@ -2674,6 +2687,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('marketing'), projectId: z.string() }),
   /** LE SERVICE SÉCURITÉ A CHANGÉ pour ce projet (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
   z.object({ type: z.literal('securite'), projectId: z.string() }),
+  /** LES AGENTS PERSONNALISÉS DE CE PROJET ONT CHANGÉ (fiche, interrupteur, passage, journal) : l'onglet ouvert relit. */
+  z.object({ type: z.literal('agentsPerso'), projectId: z.string() }),
   /** L'AUDIT SEO + GEO DU MARKETING A CHANGÉ (contrôle lancé ou fini, test des IA posé) : la page ouverte relit. */
   /** LA LIAISON BELUGA PASS A CHANGÉ (liée, sauvegarde reçue, accès des agents, lecture) : la rubrique ouverte relit. */
   z.object({ type: z.literal('belugapass') }),

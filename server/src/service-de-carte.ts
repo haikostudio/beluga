@@ -52,6 +52,11 @@ export function lieuDuServiceDeLaCarte(cardId: string): LieuDeService | null {
       const ligne = getDb().prepare('SELECT project_id FROM securite_projets WHERE agent_id = ?').get(agent.id) as { project_id: string } | undefined;
       return ligne ? { vue: 'securite', elementId: ligne.project_id } : null;
     }
+    case 'agents': {
+      /* L'agent personnalisé d'un projet : sa carte ramène à SA page, dans l'onglet « Agents » du projet. */
+      const ligne = getDb().prepare('SELECT id, project_id FROM agents_perso WHERE agent_id = ?').get(agent.id) as { id: string; project_id: string } | undefined;
+      return ligne ? { vue: 'agents', elementId: ligne.id, projectId: ligne.project_id } : null;
+    }
     default:
       return null;
   }

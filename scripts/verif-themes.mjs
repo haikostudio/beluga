@@ -313,6 +313,10 @@ constater('les teintes du graphe de la mémoire restent vives, déclarées en cl
     'web/src/components/liste-des-agents.tsx',
     // Le parcours du référencement : l'étape qui attend l'utilisateur (décision du 21/11/2026, maquette #ff75).
     'web/src/components/marketing-2/volet-referencement.tsx',
+    // Les agents personnalisés : ce qui attend un geste (« À valider », le point du matin, le journal), et rien d'autre
+    // (décision du cahier des charges, carte « Agents personnalisés dans les projets », 24/11/2026).
+    'web/src/components/agents-du-projet.tsx',
+    'web/src/components/page-de-l-agent.tsx',
   ]);
   const intrus = porteurs.filter((chemin) => !admis.has(chemin));
   if (intrus.length) refuser(`le bleu franc de l'important est repris hors de ses porteurs décidés — ${intrus.join(', ')}`);

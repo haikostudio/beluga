@@ -1807,6 +1807,23 @@ export async function startDeploy(
       void import('./service-securite.js')
         .then(({ apresMiseEnLigne }) => apresMiseEnLigne(current.cardIds.filter((id) => !ecartees.has(id))))
         .catch((err) => log.warn('sécurité : contrôle après mise en ligne impossible', err));
+      /* LES AGENTS PERSONNALISÉS réglés « après chaque mise en ligne » (24/11/2026) : même règle, hors du chemin de la
+         publication — rien ici ne la fait échouer, et l'appel n'attend rien. */
+      try {
+        const misesEnLigne = current.cardIds.filter((id) => !ecartees.has(id));
+        const titres = misesEnLigne.map((id) => store.getCard(id)?.title).filter(Boolean).slice(0, 8);
+        void import('./agents-personnalises.js')
+          .then((m) =>
+            m.signalerAuxAgents(
+              project.id,
+              'publication.terminee',
+              `${etape.cible === 'production' ? 'Mise en production' : 'Mise en ligne'} terminée : ${misesEnLigne.length} carte(s)${titres.length ? ` — ${titres.join(' ; ')}` : ''}.`,
+            ),
+          )
+          .catch(() => undefined);
+      } catch (err) {
+        log.warn('agents personnalisés : la fin de mise en ligne n’a pas pu leur être signalée', err);
+      }
 
       current = emit({
         ...current,

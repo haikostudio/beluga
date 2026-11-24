@@ -69,6 +69,7 @@ const LIBELLES: Record<string, string> = {
   rendre_plan: 'Plan rendu',
   bilan_du_travail: 'Bilan du travail',
   veille_poser: 'Veille posée',
+  agent_fiche: 'Fiche de l’agent',
   cahier_des_charges: 'Cahier des charges',
   capture: 'Capture d’écran',
   iphone: 'iPhone d’essai',

@@ -257,6 +257,7 @@ function projetsDeLEvenement(event: ServerEvent): string[] | null | undefined {
     case 'attachments':
     case 'files':
     case 'memory':
+    case 'agentsPerso':
       return [e.projectId];
     case 'card.upsert':
       return [e.card.projectId];

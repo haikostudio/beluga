@@ -58,7 +58,17 @@ type EcranDeBase =
   | CarteSurTableauDeBord<'tableau-de-bord'>
   | CarteSurTableauDeBord<'en-route'>
   /* Un projet, sa carte ouverte, et l'onglet affiché dans cette carte. */
-  | { vue: 'projet'; projectId: string; cardId?: string; titreCarte?: string; onglet?: string }
+  | {
+      vue: 'projet';
+      projectId: string;
+      cardId?: string;
+      titreCarte?: string;
+      onglet?: string;
+      /* L'ONGLET « AGENTS » de l'accueil du projet (« #projet/<id>/agents »), et la page d'UN agent personnalisé
+         (« #projet/<id>/agents/<agent> ») — carte « Agents personnalisés dans les projets », 24/11/2026. */
+      agents?: true;
+      agentPersoId?: string;
+    }
   /*
    * LA CONFIGURATION D'UN PROJET, OUVERTE SUR UNE RUBRIQUE. Même nature que
    * « reglages » : une couche posée PAR-DESSUS l'écran en cours, à ceci près
@@ -361,7 +371,12 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
     }
     case 'projet': {
       if (!ecran.projectId) return '';
-      return fragmentDeCarte(`projet/${encodeURIComponent(ecran.projectId)}`, ecran);
+      const base = `projet/${encodeURIComponent(ecran.projectId)}`;
+      /* L'onglet « Agents » ne porte pas de carte : une carte ouverte s'écrit sur l'onglet des tâches. */
+      if (ecran.agents && !ecran.cardId) {
+        return ecran.agentPersoId ? `${base}/agents/${encodeURIComponent(ecran.agentPersoId)}` : `${base}/agents`;
+      }
+      return fragmentDeCarte(base, ecran);
     }
     default:
       return '';
@@ -548,6 +563,10 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
       const onglet = decodeSegment(morceaux[4] ?? '');
       if (cardId) return { vue: 'projet', projectId, cardId, ...(onglet ? { onglet } : {}) };
     }
+    if (morceaux[2] === 'agents') {
+      const agentPersoId = decodeSegment(morceaux[3] ?? '');
+      return { vue: 'projet', projectId, agents: true, ...(agentPersoId ? { agentPersoId } : {}) };
+    }
     return { vue: 'projet', projectId };
   }
 
@@ -582,7 +601,9 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
     /* L'ONGLET EST UN DÉTAIL D'AFFICHAGE : passer de la conversation à
        « GitHub » ne change pas d'écran, sinon six onglets feraient six retours
        en arrière avant de sortir de la carte. */
-    return a.projectId === b.projectId && (a.cardId ?? '') === (b.cardId ?? '');
+    /* PASSER DES TÂCHES AUX AGENTS EST UN DÉTAIL D'AFFICHAGE (le choix est retenu par projet) ; OUVRIR UN AGENT est
+       une destination : Précédent ramène au tableau des agents. */
+    return a.projectId === b.projectId && (a.cardId ?? '') === (b.cardId ?? '') && (a.agentPersoId ?? '') === (b.agentPersoId ?? '');
   }
   if (
     (a.vue === 'en-route' && b.vue === 'en-route') ||
@@ -818,6 +839,8 @@ export function ecranDeLaVue(etat: {
   cardId?: string | null;
   titreCarte?: string | null;
   onglet?: string | null;
+  /** L'onglet « Agents » de l'accueil du projet, et l'agent personnalisé ouvert. */
+  agents?: { agentPersoId?: string | null } | null;
 }): EcranNavigateur {
   const element = etat.element ?? {};
   switch (etat.vue) {
@@ -887,6 +910,14 @@ export function ecranDeLaVue(etat: {
       };
     default:
       if (!etat.projectId) return { vue: 'accueil' };
+      if (etat.agents && !etat.cardId) {
+        return {
+          vue: 'projet',
+          projectId: etat.projectId,
+          agents: true,
+          ...(etat.agents.agentPersoId ? { agentPersoId: etat.agents.agentPersoId } : {}),
+        };
+      }
       return {
         vue: 'projet',
         projectId: etat.projectId,

@@ -11,8 +11,7 @@
  *     ses membres ; ses membres ne sont plus des lignes de premier niveau.
  *  3. La flèche déplie le sous-groupe : chaque membre a sa ligne et son bouton
  *     de réglages.
- *  4. La jauge de la barre d'écriture est là sur une carte en cadrage, VIDE
- *     (`data-indicateur-comprehension="0"`) tant qu'aucune note n'est rendue.
+ *  4. (retiré le 24/11/2026 avec la jauge de la barre d'écriture.)
  *  5. Lancer une carte MÈRE pose une carte FILLE dans chaque projet touché —
  *     et dans aucun autre —, sans ouvrir de branche commune : la mère n'a pas
  *     d'agent, et aucun dépôt ne reçoit de branche d'un autre.
@@ -221,15 +220,6 @@ async function main() {
     page.on('pageerror', (e) => erreurs.push(String(e)));
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForSelector('[data-column="planned"]', { timeout: 90000 });
-
-    /* 4. La jauge, vide, sur une carte en cadrage. */
-    await page.click(`[data-carte="${CARTE_A}"]`);
-    const jauge = page.locator('[data-indicateur-comprehension]');
-    await jauge.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    const barres = await jauge.first().getAttribute('data-indicateur-comprehension').catch(() => null);
-    noter('La jauge est affichée sur une carte en cadrage, vide tant que rien n’est noté', barres === '0', `barres = ${barres}`);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(1000);
 
     /* 1. La rubrique « Projets », ouverte par son adresse, sur une page neuve. */
     await page.goto(`${BASE}/#reglages/projets`, { waitUntil: 'domcontentloaded', timeout: 60000 });

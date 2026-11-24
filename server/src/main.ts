@@ -1,4 +1,5 @@
 import { demarrerSecurite } from './service-securite.js';
+import { demarrerLesAgentsPerso } from './agents-personnalises.js';
 import { menageQuotidienDesJournaux } from './menage-des-journaux.js';
 import { demarrerLesVeilles } from './veille-de-carte.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
@@ -53,7 +54,6 @@ import { brancherLAvancementDesCartes } from './espace-commandes.js';
 import { amorcerFenetres } from './amorce.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
 import { planifierLaVeilleDesCompetences } from './veille-competences.js';
-import { veillerSurLesCartes } from './juge-des-cartes.js';
 import { convertirLesDepotsAnnexes, rafraichirLesMeres, veillerSurLesMeres } from './regroupements.js';
 import { planifierLesCourriels } from './courriels-clients.js';
 import { planifierMenageDesCompetences } from './menage-competences.js';
@@ -438,6 +438,12 @@ async function main(): Promise<void> {
    * range les audits de plus de douze mois. Sans agent ni quota (`server/src/service-securite.ts`).
    */
   const securiteTimer = demarrerSecurite();
+  /*
+   * LES AGENTS PERSONNALISÉS DES PROJETS : une tournée à la minute lance les passages horaires DUS (recalculés depuis
+   * le dernier passage), rejoue ceux qui attendaient un compte et referme ceux que rien ne fermera
+   * (`server/src/agents-personnalises.ts`). Rien ne part pour un agent éteint.
+   */
+  const agentsPersoTimer = demarrerLesAgentsPerso();
   void import('./belugapass.js').then((m) => m.nettoyerLesLectures()).catch(() => {});
   /*
    * LES SOLDES DES SERVICES D'IA (OpenRouter, kie.ai, HeyGen, Agentik…) : une tournée de 30 min, à part du
@@ -670,13 +676,6 @@ async function main(): Promise<void> {
    * le 22.09.2026.
    */
   const miseAJourMoteursTimer = planifierMiseAJourDesMoteurs();
-  /*
-   * LE JUGE RAPIDE, branché sur les cartes qui passent : sa description est-elle
-   * assez fournie pour travailler, et quel effort la carte demande. Tant
-   * qu'aucune clé n'est rangée au coffre-fort, ce guetteur n'émet RIEN — il ne
-   * fait qu'écouter (`server/src/juge-des-cartes.ts`).
-   */
-  const arreterLeJuge = veillerSurLesCartes();
   // Qui fige le démon ? Le fil principal bat, un gardien relève la pile d'un blocage (`sonde-de-blocage.ts`).
   const arreterLaSonde = demarrerLaSondeDeBlocage();
   /*
@@ -727,6 +726,7 @@ async function main(): Promise<void> {
     suivreReprises();
     clearInterval(surveillanceTimer);
     clearInterval(securiteTimer);
+    clearInterval(agentsPersoTimer);
     clearInterval(servicesIaTimer);
     clearInterval(veillesTimer);
     clearInterval(marketingTimer);
@@ -757,7 +757,6 @@ async function main(): Promise<void> {
     arreterLeVectoriseur();
     clearInterval(faviconTimer);
     clearInterval(miseAJourMoteursTimer);
-    arreterLeJuge();
     arreterLaSonde();
     arreterLesMeres();
     server.close(() => process.exit(0));

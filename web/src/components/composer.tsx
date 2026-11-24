@@ -4,7 +4,6 @@ import { EVENEMENT_JOINDRE_AU_CHAMP, type DetailJoindreAuChamp } from '@/lib/joi
 import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, FileText, Loader2, MessageSquareText, Paperclip, Pause, Pencil, Trash2, X } from '@/components/ui/icones';
 import {
   Agent,
-  etiquetteDuMode,
   Attachment,
   EngineInfo,
   QueuedPrompt,
@@ -84,7 +83,6 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { type DragItem, type DropTarget, usePointerDrag } from '@/lib/dnd';
-import { IndicateurComprehension } from '@/components/indicateur-comprehension';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { useDicteeInstallee } from '@/lib/voix-disponible';
 import { MenuSlash } from '@/components/menu-slash';
@@ -219,35 +217,6 @@ const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
 const MARGE_DOIGT = 24;
 /** Copie locale d'un brouillon, gardée jusqu'à l'accusé du serveur. */
 const PREFIXE_COPIE_BROUILLON = 'beluga.brouillon.';
-
-/**
- * L'ÉTIQUETTE DU MODE, À CÔTÉ DU TROMBONE (décisions de l'utilisateur du 11 et du 12/11/2026). L'agent de cadrage
- * CHOISIT le mode lui-même (`shared/src/mode-de-la-carte.ts`) ; le mode « Création » est retiré. Il ne reste qu'UN
- * MOT sur un fond propre au mode — gris pour Plan, violet plein pour Studio — et son info-bulle qui le détaille. NON
- * CLIQUABLE : aucun menu, aucune croix ; le mode se change en le disant à l'agent.
- */
-const FOND_DU_MODE: Record<'plan' | 'studio', string> = {
-  plan: 'bg-raised text-text',
-  studio: 'bg-teinte-plein text-sur-couleur',
-};
-
-function EtiquetteDuMode({ cardId }: { cardId?: string }) {
-  const state = useApp();
-  const carte = cardId ? state.cards[cardId] : undefined;
-  const etiquette = carte ? etiquetteDuMode(carte) : null;
-  if (!etiquette) return null;
-  return (
-    <Tooltip label={t(etiquette.detail, etiquette.media ? { media: t(etiquette.media) } : undefined)}>
-      <span
-        tabIndex={0}
-        data-etiquette-du-mode={etiquette.mode}
-        className={cn('inline-flex h-6 shrink-0 cursor-default select-none items-center self-center rounded-md px-2 text-[12.5px] font-medium leading-none', FOND_DU_MODE[etiquette.mode])}
-      >
-        {t(etiquette.mot)}
-      </span>
-    </Tooltip>
-  );
-}
 
 /**
  * UN MESSAGE EN ATTENTE OUVERT DANS LE CHAMP, et ce qui est mis de côté le
@@ -2530,9 +2499,10 @@ export function Composer({
             fichier, puis les interrupteurs de la carte et le bouton des RÉGLAGES
             de l'agent — plus aucune colonne posée dehors, à gauche du champ.
             À DROITE, ce qui l'envoie ou l'arrête : l'envoi tout au bord, le
-            MICRO juste à sa gauche, le CONTEXTE avant lui, le carré d'arrêt
-            avant le contexte, et la NOTE DE COMPRÉHENSION en tête du groupe,
-            tout à gauche. */}
+            MICRO juste à sa gauche, le CONTEXTE avant lui, et le carré d'arrêt
+            en tête du groupe. Ni étiquette de mode ni jauge de qualité : les
+            deux ont été retirées le 24/11/2026 (carte « Champ d'écriture
+            allégé »). */}
         <div className={cn('relative z-30 min-w-0 px-2 pb-2', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-gauche">
           <Tooltip label={t('Joindre un fichier')}>
             <Button
@@ -2547,9 +2517,6 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          {/* L'ÉTIQUETTE DU MODE CONFIRMÉ (plan, création, studio) : un mot et son info-bulle, rien à cliquer. */}
-          <EtiquetteDuMode cardId={cardId} />
-
           {/* LES RÉGLAGES DE L'AGENT, juste à droite. */}
           {reglages}
 
@@ -2562,16 +2529,6 @@ export function Composer({
           ) : null}
 
           <div className={cn('ml-auto shrink-0', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-droite">
-            {/* LA NOTE DE COMPRÉHENSION, EN TROIS BARRES, EN TÊTE DU GROUPE DE
-                DROITE — avant le carré d'arrêt, donc à une place FIXE : les
-                boutons qui la suivent apparaissent et disparaissent au fil du
-                tour (arrêt pendant qu'un moteur tourne, envoi quand le champ
-                porte un texte), et une jauge posée au milieu d'eux se
-                déplaçait sous l'oeil. C'est le seul reste visible du relecteur
-                automatique : plus un message écrit nulle part. Il ne bloque
-                jamais le lancement, et sans clé Jev au coffre il n'existe pas. */}
-            <IndicateurComprehension carte={cardId ? state.cards[cardId] : undefined} />
-
             {/* Puis le bouton « Suspendre », le CONTEXTE DU MODÈLE en anneau, le
                 bouton voix, et l'envoi tout au bord. L'anneau ne montre rien tant que
                 le moteur n'a rendu aucune mesure (voir anneau-contexte.tsx) : la

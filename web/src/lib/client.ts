@@ -407,6 +407,8 @@ export interface AppState {
   marketingVersions: Record<string, number>;
   /** Le service Sécurité a changé (audit lancé ou fini, point lié à une carte) : l'écran ouvert relit. */
   securiteVersion: number;
+  /** Les agents personnalisés d'un projet ont changé (fiche, interrupteur, passage) : l'onglet « Agents » ouvert relit. */
+  agentsPersoVersions: Record<string, number>;
   /** L'audit SEO + GEO du Marketing a changé : la page ouverte relit. */
   /** La liaison Beluga Pass a changé : la rubrique du coffre relit son état. */
   belugapassVersion: number;
@@ -578,6 +580,7 @@ const initialState: AppState = {
   surveillanceRecue: false,
   marketingVersions: {},
   securiteVersion: 0,
+  agentsPersoVersions: {},
   belugapassVersion: 0,
   communicationVersion: 0,
   communicationNonLus: 0,
@@ -2192,6 +2195,10 @@ class Client {
 
       case 'securite':
         this.set({ securiteVersion: this.state.securiteVersion + 1 });
+        break;
+
+      case 'agentsPerso':
+        this.set({ agentsPersoVersions: { ...this.state.agentsPersoVersions, [event.projectId]: (this.state.agentsPersoVersions[event.projectId] ?? 0) + 1 } });
         break;
 
 

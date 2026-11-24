@@ -14,7 +14,7 @@ import path from 'node:path';
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'mode-de-la-carte-'));
 process.env.BELUGA_DATA = bacASable;
 
-const { Agent, Card, Project, MODES_DE_LA_CARTE, etiquetteDuMode, consigneDeLaQuestionDeMode, policeEmbarqueeLaPlusProche, CHAMPS_DE_CARTE_AVANT_ANALYSE } = await import('@beluga/shared');
+const { Agent, Card, Project, MODES_DE_LA_CARTE, consigneDeLaQuestionDeMode, policeEmbarqueeLaPlusProche, CHAMPS_DE_CARTE_AVANT_ANALYSE } = await import('@beluga/shared');
 const store = await import('../store.js');
 const { poserLeModeDeLaCarte, modeDejaConfirme } = await import('../mode-de-la-carte.js');
 
@@ -26,18 +26,6 @@ function carteDeCadrage(id: string) {
   store.saveAgent(Agent.parse({ id: `cadrage-${id}`, projectId: 'p-mode', cardId: id, role: 'cadrage', title: 'Cadrage', run: { engine: 'claude' }, status: 'idle', createdAt: maintenant, updatedAt: maintenant }));
   return carte;
 }
-
-test('l’étiquette : un mot par mode, Studio avant Plan, rien sans mode ; « Création » ne s’affiche plus', () => {
-  assert.equal(etiquetteDuMode({ parcours: {} }), null);
-  assert.equal(etiquetteDuMode({ parcours: { planSouhaite: true } })?.mot, 'Plan');
-  /* Une carte ancienne qui porte encore le drapeau du mode retiré n'affiche rien de lui. */
-  assert.equal(etiquetteDuMode({ parcours: { creationSouhaitee: true } } as never), null);
-  assert.equal(etiquetteDuMode({ parcours: { creationSouhaitee: true, planSouhaite: true } } as never)?.mot, 'Plan');
-  const studio = etiquetteDuMode({ parcours: { realisationSouhaitee: true }, realisation: { medias: ['video'] } });
-  assert.equal(studio?.mode, 'studio');
-  assert.equal(studio!.media, 'Vidéo', 'l’info-bulle dit le type de média');
-  assert.match(studio!.detail, /\{media\}/, 'à trou : l’écran y pose le type traduit');
-});
 
 test('le mode : l’agent le choisit seul, question seulement dans le vrai doute, « Création » retiré', () => {
   const c = consigneDeLaQuestionDeMode(null);
@@ -70,7 +58,8 @@ test('le mode confirmé s’écrit sur la carte, un seul à la fois, et rend sa 
   assert.ok(studio.ok && /CONSIGNE DU MODE STUDIO/.test(studio.texte));
   const aucun = await poserLeModeDeLaCarte(c.id, 'cadrage-carte-mode-1', 'aucun');
   assert.ok(aucun.ok);
-  assert.equal(etiquetteDuMode(store.getCard(c.id)!), null);
+  const sansMode = store.getCard(c.id)!;
+  assert.ok(!sansMode.parcours?.planSouhaite && !sansMode.parcours?.realisationSouhaitee, '« aucun » retire les deux modes');
 });
 
 test('le mode ne se pose plus une fois la carte lancée', async () => {

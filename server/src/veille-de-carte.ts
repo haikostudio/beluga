@@ -491,6 +491,14 @@ let relance = async (agentId: string, texte: string): Promise<void> => {
 };
 
 async function relancerLAgent(agentId: string, texte: string): Promise<void> {
+  /* L'AGENT PERSONNALISÉ D'UN PROJET (24/11/2026) : sa veille levée est un PASSAGE « veille », avec son relais (fiche,
+     journal, limite), jamais un message brut — et rien ne part s'il a été mis en pause. */
+  const perso = await import('./agents-personnalises.js');
+  const agentPerso = perso.agentPersoDeLAgent(agentId);
+  if (agentPerso) {
+    await perso.passer(agentPerso.id, { genre: 'veille', details: texte });
+    return;
+  }
   await relance(agentId, texte);
 }
 

@@ -185,12 +185,12 @@ export function FilDuProjet({
           <PastilleProjet project={project} taille={18} />
         </a>
       )}
-      <span className={cn('group/cran flex min-w-0 items-center', titre ? 'max-w-[40%] shrink-0' : 'shrink-0')}>
+      <span className={cn('group/cran flex min-w-0 items-center', titre || suite ? 'max-w-[40%] shrink-0' : 'shrink-0')}>
         <a
           href={`#projet/${encodeURIComponent(project.id)}`}
-          className={cn('min-w-0 truncate rounded-md px-1 py-0.5 transition-colors hover:text-text', titre ? 'text-muted' : 'font-medium text-text')}
+          className={cn('min-w-0 truncate rounded-md px-1 py-0.5 transition-colors hover:text-text', titre || suite ? 'text-muted' : 'font-medium text-text')}
           data-cran-du-projet
-          aria-current={titre ? undefined : 'page'}
+          aria-current={titre || suite ? undefined : 'page'}
           onClick={allerALAccueil}
         >
           {project.name}
@@ -219,6 +219,8 @@ export function FilDuProjet({
           </span>
         </>
       ) : null}
+      {/* L'ONGLET « AGENTS » DE L'ACCUEIL (24/11/2026) : ses crans (« Agents », l'agent ouvert) s'écrivent ici. */}
+      {titre ? null : suite}
     </nav>
   );
 }

@@ -10,12 +10,12 @@
  *   1. AUCUNE SORTIE RÉSEAU hors du faux serveur local : `fetch`, `http`,
  *      `https` et les connexions TCP sont comptés ; seule l'adresse rangée sur
  *      la fiche d'essai du coffre est permise.
- *   2. SANS CLÉ AU COFFRE : aucun appel ; la jauge est notée par les règles,
- *      les autres jugements rendent « rien », sans lever, et laissent leur trace.
+ *   2. SANS CLÉ AU COFFRE : aucun appel ; les jugements rendent « rien », sans
+ *      lever, et laissent leur trace.
  *   3. UN USAGE ÉTEINT n'interroge pas Jev, même avec une clé.
  *   4. CLÉ RANGÉE (faux serveur) : un appel par jugement, des verdicts, des
  *      traces en JSON valide qui comptent les jetons.
- *   5. SERVICE MUET : « rien » en temps borné, et la jauge reste notée.
+ *   5. SERVICE MUET : « rien » en temps borné.
  *
  * Code de sortie non nul au premier contrat rompu.
  */
@@ -110,29 +110,13 @@ if (!fs.existsSync(compile)) {
 const store = await import(path.join(RACINE, 'server/dist/store.js'));
 const coffre = await import(path.join(RACINE, 'server/dist/coffre-fort.js'));
 const juge = await import(compile);
-const { dossierAJuger, USAGES_JUGE } = await import(path.join(RACINE, 'shared/dist/index.js'));
+const { USAGES_JUGE } = await import(path.join(RACINE, 'shared/dist/index.js'));
 
-const DOSSIER = dossierAJuger({
-  title: 'Ranger la carte au clic',
-  parcours: {
-    comprehension: {
-      texte: 'Le bouton d’arrêt doit ranger la carte en « Planifié », exactement comme la sortie à la souris.',
-      hypotheses: ['Le raccourci clavier suit le même chemin.'],
-      partieTechnique: {
-        taches: [{ titre: 'Ranger la carte', description: 'au clic comme à la sortie' }],
-        faits: ['Un arrêt à la main ramène la carte en « Planifié ».'],
-        risques: 'Le balayage de nuit pourrait la reprendre.',
-      },
-    },
-  },
-});
-const CARTE = { id: 'carte-verif', projectId: 'projet-verif' };
 
-/** Les trois jugements, chacun gardé : une exception est un ÉCHEC du contrat. */
-async function lesTrois() {
+/** Les deux jugements, chacun gardé : une exception est un ÉCHEC du contrat. */
+async function lesJugements() {
   const rendus = {};
   for (const [nom, appel] of [
-    ['comprehension', () => juge.jugerLaComprehension(CARTE, DOSSIER)],
     ['interet', () => juge.noterUneProposition({ titre: 'Accélérer le tableau', description: 'Poser les cartes par paquets.' }, {})],
     ['urgence', () => juge.jugerLUrgence({ titre: 'Le site est en panne', description: 'Erreur 502 partout.', origine: 'surveillance' }, {})],
   ]) {
@@ -159,19 +143,15 @@ try {
   /* ---- 2. Sans clé ------------------------------------------------------ */
   store.saveSettings({ jugeEteints: [], jugeAllumes: [...USAGES_JUGE] });
   noter('sans clé : le juge se dit éteint', juge.etatDuJuge().allume === false);
-  const sansCle = await lesTrois();
+  const sansCle = await lesJugements();
   noter(
-    'sans clé : la jauge est notée par les règles, les autres rendent « rien », sans lever',
-    sansException(sansCle) &&
-      sansCle.comprehension.valeur?.source === 'regles' &&
-      sansCle.interet.valeur === undefined &&
-      sansCle.urgence.valeur === undefined,
-    JSON.stringify(sansCle.comprehension.valeur),
+    'sans clé : les jugements rendent « rien », sans lever',
+    sansException(sansCle) && sansCle.interet.valeur === undefined && sansCle.urgence.valeur === undefined,
   );
   const tracesSansCle = juge.listerLesTraces(10);
   noter(
     'sans clé : chaque échec laisse une trace lisible',
-    tracesSansCle.length === 3 && tracesSansCle.every((t) => t.issue === 'echec' && /aucune clé/.test(t.reponse)) && tracesValides(tracesSansCle),
+    tracesSansCle.length === 2 && tracesSansCle.every((t) => t.issue === 'echec' && /aucune clé/.test(t.reponse)) && tracesValides(tracesSansCle),
   );
   noter('sans clé : aucun appel au faux serveur', appelsAuFaux === 0);
 
@@ -179,7 +159,7 @@ try {
   coffre.enregistrerAcces({ nom: 'TypeSafe — essai', type: 'cle-api', champs: { service: 'TypeSafe', cle: 'cle-essai', adresse: ADRESSE } });
   store.saveSettings({ jugeEteints: [...USAGES_JUGE], jugeAllumes: [] });
   const avantEteints = juge.listerLesTraces(100).length;
-  const eteints = await lesTrois();
+  const eteints = await lesJugements();
   noter(
     'usages éteints : aucun verdict, aucune trace, aucun appel',
     sansException(eteints) &&
@@ -191,12 +171,11 @@ try {
   /* ---- 4. Clé rangée, faux serveur -------------------------------------- */
   store.saveSettings({ jugeEteints: [], jugeAllumes: [...USAGES_JUGE] });
   noter('clé rangée : le juge se dit allumé', juge.etatDuJuge().allume === true);
-  const avecCle = await lesTrois();
+  const avecCle = await lesJugements();
   noter(
-    'clé rangée : un appel par jugement, et trois verdicts',
+    'clé rangée : un appel par jugement, et deux verdicts',
     sansException(avecCle) &&
-      appelsAuFaux === 3 &&
-      avecCle.comprehension.valeur?.source === 'jev' &&
+      appelsAuFaux === 2 &&
       avecCle.interet.valeur !== undefined &&
       avecCle.urgence.valeur?.signal === true,
     `${appelsAuFaux} appel(s)`,
@@ -208,11 +187,11 @@ try {
   /* ---- 5. Service muet ------------------------------------------------- */
   muet = true;
   const depart = Date.now();
-  const sansReponse = await lesTrois();
+  const sansReponse = await lesJugements();
   const duree = Date.now() - depart;
   noter(
-    'service muet : « rien » en temps borné, et la jauge reste notée',
-    sansException(sansReponse) && sansReponse.comprehension.valeur?.source === 'regles' && duree < 3 * 4500,
+    'service muet : « rien » en temps borné',
+    sansException(sansReponse) && Object.values(sansReponse).every((r) => r.valeur === undefined) && duree < 2 * 4500,
     `${duree} ms`,
   );
 } finally {

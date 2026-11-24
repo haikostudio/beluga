@@ -111,6 +111,8 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'project.list': 'aucun',
   'project.open': 'projet:id',
   'project.read': 'projet:projectId',
+  'agentsPerso.lister': 'projet:projectId',
+  'agentsPerso.lire': 'projet:projectId',
   'projects.relire': 'projet:ids',
   'cards.tranche': 'projet:projectId',
   // Ces trois réponses listent plusieurs projets : `reponsePourLeCollaborateur` les ramène à la portée.
@@ -194,6 +196,13 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   /* COMMUNICATION 2 : la demande au chef revérifie, au serveur, un accès de travail sur la marque (`marqueEnTravail`). */
   'communication.coulisses': 'aucun',
   'card.create': 'projet:projectId',
+  /* LES AGENTS PERSONNALISÉS (24/11/2026) : mêmes droits que les cartes du projet ; le démon revérifie que l'agent visé
+     est bien de ce projet. */
+  'agentsPerso.creer': 'projet:projectId',
+  'agentsPerso.allumer': 'projet:projectId',
+  'agentsPerso.eteindre': 'projet:projectId',
+  'agentsPerso.lancer': 'projet:projectId',
+  'agentsPerso.supprimer': 'projet:projectId',
   'card.update': 'carte:id',
   'card.move': 'carte:id',
   'card.delete': 'carte:id',
@@ -352,6 +361,7 @@ export const EVENEMENTS_COLLABORATEUR: readonly string[] = [
   'attention',
   'rendus',
   'card.upsert',
+  'agentsPerso',
   'card.delete',
   'card.deplacee',
   'card.lancement',

@@ -761,6 +761,10 @@ export async function verifierSites(ids?: string[], maintenant = Date.now()): Pr
       reference: `site:${site.id}`,
       element: site.nom,
     });
+    /* Les agents personnalisés du projet du site, réglés « quand le site tombe » : hors du chemin de la surveillance. */
+    void import('./agents-personnalises.js')
+      .then((m) => m.signalerAuxAgents(site.projectId, 'surveillance.panne', `Le site « ${site.nom} » est tombé : ${texte.corps}`))
+      .catch(() => undefined);
   }
   /*
    * TROIS ÉCHECS D'AFFILÉE : LA CARTE DE PANNE, HORS DE LA BOUCLE PARALLÈLE.

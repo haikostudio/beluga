@@ -5665,6 +5665,47 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS garde_acces_par_expiration ON garde_acces(expires_at);
     `,
   },
+  {
+    id: 189,
+    name: 'agents-personnalises',
+    /*
+     * LES AGENTS PERSONNALISÉS D'UN PROJET (carte « Agents personnalisés dans les projets », 24/11/2026,
+     * `server/src/agents-personnalises.ts`). `agents_perso` : chaque agent, sa FICHE (JSON, sans aucune valeur
+     * secrète — seulement des noms de fiches du coffre), son agent de conversation et sa carte d'agent de volet,
+     * l'interrupteur « Actif », l'heure d'allumage et celle du dernier passage horaire (la tournée en part).
+     * `agents_perso_journal` : le JOURNAL, en ajout seul — chaque passage, sa source, son issue, ses jetons ; seule
+     * la ligne d'un passage « en cours » reçoit ensuite son issue. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS agents_perso (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        agent_id TEXT,
+        card_id TEXT,
+        fiche TEXT NOT NULL,
+        actif INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        mis_a_jour_le INTEGER NOT NULL,
+        allume_le INTEGER,
+        dernier_horaire INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_agents_perso_projet ON agents_perso(project_id, cree_le);
+      CREATE INDEX IF NOT EXISTS idx_agents_perso_agent ON agents_perso(agent_id);
+      CREATE TABLE IF NOT EXISTS agents_perso_journal (
+        id TEXT PRIMARY KEY,
+        agent_perso_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        genre TEXT NOT NULL,
+        source TEXT,
+        resume TEXT NOT NULL,
+        issue TEXT NOT NULL,
+        jetons INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_agents_perso_journal_agent ON agents_perso_journal(agent_perso_id, date DESC);
+      CREATE INDEX IF NOT EXISTS idx_agents_perso_journal_projet ON agents_perso_journal(project_id, date DESC);
+    `,
+  },
 ];
 
 export function openDb(): DB {

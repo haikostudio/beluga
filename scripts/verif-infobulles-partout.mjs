@@ -181,33 +181,7 @@ try {
     await lire('tableau du projet');
     await aller(`projet/${carte.projectId}/tache/${carte.id}`, `[data-page-carte="${carte.id}"]`);
     await lire('carte ouverte');
-    /* L'ÉTIQUETTE DU MODE (11/11/2026 : elle remplace les trois interrupteurs) doit montrer SA bulle, à l'écran.
-       Une carte sans mode confirmé n'en porte pas : rien à survoler. */
-    for (const repere of ['data-etiquette-du-mode']) {
-      const bouton = page.locator(`[${repere}]`).first();
-      if (!(await bouton.count())) {
-        constats.push('carte à cadrer : aucun mode confirmé, pas d’étiquette à survoler');
-        continue;
-      }
-      const boite = await bouton.boundingBox();
-      await page.mouse.move(1, 1);
-      await page.waitForTimeout(100);
-      const x = boite.x + boite.width / 2;
-      const y = boite.y + boite.height / 2;
-      await page.mouse.move(x, y, { steps: 4 });
-      await page.waitForTimeout(150);
-      await page.mouse.move(x + 1, y);
-      await page.mouse.move(x, y);
-      await page.waitForTimeout(700);
-      const visible = await page.evaluate(({ x, y }) =>
-        [...document.querySelectorAll('[role="tooltip"], [data-infobulle]')].some((e) => {
-          const r = e.getBoundingClientRect();
-          if (!(r.width > 0 && (e.textContent || '').trim())) return false;
-          if (r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) return false;
-          return Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)) <= 80;
-        }), { x, y });
-      verifier(visible, `carte à cadrer : bulle de [${repere}] visible au survol`);
-    }
+    /* L'ÉTIQUETTE DU MODE est retirée du champ (24/11/2026) : plus rien à survoler là. */
     /* LA FENÊTRE DE CONFIGURATION DU PROJET, rubrique par rubrique (adresse « config/<rubrique> »). */
     for (const cle of ['general', 'dossiers', 'deploiement', 'production', 'facturation', 'archivage', 'retrait']) {
       await aller(`projet/${carte.projectId}/config/${cle}`, '[data-rubrique-contenu], [data-rubrique-ouverte]');

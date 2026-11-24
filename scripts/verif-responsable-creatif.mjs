@@ -413,7 +413,6 @@ async function controlerLeRepereSurTelephone(p) {
     noter('sur téléphone, le champ et la ligne des étapes sont là', false);
     return;
   }
-  noter('sur téléphone, l’étiquette du mode tient en un mot', ((await p.locator('[data-etiquette-du-mode]').first().innerText().catch(() => '')).trim() === 'Studio'));
   /* Le téléphone part replié : on déplie d'abord la liste au chevron, comme sur la capture #c92f. */
   if (!(await p.locator('[data-entete-du-repere]').count())) await p.locator('[data-chevron-du-temoin]').first().tap();
   await attendre(async () => (await p.locator('[data-entete-du-repere]').count()) === 1, 5000);
@@ -508,8 +507,7 @@ async function main() {
   noter('le champ n’a plus de bouton caméra', (await page.locator('[data-interrupteur-realisation], [data-menu-realisation]').count()) === 0);
   noter('rien ne s’ouvre à droite tant que le type n’est pas confirmé', (await page.locator('[data-volet-de-suivi]').count()) === 0);
   await commande({ type: 'card.realisation.souhaitee', cardId: CARTE_ID, media: 'video' });
-  noter('le mode Studio confirmé pose l’étiquette « Studio »', await attendre(async () => (await page.locator('[data-etiquette-du-mode="studio"]').count()) === 1, 10000));
-  noter('l’étiquette n’est pas un bouton', (await page.locator('[data-etiquette-du-mode] button, button[data-etiquette-du-mode]').count()) === 0);
+  /* Plus d'étiquette de mode dans le champ (24/11/2026) : le mode se confirme dans la discussion, sans rien afficher. */
   await page.waitForTimeout(800);
   noter('confirmer le type n’ouvre encore rien à droite', (await page.locator('[data-volet-de-suivi]').count()) === 0);
   {

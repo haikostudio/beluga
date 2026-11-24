@@ -2814,6 +2814,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (agent.service?.id === SERVICE_DU_DIRECTEUR) contexteDuService = contexteDeLaPageOuverte ?? '';
       /* L'AGENT DE SÉCURITÉ D'UN PROJET SUIVI relit sa consigne et le DERNIER audit à chaque message (`service-securite.ts`). */
       contexteDuService ??= estAgentAttitre(agent.id) ? (await import('./service-securite.js')).contexteDeLAgentSecurite(agent) : undefined;
+      /* L'AGENT PERSONNALISÉ D'UN PROJET relit sa consigne, sa FICHE et son journal à chaque message (`agents-personnalises.ts`). */
+      contexteDuService ??= estAgentAttitre(agent.id) ? (await import('./agents-personnalises.js')).contexteDeLAgentPersoDuTour(agent.id) : undefined;
       const contexteDuTour = [contexteDuConducteur, contexteConfiguration, contexteMoteur, contexteDuService, contextePlan].filter(Boolean).join('\n\n');
       /* CHAQUE AJOUT DE MOTEUR A SA CARTE, posée au premier message et passée
          en « En cours » pendant le tour ; son état est reposé après. */
@@ -5820,6 +5822,47 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'belugapass.acces': {
       const { reglerLAcces } = await import('./belugapass.js');
       return { etat: await reglerLAcces(cmd.ouvrir === true) };
+    }
+
+    /* -------- Agents personnalisés d'un projet (`server/src/agents-personnalises.ts`) -------- */
+
+    case 'agentsPerso.lister': {
+      const perso = await import('./agents-personnalises.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!store.getProject(projectId)) throw new Error('projet introuvable');
+      return { agents: perso.listerAgents(projectId), point: perso.pointDuMatinDuProjet(projectId) };
+    }
+
+    case 'agentsPerso.creer': {
+      const { creerAgent } = await import('./agents-personnalises.js');
+      return { agent: await creerAgent(String(cmd.projectId ?? '')) };
+    }
+
+    case 'agentsPerso.lire': {
+      const perso = await import('./agents-personnalises.js');
+      const agent = perso.lireAgent(String(cmd.projectId ?? ''), String(cmd.id ?? ''));
+      return { agent, journal: perso.journalDeLAgent(agent.id, 50) };
+    }
+
+    case 'agentsPerso.allumer': {
+      const { allumer } = await import('./agents-personnalises.js');
+      return { agent: allumer(String(cmd.projectId ?? ''), String(cmd.id ?? '')) };
+    }
+
+    case 'agentsPerso.eteindre': {
+      const { eteindre } = await import('./agents-personnalises.js');
+      return { agent: eteindre(String(cmd.projectId ?? ''), String(cmd.id ?? '')) };
+    }
+
+    case 'agentsPerso.lancer': {
+      const { lancerMaintenant } = await import('./agents-personnalises.js');
+      return { issue: await lancerMaintenant(String(cmd.projectId ?? ''), String(cmd.id ?? '')) };
+    }
+
+    case 'agentsPerso.supprimer': {
+      const { supprimer } = await import('./agents-personnalises.js');
+      await supprimer(String(cmd.projectId ?? ''), String(cmd.id ?? ''));
+      return { ok: true };
     }
 
     case 'securite.lister': {

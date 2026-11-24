@@ -98,9 +98,12 @@ export function BoutonOrdinateur({
           className="inline-flex h-[34px] min-w-0 max-w-[160px] shrink items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-raised hover:text-text sm:h-7"
           data-choix-ordinateur={affiche?.id ?? ''}
         >
+          {/* L'ICÔNE À LA TAILLE DES AUTRES ICÔNES DE LA RANGÉE (`pastille-champ` : 22 px sur téléphone, 16 px sur
+              ordinateur ; carte « Champ d'écriture allégé », 24/11/2026). Nichée dans ce span pour porter la pastille
+              d'état, elle échappe à `[&>svg]` et au grossissement global `button > svg` : sa taille se pose ici. */}
           <span className="relative flex shrink-0 items-center">
-            <Monitor className="h-3.5 w-3.5" />
-            {affiche ? <span className={cn('absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full', ordinateurEnLigne(affiche) ? 'bg-success' : 'bg-faint')} /> : null}
+            <Monitor className="h-[22px] w-[22px] sm:h-4 sm:w-4" />
+            {affiche ? <span className={cn('absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full sm:h-1.5 sm:w-1.5', ordinateurEnLigne(affiche) ? 'bg-success' : 'bg-faint')} /> : null}
           </span>
           <span className="min-w-0 truncate">{affiche?.nom ?? t('Ordinateur')}</span>
           <ChevronDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
