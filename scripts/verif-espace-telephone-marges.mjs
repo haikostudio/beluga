@@ -216,10 +216,11 @@ await page.waitForSelector('[data-fiche-chargee]', { timeout: 20000 });
 await page.waitForTimeout(700);
 {
   const vide = await page.evaluate(
-    () => window.innerHeight - document.querySelector('[data-envoyer="commentaire"]').getBoundingClientRect().bottom,
+    /* L'envoi vit DANS le champ depuis le 24/11/2026 : le bas de la fiche est celui du champ. */
+    () => window.innerHeight - document.querySelector('[data-tiroir-demande] [data-champ-espace]').getBoundingClientRect().bottom,
   );
   noter(
-    'sous « Envoyer », seulement la zone sûre du bas et un peu d’air',
+    'sous le champ de commentaire, seulement la zone sûre du bas et un peu d’air',
     /* + la marche du bas du téléphone (10 px, `--marche-du-bas`, 31/10/2026). */
     vide >= ZONE.bas + MARCHE_DU_BAS && vide <= ZONE.bas + MARCHE_DU_BAS + 20,
     `${Math.round(vide)} px`,

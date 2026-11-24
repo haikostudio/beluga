@@ -37,7 +37,10 @@ export function TexteEditable({
   repere,
   libelle,
   onEdition,
+  ouverture,
 }: {
+  /** Un bouton posé ailleurs (« Modifier ») ouvre le champ par cette poignée. */
+  ouverture?: React.MutableRefObject<(() => void) | null>;
   /** Prévenu à l'ouverture et à la fermeture du champ — la fiche ne replie pas un texte qu'on écrit. */
   onEdition?: (enEdition: boolean) => void;
   valeur: string;
@@ -75,6 +78,7 @@ export function TexteEditable({
     setBrouillon(valeur);
     setEnEdition(true);
   };
+  if (ouverture) ouverture.current = editable ? ouvrir : null;
 
   /**
    * LE CHAMP FAIT LA HAUTEUR DE SON TEXTE, NI PLUS NI MOINS.

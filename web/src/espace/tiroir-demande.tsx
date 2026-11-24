@@ -70,6 +70,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { GestesDePage } from '@/components/entete-de-zone';
+import { useTeteDansLaColonneDeContenu } from '@/components/tete-de-sous-page';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
@@ -82,6 +83,8 @@ import {
   type Demande,
   type MessageDemande,
   type PieceDeGalerie,
+  type ResumeClient,
+  type SitesDuProjet,
   type TacheDemande,
 } from '@beluga/shared';
 import { SilhouetteFicheDemande } from '@/components/silhouettes';
@@ -93,6 +96,8 @@ import { OptionsDemande, type PatchDOptions } from './options-demande';
 import { BlocDeFiche } from './bloc-de-fiche';
 import { TexteEditable } from './texte-editable';
 import { heureCourte, jourCourt, jourDe } from './formats';
+import { FriseDeDemande } from './frise-de-demande';
+import { ResumePourLeClient } from './resume-pour-le-client';
 import type { MoiDansLEspace } from './espace-client';
 
 /*
@@ -176,6 +181,7 @@ export function TiroirDemande({
   onFermer,
   onChangement,
   onDemanderCarte,
+  sites,
 }: {
   demandeId: string;
   moi: MoiDansLEspace;
@@ -189,11 +195,15 @@ export function TiroirDemande({
    * Absent (vu comme client, ou carte déjà créée) : rien ne change.
    */
   onDemanderCarte?: (demandeId: string) => void;
+  /** Les deux versions du site du projet : la frise dit où vérifier quand il y a une version de travail. */
+  sites?: SitesDuProjet;
 }) {
   const [demande, setDemande] = React.useState<Demande | null>(null);
   const [messages, setMessages] = React.useState<MessageDemande[]>([]);
   const [pieces, setPieces] = React.useState<PieceDeGalerie[]>([]);
   const [activite, setActivite] = React.useState<ActiviteDemande[]>([]);
+  /** Vu comme Haiko seul : le résumé « Ce qui a changé » qui attend son envoi. */
+  const [resumeClient, setResumeClient] = React.useState<ResumeClient | null>(null);
   const [texte, setTexte] = React.useState('');
   const [tacheNeuve, setTacheNeuve] = React.useState('');
   /** Le tiroir des pièces jointes, empilé par-dessus la fiche. */
@@ -208,6 +218,12 @@ export function TiroirDemande({
    * feuille à 92 % laisse une bande morte en haut pour rien.
    */
   const telephone = useTelephone();
+  /*
+   * LE TITRE, SES GESTES ET LE CORPS DANS LA MÊME COLONNE (cadrage du 24/11/2026, maquette #93cf) : vue comme Haiko, la
+   * fiche est une sous-page de la Messagerie, dont la ligne du titre se resserre sur la colonne de 820 px du corps.
+   * Dans la porte client, il n'y a pas de page de service : le signal ne fait rien.
+   */
+  useTeteDansLaColonneDeContenu();
 
   /** La description repliée dans l'en-tête — par le défilement du fil ou d'un toucher. */
   const [replie, setReplie] = React.useState(false);
@@ -317,11 +333,13 @@ export function TiroirDemande({
           messages: MessageDemande[];
           galerie: PieceDeGalerie[];
           activite: ActiviteDemande[];
+          resumeClient?: ResumeClient | null;
         }) => {
           setDemande(reponse.demande);
           setMessages(reponse.messages);
           setPieces(reponse.galerie);
           setActivite(reponse.activite ?? []);
+          setResumeClient(reponse.resumeClient ?? null);
         },
       )
       .catch((err) => setErreur(err?.message ?? t('Cette demande ne peut pas être ouverte.')));
@@ -335,6 +353,8 @@ export function TiroirDemande({
         const type = event.type;
         if (type === 'espace.message' && (event as any).demandeId === demandeId) recharger();
         if (type === 'espace.demande' && (event as any).demande?.id === demandeId) recharger();
+        // Le résumé préparé, réécrit, envoyé ou écarté — adressé à CE compte d'administrateur seul.
+        if (type === 'espace.resume' && (event as any).demandeId === demandeId) setResumeClient((event as any).resume ?? null);
       }),
     [demandeId, recharger],
   );
@@ -546,6 +566,15 @@ export function TiroirDemande({
           data-entete-fiche
           data-entete-fiche-replie={replie ? '' : undefined}
         >
+          {/*
+           * LA FRISE, EN TÊTE ET TOUJOURS VISIBLE (cadrage du 24/11/2026) : où en est la demande, puis depuis quand, en
+           * mots courants. Elle ne se replie pas avec la description — c'est la première chose qu'on vient lire.
+           */}
+          {demande ? (
+            <div className="min-w-0 basis-full pb-4">
+              <FriseDeDemande demande={demande} activite={activite} aUneVersionDeTravail={Boolean(sites?.travail)} />
+            </div>
+          ) : null}
           <div className="min-w-0 flex-1">
             {/*
              * LE TITRE SE LIT, ET S'ÉDITE À SA PLACE D'UN TOUCHER. C'était un
@@ -687,8 +716,8 @@ export function TiroirDemande({
             <BlocDeFiche
               repere="todo"
               icone={<ListChecks className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />}
-              titre={t('Todo')}
-              indice={jauge.total ? `${jauge.faites}/${jauge.total}` : undefined}
+              titre={t('Cases à cocher')}
+              indice={jauge.total ? `${jauge.faites}/${jauge.total}` : t('Aucune')}
               attributs={{ 'data-bloc-todo': '', 'data-champ-taches': jauge.total }}
               indiceAttribut={jauge.total ? { 'data-jauge-taches': `${jauge.faites}/${jauge.total}` } : undefined}
             >
@@ -700,7 +729,7 @@ export function TiroirDemande({
                       onClick={() => cocher(tache)}
                       className="shrink-0 text-muted hover:text-text"
                       data-tache-cochee={tache.faite ? '' : undefined}
-                      title={t('Todo')}
+                      title={t('Cases à cocher')}
                     >
                       {tache.faite ? (
                         <CheckSquare className="h-4 w-4 text-success" />
@@ -742,6 +771,23 @@ export function TiroirDemande({
             </BlocDeFiche>
 
             {/*
+             * LE RÉSUMÉ « CE QUI A CHANGÉ », VU PAR HAIKO SEUL : préparé à la fin du travail, relu ici, envoyé d'un
+             * clic. Envoyé, il disparaît d'ici et paraît dans la discussion, juste dessous.
+             */}
+            {estAdmin && resumeClient ? (
+              <ResumePourLeClient
+                demandeId={demandeId}
+                resume={resumeClient}
+                onResume={setResumeClient}
+                onEnvoye={() => {
+                  auBas.current = true;
+                  recharger();
+                  onChangement();
+                }}
+              />
+            ) : null}
+
+            {/*
              * 2. LA DISCUSSION, SANS TITRE NI COMPTEUR. C'est pour elle qu'on
              * ouvre une fiche : elle n'a pas à s'annoncer, ni à se replier
              * derrière un libellé. Les messages suivent la description, et
@@ -749,7 +795,9 @@ export function TiroirDemande({
              */}
             <div className="mt-1.5 flex flex-col gap-2" data-commentaires={messages.length}>
               {!messages.length ? (
-                <p className="py-2 text-[12.5px] text-faint">{t('Rien ici pour le moment.')}</p>
+                <p className="py-2 text-[12.5px] text-faint" data-fil-vide>
+                  {t('Aucun message pour le moment : écrivez ci-dessous pour échanger sur cette demande.')}
+                </p>
               ) : null}
               {messages.map((message, i) => {
                   // Le CÔTÉ d'une bulle suit le RÔLE, jamais l'identifiant.

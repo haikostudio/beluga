@@ -13,7 +13,6 @@ import {
   phraseEcoutee,
   retourEnVeilleDu,
   attenteDuMotPermise,
-  attenteRouverteSansGeste,
   ecouteVoulueHorsEcran,
 } from '@beluga/shared';
 import { client } from '@/lib/client';
@@ -87,7 +86,7 @@ export const CLE_VOIX_CONVERSATION = 'voix.conversation';
 
 /** Au-delà, l'écoute du mot de réveil qui se prépare encore est dite en panne, en clair (16/11/2026). */
 const CHARGEMENT_DU_MOT_MAX_MS = 15_000;
-/** Le micro coupé à la main dans l'application iPhone, retenu dans ce téléphone. */
+/** L'ancien choix « micro coupé » de l'application iPhone (retiré le 24/11/2026) : sa trace s'efface une fois. */
 const CLE_MICRO_COUPE_NATIF = 'beluga-voix-micro-coupe-natif';
 /** La phrase du point d'essai (hors production) : ce que l'utilisateur dirait, jamais affiché. */
 const PHRASE_DE_VEILLE_D_ESSAI = ['mets-toi', 'en', 'veille'].join(' ');
@@ -165,34 +164,20 @@ export function VoixAssistant() {
   );
   const microOuvert = microOuvertBrut && voixActive;
   /*
-   * L'APPLICATION IPHONE (`natif/`, MEM-7548) : « Dis Jarvis » y est attendu DÈS QUE L'APPLICATION EST À L'ÉCRAN
-   * (décision de l'utilisateur, 16/11/2026), et seulement là. Le micro coupé par l'utilisateur est RETENU dans ce
-   * téléphone (`CLE_MICRO_COUPE_NATIF`). Le navigateur et l'application installée depuis Safari gardent la règle
-   * d'origine : un geste dans la page, à chaque ouverture (MEM-1247).
+   * L'APPLICATION IPHONE (`natif/`, MEM-7548) SUIT LA MÊME RÈGLE QUE LE NAVIGATEUR (décision de l'utilisateur,
+   * 24/11/2026) : le micro ne s'ouvre plus jamais seul au retour à l'écran — l'attente rouverte d'office posait la
+   * session audio « appel » de l'iPhone et coupait la musique. « Dis Jarvis » s'allume à la main (Réglages › Voix) ;
+   * le bouton du bord et le toucher au dos ouvrent une conversation, qui rend le micro à sa fin (`etatDuMicroApres`).
    */
   const appNative = plateformeNative() === 'ios';
-  const [microCoupeNatif, setMicroCoupeNatif] = React.useState<boolean>(() => {
+  React.useEffect(() => {
     try {
-      return window.localStorage.getItem(CLE_MICRO_COUPE_NATIF) === '1';
+      window.localStorage.removeItem(CLE_MICRO_COUPE_NATIF);
     } catch {
-      return false;
+      /* stockage refusé : rien à effacer */
     }
-  });
+  }, []);
   const pageVisible = usePageVisible();
-  /** Le geste du bouton micro : dans l'application iPhone, il est retenu. */
-  const basculerMicro = React.useCallback(
-    (ouvrir: boolean) => {
-      setMicroOuvert(ouvrir);
-      if (!appNative) return;
-      setMicroCoupeNatif(!ouvrir);
-      try {
-        window.localStorage.setItem(CLE_MICRO_COUPE_NATIF, ouvrir ? '0' : '1');
-      } catch {
-        /* stockage refusé : le choix vaut pour cette visite */
-      }
-    },
-    [appNative, setMicroOuvert],
-  );
   // La phrase qui appelle l’assistant : « Dis <nom> », le nom réglé dans Réglages › Voix (« Jarvis » par défaut).
   const motReveil = phraseDAppel(nomDeLAssistant(state.settings));
   const microOuvertRef = React.useRef(microOuvert);
@@ -279,18 +264,11 @@ export function VoixAssistant() {
     phraseEcoutee(state.settings),
     surReveil,
   );
-  /* Dans le navigateur et l'application installée depuis Safari, quitter l'écran hors conversation REFERME le micro
-     pour de bon : il ne se rouvrira qu'au prochain geste (MEM-1256). */
+  /* Quitter l'écran hors conversation REFERME le micro pour de bon, application iPhone comprise (24/11/2026) : il ne se
+     rouvrira qu'au prochain geste (MEM-1256). */
   React.useEffect(() => {
-    if (!pageVisible && !conversationAllumee && !appNative && microOuvertRef.current) setMicroOuvert(false);
-  }, [pageVisible, conversationAllumee, appNative, setMicroOuvert]);
-  /* Dans l'application iPhone, l'attente s'ouvre seule dès que l'application est à l'écran — sauf micro coupé. */
-  React.useEffect(() => {
-    if (!pageVisible || !voixActive) return;
-    if (attenteRouverteSansGeste({ appNative, coupeParLUtilisateur: microCoupeNatif }) && !microOuvertRef.current) {
-      setMicroOuvert(true);
-    }
-  }, [pageVisible, voixActive, appNative, microCoupeNatif, setMicroOuvert]);
+    if (!pageVisible && !conversationAllumee && microOuvertRef.current) setMicroOuvert(false);
+  }, [pageVisible, conversationAllumee, setMicroOuvert]);
   const [chargementTropLong, setChargementTropLong] = React.useState(false);
   const enChargement = attente.etat === 'ouverture' || attente.etat === 'chargement';
   React.useEffect(() => {
@@ -330,7 +308,8 @@ export function VoixAssistant() {
    * LE RETOUR EN VEILLE. La conversation se referme TOUTE SEULE après 30 s de silence — ni phrase de l'utilisateur,
    * ni voix de Jarvis, ni réponse attendue (`retourEnVeilleDu`) — ou sur « mets-toi en veille » (`demandeDeVeille`), une
    * fois la réponse courte de Jarvis dite. Un petit son l'annonce. Fermer, c'est TOUT fermer (connexion, canal,
-   * session du démon) ; le micro, lui, reste ouvert et l'attente du mot reprend.
+   * session du démon) ; le micro se referme aussi s'il avait été ouvert PAR la conversation — la session audio de
+   * l'iPhone est rendue et la musique reprend —, sinon (« Dis Jarvis » allumé à la main) l'attente du mot reprend.
    */
   const activiteRef = React.useRef(Date.now());
   const veilleDemandeeRef = React.useRef<{ depuis: number; reponseDite: boolean } | null>(null);
@@ -459,12 +438,11 @@ export function VoixAssistant() {
     const lancer = () => {
       if (!jarvisDosRef.current || !voixActiveRef.current) return;
       setCible(null);
-      basculerMicro(true);
       setConversationAllumee(true);
     };
     window.addEventListener('beluga:jarvis-conversation', lancer);
     return () => window.removeEventListener('beluga:jarvis-conversation', lancer);
-  }, [basculerMicro, setConversationAllumee]);
+  }, [setConversationAllumee]);
 
 
   /*
@@ -475,12 +453,11 @@ export function VoixAssistant() {
     const parler = (event: Event) => {
       if (!voixActiveRef.current) return;
       setCible((event as CustomEvent<{ agentId?: string | null } | null>).detail?.agentId ?? null);
-      basculerMicro(true);
       setConversationAllumee(true);
     };
     window.addEventListener(EVENEMENT_PARLER_A_JARVIS, parler);
     return () => window.removeEventListener(EVENEMENT_PARLER_A_JARVIS, parler);
-  }, [basculerMicro, setConversationAllumee]);
+  }, [setConversationAllumee]);
 
   /*
    * LE VOLET DE L'ASSISTANT MONTRE LA VOIX (carte « Jarvis : volet, voix et rapidité », 16/11/2026) : la barre d'appel
@@ -617,10 +594,9 @@ export function VoixAssistant() {
     /* Voix disponible : le bouton lance TOUJOURS la conversation vocale, jamais le volet (20/11/2026). */
     if (admin) parlerAJarvis(null);
     else {
-      basculerMicro(true);
       setConversationAllumee(true);
     }
-  }, [admin, basculerMicro, setConversationAllumee, ouvrirLeVolet]);
+  }, [admin, setConversationAllumee, ouvrirLeVolet]);
 
   /* La bulle vocale : la conversation de l'assistant (ou sa synthèse), volet replié. */
   const bulleVisible = admin && !cible && conversationAllumee;

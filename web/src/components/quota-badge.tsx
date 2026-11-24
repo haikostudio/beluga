@@ -646,7 +646,10 @@ export function QuotaBadge({
              moteur — logo, nom, nombre de comptes — qui replie ou déplie son groupe d'un clic. Replié, le groupe ne
              tient plus qu'en sa ligne de titre. Un moteur dont aucun compte ne sert est replié d'office ; le choix de
              l'utilisateur l'emporte ensuite, retenu dans les réglages, donc sur TOUS ses appareils
-             (`groupeQuotaReplie`). Le titre est un simple bouton : il ne referme pas le menu. */
+             (`groupeQuotaReplie`). Le titre est un simple bouton : il ne referme pas le menu.
+             LE CHEVRON EST À DROITE (24/11/2026, capture #ad52) : dernier élément de la rangée, après le nombre de
+             comptes ; le logo du moteur ouvre la ligne, retiré de 9 px pour tomber sur la verticale du logo des cartes
+             de compte (1 px de bordure + 8 px de marge), et la ligne « Ensemble » s'aligne sous le NOM (9 + 14 + 6). */
           <div className="space-y-1" data-groupes-quota>
             {groupesDeComptes(quotas, reglages?.ordreDesMoteurs).map((groupe) => {
               const replie = groupeQuotaReplie(groupe, choixDesGroupes);
@@ -657,14 +660,14 @@ export function QuotaBadge({
                 type="button"
                 aria-expanded={!replie}
                 onClick={() => basculerGroupe(groupe.engine, !replie)}
-                className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-raised"
+                className="flex w-full min-w-0 items-center gap-1.5 rounded-md py-1 pl-[9px] pr-1.5 text-left transition-colors hover:bg-raised"
                 title={replie ? t('Déplier {v0}', { v0: nom }) : t('Replier {v0}', { v0: nom })}
                 data-titre-groupe-quota={groupe.engine}
               >
-                <ChevronDown className={cn('h-3 w-3 shrink-0 text-faint transition-transform', replie && '-rotate-90')} />
                 <IconeMoteur engine={groupe.engine as EngineId} className="h-3.5 w-3.5" />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-text">{nom}</span>
                 <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{groupe.comptes.length}</span>
+                <ChevronDown className={cn('h-3 w-3 shrink-0 text-faint transition-transform', replie && '-rotate-90')} data-chevron-groupe-quota />
               </button>
               {/* LA LIGNE « ENSEMBLE » DE LA FAMILLE (23/11/2026) : quand il n'y aura plus aucun compte de ce moteur, et
                   pour combien de temps. Seulement à partir de deux comptes prévus : seul, la ligne du compte suffit. */}
@@ -673,7 +676,7 @@ export function QuotaBadge({
                   <p
                     data-prevision-famille={groupe.engine}
                     className={cn(
-                      'ml-[26px] mr-1.5 mb-1 w-fit text-[11px]',
+                      'ml-[29px] mr-1.5 mb-1 w-fit text-[11px]',
                       ensembles[groupe.engine]!.tient ? 'text-faint' : 'font-medium text-warning',
                     )}
                   >

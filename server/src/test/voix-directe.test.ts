@@ -396,3 +396,23 @@ test('la consigne sépare « en cours » de « terminé » et n’affirme rien s
   assert.equal(MODELE_DU_DIRECT, 'gpt-5.6-sol');
   assert.equal(EFFORT_DU_DIRECT, 'high');
 });
+
+test('Jarvis concierge : un conseil passe par ce que Beluga sait des projets, jamais par la théorie (24/11/2026)', async () => {
+  // Origine : DISC-0065 — à « comment générer du revenu avec mes projets », un tableau théorique sans un chiffre de Beluga.
+  assert.doesNotMatch(CONSIGNE_DU_DIRECT, /un avis, une question générale — SE RÉPOND TOUT DE SUITE/);
+  assert.match(CONSIGNE_DU_DIRECT, /un salut, un merci, une remarque, du bavardage — SE RÉPOND TOUT DE SUITE, SANS AUCUN OUTIL/);
+  assert.match(CONSIGNE_DU_DIRECT, /ou un CONSEIL sur ses projets ou son activité/);
+  assert.match(CONSIGNE_DU_DIRECT, /« assistant_portefeuille » réunit en UN appel/);
+  assert.match(CONSIGNE_DU_DIRECT, /CE QUE BELUGA PEUT FAIRE MAINTENANT/);
+  assert.match(CONSIGNE_DU_DIRECT, /jamais lancé sans « oui »/);
+  // La méthode reste EN TÊTE, et l'ordre voix_souvenirs → voix_dossier attendu jusqu'au bout reste (DEC-552).
+  assert.match(CONSIGNE_DU_DIRECT.split('\n')[1]!, /^- TA MÉTHODE, À CHAQUE DEMANDE/);
+  assert.match(CONSIGNE_DU_DIRECT, /ATTENDS son retour complet/);
+  assert.match(CONSIGNE_DU_DIRECT, /appeler un outil projet par projet en boucle/);
+  for (const c of [consigneDeLaVoix('Jarvis', 'Chris'), consigneDeLaVoix('Jarvis', 'Chris', { reprise: true })]) {
+    assert.doesNotMatch(c, /une question générale se répondent directement/);
+    assert.match(c, /une demande de conseil, d’avis, de priorité ou de stratégie passe TOUJOURS par Codex/);
+  }
+  const { libelleDeLActivite } = await import('@beluga/shared');
+  assert.equal(libelleDeLActivite('assistant_portefeuille', {}), 'Je fais le tour de ce que Beluga sait de chaque projet');
+});

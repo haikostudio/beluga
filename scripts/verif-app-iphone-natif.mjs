@@ -8,11 +8,13 @@
  *   1. le marqueur `html[data-natif=ios]` est posé dès le premier affichage ; sans pont, jamais ;
  *   2. le bas : le menu du bas a 16 px de marge basse dans l'application ; sans pont, la marge d'avant (inchangée) ;
  *      les côtés : 12 px dans l'application, 16 px sans ;
- *   3. Tableaux de bord : trois onglets « Tâches », « À déployer », « Production » avec leur nombre ;
- *   4. Jarvis : un PETIT rond au bord (≤ 30 px de haut), l'attente du mot démarre SANS geste ; page cachée hors
- *      conversation → AUCUN micro ouvert ; retour à l'écran → l'attente reprend ; « Dis Jarvis » (point d'essai) ou
- *      le double toucher au dos (événement du pont) → la barre d'appel au-dessus du menu, sans voile ; raccrocher →
- *      le rond ; interrupteur du double toucher coupé → rien ;
+ *   3. Tableaux de bord : « Tâches », « À déployer », « Production » avec leur nombre (« Agents » s'y ajoute, sans nombre) ;
+ *   4. Jarvis : un PETIT rond au bord (≤ 30 px de haut) ; AUCUN micro ouvert sans geste, ni à l'arrivée ni au retour
+ *      à l'écran (24/11/2026 : l'attente rouverte d'office coupait la musique) ; « Dis Jarvis » allumé à la main
+ *      (interrupteur des réglages, point d'essai) → l'attente démarre, le réveil ouvre la conversation, raccrocher la
+ *      laisse reprendre, quitter l'écran la referme ; le double toucher au dos (événement du pont) ouvre une
+ *      conversation micro coupé → raccrocher REND le micro et dit au natif de rendre la session audio (la musique
+ *      reprend) ; interrupteur du double toucher coupé → rien ;
  *   5. sans pont (application installée depuis Safari, navigateur) : LE MÊME Jarvis au bord (décision du 16/11/2026,
  *      plus de module d'avant), micro coupé jusqu'au premier geste ; un toucher sort la barre d'appel ;
  *   6. ordinateur (1440 px) : le même rond fondu dans le bord (congés rentrants), la barre d'appel en bas à gauche à
@@ -172,6 +174,9 @@ const mesures = (page) =>
       // Depuis le 17/11/2026, l'assistant s'ouvre au téléphone en FEUILLE DU BAS, par-dessus le menu (MEM-7624).
       // Le bouton du bord (et son repère `data-conversation`) s'efface sous la feuille : les ondes en feuille prouvent la conversation.
       enFeuille: !!document.querySelector('[data-feuille-du-bas] [data-pied-vocal]'),
+      // Depuis le 18/11/2026, la conversation de l'assistant s'ouvre au téléphone dans la BULLE VOCALE, à la place du champ.
+      enBulle: !!document.querySelector('[data-bulle-vocale] [data-pied-vocal]'),
+      bulles: Number(document.querySelector('[data-bulles-du-direct]')?.getAttribute('data-bulles-du-direct') ?? 0),
       hauteurEcran: window.innerHeight,
       // Aucun voile : rien de plein écran ne se pose derrière le volet.
       voileVisible: [...document.querySelectorAll('[data-module-voix] *')].some((e) => { const r = e.getBoundingClientRect(); return r.width >= window.innerWidth && r.height >= window.innerHeight * 0.95; }),
@@ -221,7 +226,8 @@ try {
     let m = await mesures(page);
     verifier('le marqueur de l’application est posé', m.marqueur === 'ios', String(m.marqueur));
     verifier('le menu du bas s’arrête à 16 px du bord', m.piedMenu === '16px', String(m.piedMenu));
-    verifier('Tableaux de bord : trois onglets avec leur nombre', m.onglets.length === 3 && m.onglets.every((o) => !o.endsWith(':-')), m.onglets.join(' '));
+    // Depuis le 24/11/2026, un onglet « Agents » (sans nombre) s'est ajouté : Tâches, À déployer et Production gardent le leur.
+    verifier('Tableaux de bord : Tâches, À déployer et Production avec leur nombre', ['taches', 'a-deployer', 'production'].every((cle) => m.onglets.some((o) => o.startsWith(`${cle}:`) && !o.endsWith(':-'))), m.onglets.join(' '));
     verifier('rien ne déborde en largeur', m.deborde <= 0, String(m.deborde));
     await capturer(page, `iphone-tableaux-de-bord-${clarte}`);
     // Jarvis : le petit rond, l'attente sans geste.
@@ -230,52 +236,68 @@ try {
     verifier('Jarvis : le bouton du bord, presque rond, collé au bord gauche', !!m.rond && m.rond.presqueRond && m.rond.l === 0, JSON.stringify(m.rond));
     verifier('Jarvis : ni barre d’appel ni module d’avant', !m.moduleDAvant);
     verifier('Jarvis : les angles creusés fondent le bouton dans le bord', !!m.conges && m.conges.visible && m.conges.gauche === 0, JSON.stringify(m.conges));
+    // AUCUN micro sans geste (24/11/2026) : la session audio de l'iPhone, posée par le micro, coupait la musique.
+    await page.waitForTimeout(3000);
+    m = await mesures(page);
+    const audioDemande = (mm) => mm.recus.some((r) => r.type === 'audio' && r.actif === true);
+    const dernierAudio = (mm) => mm.recus.filter((r) => r.type === 'audio').at(-1)?.actif ?? null;
+    verifier('application à l’écran : AUCUN micro ouvert sans geste, la session audio n’est pas demandée', m.micros === 0 && !audioDemande(m), `micros=${m.micros}, état=${m.etat}`);
+    if (clarte === 'sombre') {
+      await cacher(page, true);
+      await page.waitForTimeout(800);
+      await cacher(page, false);
+      await page.waitForTimeout(3000);
+      m = await mesures(page);
+      verifier('retour dans l’application : le micro reste coupé (la musique continue)', m.micros === 0 && !audioDemande(m), `micros=${m.micros}`);
+    }
+    // « Dis Jarvis » allumé À LA MAIN (l'interrupteur des réglages) : l'attente démarre.
+    await page.evaluate(() => window.belugaEssai?.microALaMain?.(true));
     const attente = await page
-      .waitForFunction(() => ['chargement', 'attente', 'erreur'].includes(document.querySelector('[data-module-voix][data-etat-reveil]')?.getAttribute('data-etat-reveil') ?? ''), null, { timeout: 30_000 })
+      .waitForFunction(() => (window.belugaEssai?.micros?.() ?? 0) > 0 && ['chargement', 'attente', 'erreur'].includes(document.querySelector('[data-module-voix][data-etat-reveil]')?.getAttribute('data-etat-reveil') ?? ''), null, { timeout: 30_000 })
       .then(() => true)
       .catch(() => false);
     m = await mesures(page);
-    verifier('l’attente du mot démarre sans geste, application à l’écran', attente && (m.micros ?? 0) > 0, `${m.etat}, micros=${m.micros}`);
-    if (clarte === 'sombre') {
-      await cacher(page, true);
-      await page.waitForTimeout(1200);
-      m = await mesures(page);
-      verifier('application quittée hors conversation : AUCUN micro ouvert (plus de point orange)', m.micros === 0, `micros=${m.micros}, état=${m.etat}`);
-      await cacher(page, false);
-      const reprise = await page
-        .waitForFunction(() => (window.belugaEssai?.micros?.() ?? 0) > 0, null, { timeout: 20_000 })
-        .then(() => true)
-        .catch(() => false);
-      verifier('retour à l’écran : l’attente du mot reprend seule', reprise);
-      await page.waitForTimeout(1500);
-    }
+    verifier('« Dis Jarvis » allumé à la main : l’attente du mot démarre', attente && (m.micros ?? 0) > 0, `${m.etat}, micros=${m.micros}`);
+    await page.waitForFunction(() => document.querySelector('[data-module-voix][data-etat-reveil]')?.getAttribute('data-etat-reveil') === 'attente', null, { timeout: 30_000 }).catch(() => undefined);
     // « Dis Jarvis » : le volet de l'assistant s'ouvre, les ondes à la place de la zone d'écriture.
     const reveil = await page.evaluate(() => window.belugaEssai?.reveil?.() ?? false);
     await page.waitForSelector('[data-pied-vocal]', { timeout: 8000 }).catch(() => undefined);
     await page.waitForTimeout(600);
     m = await mesures(page);
-    verifier('« Dis Jarvis » : l’assistant s’ouvre en feuille du bas, les ondes dans l’écran, sans voile', reveil && !!m.barre && !m.voileVisible && m.enFeuille && m.barre.bas <= m.hauteurEcran, JSON.stringify({ reveil, barre: m.barre, enFeuille: m.enFeuille, voile: m.voileVisible }));
+    verifier('« Dis Jarvis » : la conversation s’ouvre (bulle vocale ou feuille du bas), les ondes dans l’écran, sans voile', reveil && !!m.barre && !m.voileVisible && (m.enBulle || m.enFeuille) && m.barre.bas <= m.hauteurEcran, JSON.stringify({ reveil, barre: m.barre, enBulle: m.enBulle, enFeuille: m.enFeuille, voile: m.voileVisible }));
     verifier('sous les ondes, Muet et Arrêter', (await page.locator('[data-jarvis-micro]').count()) === 1 && (await page.locator('[data-jarvis-raccrocher]').count()) === 1);
     verifier('la conversation dit au natif de passer en mode appel', m.recus.some((r) => r.type === 'audio' && r.actif === true));
     await capturer(page, `iphone-barre-jarvis-${clarte}`);
     await deuxTours(page);
     await page.waitForTimeout(900);
     m = await mesures(page);
-    verifier('la conversation se lit dans le volet, au-dessus des ondes', !!m.fil && m.fil.tours >= 2 && !!m.barre && m.barre.bas <= m.fil.bas + 1, JSON.stringify({ fil: m.fil, barre: m.barre }));
+    verifier('la conversation se lit au-dessus des ondes (bulles ou volet)', ((m.bulles >= 2) || (!!m.fil && m.fil.tours >= 2 && !!m.barre && m.barre.bas <= m.fil.bas + 1)), JSON.stringify({ bulles: m.bulles, fil: m.fil, barre: m.barre }));
     await capturer(page, `iphone-conversation-jarvis-${clarte}`);
     await page.locator('[data-jarvis-raccrocher]').dispatchEvent('click');
+    await page.waitForTimeout(1200);
+    m = await mesures(page);
+    verifier('Arrêter : la zone d’écriture revient ; « Dis Jarvis » allumé à la main reprend son attente', !m.barre && !m.conversation && (m.micros ?? 0) > 0, `micros=${m.micros}, conversation=${m.conversation}`);
+    // Quitter l'application referme « Dis Jarvis » allumé à la main, et rend la session audio.
+    await cacher(page, true);
+    await page.waitForTimeout(1200);
+    m = await mesures(page);
+    verifier('application quittée : « Dis Jarvis » se referme, la session audio est rendue', m.micros === 0 && dernierAudio(m) === false, `micros=${m.micros}, dernier audio=${dernierAudio(m)}`);
+    await cacher(page, false);
+    await page.waitForTimeout(2500);
+    m = await mesures(page);
+    verifier('retour dans l’application : « Dis Jarvis » reste coupé', m.micros === 0, `micros=${m.micros}`);
+    // Le double toucher au dos : une conversation MICRO COUPÉ, qui rend le micro à sa fin (la musique reprend).
+    if (clarte === 'sombre') verifier('l’interrupteur du double toucher est redit au natif', m.recus.some((r) => r.type === 'jarvis-dos'));
+    const audiosAvant = m.recus.filter((r) => r.type === 'audio').length;
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('beluga:natif', { detail: { type: 'jarvis-conversation' } })));
+    const parDos = await page.waitForSelector('[data-pied-vocal]', { timeout: 8000 }).then(() => true).catch(() => false);
     await page.waitForTimeout(800);
     m = await mesures(page);
-    verifier('Arrêter : la zone d’écriture revient, le mode appel est rendu', !m.barre && !m.conversation && m.recus.some((r) => r.type === 'audio' && r.actif === false));
-    if (clarte === 'sombre') {
-      // Le double toucher au dos.
-      verifier('l’interrupteur du double toucher est redit au natif', m.recus.some((r) => r.type === 'jarvis-dos'));
-      await page.evaluate(() => window.dispatchEvent(new CustomEvent('beluga:natif', { detail: { type: 'jarvis-conversation' } })));
-      const parDos = await page.waitForSelector('[data-pied-vocal]', { timeout: 8000 }).then(() => true).catch(() => false);
-      verifier('double toucher au dos : le volet et la conversation', parDos);
-      await page.locator('[data-jarvis-raccrocher]').dispatchEvent('click');
-      await page.waitForTimeout(800);
-    }
+    verifier('double toucher au dos : le volet et la conversation, mode appel demandé (musique en pause)', parDos && m.recus.filter((r) => r.type === 'audio').slice(audiosAvant).some((r) => r.actif === true), JSON.stringify({ parDos, micros: m.micros }));
+    await page.locator('[data-jarvis-raccrocher]').dispatchEvent('click');
+    await page.waitForTimeout(1200);
+    m = await mesures(page);
+    verifier('fin de la conversation : le micro est rendu et la session audio aussi (la musique reprend)', !m.conversation && m.micros === 0 && dernierAudio(m) === false, `micros=${m.micros}, dernier audio=${dernierAudio(m)}`);
     // Le volet des tâches du projet : les lignes de la colonne, le bouton du pied à 16 px du bord.
     await page.evaluate((id) => (window.location.hash = `#projet/${id}`), PROJET);
     await page.waitForTimeout(2000);
@@ -342,8 +364,8 @@ try {
     await deuxTours(page);
     await page.waitForTimeout(900);
     m = await mesures(page);
-    verifier(`Safari (${clarte}) : le bouton ouvre l’assistant en feuille du bas, le micro lance Jarvis`, !!m.barre && m.enFeuille && m.barre.bas <= m.hauteurEcran, JSON.stringify({ barre: m.barre, enFeuille: m.enFeuille }));
-    verifier(`Safari (${clarte}) : la conversation se lit dans le volet`, !!m.fil && m.fil.tours >= 2, JSON.stringify({ fil: m.fil }));
+    verifier(`Safari (${clarte}) : la conversation s’ouvre (bulle vocale ou feuille du bas), les ondes dans l’écran`, !!m.barre && (m.enBulle || m.enFeuille) && m.barre.bas <= m.hauteurEcran, JSON.stringify({ barre: m.barre, enBulle: m.enBulle, enFeuille: m.enFeuille }));
+    verifier(`Safari (${clarte}) : la conversation se lit au-dessus des ondes (bulles ou volet)`, m.bulles >= 2 || (!!m.fil && m.fil.tours >= 2), JSON.stringify({ bulles: m.bulles, fil: m.fil }));
     verifier(`Safari (${clarte}) : rien ne déborde en largeur`, m.deborde <= 0, String(m.deborde));
     await capturer(page, `safari-conversation-${clarte}`);
     await page.locator('[data-jarvis-raccrocher]').dispatchEvent('click');
@@ -378,8 +400,9 @@ try {
     await deuxTours(page);
     await page.waitForTimeout(900);
     m = await mesures(page);
-    verifier(`ordinateur (${clarte}) : le volet s’ouvre à droite du bouton, les ondes en bas`, !!m.fil && !!m.rond && m.fil.gauche >= m.rond.l + m.rond.w && !!m.barre && m.barre.bas <= 900 - 16, JSON.stringify({ fil: m.fil, barre: m.barre }));
-    verifier(`ordinateur (${clarte}) : la conversation se lit dans le volet`, !!m.fil && m.fil.tours >= 2, JSON.stringify(m.fil));
+    // Depuis le 17/11/2026, la conversation s'ouvre dans la BULLE VOCALE, en bas à droite (le volet seulement sur une production).
+    verifier(`ordinateur (${clarte}) : la conversation s’ouvre en bas à droite (bulle vocale ou volet), les ondes en bas`, !!m.barre && m.barre.bas <= 900 - 16 && ((m.enBulle && m.barre.gauche >= 1440 / 2) || (!!m.fil && !!m.rond && m.fil.gauche >= m.rond.l + m.rond.w)), JSON.stringify({ enBulle: m.enBulle, fil: m.fil, barre: m.barre }));
+    verifier(`ordinateur (${clarte}) : la conversation se lit au-dessus des ondes (bulles ou volet)`, m.bulles >= 2 || (!!m.fil && m.fil.tours >= 2), JSON.stringify({ bulles: m.bulles, fil: m.fil }));
     await capturer(page, `ordinateur-conversation-${clarte}`);
     await page.locator('[data-jarvis-raccrocher]').dispatchEvent('click');
     await page.waitForTimeout(600);

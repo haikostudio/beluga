@@ -10,6 +10,7 @@ import {
   TacheDemande,
 } from './espace-client.js';
 import { NotificationEspace } from './espace-notifications.js';
+import { ResumeClient } from './suivi-de-demande.js';
 import { ConnexionCompte } from './connexion-compte.js';
 import { ETAPES_DE_L_ASSISTANT, EtatDesNouveautes, GENRES_DE_SECRET, TravailDInstallation } from './installation.js';
 import { FicheMoteurZ } from './moteurs-ajoutes.js';
@@ -2302,6 +2303,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
       })
       .optional(),
   }),
+  /*
+   * LE RÉSUMÉ « CE QUI A CHANGÉ », RÉSERVÉ À L'ADMINISTRATION (`COMMANDES_FERMEES_AU_CLIENT`) : Haiko réécrit le
+   * brouillon, l'écarte, ou l'envoie — il devient alors un commentaire de la demande. `texte` à l'envoi : la version
+   * relue à l'écran, enregistrée en même temps (un seul clic).
+   */
+  z.object({ type: z.literal('espace.demande.resume.modifier'), id: z.string(), texte: z.string() }),
+  z.object({ type: z.literal('espace.demande.resume.ecarter'), id: z.string() }),
+  z.object({ type: z.literal('espace.demande.resume.envoyer'), id: z.string(), texte: z.string().optional() }),
   /** L'espace vu comme Haiko : les clients, leurs kanbans, leurs fils. */
   z.object({ type: z.literal('espace.clients') }),
   /**
@@ -2861,6 +2870,17 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   /** L'espace « Accès » d'un projet vient de s'ouvrir ou de se refermer : l'écran relit. */
   z.object({ type: z.literal('espace.acces'), projectId: z.string(), ouvert: z.boolean() }),
+  /**
+   * LE RÉSUMÉ « CE QUI A CHANGÉ » D'UNE DEMANDE, À UN ADMINISTRATEUR SEUL (`pour`) : prêt (le brouillon), ou `null`
+   * (envoyé, écarté). Absent de `EVENEMENTS_CLIENT` : un client ne le reçoit jamais.
+   */
+  z.object({
+    type: z.literal('espace.resume'),
+    pour: z.string(),
+    demandeId: z.string(),
+    projectId: z.string(),
+    resume: ResumeClient.nullable(),
+  }),
   /**
    * LES DEUX COMPTEURS DE LA MESSAGERIE, poussés à l'administrateur visé : le
    * non-lu (demandes jamais ouvertes, commentaires, messages) et les demandes à

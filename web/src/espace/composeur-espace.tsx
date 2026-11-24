@@ -8,10 +8,13 @@
  *    REPLIÉES par défaut, ouvrables d'un clic ; le bandeau dit combien il y en
  *    a. Sans ce repli, six captures déposées mangeaient la moitié d'un écran de
  *    téléphone ;
- *  - le TROMBONE se pose DANS le coin haut-droit du champ, qui garde sa place
- *    à droite (`pr-10`) pour ne pas écrire dessous ;
- *  - le bouton d'ENVOI va dans la rangée SOUS le champ — et il en prend
- *    TOUTE LA LARGEUR : un petit bouton poussé à droite se cherchait.
+ *  - le TROMBONE et l'ENVOI se posent DANS le coin bas-droit du champ, comme la
+ *    barre d'écriture des agents (`pastille-champ`) — le champ garde leur place
+ *    en bas (`pb-12`) pour qu'on n'écrive pas dessous. La barre « Envoyer »
+ *    pleine largeur, SOUS le champ, a disparu (cadrage du 24/11/2026, maquette
+ *    #93cf) : elle doublait la hauteur du pied pour un seul geste.
+ *  - l'envoi DIT qu'il part dès le clic (roue qui tourne, bouton éteint) : un
+ *    commentaire qui met une seconde à revenir ne s'envoie plus deux fois.
  *
  * Deux gestes s'y ajoutent, valables partout où ce composeur est posé : COLLER
  * une image au presse-papiers (Ctrl+V) et DÉPOSER un fichier sur la zone. Les
@@ -22,7 +25,7 @@
  * fiche) se détache par son fond, et un liseré coupait l'écran en deux.
  */
 import * as React from 'react';
-import { ChevronDown, Paperclip, Send, X } from '@/components/ui/icones';
+import { ChevronDown, Loader2, Paperclip, Send, X } from '@/components/ui/icones';
 import { Button, Textarea } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -66,6 +69,7 @@ export function ComposeurEspace({
   const [piecesOuvertes, setPiecesOuvertes] = React.useState(false);
   const [survol, setSurvol] = React.useState(false);
   const [mentionOuverte, setMentionOuverte] = React.useState(false);
+  const [envoiEnCours, setEnvoiEnCours] = React.useState(false);
   const champ = React.useRef<HTMLTextAreaElement | null>(null);
 
   const pieces = envois.pieces;
@@ -92,15 +96,16 @@ export function ComposeurEspace({
   };
 
   const envoyer = () => {
-    if (vide || envois.occupe) return;
-    void onEnvoyer();
+    if (vide || envois.occupe || envoiEnCours) return;
+    setEnvoiEnCours(true);
+    void Promise.resolve(onEnvoyer()).finally(() => setEnvoiEnCours(false));
     setPiecesOuvertes(false);
   };
 
   return (
     <div
       className={cn(
-        'flex flex-col gap-1.5 p-2',
+        'flex flex-col gap-1.5 px-3 pb-3 pt-2',
         // LE DÉPÔT D'UN FICHIER SE VOIT AVANT DE LÂCHER : sans ce liseré, on ne
         // sait pas si la zone accepte ce qu'on tient.
         survol && 'bg-raised ring-1 ring-inset ring-accent/50',
@@ -162,7 +167,13 @@ export function ComposeurEspace({
         </div>
       ) : null}
 
-      {/* LE CHAMP, ET LE TROMBONE DANS SON COIN. */}
+      {envois.occupe ? (
+        <span className="text-[11px] text-faint" data-envoi-en-cours>
+          {t('Envoi en cours…')}
+        </span>
+      ) : null}
+
+      {/* LE CHAMP, ET SES DEUX GESTES DANS SON COIN BAS-DROIT. */}
       <div className="relative">
         {mentionsVisibles.length ? (
           <div
@@ -187,7 +198,7 @@ export function ComposeurEspace({
           ref={champ}
           value={valeur}
           rows={2}
-          className="pr-10"
+          className="pb-12"
           placeholder={placeholder}
           data-champ-espace
           onChange={(event) => {
@@ -214,42 +225,29 @@ export function ComposeurEspace({
           }}
         />
 
-        <BoutonTrombone onFichiers={envois.ajouter} />
+        <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5" data-gestes-du-champ-espace>
+          <BoutonTrombone onFichiers={envois.ajouter} />
+          <Button
+            type="button"
+            variant="default"
+            size="pastille-champ"
+            onClick={envoyer}
+            disabled={vide || envois.occupe || envoiEnCours}
+            title={t('Envoyer')}
+            aria-label="Envoyer"
+            data-envoyer={repere}
+            data-envoi-part={envoiEnCours ? '' : undefined}
+          >
+            {envoiEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
       </div>
 
-      {/*
-       * LA RANGÉE SOUS LE CHAMP : L'ENVOI PREND TOUTE LA LARGEUR. Un petit
-       * bouton poussé à droite se cherchait, surtout au pouce ; à pleine
-       * largeur il tombe sous le doigt sans viser. La mention « Envoi en
-       * cours… » passe AU-DESSUS plutôt qu'à côté : elle ne rogne plus la
-       * largeur du bouton et n'en fait pas varier la taille selon l'état.
-       */}
-      {/* LE PIED A LA HAUTEUR COMMUNE (`size="pied"`) ET DE L'AIR : un peu de
-          marge dessus et dessous. LA ZONE SÛRE DU BAS N'EST PAS COMPTÉE ICI :
-          le composeur vit dans le tiroir, qui la réserve déjà
-          (`paddingBottom: var(--zone-sure-bas)`). La compter deux fois laissait
-          un grand vide sous « Envoyer » sur iPhone. */}
-      <div className="flex shrink-0 flex-col gap-1 py-2" data-pied-envoi>
-        {envois.occupe ? (
-          <span className="text-[11px] text-faint" data-envoi-en-cours>
-            {t('Envoi en cours…')}
-          </span>
-        ) : null}
-        <Button
-          size="pied"
-          onClick={envoyer}
-          disabled={vide || envois.occupe}
-          data-envoyer={repere}
-        >
-          <Send className="mr-1.5 h-3.5 w-3.5" />
-          {t('Envoyer')}
-        </Button>
-      </div>
     </div>
   );
 }
 
-/** Le trombone posé DANS le coin du champ, jamais dans une colonne à côté. */
+/** Le trombone posé DANS le coin du champ, à gauche de l'envoi — jamais dans une colonne à côté. */
 function BoutonTrombone({ onFichiers }: { onFichiers: (fichiers: FileList | null) => void }) {
   const champ = React.useRef<HTMLInputElement | null>(null);
   return (
@@ -267,11 +265,11 @@ function BoutonTrombone({ onFichiers }: { onFichiers: (fichiers: FileList | null
       />
       <Button
         type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="absolute right-1.5 top-1.5 z-10"
+        variant="doux"
+        size="pastille-champ"
         onClick={() => champ.current?.click()}
         title={t('Joindre un fichier')}
+        aria-label="Joindre un fichier"
         data-joindre-espace
       >
         <Paperclip className="h-4 w-4" />

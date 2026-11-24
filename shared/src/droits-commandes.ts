@@ -269,6 +269,9 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
  * `espace.tableauDeBord` : l'accueil de la messagerie montre TOUS les clients
  * à la fois — c'est l'écran de Haiko, un client n'a rien à y voir.
  * `comptes.*` : la gestion des accès n'appartient qu'à Haiko.
+ * `espace.demande.resume.*` : le résumé « Ce qui a changé » est PRÉPARÉ pour
+ * Haiko, qui le relit puis l'envoie ; un client ne voit jamais un brouillon,
+ * ni ne peut l'envoyer, le réécrire ou l'écarter.
  * `espace.acces.ecrire` et `espace.acces.reverrouiller` : le contenu de
  * l'espace « Accès » s'écrit par Haiko, et lui seul peut le refermer — un
  * client qui l'a ouvert en a pris la responsabilité, il ne l'efface pas.
@@ -282,6 +285,9 @@ export const COMMANDES_FERMEES_AU_CLIENT: readonly string[] = [
   'espace.tableauDeBord',
   'espace.acces.ecrire',
   'espace.acces.reverrouiller',
+  'espace.demande.resume.modifier',
+  'espace.demande.resume.ecarter',
+  'espace.demande.resume.envoyer',
 ];
 
 /**

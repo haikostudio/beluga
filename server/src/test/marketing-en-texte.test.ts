@@ -19,8 +19,10 @@ test('la consigne fait chercher l’agent et parler en texte, sans éléments in
   assert.match(consigne, /EN TEXTE/);
   assert.doesNotMatch(consigne, /« composant »/);
   assert.doesNotMatch(consigne, /LES ÉLÉMENTS/);
-  // Les blocs à prix restent au clic.
-  assert.match(consigne, /« devis »/);
+  // L'agent lance lui-même, après UNE question à prix (24/11/2026).
+  assert.match(consigne, /« lancer » LANCE une étude/);
+  assert.match(consigne, /AUCUNE DÉPENSE ne part sans la réponse « Lancer »/);
+  assert.doesNotMatch(consigne, /« devis »/);
   assert.match(consigne, /« chapitres »/);
   assert.match(consigne, /« suivi »/);
   // Une recherche bornée.

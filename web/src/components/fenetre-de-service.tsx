@@ -37,6 +37,7 @@ import {
   creerLeRegistreDuMenuDuHaut,
 } from '@/components/entete-de-zone';
 import {
+  CLASSE_LARGEUR_DE_CONTENU,
   CadreDesPagesDeFenetre,
   DansUneFenetreDeService,
   DansUnePageDeService,
@@ -55,6 +56,7 @@ import {
   buttonVariants,
 } from '@/components/ui';
 import { RechercheEnIcone } from '@/components/ui/recherche-en-icone';
+import { SignalTeteEtroite } from '@/components/tete-de-sous-page';
 import { t } from '@/lib/langue';
 import { usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
@@ -760,6 +762,9 @@ function PageDeService({
   const [vuesSansTitre, setVuesSansTitre] = React.useState(0);
   const signalerSansTitre = React.useCallback((present: boolean) => setVuesSansTitre((n) => Math.max(0, n + (present ? 1 : -1))), []);
   const sansTitre = vuesSansTitre > 0;
+  const [vuesEtroites, setVuesEtroites] = React.useState(0);
+  const signalerTeteEtroite = React.useCallback((presente: boolean) => setVuesEtroites((n) => Math.max(0, n + (presente ? 1 : -1))), []);
+  const teteEtroite = sousPage && vuesEtroites > 0;
   /* Les réglages du service, les gestes de la page et le menu « … » : sur la ligne du titre, ou — sans elle — à droite
      de la barre du fil, comme avant la ligne du titre. Un seul exemplaire monté, jamais deux. */
   const outilsDeDroite = (
@@ -832,13 +837,20 @@ function PageDeService({
           montés : le service y écrit. */}
       <div
         ref={tete}
-        className={cn(CLASSE_COLONNE_DE_SERVICE, 'flex shrink-0 items-center gap-3 pt-7 [--gain-de-tete:12px]', sansTitre && 'hidden')}
+        className={cn(
+          /* Resserrée sur la colonne du contenu : `px-8` = la marge du corps de la page (`sm:px-5`) + celle de la fiche
+             (`px-3`) — le titre tombe pile sur le bord du texte. */
+          teteEtroite ? cn('mx-auto w-full px-8', CLASSE_LARGEUR_DE_CONTENU) : CLASSE_COLONNE_DE_SERVICE,
+          'flex shrink-0 items-center gap-3 pt-7 [--gain-de-tete:12px]',
+          sansTitre && 'hidden',
+        )}
         data-tete-de-la-page-de-service
+        data-tete-etroite={teteEtroite ? '' : undefined}
         data-tete-collante
         data-sans-ligne-de-titre={sansTitre ? '' : undefined}
       >
         {/* L'ombre tient dans la colonne, sa marge intérieure exclue (`px-10` de la colonne). */}
-        <OmbreDeTete className="inset-x-10" />
+        <OmbreDeTete className={teteEtroite ? 'inset-x-8' : 'inset-x-10'} />
         <div className="flex min-w-0 shrink flex-col gap-0.5">
           <h1
             className="min-w-0 truncate text-[30px] font-semibold leading-9 tracking-tight text-text"
@@ -849,7 +861,15 @@ function PageDeService({
           </h1>
           <div ref={infos} className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] text-muted empty:hidden" data-infos-de-la-page />
         </div>
-        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2" data-rangee-de-la-page data-rangee-forme="page">
+        {/* DANS UNE SOUS-PAGE, LA RANGÉE GARDE LA LARGEUR DE SES GESTES (24/11/2026, capture #07d8) : `min-w-0 flex-1`
+            la laissait s'écraser à zéro devant un titre long, et ses boutons — qui ne rétrécissent pas — passaient
+            par-dessus le titre. C'est le titre, seul, qui se coupe (`truncate`). Hors sous-page, la recherche de la
+            liste doit pouvoir rétrécir : la rangée garde sa souplesse. */}
+        <div
+          className={cn('ml-auto flex items-center justify-end gap-2', sousPage ? 'shrink-0' : 'min-w-0 flex-1')}
+          data-rangee-de-la-page
+          data-rangee-forme="page"
+        >
           <div className={cn('flex min-w-0 items-center justify-end gap-3', sousPage && 'hidden')}>
             <div ref={rubriques} className="flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
             <div className="flex min-w-0 shrink items-center gap-2">
@@ -866,6 +886,7 @@ function PageDeService({
         </div>
       </div>
       <SignalSansLigneDeTitre.Provider value={signalerSansTitre}>
+      <SignalTeteEtroite.Provider value={signalerTeteEtroite}>
       <DansUneFenetreDeService.Provider value>
         <DansUnePageDeService.Provider value>
           <CadreDesPagesDeFenetre.Provider value={cadreDesPages}>
@@ -895,6 +916,7 @@ function PageDeService({
           </CadreDesPagesDeFenetre.Provider>
         </DansUnePageDeService.Provider>
       </DansUneFenetreDeService.Provider>
+      </SignalTeteEtroite.Provider>
       </SignalSansLigneDeTitre.Provider>
       </div>
       </ZoneDefilement>

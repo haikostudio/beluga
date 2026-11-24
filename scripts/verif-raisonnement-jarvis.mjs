@@ -16,6 +16,9 @@
  *   dossier en premier 0 %, mémoire consultée 1 % (1/91), AUCUNE vérification 54 % (49/91), 1,0 appel par demande,
  *   8,0 s médianes jusqu'à la réponse finale. APRÈS : à rejouer une fois la carte publiée (`--depuis <jour>`), cible
  *   dossier en premier ≥ 90 %, aucune réponse sans vérification.
+ *
+ * JARVIS CONCIERGE (24/11/2026) : la ligne « demandes de conseil sur les projets » compte celles qui ont appelé le tour
+ * d'horizon (`assistant_portefeuille`). AVANT (24/11, DISC-0065) : aucune. Cible après publication : toutes.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -117,6 +120,13 @@ console.log(`- mémoire consultée avant la réponse (dossier ou memoire) : ${av
 console.log(`- aucune vérification (zéro outil) : ${sansOutil} (${pct(sansOutil)})`);
 console.log(`- appels d'outils par demande, en moyenne : ${appelsMoyens}`);
 console.log(`- temps médian jusqu'à la réponse finale : ${mediane} s`);
+/* JARVIS CONCIERGE (carte « Jarvis : micro coupé, vrai concierge », 24/11/2026) : une demande de CONSEIL sur les projets
+   (DISC-0065 : « comment générer du revenu avec mes projets », « quel projet lancer en premier ») doit passer par le
+   tour d'horizon de Beluga (`assistant_portefeuille`), jamais par un tableau théorique. Mesuré à part. */
+const CONSEIL = /rentab|revenu|gagner de l.argent|générer|priorit|stratég|conseil|quel projet|lequel de mes projets|pousser en premier|lancer en premier|marketing|communication/i;
+const conseils = demandes.filter((d) => CONSEIL.test(d.phrase));
+const conseilsAvecBeluga = conseils.filter((d) => d.outils.includes('assistant_portefeuille')).length;
+console.log(`- demandes de conseil sur les projets : ${conseils.length}, dont ${conseilsAvecBeluga} avec le tour d'horizon de Beluga${conseils.length ? ` (${Math.round((conseilsAvecBeluga / conseils.length) * 100)} %)` : ''}`);
 if (detail) {
   for (const d of demandes) {
     console.log(`\n· ${new Date(d.debut).toISOString().slice(0, 16)} — « ${d.phrase.slice(0, 120)} »`);

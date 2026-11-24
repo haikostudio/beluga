@@ -171,6 +171,7 @@ import {
 import { OUTIL_SERVICES, outilServices } from './services-des-agents.js';
 import { OUTIL_COMMUNICATION, estAgentDirecteur as estAgentDirecteurMarketing } from './directeur-marketing.js';
 import * as store from './store.js';
+import { completerDepuisLeJournal, preparerPourLaCarte } from './resume-client.js';
 
 /** L'image d'une option d'« ask_user » : l'identifiant d'une pièce jointe IMAGE connue, sinon rien. */
 function imageDOption(valeur: unknown): string | undefined {
@@ -1478,6 +1479,11 @@ export const TOOL_DEFS: ToolDef[] = [
         titre: { type: 'string', description: 'Pour « proposer » : le titre, court et précis ; pour « changelog » : ce qui a changé, en mots courants' },
         explication: { type: 'string', description: 'Pour « changelog » : deux à quatre phrases, ce qui a changé puis à quoi ça sert' },
         poids: { type: 'string', enum: [...POIDS_CHANGELOG], description: 'Pour « changelog » : l’ampleur réelle du changement' },
+        resumeClient: {
+          type: 'string',
+          description:
+            'Pour « changelog », seulement quand ta carte répond à une demande client (la demande du tour le dit) : 2 à 4 phrases pour ce client, vouvoyé, dans la langue de sa demande — ce qui a changé et comment le vérifier ; aucun nom technique. Préparé pour Haiko, qui l’envoie lui-même',
+        },
         resume: { type: 'string', description: 'Pour « proposer » : le fait en une ou deux phrases complètes' },
         detail: { type: 'string', description: 'Pour « proposer » : le détail en Markdown (sections « ### » du gabarit de son type)' },
         raisonnement: { type: 'string', description: 'Pour « proposer » : pourquoi (obligatoire pour une décision)' },
@@ -4186,7 +4192,24 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           source: 'agent',
         });
         if (!ajout.ok) return { ok: false, text: `Entrée de changelog refusée : ${ajout.raison}` };
-        return { ok: true, text: ajout.ajoutee ? 'Entrée ajoutée au changelog du projet.' : 'L’entrée de cette carte est tenue à jour : rien de doublé.' };
+        /*
+         * LE RÉSUMÉ POUR LE CLIENT d'une carte liée à une demande de son espace : préparé pour Haiko, jamais envoyé
+         * d'ici (`resume-client.ts`). Sans lui, l'explication sert de brouillon à un résumé resté vide.
+         */
+        let pourLeClient = '';
+        const resumeClient = texte(args.resumeClient);
+        if (ctx.cardId && resumeClient) {
+          const n = preparerPourLaCarte(ctx.cardId, resumeClient);
+          pourLeClient = n
+            ? ` Résumé pour le client préparé sur ${n} demande${n > 1 ? 's' : ''} : Haiko le relira et l’enverra lui-même.`
+            : ' « resumeClient » ignoré : cette carte ne répond à aucune demande client.';
+        } else if (ctx.cardId && texte(args.explication)) {
+          completerDepuisLeJournal(ctx.cardId, texte(args.explication) ?? '');
+        }
+        return {
+          ok: true,
+          text: `${ajout.ajoutee ? 'Entrée ajoutée au changelog du projet.' : 'L’entrée de cette carte est tenue à jour : rien de doublé.'}${pourLeClient}`,
+        };
       }
 
       if (geste === 'brouillon') {

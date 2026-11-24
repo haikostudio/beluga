@@ -297,6 +297,18 @@ const OUTILS_PROPRES: ToolDef[] = [
     },
   },
   {
+    name: 'assistant_portefeuille',
+    description:
+      "LE TOUR D'HORIZON DES PROJETS, en UN appel, sans quota (carte « Jarvis concierge », 24/11/2026) : pour chaque projet, regroupé par MARQUE de Communication (ProjetA app et ProjetA vitrine = une marque), ce que Beluga en sait — nature et adresse, promesse et cible (fiche de l'outil marketing), tâches (en cours, à faire, à déployer, finies en 30 j), dossier marketing (remplissage, rubriques vides, étude rendue ou non), visites et ventes des 30 derniers jours avec leur tendance, dernier audit SEO + GEO, réseaux reliés et publications, créations du Studio, campagnes de la marque — puis une ligne « MANQUE » : chaque donnée absente et l'outil de Beluga qui la comble. À appeler AVANT de répondre à toute question de conseil, d'avis, de priorité, de stratégie, de rentabilité, de marketing ou de communication sur les projets. « projets » (noms) ou « groupe » restreignent ; « projet » vise un seul projet. Le détail s'ouvre ensuite avec « marketing » (lire), « statistiques », « services » (referencement lire, studio lister, reseaux lister).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projets: { type: 'array', items: { type: 'string' }, description: 'Les noms des projets à relever (tous par défaut).' },
+        groupe: { type: 'string', description: 'Le nom d’un groupe de projets de la colonne de gauche.' },
+      },
+    },
+  },
+  {
     name: 'assistant_messagerie',
     description:
       "La MESSAGERIE de l'espace client (demandes des clients et fils de discussion). Actions : en_attente (ce qui attend une réponse de l'administration, tous projets), lister (« projet » facultatif ; les demandes et leur colonne), lire (id d'une demande : fiche et commentaires), fil_lire (filId), repondre (id, texte : commentaire sur une demande), fil_envoyer (filId, texte), creer (projet, titre, description?, importance basse|normale|haute|urgente), modifier (id, titre?, description?, importance?), deplacer (id, colonne a-faire|en-cours|termine|valide), archiver (id). Tout ce qui s'écrit ici prévient le client.",
@@ -454,6 +466,10 @@ export async function executerPourLAssistant(
     switch (nom) {
       case 'assistant_resume':
         return await resume(projetVise, args);
+      case 'assistant_portefeuille': {
+        const { portefeuilleDesProjets } = await import('./portefeuille-des-projets.js');
+        return await portefeuilleDesProjets(args, projetVise);
+      }
       case 'voix_dossier': {
         const { dossierPourLeCerveau } = await import('./voix-directe.js');
         return await dossierPourLeCerveau(ctx.agentId, typeof args.demande === 'string' ? args.demande : undefined);

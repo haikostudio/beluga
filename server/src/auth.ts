@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { decisionDuMur, MUR_FENETRE_MS, type CompteUtilisateur, type RoleCompte } from '@beluga/shared';
+import { decisionDeConnexion, MUR_FENETRE_MS, type CompteUtilisateur, type RoleCompte } from '@beluga/shared';
 import {
   compteParId,
   compteParIdentifiant,
@@ -18,7 +18,8 @@ import { log } from './logger.js';
  * Le mur d'accès (PLAN §32) : identifiant peu devinable, mot de passe long tiré
  * au hasard, conservé sous forme illisible (scrypt), tentatives limitées,
  * session qui expire. Le nombre d'essais et le délai entre essais vivent dans
- * la règle pure `decisionDuMur` (shared/src/mur-acces.ts).
+ * la règle pure `decisionDeConnexion` (shared/src/mur-acces.ts) : trois ratés
+ * libres, puis cinq minutes d'attente.
  */
 
 function hashPassword(password: string, salt: Buffer): string {
@@ -104,9 +105,30 @@ export interface LoginResult {
   userId?: string;
 }
 
+/**
+ * LA RAISON D'UN REFUS, AU JOURNAL SEULEMENT. L'écran dit toujours la même
+ * phrase (« Identifiant ou mot de passe incorrect ») pour ne pas confirmer
+ * qu'un compte existe ; le journal, lui, dit laquelle des portes a refusé —
+ * sans quoi un « mon mot de passe est bon et ça refuse » ne se diagnostique
+ * pas. JAMAIS le mot de passe saisi, ni sa longueur.
+ */
+function noterLeRefus(raison: string, username: string, ip: string): void {
+  const identifiant = username.trim().toLowerCase().slice(0, 80);
+  log.warn(`connexion refusée (${raison}) pour « ${identifiant} » depuis ${ip}`);
+}
+
+/** Le mot de passe donné correspond-il à l'empreinte ? Comparaison en temps constant. */
+function memeMotDePasse(password: string, secret: { salt: string; hash: string }): boolean {
+  const candidate = hashPassword(password, Buffer.from(secret.salt, 'hex'));
+  return (
+    candidate.length === secret.hash.length && crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(secret.hash))
+  );
+}
+
 export function login(username: string, password: string, ip: string): LoginResult {
-  const decision = decisionDuMur(essaisRates(ip), Date.now());
+  const decision = decisionDeConnexion(essaisRates(ip), Date.now());
   if (!decision.autorise) {
+    noterLeRefus('mur : trop d’essais rapprochés', username, ip);
     return { ok: false, error: decision.message };
   }
 
@@ -120,25 +142,33 @@ export function login(username: string, password: string, ip: string): LoginResu
 
   if (!compte && !secret) {
     noteAttempt(ip, false);
+    noterLeRefus('identifiant inconnu', username, ip);
     return { ok: false, error: 'Identifiant ou mot de passe incorrect.' };
   }
   if (compte && !compte.actif) {
     noteAttempt(ip, false);
+    noterLeRefus('compte suspendu', username, ip);
     // On ne dit pas « ce compte est suspendu » : cela confirmerait qu'il existe.
     return { ok: false, error: 'Identifiant ou mot de passe incorrect.' };
   }
   if (!secret) {
     noteAttempt(ip, false);
+    noterLeRefus('compte sans mot de passe', username, ip);
     return { ok: false, error: 'Identifiant ou mot de passe incorrect.' };
   }
 
-  const candidate = hashPassword(password, Buffer.from(secret.salt, 'hex'));
-  const okPass =
-    candidate.length === secret.hash.length &&
-    crypto.timingSafeEqual(Buffer.from(candidate), Buffer.from(secret.hash));
+  /*
+   * UN MOT DE PASSE COLLÉ AVEC SES ESPACES DE BORD. Copier depuis un courriel
+   * ou un message emporte souvent une espace ou un retour à la ligne : le mot
+   * tel quel d'abord, puis débarrassé de ses bords — un SEUL essai compté.
+   * Les mots de passe tirés par Beluga n'ont jamais d'espace.
+   */
+  const rogne = password.trim();
+  const okPass = memeMotDePasse(password, secret) || (rogne !== password && memeMotDePasse(rogne, secret));
 
   if (!okPass) {
     noteAttempt(ip, false);
+    noterLeRefus('mot de passe faux', username, ip);
     return { ok: false, error: 'Identifiant ou mot de passe incorrect.' };
   }
   noteAttempt(ip, true);

@@ -6,20 +6,27 @@
  * retouche. Ils vivent ici, et les écrans de l'espace les prennent d'ici.
  */
 import type { ImportanceDemande } from '@beluga/shared';
+import { formatRegional } from '@/lib/langue';
+
+/*
+ * LES DATES SUIVENT LA LANGUE DE L'INTERFACE, PAS CELLE DU NAVIGATEUR (cadrage du 24/11/2026, capture #07d8 : une
+ * page française écrivait « September 18, 2026 » et « Sep 19 »). `formatRegional()` rend le format de la langue
+ * choisie — `fr-CH` en français, comme le reste de l'application.
+ */
 
 /** L'heure d'un message, courte — « 14:03 », jamais « il y a … ». */
 export function heureCourte(at: number): string {
-  return new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return new Date(at).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Une date entière : « 12 septembre 2026 ». */
 export function jourDe(at: number): string {
-  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(at).toLocaleDateString(formatRegional(), { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 /** Une date courte pour une vignette : « 12 sept. », pas l'année entière. */
 export function jourCourt(at: number): string {
-  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return new Date(at).toLocaleDateString(formatRegional(), { day: 'numeric', month: 'short' });
 }
 
 /** Le ton d'une colonne, en jetons du thème — jamais une couleur écrite en dur. */

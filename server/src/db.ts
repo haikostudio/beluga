@@ -5706,6 +5706,30 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_agents_perso_journal_projet ON agents_perso_journal(project_id, date DESC);
     `,
   },
+  {
+    id: 190,
+    name: 'resumes-pour-le-client',
+    /*
+     * LE RÉSUMÉ « CE QUI A CHANGÉ » D'UNE DEMANDE (carte « Fiche tâche et accès client », 24/11/2026,
+     * `server/src/resume-client.ts`) : préparé à la fin du travail de la carte liée, MODIFIABLE, puis envoyé par
+     * Haiko d'un clic — il devient alors un commentaire de la demande (`message_id`). Une table À PART, jamais le
+     * bloc JSON de la demande : `espace.demande` part aux clients, et un brouillon n'y doit jamais voyager. Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS demande_resumes (
+        id TEXT PRIMARY KEY,
+        demande_id TEXT NOT NULL,
+        carte_id TEXT,
+        texte TEXT NOT NULL,
+        etat TEXT NOT NULL,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL,
+        envoye_le INTEGER,
+        message_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_demande_resumes_demande ON demande_resumes(demande_id, etat);
+    `,
+  },
 ];
 
 export function openDb(): DB {

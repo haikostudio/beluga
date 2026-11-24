@@ -149,3 +149,12 @@ test('sur ordinateur, le volet de l’assistant est toujours en bas à droite, �
   assert.equal(tel.largeur, 390 - 16);
   assert.ok((tel.haut ?? 0) >= 44);
 });
+
+test('Jarvis concierge : la posture vient EN TÊTE, et le tour d’horizon est un outil de lecture (24/11/2026)', () => {
+  const paragraphes = CONSIGNE_ASSISTANT_GLOBAL.split('\n\n');
+  assert.match(paragraphes[1]!, /^TU RÉFLÉCHIS AVEC BELUGA : TU EN ES LE CONCIERGE/, 'juste après l’identité, avant les modes d’emploi d’outils');
+  assert.match(CONSIGNE_ASSISTANT_GLOBAL, /jamais un tableau théorique/);
+  assert.match(CONSIGNE_ASSISTANT_GLOBAL, /aucun ne se lance avant son « oui »/);
+  assert.ok((OUTILS_DE_L_ASSISTANT as readonly string[]).includes('assistant_portefeuille'));
+  assert.equal(genreDeLAppel('assistant_portefeuille', {}), 'lecture');
+});

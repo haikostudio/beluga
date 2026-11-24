@@ -146,7 +146,9 @@ export function ColonneDemandes({
       data-colonne-visee={visee ? '' : undefined}
     >
       <div
-        className={cn('mx-2.5 mb-1.5 mt-1 flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1 pl-2.5 pr-1', TETE_DE_COLONNE[colonne].fond)}
+        /* LA TÊTE TOUCHE LES BORDS DE SA COLONNE (cadrage du 24/11/2026 : « titres et colonnes alignés ») : le bord gauche
+           de la première tête tombe sur celui du titre de la page, le bord droit de la dernière sur ses gestes. */
+        className={cn('mb-1.5 mt-1 flex min-w-0 shrink-0 items-center gap-2 rounded-lg py-1 pl-2.5 pr-1', TETE_DE_COLONNE[colonne].fond)}
         data-tete-colonne={colonne}
       >
         {React.createElement(TETE_DE_COLONNE[colonne].icone, {
@@ -327,7 +329,7 @@ export function ColonneDemandes({
 
       {/* LA RECHERCHE DE LA COLONNE, pleine largeur, sous sa tête. */}
       {champVisible ? (
-        <div className="shrink-0 px-2.5">
+        <div className="shrink-0">
           <ChampDeRecherche
             valeur={recherche}
             onChange={onRecherche}
@@ -352,7 +354,9 @@ export function ColonneDemandes({
        * sous le champ : la pastille des non-lus, à cheval sur le coin haut droit
        * de la première vignette, y trouve sa place au lieu d'être rognée.
        */}
-      <ZoneDefilement className="flex min-h-0 flex-1 flex-col gap-2 px-2.5 pb-2.5 pt-2">
+      {/* LES VIGNETTES SUR LES BORDS DE LA TÊTE : la zone déborde de 4 px de chaque côté et les rend en marge intérieure,
+          pour que la pastille des non-lus, à cheval sur le coin d'une vignette, ne soit pas rognée. */}
+      <ZoneDefilement classeEnveloppe="-mx-1" className="flex min-h-0 flex-1 flex-col gap-2 px-1 pb-2.5 pt-2">
         {cartes.map((demande) => (
           <VignetteDemande
             key={demande.id}

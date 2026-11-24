@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { demandeDeRedactionChangelog, lireRedactionsDuModele, type Card } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { ajouterAuChangelog, entreeDeCarteRedigee } from './connaissances.js';
+import { completerDepuisLeJournal } from './resume-client.js';
 import { log } from './logger.js';
 
 /**
@@ -88,6 +89,8 @@ export function redigerLEntreeDeLaCarte(card: Card, nomDuProjet: string): boolea
       const r = lireRedactionsDuModele(reponse.result)[0];
       if (!r) throw new Error('aucune entrée relue');
       const ajout = ajouterAuChangelog({ projectId: card.projectId, texte: card.title, titre: r.titre, explication: r.explication, poids: r.poids, cardId: card.id, source: 'carte' });
+      // Un résumé client resté vide reçoit cette explication (jamais un texte déjà écrit).
+      if (ajout.ok && r.explication) completerDepuisLeJournal(card.id, r.explication);
       if (!ajout.ok) throw new Error(ajout.raison);
     } catch (err) {
       log.warn(`changelog de « ${card.title} » : rédaction de repli non retenue — ${(err as Error).message}`);

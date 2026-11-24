@@ -61,11 +61,13 @@ export function BlocDeFiche({
           aria-hidden
         />
         {icone}
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-faint">
+        {/* EN CASSE NORMALE (cadrage du 24/11/2026, maquette #93cf) : les petites capitales grises « TODO » et
+            « OPTIONS » se lisaient comme des étiquettes techniques, pas comme les parties d'une fiche. */}
+        <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
           {titre}
         </span>
         {indice ? (
-          <span className="shrink-0 text-[11px] text-faint" {...indiceAttribut}>
+          <span className="shrink-0 text-[12px] text-faint" {...indiceAttribut}>
             {indice}
           </span>
         ) : null}

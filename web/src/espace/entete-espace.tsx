@@ -44,6 +44,7 @@ export function EnteteEspace({
   menu,
   apres,
   cloche,
+  site,
   nonLusParProjet,
   onRacine,
 }: {
@@ -54,6 +55,11 @@ export function EnteteEspace({
   onRacine?: () => void;
   /** La cloche du client : posée parmi les boutons de droite, AVANT le nom et la déconnexion. */
   cloche?: React.ReactNode;
+  /**
+   * « VOIR MON SITE » : les deux versions du projet, posées AVANT la cloche, dans la porte client comme dans la vue
+   * Haiko — aucun second rang (MEM-0779).
+   */
+  site?: React.ReactNode;
   /** Combien de demandes ont du nouveau, projet par projet — le sélecteur les montre. */
   nonLusParProjet?: Record<string, number>;
   /** Ce qui se pose à GAUCHE, sur la même ligne — le sélecteur de client. */
@@ -112,6 +118,7 @@ export function EnteteEspace({
           </span>
         </SuiteDuFil>
         <GestesDePage>
+          {site}
           {cloche}
           {apres}
           {menu}
@@ -179,6 +186,8 @@ export function EnteteEspace({
           {projets[0]?.nom ?? t('Mes demandes')}
         </span>
       )}
+
+      {site}
 
       {cloche}
 

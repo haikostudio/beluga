@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   attenteDuMotPermise,
-  attenteRouverteSansGeste,
   creerPorteDeNiveau,
   ecouteVoulueHorsEcran,
+  etatDuMicroApres,
+  MICRO_AU_REPOS,
   niveauRms,
 } from '@beluga/shared';
 
@@ -16,10 +17,30 @@ test('le micro d’attente ne vit pas hors de l’écran ; une conversation va j
   assert.equal(ecouteVoulueHorsEcran({ conversation: true }), true);
 });
 
-test('seule l’application iPhone rouvre l’attente sans geste, et jamais si on l’a coupée', () => {
-  assert.equal(attenteRouverteSansGeste({ appNative: true, coupeParLUtilisateur: false }), true);
-  assert.equal(attenteRouverteSansGeste({ appNative: true, coupeParLUtilisateur: true }), false);
-  assert.equal(attenteRouverteSansGeste({ appNative: false, coupeParLUtilisateur: false }), false);
+test('une conversation ouverte micro coupé le referme à sa fin : la musique reprend', () => {
+  const pendant = etatDuMicroApres(MICRO_AU_REPOS, { genre: 'conversation', allumee: true });
+  assert.deepEqual(pendant, { microOuvert: true, conversationAllumee: true, microParLaConversation: true });
+  assert.deepEqual(etatDuMicroApres(pendant, { genre: 'conversation', allumee: false }), MICRO_AU_REPOS, 'micro rendu, session audio libérée');
+});
+
+test('une conversation ouverte « Dis Jarvis » allumé à la main laisse l’attente reprendre', () => {
+  const attente = etatDuMicroApres(MICRO_AU_REPOS, { genre: 'micro', ouvert: true });
+  const pendant = etatDuMicroApres(attente, { genre: 'conversation', allumee: true });
+  assert.equal(pendant.microParLaConversation, false);
+  assert.deepEqual(etatDuMicroApres(pendant, { genre: 'conversation', allumee: false }), {
+    microOuvert: true,
+    conversationAllumee: false,
+    microParLaConversation: false,
+  });
+});
+
+test('allumer le micro à la main pendant une conversation le garde après elle ; le couper coupe tout', () => {
+  const pendant = etatDuMicroApres(MICRO_AU_REPOS, { genre: 'conversation', allumee: true });
+  const voulu = etatDuMicroApres(pendant, { genre: 'micro', ouvert: true });
+  assert.equal(etatDuMicroApres(voulu, { genre: 'conversation', allumee: false }).microOuvert, true);
+  assert.deepEqual(etatDuMicroApres(pendant, { genre: 'micro', ouvert: false }), MICRO_AU_REPOS);
+  // Une seconde ouverture pendant la conversation ne change rien (le bouton du bord touché deux fois).
+  assert.equal(etatDuMicroApres(pendant, { genre: 'conversation', allumee: true }), pendant);
 });
 
 test('la porte laisse passer la voix proche et écarte la voix lointaine', () => {

@@ -1,7 +1,14 @@
 /**
- * Le mur d'accès limite les essais de connexion ratés d'une même adresse.
+ * Le mur d'accès limite les essais ratés d'une même adresse.
  *
- * Deux règles se cumulent :
+ * LA CONNEXION (`decisionDeConnexion`) laisse MUR_ESSAIS_LIBRES essais ratés
+ * sans aucune attente — une faute de frappe ne coûte pas cinq minutes — puis
+ * impose MUR_DELAI_MS après le dernier raté. Décision de l'utilisateur du
+ * 24/11/2026 : le mur bloquait dès le premier raté, un client qui se trompait
+ * une fois se croyait refusé.
+ *
+ * LE CODE D'INSTALLATION (`decisionDuMur`) reste plus strict, deux règles s'y
+ * cumulent :
  *  - au bout de MUR_ESSAIS_MAX essais ratés (dans la fenêtre de comptage),
  *    l'adresse est bloquée ;
  *  - entre deux essais ratés, il faut attendre MUR_DELAI_MS ; un essai relancé
@@ -14,6 +21,9 @@
 
 /** Nombre d'essais ratés autorisés avant blocage de l'adresse. */
 export const MUR_ESSAIS_MAX = 3;
+
+/** Essais de CONNEXION ratés laissés sans attente, dans la fenêtre de comptage. */
+export const MUR_ESSAIS_LIBRES = 3;
 
 /** Délai imposé entre deux essais ratés d'une même adresse. */
 export const MUR_DELAI_MS = 5 * 60 * 1000;
@@ -78,4 +88,24 @@ export function decisionDuMur(essaisRatesMs: number[], maintenant: number): Deci
   }
 
   return { autorise: true };
+}
+
+/**
+ * LE MUR DE LA CONNEXION : les MUR_ESSAIS_LIBRES premiers ratés de la fenêtre
+ * passent sans attendre ; dès qu'ils sont atteints, il faut laisser passer
+ * MUR_DELAI_MS depuis le DERNIER raté. Un nouveau raté après l'attente en
+ * relance une autre : la cadence reste bornée sans fermer la porte pour de bon.
+ */
+export function decisionDeConnexion(essaisRatesMs: number[], maintenant: number): DecisionMur {
+  const recents = essaisRatesMs.filter((t) => t > maintenant - MUR_FENETRE_MS && t <= maintenant);
+  if (recents.length < MUR_ESSAIS_LIBRES) return { autorise: true };
+  const ecoule = maintenant - Math.max(...recents);
+  if (ecoule >= MUR_DELAI_MS) return { autorise: true };
+  const attenteMs = MUR_DELAI_MS - ecoule;
+  return {
+    autorise: false,
+    raison: 'attente',
+    message: `Trop d'essais rapprochés. Attendez encore ${tempsRestantEnClair(attenteMs)} avant de réessayer.`,
+    attenteMs,
+  };
 }

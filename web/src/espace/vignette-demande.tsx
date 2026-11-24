@@ -27,7 +27,7 @@
  * fait en glissant la vignette.
  */
 import * as React from 'react';
-import { ArrowRightLeft, CheckSquare, Inbox, MessageSquare, Paperclip } from '@/components/ui/icones';
+import { ArrowRightLeft, CheckSquare, Inbox, MessageSquare, Paperclip, Send } from '@/components/ui/icones';
 import { ActionTiroir, Badge, CLASSE_TROIS_POINTS_AU_SURVOL, DropdownMenuSeparator, MenuActions, Pastille, ouvrirLeMenuAuClicDroit } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -51,6 +51,8 @@ export interface GestesDeVignette {
   onArchiver: (id: string, archivee: boolean) => void;
   /** Réservé à Haiko : en faire une carte Beluga, ou l'ouvrir. */
   onCarte?: (id: string) => void;
+  /** Réservé à Haiko : les demandes dont le résumé « Ce qui a changé » attend son envoi. */
+  resumesAEnvoyer?: ReadonlySet<string>;
 }
 
 export function VignetteDemande({
@@ -83,6 +85,8 @@ export function VignetteDemande({
    */
   const nouvelle = Boolean(demande.resume.jamaisOuverte);
   const aTraiter = Boolean(gestes.onCarte) && demandeATraiter(demande);
+  /* « Résumé à envoyer » : Haiko a un résumé prêt pour le client, qui attend son clic. Vu par Haiko seul. */
+  const resumeAEnvoyer = Boolean(gestes.resumesAEnvoyer?.has(demande.id));
 
   /*
    * LES COMPTEURS, SUR LA LIGNE DU « ⋮ ». Ils tombaient une ligne plus bas que
@@ -191,7 +195,7 @@ export function VignetteDemande({
             ) : null}
           </div>
 
-          {nouvelle || aTraiter ? (
+          {nouvelle || aTraiter || resumeAEnvoyer ? (
             <div className="mt-1.5 flex flex-wrap gap-1" data-reperes-vignette>
               {nouvelle ? (
                 <span
@@ -209,6 +213,17 @@ export function VignetteDemande({
                 >
                   <Inbox className="h-2.5 w-2.5" aria-hidden />
                   {t('À traiter')}
+                </span>
+              ) : null}
+              {resumeAEnvoyer ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-text/[0.08] px-1.5 text-[10.5px] font-medium leading-4 text-muted"
+                  data-resume-a-envoyer
+                  title={t('Un résumé de ce qui a changé attend votre envoi')}
+                >
+                  {/* L'icône de l'envoi : celle de l'ancien badge « Du nouveau » reste bannie de la vignette. */}
+                  <Send className="h-2.5 w-2.5" aria-hidden />
+                  {t('Résumé à envoyer')}
                 </span>
               ) : null}
             </div>
@@ -320,7 +335,7 @@ export function VignetteDemande({
           )}
           data-onglet-taches={`${jauge.faites}/${jauge.total}`}
           data-jauge-taches={`${jauge.faites}/${jauge.total}`}
-          title={t('Todo')}
+          title={t('Cases à cocher')}
         >
           <CheckSquare className="h-3 w-3 shrink-0" />
           <span>

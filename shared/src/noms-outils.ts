@@ -85,6 +85,7 @@ const LIBELLES: Record<string, string> = {
 
   /* Les outils propres à l'assistant Beluga */
   assistant_resume: 'Résumé de Beluga',
+  assistant_portefeuille: 'Tour d’horizon des projets',
   assistant_messagerie: 'Messagerie de l’espace client',
   assistant_surveillances: 'Surveillance des sites',
   assistant_backups: 'Backups des sites',

@@ -50,7 +50,7 @@ export function fermetureExigee(moment: MomentDeFermeture): boolean {
  * survivait au passage en arrière-plan, et le mode audio de l'application la gardait vivante. Désormais :
  *   — l'attente du mot n'existe QUE page visible ;
  *   — seule une CONVERSATION en cours continue écran verrouillé, jusqu'à sa fin ;
- *   — à sa fin, page cachée, tout se coupe ; l'attente ne reprend qu'au retour à l'écran.
+ *   — à sa fin, page cachée, tout se coupe ; l'attente ne reprend qu'au prochain geste (24/11/2026, plus bas).
  */
 export interface MomentDuMicro {
   /** La page est-elle à l'écran ? */
@@ -69,11 +69,44 @@ export function ecouteVoulueHorsEcran(moment: Pick<MomentDuMicro, 'conversation'
   return moment.conversation;
 }
 
-/**
- * Le micro d'attente se rouvre-t-il SANS geste au retour à l'écran ? Dans l'application iPhone seulement (décision
- * de l'utilisateur : « Dis Jarvis » attendu dès que l'application est à l'écran), et jamais si l'utilisateur l'a
- * coupé lui-même. Dans le navigateur et l'application installée depuis Safari, il faut toujours un geste.
+/*
+ * LE MICRO NE S'OUVRE PLUS JAMAIS SANS GESTE, APPLICATION IPHONE COMPRISE (décision de l'utilisateur, 24/11/2026) :
+ * l'attente rouverte d'office au retour à l'écran (16/11/2026) posait la session audio « appel » de l'iPhone, qui
+ * COUPAIT LA MUSIQUE à chaque retour dans Beluga. Désormais le micro repart coupé partout ; « Dis Jarvis » s'allume à
+ * la main (Réglages › Voix) et se referme en quittant l'écran.
+ *
+ * ET UNE CONVERSATION REND LE MICRO TEL QU'ELLE L'A TROUVÉ : ouverte micro coupé (bouton du bord, toucher au dos, voix
+ * d'une carte…), elle l'ouvre et le REFERME à sa fin — la dernière prise fermée rend la session audio de l'iPhone, et
+ * la musique mise en pause reprend. Ouverte alors que « Dis Jarvis » était allumé à la main, elle le laisse ouvert :
+ * l'attente du mot reprend.
  */
-export function attenteRouverteSansGeste(p: { appNative: boolean; coupeParLUtilisateur: boolean }): boolean {
-  return p.appNative && !p.coupeParLUtilisateur;
+export interface EtatDuMicro {
+  /** Le micro est ouvert (attente du mot, ou conversation). */
+  microOuvert: boolean;
+  /** Une conversation en direct est ouverte. */
+  conversationAllumee: boolean;
+  /** Le micro a été ouvert PAR la conversation (il était coupé avant elle) : il se referme avec elle. */
+  microParLaConversation: boolean;
+}
+
+export type GesteDuMicro =
+  /** L'interrupteur « Micro ouvert » des réglages (ou un arrêt qui coupe le micro). */
+  | { genre: 'micro'; ouvert: boolean }
+  /** La conversation s'ouvre ou se ferme (veille, silence, coupure, Arrêter). */
+  | { genre: 'conversation'; allumee: boolean };
+
+export const MICRO_AU_REPOS: EtatDuMicro = { microOuvert: false, conversationAllumee: false, microParLaConversation: false };
+
+/** L'état du micro après un geste. Couper le micro coupe la conversation ; l'ouvrir à la main le rend « voulu ». */
+export function etatDuMicroApres(etat: EtatDuMicro, geste: GesteDuMicro): EtatDuMicro {
+  if (geste.genre === 'micro') {
+    if (!geste.ouvert) return MICRO_AU_REPOS;
+    return { microOuvert: true, conversationAllumee: etat.conversationAllumee, microParLaConversation: false };
+  }
+  if (geste.allumee) {
+    if (etat.conversationAllumee) return etat;
+    return { microOuvert: true, conversationAllumee: true, microParLaConversation: !etat.microOuvert };
+  }
+  if (!etat.conversationAllumee) return etat;
+  return etat.microParLaConversation ? MICRO_AU_REPOS : { ...etat, conversationAllumee: false };
 }

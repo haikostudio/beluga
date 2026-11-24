@@ -50,6 +50,7 @@ import {
   type ModeDeCourriel,
 } from '@beluga/shared';
 import { listerAcces } from './coffre-fort.js';
+import { log } from './logger.js';
 
 /** Ce que la porte lit d'une fiche du coffre-fort — rien de plus. */
 export type FicheDeSecret = Pick<AccesCoffre, 'nom' | 'type' | 'champs'> & { projectId?: string | null };
@@ -80,12 +81,19 @@ const SANS_AGENT = 'Ce serveur n’a pas d’agent d’envoi';
 
 /**
  * LA CLÉ RESEND. On la reconnaît à son SERVICE, pas à son nom : un nom de fiche
- * se retouche, un service non. La fiche d'un autre projet peut porter le même
- * service — on écarte donc celle qui nomme ce projet (« projetc »).
+ * se retouche, un service non.
+ *
+ * SEULES LES FICHES PARTAGÉES (sans projet) COMPTENT. La clé d'envoi du site
+ * d'un client (Fishflow, Toogo…) est restreinte à SON domaine : retenue ici,
+ * elle faisait refuser chaque courriel de Beluga (403 « not authorized to send
+ * emails from <domaine de Beluga> ») dès que sa fiche se rangeait avant la nôtre. Mieux
+ * vaut « la clé manque » qu'un envoi avec la clé d'un client. Parmi les fiches
+ * partagées, on écarte encore celle qui nomme un autre projet (« projetc »).
  */
 export function cleResendParmi(fiches: readonly FicheDeSecret[]): string | null {
   const resend = fiches.filter(
-    (fiche) => fiche.type === 'cle-api' && /resend/i.test(String(fiche.champs.service ?? fiche.nom)),
+    (fiche) =>
+      !fiche.projectId && fiche.type === 'cle-api' && /resend/i.test(String(fiche.champs.service ?? fiche.nom)),
   );
   const pourBeluga = resend.find((fiche) => !/projetc/i.test(fiche.nom)) ?? resend[0];
   const cle = String(pourBeluga?.champs.cle ?? '').trim();
@@ -292,7 +300,35 @@ async function parResend(
     const corps = (await reponse.json().catch(() => ({}))) as { id?: string };
     return { erreur: null, id: corps.id ? String(corps.id) : undefined };
   }
-  return { erreur: `${reponse.status} ${(await reponse.text()).slice(0, 300)}` };
+  const brut = (await reponse.text()).slice(0, 300);
+  // Le texte brut de Resend reste au journal ; l'écran reçoit une phrase.
+  log.warn(`Resend a refusé l'envoi (${reponse.status})`, brut);
+  return { erreur: refusResendEnClair(reponse.status, brut) };
+}
+
+/**
+ * UN REFUS DE RESEND, DIT EN CLAIR. L'écran montrait le JSON brut (« 403
+ * {"message":"This API key is not authorized…"} ») : on le traduit pour les
+ * cas connus, et on garde le code seul pour les autres.
+ */
+export function refusResendEnClair(statut: number, corps: string): string {
+  const message = (() => {
+    try {
+      return String((JSON.parse(corps) as { message?: unknown }).message ?? '');
+    } catch {
+      return corps;
+    }
+  })();
+  if (statut === 401) return 'La clé d’envoi est invalide ou a été révoquée';
+  if (statut === 403 && /not authorized to send emails from/i.test(message)) {
+    return 'La clé d’envoi n’est pas autorisée pour l’adresse d’expédition';
+  }
+  if (/domain is not verified/i.test(message)) return 'Le domaine de l’adresse d’expédition n’est pas vérifié chez le service d’envoi';
+  if (statut === 403) return 'Le service d’envoi refuse cette clé';
+  if (statut === 429) return 'Trop d’envois d’un coup : réessayez dans une minute';
+  if (statut === 422) return 'Le service d’envoi refuse ce courriel (adresse ou contenu invalide)';
+  if (statut >= 500) return 'Le service d’envoi est indisponible pour l’instant';
+  return `Le service d’envoi a refusé le courriel (code ${statut})`;
 }
 
 /**

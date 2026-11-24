@@ -2052,6 +2052,21 @@ export function entreeDeCarteRedigee(projectId: string, cardId: string): boolean
   }
 }
 
+/**
+ * L'EXPLICATION DU JOURNAL DES CHANGEMENTS POUR UNE CARTE — déjà écrite pour quelqu'un qui ne programme pas : le
+ * résumé « Ce qui a changé » d'une demande client s'en sert quand l'agent n'en a pas rédigé (`resume-client.ts`).
+ */
+export function explicationDeLaCarte(projectId: string, cardId: string): string | null {
+  try {
+    const l = getDb()
+      .prepare("SELECT explication FROM changelog_entrees WHERE project_id = ? AND EXISTS (SELECT 1 FROM json_each(changelog_entrees.cartes) WHERE value = ?) ORDER BY at DESC LIMIT 1")
+      .get(projectId, cardId) as { explication: string | null } | undefined;
+    return l?.explication?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ReecritureDEntree {
   /** L'empreinte de l'entrée visée (unique par projet). */
   empreinte: string;

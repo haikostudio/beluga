@@ -284,6 +284,7 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   evaluer: { un: 'Je fais évaluer par le juge rapide.' },
   beluga_commande: { un: 'J’agis dans Beluga.', plusieurs: 'J’agis {v0} fois dans Beluga.' },
   assistant_resume: { un: 'Je fais le point sur Beluga.' },
+  assistant_portefeuille: { un: 'Je fais le tour de ce que Beluga sait de chaque projet.' },
   assistant_messagerie: { un: 'J’ouvre la messagerie de l’espace client.' },
   assistant_surveillances: { un: 'Je regarde la surveillance des sites.' },
   assistant_backups: { un: 'Je regarde les sauvegardes des sites.' },

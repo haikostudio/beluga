@@ -207,9 +207,19 @@ const FICHES: Record<GenreDeSecret, ModeleDeFiche> = {
   ) as unknown as Record<Exclude<GenreDeSecret, 'courriels' | 'smtp'>, ModeleDeFiche>),
 };
 
+/**
+ * Les secrets de COURRIEL de l'installation vivent dans une fiche PARTAGÉE (sans
+ * projet) — c'est ainsi que l'envoi les lit (`cleResendParmi`) : la clé Resend
+ * du site d'un client porte le même service, mais elle n'est ni à compter comme
+ * la nôtre, ni à écraser quand on range la nôtre.
+ */
 function ficheDuSecret(genre: GenreDeSecret) {
   const modele = FICHES[genre];
-  return listerAcces().find((fiche) => modele.motif.test(`${fiche.champs.service ?? ''} ${fiche.nom}`));
+  const partageeSeulement = genre === 'courriels' || genre === 'smtp';
+  return listerAcces().find(
+    (fiche) =>
+      (!partageeSeulement || !fiche.projectId) && modele.motif.test(`${fiche.champs.service ?? ''} ${fiche.nom}`),
+  );
 }
 
 /** Range (ou remplace) un secret de l'installation au coffre-fort. */

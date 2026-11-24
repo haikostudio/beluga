@@ -3,6 +3,7 @@ import { garderEveilleTantQue } from './veille';
 import { arreterLActionDeJarvis } from './gestes-de-jarvis';
 import { poserLaConversationEnCours } from './conversation-en-cours';
 import type { TourDuDirect } from './direct-codex';
+import { etatDuMicroApres, MICRO_AU_REPOS, type EtatDuMicro, type GesteDuMicro } from '@beluga/shared';
 
 /**
  * LE MICRO DU MODULE DE VOIX (attente locale du mot de réveil) et LA CONVERSATION EN DIRECT, PARTAGÉS entre
@@ -15,12 +16,14 @@ import type { TourDuDirect } from './direct-codex';
  * d'écouteurs, `useSyncExternalStore`.
  */
 
-interface EtatVocal {
-  microOuvert: boolean;
-  conversationAllumee: boolean;
-}
+/**
+ * L'état vient de la règle pure `etatDuMicroApres` (shared/src/micro-demande.ts, 24/11/2026) : une conversation ouverte
+ * micro coupé le REFERME à sa fin — la dernière prise fermée rend la session audio de l'iPhone (`lib/micro.ts`) et la
+ * musique reprend ; ouverte « Dis Jarvis » allumé à la main, elle laisse l'attente reprendre.
+ */
+type EtatVocal = EtatDuMicro;
 
-let etat: EtatVocal = { microOuvert: false, conversationAllumee: false };
+let etat: EtatVocal = MICRO_AU_REPOS;
 const ecouteurs = new Set<() => void>();
 
 function publier(): void {
@@ -28,18 +31,26 @@ function publier(): void {
   for (const prevenir of ecouteurs) prevenir();
 }
 
-/** Couper le micro coupe aussi la conversation : elle passe par lui. */
-export function setMicroOuvertGlobal(valeur: boolean): void {
-  if (etat.microOuvert === valeur && (valeur || !etat.conversationAllumee)) return;
-  etat = valeur ? { ...etat, microOuvert: true } : { microOuvert: false, conversationAllumee: false };
+function appliquer(geste: GesteDuMicro): void {
+  const suite = etatDuMicroApres(etat, geste);
+  if (
+    suite.microOuvert === etat.microOuvert &&
+    suite.conversationAllumee === etat.conversationAllumee &&
+    suite.microParLaConversation === etat.microParLaConversation
+  )
+    return;
+  etat = suite;
   publier();
 }
 
-/** Ouvrir la conversation ouvre aussi le micro : un seul micro, et le bouton « Micro » le dit. */
+/** L'interrupteur « Micro » : couper le micro coupe aussi la conversation (elle passe par lui). */
+export function setMicroOuvertGlobal(valeur: boolean): void {
+  appliquer({ genre: 'micro', ouvert: valeur });
+}
+
+/** Ouvrir la conversation ouvre aussi le micro ; la fermer le referme s'il n'était pas ouvert avant elle. */
 export function setConversationAllumeeGlobale(valeur: boolean): void {
-  if (etat.conversationAllumee === valeur && (!valeur || etat.microOuvert)) return;
-  etat = valeur ? { microOuvert: true, conversationAllumee: true } : { ...etat, conversationAllumee: false };
-  publier();
+  appliquer({ genre: 'conversation', allumee: valeur });
 }
 
 // Un micro ouvert (attente du mot) ou une conversation vocale continue sans écran.
@@ -220,4 +231,11 @@ export function arreterJarvis(): void {
   if (direct.sourdine) setMicroOuvertGlobal(false);
   setConversationAllumeeGlobale(false);
   publierLeDirect({ sourdine: false });
+}
+
+/* Le point d'essai (hors production) : l'interrupteur « Micro ouvert » des réglages, sans naviguer jusqu'à eux. */
+if (typeof window !== 'undefined' && import.meta.env.MODE !== 'production') {
+  const essai = ((window as unknown as { belugaEssai?: Record<string, unknown> }).belugaEssai ??= {});
+  essai.microALaMain = (ouvert: boolean) => setMicroOuvertGlobal(ouvert);
+  essai.etatDuMicro = () => ({ ...etat });
 }

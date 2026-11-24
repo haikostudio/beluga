@@ -11,7 +11,7 @@
  *  - un client ne touche QUE ses propres demandes, dans les projets de sa portée.
  */
 import fs from 'node:fs';
-import { accesApresChangement, estLeCompteDesTickets } from '@beluga/shared';
+import { accesApresChangement, estLeCompteDesTickets, sitesDuProjet } from '@beluga/shared';
 import {
   REFUS_HORS_PORTEE,
   TITRES_COLONNES_DEMANDE,
@@ -75,6 +75,7 @@ import {
   suspendreCompte,
 } from './comptes.js';
 import * as espace from './espace-client.js';
+import * as resumes from './resume-client.js';
 import * as store from './store.js';
 import { notify } from './notify.js';
 import { createCard } from './tools.js';
@@ -366,6 +367,33 @@ const PARTIES_MODIFIEES: { cle: string; phrase: string; bouge: (a: Demande, b: D
   { cle: 'options', phrase: 'a modifié les options', bouge: (a, b) => JSON.stringify([a.etiquettes, a.fichiers]) !== JSON.stringify([b.etiquettes, b.fichiers]) },
 ];
 
+/**
+ * UN COMMENTAIRE SUR UNE DEMANDE, ET CEUX QUI DOIVENT LE SAVOIR. Diffusé à TOUS ceux qui voient la demande — le tri
+ * se fait à l'envoi, sur le PROJET (`evenementPourCeClient`), plus sur l'auteur. Le résumé « Ce qui a changé » envoyé
+ * par Haiko passe par ici : le client le reçoit exactement comme un message de Haiko.
+ */
+function commenterEtPrevenir(
+  compte: CompteUtilisateur,
+  demande: Demande,
+  texte: string,
+  fichiers: readonly string[],
+) {
+  const message = espace.commenterDemande(auteurDe(compte), demande.id, texte, fichiers);
+  bus.emit({ type: 'espace.message', demandeId: demande.id, message, auteurId: demande.auteurId });
+  prevenirLesAutres(compte, {
+    motif: 'espace-message',
+    evenement: 'commentaire',
+    projectId: demande.projectId,
+    demande,
+    cible: 'demande',
+    titre: demande.titre,
+    corps: message.texte || 'Une pièce jointe',
+    reference: message.id,
+    detail: message.texte.slice(0, 140),
+  });
+  return message;
+}
+
 /** La phrase française d'une étape de la carte liée : seule l'étape est nommée, jamais le travail. */
 const PHRASES_ETAPE: Record<EtapeCarteLiee, { motif: MotifNotification; phrase: string }> = {
   demarree: { motif: 'espace-avancement', phrase: 'Le travail sur votre demande a commencé' },
@@ -404,6 +432,14 @@ export function brancherLAvancementDesCartes(): () => void {
 }
 
 export function annoncerLEtape(carteId: string, etape: EtapeCarteLiee): void {
+  /* LE TRAVAIL EST FINI : le résumé « Ce qui a changé » attend Haiko, prêt à relire (`resume-client.ts`). */
+  if (etape === 'terminee') {
+    try {
+      resumes.preparerALaFinDuTravail(carteId);
+    } catch (err) {
+      log.warn('espace client', `résumé de la carte ${carteId} non préparé : ${String(err)}`);
+    }
+  }
   for (const demande of espace.demandesDeLaCarte(carteId)) {
     if (demande.archiveeLe) continue;
     const activite = espace.noterActivite(AUTEUR_AVANCEMENT, demande, 'avancement', etape);
@@ -491,6 +527,14 @@ export async function commandeDeLEspaceClient(
       return {
         projectId,
         projet: store.getProject(projectId)?.name ?? projectId,
+        /*
+         * LES DEUX VERSIONS DU SITE DE CE PROJET (bouton « Voir mon site ») : le client n'a qu'une adresse à
+         * retenir, celle de son espace. Lues ICI, projet par projet, et non sur le compte : `compteVisible` sert
+         * aussi à présenter un compte aux autres, et `projetDuClient` a déjà refusé tout projet hors de sa portée.
+         */
+        sites: sitesDuProjet(store.getProject(projectId)),
+        /* VU PAR HAIKO SEUL : les demandes dont le résumé attend son envoi (la marque de leur vignette). */
+        ...(compte.role === 'admin' ? { resumesAEnvoyer: resumes.demandesAvecResumeEnAttente([projectId]) } : {}),
         // LA PORTÉE EST LE PROJET : le client voit tout ce qui s'y passe, quel
         // que soit l'auteur. Le compte ne sert plus qu'à compter SES non-lus.
         demandes: espace.demandesAffichees(projectId, compte.id),
@@ -712,27 +756,43 @@ export async function commandeDeLEspaceClient(
         messages,
         galerie: espace.galerie(demande, messages),
         activite: espace.activiteDeLaDemande(demande.id),
+        /* LE BROUILLON DU RÉSUMÉ « CE QUI A CHANGÉ » NE PART QU'À L'ADMINISTRATION : un client ne reçoit même pas le
+           champ. */
+        ...(compte.role === 'admin' ? { resumeClient: resumes.resumeEnAttente(demande.id) } : {}),
       };
     }
 
     case 'espace.demande.commenter': {
       const demande = demandeVisible(cmd.id, compte);
-      const message = espace.commenterDemande(auteurDe(compte), cmd.id, cmd.texte, cmd.fichiers ?? []);
-      // Diffusé à TOUS ceux qui voient la demande — le tri se fait à l'envoi,
-      // sur le PROJET (`evenementPourCeClient`), plus sur l'auteur.
-      bus.emit({ type: 'espace.message', demandeId: cmd.id, message, auteurId: demande.auteurId });
-      prevenirLesAutres(compte, {
-        motif: 'espace-message',
-        evenement: 'commentaire',
-        projectId: demande.projectId,
-        demande,
-        cible: 'demande',
-        titre: demande.titre,
-        corps: message.texte || 'Une pièce jointe',
-        reference: message.id,
-        detail: message.texte.slice(0, 140),
-      });
-      return { message };
+      return { message: commenterEtPrevenir(compte, demande, cmd.texte, cmd.fichiers ?? []) };
+    }
+
+    /* ---------------- Le résumé « Ce qui a changé » (administration seule) ---------------- */
+
+    case 'espace.demande.resume.modifier': {
+      if (compte.role !== 'admin') throw new Error(REFUS_HORS_PORTEE);
+      const demande = demandeVisible(cmd.id, compte);
+      return { resumeClient: resumes.modifierResume(demande.id, cmd.texte) };
+    }
+
+    case 'espace.demande.resume.ecarter': {
+      if (compte.role !== 'admin') throw new Error(REFUS_HORS_PORTEE);
+      const demande = demandeVisible(cmd.id, compte);
+      resumes.ecarterResume(demande.id);
+      return { resumeClient: null };
+    }
+
+    case 'espace.demande.resume.envoyer': {
+      if (compte.role !== 'admin') throw new Error(REFUS_HORS_PORTEE);
+      const demande = demandeVisible(cmd.id, compte);
+      const attente = resumes.resumeEnAttente(demande.id);
+      if (!attente) throw new Error('Aucun résumé n’attend d’être envoyé pour cette demande.');
+      const texte = (cmd.texte ?? attente.texte).trim();
+      if (!texte) throw new Error('Un résumé vide ne s’envoie pas : écrivez d’abord ce qui a changé.');
+      /* LE MÊME CHEMIN QU'UN COMMENTAIRE DE HAIKO : signé par son compte, notifications et courriels habituels. */
+      const message = commenterEtPrevenir(compte, demande, texte, []);
+      resumes.marquerEnvoye(attente.id, demande.id, message.id, texte);
+      return { message, resumeClient: null };
     }
 
     /* ---------------- Le fil de discussion ---------------- */

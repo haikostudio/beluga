@@ -723,34 +723,22 @@ noter(
 await page.click('[data-tiroir-demande] [data-bloc-bascule="options"]');
 await page.waitForTimeout(300);
 
-/* LE COMPOSEUR, CALQUÉ SUR BELUGA : trombone DANS le coin du champ, envoi SOUS lui. */
+/*
+ * LE COMPOSEUR, CALQUÉ SUR LA BARRE D'ÉCRITURE DES AGENTS (cadrage du 24/11/2026, maquette #93cf) : le trombone et
+ * l'envoi DANS le coin bas-droit du champ, l'envoi au bord. Plus de barre « Envoyer » pleine largeur sous le champ.
+ */
 noter(
-  'le trombone est posé dans le coin du champ, pas dans une colonne à côté',
+  'le trombone et l’envoi sont posés dans le coin bas-droit du champ, l’envoi au bord',
   await page.evaluate(() => {
     const champ = document.querySelector('[data-tiroir-demande] [data-champ-espace]');
     const trombone = document.querySelector('[data-tiroir-demande] [data-joindre-espace]');
-    if (!champ || !trombone) return false;
+    const envoi = document.querySelector('[data-tiroir-demande] [data-envoyer="commentaire"]');
+    if (!champ || !trombone || !envoi) return false;
     const c = champ.getBoundingClientRect();
     const b = trombone.getBoundingClientRect();
-    // Dans le champ, en haut à droite.
-    return b.right <= c.right + 2 && b.top >= c.top - 2 && b.top < c.top + c.height / 2;
-  }),
-);
-/*
- * L'ENVOI PREND TOUTE LA LARGEUR, sous le champ. Un petit bouton poussé à
- * droite se cherchait, surtout au pouce. On compare sa largeur à celle de son
- * CONTENEUR — jamais à un nombre de pixels, qui dépendrait de la fenêtre.
- */
-noter(
-  'le bouton d’envoi est SOUS le champ, et prend toute la largeur',
-  await page.evaluate(() => {
-    const champ = document.querySelector('[data-tiroir-demande] [data-champ-espace]');
-    const envoi = document.querySelector('[data-tiroir-demande] [data-envoyer="commentaire"]');
-    if (!champ || !envoi) return false;
-    const c = champ.getBoundingClientRect();
     const e = envoi.getBoundingClientRect();
-    const parent = envoi.parentElement.getBoundingClientRect();
-    return e.top >= c.bottom - 2 && e.width >= parent.width - 2;
+    const dansLeChamp = (r) => r.right <= c.right + 2 && r.bottom <= c.bottom + 2 && r.top >= c.top + c.height / 2 - 2;
+    return dansLeChamp(b) && dansLeChamp(e) && e.left >= b.right - 1;
   }),
 );
 

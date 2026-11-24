@@ -42,6 +42,7 @@ import {
   type MessageFil,
   type PieceDeGalerie,
   type ReglagesDesColonnes,
+  type SitesDuProjet,
   type TriDemande,
 } from '@beluga/shared';
 import { canalEspace, type EtatCanalEspace } from './canal-espace';
@@ -60,6 +61,7 @@ import { ColonneDemandes } from './colonne-demandes';
 import { heureCourte, jourDe } from './formats';
 import { VoletBackups } from './volet-backups';
 import { VoletAcces } from './volet-acces';
+import { VoirMonSite } from './voir-mon-site';
 import type { GestesDeVignette } from './vignette-demande';
 
 /** Qui regarde : cela décide de la signature et des gestes ouverts. */
@@ -435,6 +437,10 @@ export function EspaceClient({
   const [nonLus, setNonLus] = React.useState({ messages: 0, commentaires: 0 });
   /** Les demandes qui ont du nouveau, projet par projet : la pastille du sélecteur. */
   const [nonLusParProjet, setNonLusParProjet] = React.useState<Record<string, number>>({});
+  /* LES DEUX VERSIONS DU SITE DU PROJET REGARDÉ, rendues par `espace.etat` (bouton « Voir mon site »). */
+  const [sites, setSites] = React.useState<SitesDuProjet>({});
+  /* VU COMME HAIKO : les demandes dont le résumé « Ce qui a changé » attend son envoi (marque de vignette). */
+  const [resumesAEnvoyer, setResumesAEnvoyer] = React.useState<ReadonlySet<string>>(() => new Set());
 
   const filId = filImpose ?? moi.id;
 
@@ -525,8 +531,12 @@ export function EspaceClient({
           demandes: DemandeAffichee[];
           nonLus?: { messages: number; commentaires: number };
           nonLusParProjet?: Record<string, number>;
+          sites?: SitesDuProjet;
+          resumesAEnvoyer?: string[];
         }) => {
           setProjectId(reponse.projectId);
+          setSites(reponse.sites ?? {});
+          setResumesAEnvoyer(new Set(reponse.resumesAEnvoyer ?? []));
           setDemandes(reponse.demandes);
           if (reponse.nonLus) setNonLus(reponse.nonLus);
           setNonLusParProjet(reponse.nonLusParProjet ?? {});
@@ -549,7 +559,7 @@ export function EspaceClient({
          * visibilité ne vaudrait qu'au chargement : une demande déposée par
          * Haiko n'apparaîtrait qu'après un rechargement à la main.
          */
-        if (event.type === 'espace.demande' || event.type === 'espace.message') recharger();
+        if (event.type === 'espace.demande' || event.type === 'espace.message' || event.type === 'espace.resume') recharger();
         /*
          * UN MESSAGE DU FIL REGARDÉ COMPTE, VOLET FERMÉ COMME OUVERT. Seul le
          * volet écoutait `espace.fil`, et il n'est monté que s'il est ouvert :
@@ -699,8 +709,9 @@ export function EspaceClient({
           .catch((err) => setErreur(err?.message ?? t('Cette modification n’a pas pu être enregistrée.')));
       },
       onCarte: gestesHaiko?.onCarte,
+      resumesAEnvoyer: gestesHaiko ? resumesAEnvoyer : undefined,
     }),
-    [recharger, gestesHaiko],
+    [recharger, gestesHaiko, resumesAEnvoyer],
   );
 
   /* ---------------- Le rail des colonnes, sur téléphone ---------------- */
@@ -857,6 +868,12 @@ export function EspaceClient({
           onProjet={setProjectId}
           apres={enteteApres}
           nonLusParProjet={nonLusParProjet}
+          /*
+           * VU COMME HAIKO, UNE FICHE OUVERTE NE GARDE QUE SES GESTES ET LA CLOCHE (maquette #93cf) : les gestes de
+           * l'espace montent dans la même rangée que ceux de la fiche, et « Voir mon site » n'a pas sa place dans la
+           * page d'une tâche (refusé au cadrage du 24/11/2026). Ils reviennent en refermant la fiche.
+           */
+          site={ouverte && enteteDansLeFil ? undefined : <VoirMonSite sites={sites} />}
           cloche={
             moi.role === 'client' ? (
               <ClocheEspace
@@ -882,6 +899,7 @@ export function EspaceClient({
             ) : undefined
           }
           menu={
+            ouverte && enteteDansLeFil ? undefined : (
             <MenuEspace
               onBackups={() => basculerVolet('backups')}
               onAcces={() => basculerVolet('acces')}
@@ -889,6 +907,7 @@ export function EspaceClient({
               onDeconnexion={onDeconnexion}
               enPoints={!!enteteDansLeFil}
             />
+            )
           }
         />
 
@@ -962,7 +981,9 @@ export function EspaceClient({
            * mourait en silence. Chaque colonne défile désormais chez elle,
            * comme au tableau Beluga.
            */
-          <div className="flex min-h-0 flex-1 gap-3 p-3" data-colonnes-espace>
+          /* LES COLONNES SUR LES BORDS DU TITRE : vu comme Haiko, la colonne de la page de service porte déjà la marge ;
+             dans la porte client, la même que l'entête (`px-5`). */
+          <div className={cn('flex min-h-0 flex-1 gap-3 py-3', enteteDansLeFil ? null : 'px-5')} data-colonnes-espace>
             {colonnes.map(({ colonne, cartes, nonLues, masquees }) => (
               <ColonneDemandes
                 key={colonne}
@@ -1049,6 +1070,7 @@ export function EspaceClient({
           onFermer={() => setOuverte(null)}
           onChangement={recharger}
           onDemanderCarte={gestesHaiko?.onCarte}
+          sites={sites}
         />
       ) : null}
       {creation ? (

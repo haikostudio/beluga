@@ -119,6 +119,19 @@ try {
   const mimo = groupes.find((g) => g.moteur === 'mimo');
   noter('un moteur dont tous les comptes sont coupés est replié d’office, sur sa seule ligne de titre', !!mimo && mimo.replie && mimo.cartes === 0, JSON.stringify(mimo));
 
+  /* LE CHEVRON À DROITE (24/11/2026, capture #ad52) : le logo du moteur ouvre la ligne de titre et tombe sur la même
+     verticale que celui des cartes de compte ; le chevron est le dernier élément de la rangée. */
+  const alignement = await page.evaluate(() => {
+    const titre = document.querySelector('[data-titre-groupe-quota="codex"]');
+    const carte = document.querySelector('[data-groupe-quota="codex"] [data-carte-quota]');
+    const xTitre = titre?.querySelector('svg, img')?.getBoundingClientRect().left ?? NaN;
+    const xCarte = carte?.querySelector('svg, img')?.getBoundingClientRect().left ?? NaN;
+    const dernier = titre?.lastElementChild;
+    return { xTitre, xCarte, chevronDernier: !!dernier?.hasAttribute('data-chevron-groupe-quota') };
+  });
+  noter('le logo du moteur s’aligne à gauche sur celui des comptes (±1 px)', Math.abs(alignement.xTitre - alignement.xCarte) <= 1, JSON.stringify(alignement));
+  noter('le chevron du titre est le dernier élément de la ligne', alignement.chevronDernier, JSON.stringify(alignement));
+
   await page.locator('[data-titre-groupe-quota="codex"]').click();
   await page.waitForTimeout(400);
   noter('un clic sur le titre replie le groupe, sans refermer le panneau', (await page.locator('[data-groupe-quota="codex"][data-replie]').count()) === 1 && (await page.locator('[data-groupes-quota]').count()) === 1);
