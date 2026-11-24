@@ -40,6 +40,13 @@ interface MonProfil {
 }
 
 /** Un bloc de la fiche : un titre et son « i », des champs, un bouton. */
+/**
+ * LES BLOCS DU PROFIL EN SECTIONS DES RÉGLAGES (24/11/2026) : dans Réglages › Moi, chaque bloc prend la tenue de
+ * toutes les autres pages — titre au-dessus, champs dans un bloc gris —, au lieu de petits intertitres empilés dans
+ * un seul grand bloc. Dans le tiroir du profil de l'espace client, rien ne change.
+ */
+const ContexteEnSections = React.createContext(false);
+
 function Bloc({
   titre,
   aide,
@@ -51,6 +58,20 @@ function Bloc({
   children: React.ReactNode;
   repere: string;
 }) {
+  const enSections = React.useContext(ContexteEnSections);
+  if (enSections) {
+    return (
+      <section className="flex flex-col gap-2" data-bloc-profil={repere} data-section-reglages>
+        <div className="flex items-center gap-1 px-1">
+          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+        </div>
+        <div className="flex flex-col gap-3 rounded-2xl bg-surface p-4" data-bloc-reglages="bloc">
+          {children}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="flex flex-col gap-2 pt-1" data-bloc-profil={repere}>
       <div className="flex items-center gap-1">
@@ -101,10 +122,13 @@ function ChampSecret({
 export function FormulaireProfil({
   envoyer,
   remplirLaHauteur = true,
+  enSections = false,
 }: {
   envoyer: EnvoyerUneCommande;
   /** Dans un tiroir, la zone prend la hauteur restante ; dans une page, elle suit son contenu. */
   remplirLaHauteur?: boolean;
+  /** Dans les réglages : chaque bloc devient une section titrée à bloc gris, sans zone de défilement à elle. */
+  enSections?: boolean;
 }) {
   const [profil, setProfil] = React.useState<MonProfil | null>(null);
   const [nom, setNom] = React.useState('');
@@ -213,7 +237,8 @@ export function FormulaireProfil({
         ))}
       </div>
     ) : (
-      <ZoneDefilement fond="hsl(var(--surface))" className={remplirLaHauteur ? 'min-h-0 flex-1 space-y-4 px-3 pb-3' : 'space-y-4 px-3 pb-3'}>
+      <ContexteEnSections.Provider value={enSections}>
+      <EnveloppeDuProfil enSections={enSections} remplirLaHauteur={remplirLaHauteur}>
         <Bloc
           repere="informations"
           titre={t('Vos informations')}
@@ -326,8 +351,27 @@ export function FormulaireProfil({
             {t('Changer mon mot de passe')}
           </Button>
         </Bloc>
-      </ZoneDefilement>
+      </EnveloppeDuProfil>
+      </ContexteEnSections.Provider>
     )}
     </>
+  );
+}
+
+/** La zone du profil : qui défile dans un tiroir, simple pile de sections dans les réglages (la page défile déjà). */
+function EnveloppeDuProfil({
+  enSections,
+  remplirLaHauteur,
+  children,
+}: {
+  enSections: boolean;
+  remplirLaHauteur: boolean;
+  children: React.ReactNode;
+}) {
+  if (enSections) return <div className="flex flex-col gap-6">{children}</div>;
+  return (
+    <ZoneDefilement fond="hsl(var(--surface))" className={remplirLaHauteur ? 'min-h-0 flex-1 space-y-4 px-3 pb-3' : 'space-y-4 px-3 pb-3'}>
+      {children}
+    </ZoneDefilement>
   );
 }

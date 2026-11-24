@@ -188,3 +188,20 @@ export async function porteeSurTousLesProjets(page) {
   }
   return (await projet.count()) === 0;
 }
+
+/**
+ * OUVRE UNE SECTION DES RÉGLAGES (colonne fixe, 24/11/2026) : la fenêtre n'a plus de menu de pages à cliquer — une
+ * rubrique est une seule page qui empile ses sections. L'adresse `#reglages/<clé>` ouvre la rubrique et descend à la
+ * section (ou ouvre la rubrique en haut pour une clé de rubrique). Attend que la section soit dans la page.
+ */
+export async function ouvrirSectionDesReglages(page, cle, { timeout = 15000 } = {}) {
+  await page.evaluate((c) => {
+    window.location.hash = `reglages/${c}`;
+  }, cle);
+  await page.locator('[data-modale-reglages] [data-menu-reglages]').first().waitFor({ state: 'attached', timeout });
+  await page
+    .locator(`[data-section-page="${cle}"], [data-page-rubrique="${cle}"]`)
+    .first()
+    .waitFor({ state: 'attached', timeout });
+  await page.waitForTimeout(300);
+}

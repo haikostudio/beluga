@@ -138,6 +138,8 @@ import {
   ongletsSansLaCarte,
   EVENEMENT_CARTE_INTROUVABLE,
   type OngletDuProjet,
+  PREF_ONGLET_DES_TABLEAUX_DE_BORD,
+  agentsDesTableauxRetenus,
 } from '@beluga/shared';
 import {
   EVENEMENT_AGENT_CONFIGURATION,
@@ -569,8 +571,17 @@ export function App() {
    * et « #projet/<id>/agents/<agent> ». Le choix Tâches / Agents est RETENU PAR PROJET (`accueil.agents.<projet>`) : il
    * s'applique en entrant dans un projet par la colonne ; une adresse lue (lien collé, Précédent) fait foi.
    */
-  const [accueilAgents, setAccueilAgents] = React.useState<{ projectId: string; agentPersoId?: string } | null>(null);
+  /* …et la conversation d'un agent sans fiche — un chef de Communication, un sous-agent — « #projet/<id>/agents/fil/<agent> »
+     (carte « Chefs invisibles et fausse carte », 24/11/2026). */
+  const [accueilAgents, setAccueilAgents] = React.useState<{ projectId: string; agentPersoId?: string; agentId?: string } | null>(null);
   const projetDeLAdresseLue = React.useRef<string | null>(null);
+  /*
+   * L'ONGLET « AGENTS » DES TABLEAUX DE BORD (24/11/2026) : « #en-route/agents », les agents de tous les projets. Le
+   * choix est retenu dans la préférence des onglets des Tableaux de bord (la même que celle du téléphone) ; une adresse
+   * lue fait foi.
+   */
+  const [agentsDesTableaux, setAgentsDesTableaux] = React.useState(false);
+  const tableauxLus = React.useRef(false);
   const dashboardOpen = vueCentrale === 'tableau-de-bord';
   /* Les écrans qui ne sont dans AUCUN projet : le menu du bas y propose
      « Nouvel agent » au lieu de Tableau / Fichiers. */
@@ -845,7 +856,7 @@ export function App() {
          l'écran de son service, comme la bande du tableau de bord — jamais « Choisissez un agent » sur son projet
          (capture #27b88 du 09/11/2026). Les agents de publication gardent leur tiroir, plus bas. */
       if (!cardId && agent.service && agent.role !== 'deploy') {
-        allerALEcranDeLAgentDeService(agent.service);
+        allerALEcranDeLAgentDeService({ id: agent.id, projectId: agent.projectId, service: agent.service });
         return;
       }
       client.setActiveProject(agent.projectId);
@@ -1038,6 +1049,10 @@ export function App() {
      * ouverte : la carte retenue du tableau d'un projet n'est pas la nôtre.
      */
     if (ecran.vue === 'en-route' || ecran.vue === 'tableau-de-bord') {
+      if (ecran.vue === 'en-route' && !ecran.cardId) {
+        tableauxLus.current = true;
+        setAgentsDesTableaux(!!ecran.agents);
+      }
       if (ecran.cardId && ecran.projectId) {
         if (client.lireEtat().activeProjectId !== ecran.projectId) {
           client.setActiveProject(ecran.projectId);
@@ -1055,7 +1070,11 @@ export function App() {
     }
     if (ecran.vue === 'projet') {
       projetDeLAdresseLue.current = ecran.projectId;
-      setAccueilAgents(ecran.agents && !ecran.cardId ? { projectId: ecran.projectId, ...(ecran.agentPersoId ? { agentPersoId: ecran.agentPersoId } : {}) } : null);
+      setAccueilAgents(
+        ecran.agents && !ecran.cardId
+          ? { projectId: ecran.projectId, ...(ecran.agentPersoId ? { agentPersoId: ecran.agentPersoId } : {}), ...(ecran.agentId ? { agentId: ecran.agentId } : {}) }
+          : null,
+      );
       // Ne re-déclencher l'ouverture serveur que si le projet change vraiment.
       if (client.lireEtat().activeProjectId !== ecran.projectId) {
         client.setActiveProject(ecran.projectId);
@@ -1174,8 +1193,10 @@ export function App() {
           onglet: ongletCarte,
           agents:
             vueCentrale === 'projet' && accueilAgents && accueilAgents.projectId === state.activeProjectId
-              ? { agentPersoId: accueilAgents.agentPersoId ?? null }
-              : null,
+              ? { agentPersoId: accueilAgents.agentPersoId ?? null, agentId: accueilAgents.agentId ?? null }
+              : vueCentrale === 'en-route' && agentsDesTableaux
+                ? {}
+                : null,
         });
     /* LA PORTÉE CHOISIE S'ÉCRIT au bout de l'adresse d'une page de service (outil de création ou de fonctionnement) ;
        la Charte limitée à un projet le dit déjà dans son chemin. */
@@ -1261,6 +1282,7 @@ export function App() {
     viseDeCreation,
     filtreDuServiceCentral,
     accueilAgents,
+    agentsDesTableaux,
   ]);
 
   /* ENTRER DANS UN PROJET PAR LA COLONNE reprend son dernier choix Tâches / Agents ; une adresse lue a déjà tranché. */
@@ -1271,8 +1293,21 @@ export function App() {
     projetDeLAdresseLue.current = id;
     setAccueilAgents(state.prefs[`accueil.agents.${id}`] === '1' ? { projectId: id } : null);
   }, [state.activeProjectId, state.pret]);
-  const choisirLAccueil = React.useCallback((projectId: string, choix: { agentPersoId?: string } | null) => {
-    setAccueilAgents(choix ? { projectId, ...(choix.agentPersoId ? { agentPersoId: choix.agentPersoId } : {}) } : null);
+  /* LES TABLEAUX DE BORD reprennent le dernier choix « Tâches | Agents », une fois les réglages du serveur reçus. */
+  React.useEffect(() => {
+    if (!state.pret || tableauxLus.current) return;
+    tableauxLus.current = true;
+    setAgentsDesTableaux(agentsDesTableauxRetenus(state.prefs[PREF_ONGLET_DES_TABLEAUX_DE_BORD]));
+  }, [state.pret]);
+  const choisirLesAgentsDesTableaux = React.useCallback((agents: boolean) => {
+    tableauxLus.current = true;
+    setAgentsDesTableaux(agents);
+    const retenu = client.lireEtat().prefs[PREF_ONGLET_DES_TABLEAUX_DE_BORD];
+    /* « Tâches » n'efface pas « À déployer » ou « Production » retenus sur le téléphone : seul « Agents » se défait. */
+    if (agents ? !agentsDesTableauxRetenus(retenu) : agentsDesTableauxRetenus(retenu)) writePref(PREF_ONGLET_DES_TABLEAUX_DE_BORD, agents ? 'agents' : 'taches');
+  }, []);
+  const choisirLAccueil = React.useCallback((projectId: string, choix: { agentPersoId?: string; agentId?: string } | null) => {
+    setAccueilAgents(choix ? { projectId, ...(choix.agentPersoId ? { agentPersoId: choix.agentPersoId } : {}), ...(choix.agentId ? { agentId: choix.agentId } : {}) } : null);
     if ((client.lireEtat().prefs[`accueil.agents.${projectId}`] === '1') !== !!choix) writePref(`accueil.agents.${projectId}`, choix ? '1' : '');
   }, []);
 
@@ -2139,7 +2174,12 @@ export function App() {
       <PanneauALaDemande monte attente={<SilhouetteEnRoute />}>
         {/* Un agent ouvert depuis « Tableaux de bord » s'ouvre DANS SON PROJET
             (30/10/2026), sa ligne allumée dans la colonne de gauche. */}
-        <EnRoute onOpenCard={ouvrirCarteDepuisUnService} onOpenAgent={(agentId) => ouvrirAgent(agentId, false)} />
+        <EnRoute
+          onOpenCard={ouvrirCarteDepuisUnService}
+          onOpenAgent={(agentId) => ouvrirAgent(agentId, false)}
+          agentsPerso={agentsDesTableaux}
+          onAgentsPerso={choisirLesAgentsDesTableaux}
+        />
       </PanneauALaDemande>
     </Filet>
   );
@@ -2654,7 +2694,11 @@ export function App() {
                   <PageDuProjet
                     projectId={activeProject.id}
                     onOuvrir={(card) => ouvrirCarteDuTableau(card.id)}
-                    agents={accueilAgents && accueilAgents.projectId === activeProject.id ? { ...(accueilAgents.agentPersoId ? { agentPersoId: accueilAgents.agentPersoId } : {}) } : null}
+                    agents={
+                      accueilAgents && accueilAgents.projectId === activeProject.id
+                        ? { ...(accueilAgents.agentPersoId ? { agentPersoId: accueilAgents.agentPersoId } : {}), ...(accueilAgents.agentId ? { agentId: accueilAgents.agentId } : {}) }
+                        : null
+                    }
                     onAgents={(choix) => choisirLAccueil(activeProject.id, choix)}
                   />
                 </Filet>

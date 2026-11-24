@@ -18,16 +18,12 @@
  * on ne peut plus voir le burger pendant qu'ils sont ouverts, donc plus rien à
  * y compter.
  *
- * LES COMPTES NE SONT PAS IMPORTÉS ICI. Cet écran sert aussi la porte client,
- * qui n'a rien à charger de la gestion des accès : c'est la vue Haiko qui passe
- * le contenu du tiroir (`comptesDuClient`), et le client n'en voit jamais la
- * ligne. Le serveur, lui, refuse de toute façon toute commande `comptes.*` à un
- * client.
+ * LES COMPTES NE SE GÈRENT PLUS ICI (24/11/2026) : l'entrée « Comptes du
+ * client » est partie avec toute la gestion des comptes, réunie dans Réglages ›
+ * Accès. Le serveur refuse de toute façon toute commande `comptes.*` à un client.
  */
-import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
-import * as React from 'react';
-import { HardDriveDownload, KeyRound, LogOut, Menu, UserRound, UsersRound, X } from '@/components/ui/icones';
-import { ActionTiroir, Button, DialogTitle, Drawer, GroupeTiroir, MenuActions, ZoneDefilement } from '@/components/ui';
+import { HardDriveDownload, KeyRound, LogOut, Menu, UserRound } from '@/components/ui/icones';
+import { ActionTiroir, GroupeTiroir, MenuActions } from '@/components/ui';
 import { t } from '@/lib/langue';
 
 export function MenuEspace({
@@ -35,7 +31,6 @@ export function MenuEspace({
   onAcces,
   onProfil,
   onDeconnexion,
-  comptesDuClient,
   enPoints = false,
 }: {
   /**
@@ -53,11 +48,7 @@ export function MenuEspace({
   onProfil?: () => void;
   /** La porte client seulement : une NAVIGATION vers `/auth/logout`. */
   onDeconnexion?: () => void;
-  /** Vu comme Haiko : le contenu du tiroir « Comptes du client ». */
-  comptesDuClient?: React.ReactNode;
 }) {
-  const [comptesOuverts, setComptesOuverts] = React.useState(false);
-  useTiroirAdresse('comptes-espace', comptesOuverts, setComptesOuverts);
   return (
     <>
       <MenuActions titre={t('Menu')} repere="espace-menu" taille="icon-barre" icone={enPoints ? undefined : <Menu className="h-4 w-4" />}>
@@ -87,18 +78,6 @@ export function MenuEspace({
                   data-basculer-acces
                 >
                   {t('Accès')}
-                </ActionTiroir>
-              ) : null}
-              {comptesDuClient ? (
-                <ActionTiroir
-                  icone={<UsersRound className="h-3.5 w-3.5" />}
-                  onClick={() => {
-                    fermer();
-                    setComptesOuverts(true);
-                  }}
-                  data-ouvrir-comptes-client
-                >
-                  {t('Comptes du client')}
                 </ActionTiroir>
               ) : null}
             </GroupeTiroir>
@@ -133,22 +112,6 @@ export function MenuEspace({
           </>
         )}
       </MenuActions>
-
-      {comptesDuClient ? (
-        <Drawer open={comptesOuverts} onClose={() => setComptesOuverts(false)} className="max-h-[85dvh]">
-          <div className="flex min-h-0 flex-1 flex-col" data-tiroir-comptes-client>
-            <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-              <DialogTitle className="min-w-0 flex-1 truncate">{t('Comptes du client')}</DialogTitle>
-              <Button size="icon-sm" variant="ghost" onClick={() => setComptesOuverts(false)} title={t('Fermer')}>
-                <X className="h-4 w-4" />
-              </Button>
-            </header>
-            <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 flex-1 px-3 pb-3">
-              {comptesOuverts ? comptesDuClient : null}
-            </ZoneDefilement>
-          </div>
-        </Drawer>
-      ) : null}
     </>
   );
 }

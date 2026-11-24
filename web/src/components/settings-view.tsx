@@ -35,19 +35,20 @@ import {
 import {
   ARBORESCENCE_REGLAGES,
   chercherDansLesReglages,
-  cleActuelleDeLaPage,
+  cibleDesReglages,
   grouperLesResultats,
-  rubriqueDeLaPage,
   type FicheDeReglage,
   type GroupeDeReglages,
 } from '@beluga/shared';
 import { Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
-import { Silhouette, SilhouettePageReglages } from '@/components/silhouettes';
+import { SilhouettePageReglages } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { FournisseurDeSousPage, type SousPageDeReglages } from '@/components/reglages/sous-page';
+import { FournisseurDuPied } from '@/components/reglages/pied-de-page';
+import { ContexteTitreDeSection } from '@/components/reglages/communs';
 
 /* ------------------------------------------------------------------ */
 /* CE QUE L'ÉCRAN AJOUTE À L'ARBORESCENCE : une icône, un module        */
@@ -87,9 +88,10 @@ const STYLE_DES_BLOCS = {
   ['--raised' as string]: 'var(--border)',
 } as React.CSSProperties;
 
-/** L'icône de chaque rubrique du premier niveau. */
+/** L'icône de chaque rubrique de la colonne fixe. */
 const ICONES_DES_RUBRIQUES: Record<string, React.ComponentType<{ className?: string }>> = {
   moi: UserRound,
+  acces: KeyRound,
   'agents-ia': Bot,
   ordinateurs: Laptop,
   serveur: Server,
@@ -98,6 +100,12 @@ const ICONES_DES_RUBRIQUES: Record<string, React.ComponentType<{ className?: str
 };
 
 const RENDU_DES_PAGES: Record<string, RenduDePage> = {
+  /* — Accès — */
+  acces: {
+    icone: KeyRound,
+    avecReglages: true,
+    rendu: paresseux(() => import('@/components/reglages/page-acces'), 'PageAcces'),
+  },
   /* — Moi — */
   'mon-compte': {
     icone: UserRound,
@@ -210,23 +218,24 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
 };
 
 /* ------------------------------------------------------------------ */
-/* La modale : six rubriques, puis la colonne d'une rubrique           */
+/* ------------------------------------------------------------------ */
+/* La fenêtre : la colonne fixe des rubriques, la page de la rubrique  */
 /* ------------------------------------------------------------------ */
 
 /**
- * LES RÉGLAGES À DEUX NIVEAUX (refonte du 21/11/2026, maquette #0074a). La
- * longue colonne de 22 pages en 9 groupes laissait même son concepteur perdu.
+ * LES RÉGLAGES EN COLONNE FIXE (carte « Retrouver la gestion des accès clients », 24/11/2026 — remplace les « deux
+ * niveaux » du 21/11, où l'on ne trouvait plus rien : choix C, maquette #b2773).
  *
- * PREMIER NIVEAU : la recherche et les SIX RUBRIQUES (titre et phrase), sur
- * toute la largeur. SECOND NIVEAU : la rubrique ouverte DEVIENT la colonne de
- * gauche (ses pages, puis « Avancé », replié, pour les pages techniques), la
- * page à droite ; « ‹ Réglages » dans l'EN-TÊTE de la fenêtre (place `gauche`
- * du `DialogHeader`) ramène au premier niveau. Sur téléphone, trois crans —
- * rubriques, pages, page — et la flèche de l'en-tête remonte d'un cran
+ * À GAUCHE, TOUJOURS : la recherche, puis les sept rubriques (Moi, Accès, Agents et IA, Ordinateurs, Serveur,
+ * Données, Connexions). Plus d'écran d'accueil à tuiles, plus de « ‹ Réglages ».
+ * À DROITE : UNE page par rubrique, qui EMPILE toutes ses pages en sections titrées (titre au-dessus, blocs gris en
+ * dessous) ; les pages techniques (`avance`) dans un bloc « Avancé » replié, en bas. Chaque section se monte à
+ * l'approche de la vue : un écran qu'on n'a pas fait défiler ne se télécharge pas.
+ * SUR TÉLÉPHONE, deux crans : la liste des rubriques, puis la page ; la flèche de l'en-tête remonte d'un cran
  * (`data-retour-menu-reglages`).
  *
- * L'adresse porte la PAGE (`#reglages/<page>`) ; sa rubrique s'en déduit. Une
- * ancienne clé suit son alias (`ALIAS_DES_PAGES_DE_REGLAGES`).
+ * L'adresse porte une clé (`#reglages/<clé>`) : une clé de page ouvre sa rubrique et descend à sa section, une clé
+ * de rubrique ouvre la rubrique en haut ; une ancienne clé suit son alias (`cibleDesReglages`).
  */
 export function SettingsView({
   open,
@@ -236,7 +245,7 @@ export function SettingsView({
 }: {
   open: boolean;
   onClose: () => void;
-  /** La page demandée par l'adresse ; vide = le premier niveau (les six rubriques). */
+  /** La page (ou la rubrique) demandée par l'adresse ; vide = la première rubrique. */
   page?: string;
   onPageChange?: (page?: string) => void;
 }) {
@@ -246,18 +255,25 @@ export function SettingsView({
       onOpenChange={(next) => {
         if (next) return;
         onClose();
-        /* Refermée, la fenêtre oublie sa page : la roue dentée la rouvre sur les six rubriques. */
+        /* Refermée, la fenêtre oublie sa page : la roue dentée la rouvre sur la première rubrique. */
         onPageChange?.(undefined);
       }}
     >
       <DialogContentLibre
-        className="sm:w-[min(940px,100%)] sm:h-[min(680px,85dvh)] h-[88dvh]"
+        className="sm:w-[min(980px,100%)] sm:h-[min(720px,88dvh)] h-[88dvh]"
         data-modale-reglages
       >
         <CorpsDesReglages open={open} page={page} onPageChange={onPageChange} />
       </DialogContentLibre>
     </Dialog>
   );
+}
+
+/** La section à rejoindre dans la page : `cle` vide = le haut ; `n` rejoue le même saut. */
+interface Visee {
+  cle: string;
+  marquer: boolean;
+  n: number;
 }
 
 function CorpsDesReglages({
@@ -277,7 +293,7 @@ function CorpsDesReglages({
         ...groupe,
         // Un accès tiers a « Mon compte », plus ce que sa grille ouvre : les
         // réglages de Beluga (« Réglages ») et les comptes des moteurs
-        // (« Moteurs »). Le reste — ordinateurs, serveur, données, connexions — reste à l'administrateur.
+        // (« Moteurs »). Le reste — accès, ordinateurs, serveur, données, connexions — reste à l'administrateur.
         pages: groupe.pages.filter(
           (item) =>
             (state.monRole === 'admin' ||
@@ -293,40 +309,50 @@ function CorpsDesReglages({
     [state.studioOuvert, state.monRole, state.mesDroits],
   );
 
-  /* LA RUBRIQUE ET LA PAGE OUVERTES. Une page INCONNUE (lien vers une page
-     retirée depuis) retombe sur le premier niveau : un écran vide passerait
-     pour une panne. */
-  const [rubriqueCle, setRubriqueCle] = React.useState<string | null>(null);
-  const [pageInterne, setPageInterne] = React.useState<string>('');
-  /* SUR TÉLÉPHONE, au second niveau : la liste des pages, ou la page par-dessus. */
+  const [rubriqueCle, setRubriqueCle] = React.useState<string>(() => groupes[0]?.cle ?? 'moi');
+  /* SUR TÉLÉPHONE : la liste des rubriques, ou la page par-dessus. */
   const [pageAuPremierPlan, setPageAuPremierPlan] = React.useState(false);
   const [recherche, setRecherche] = React.useState('');
   const [avanceOuvert, setAvanceOuvert] = React.useState(false);
-  /* LA SOUS-PAGE OUVERTE PAR LA PAGE (un ordinateur, le parcours « Ajouter ce Mac ») : son sommaire remplace la colonne
-     sur ordinateur, et la flèche de l'en-tête y remonte sur téléphone (`reglages/sous-page.tsx`). */
+  const [visee, setVisee] = React.useState<Visee>({ cle: '', marquer: false, n: 0 });
+  /* LA SECTION MARQUÉE UN INSTANT après une recherche : un fond gris qui s'éteint, aucune couleur. */
+  const [marquee, setMarquee] = React.useState<string | null>(null);
+  /* LA SOUS-PAGE OUVERTE PAR UNE PAGE (un ordinateur) : son sommaire se pose sous sa rubrique dans la colonne, et la
+     flèche de l'en-tête y remonte sur téléphone (`reglages/sous-page.tsx`). */
   const [sousPage, setSousPage] = React.useState<SousPageDeReglages | null>(null);
+  const [zone, setZone] = React.useState<HTMLDivElement | null>(null);
+  const [pied, setPied] = React.useState<HTMLDivElement | null>(null);
+  const contenuRef = React.useRef<HTMLDivElement | null>(null);
 
-  /* L'adresse désigne une page : on ouvre sa rubrique, et la page devant. */
+  /* Une clé de l'adresse : sa rubrique devant, et sa section visée. */
   const allerA = React.useCallback(
-    (cle: string) => {
-      const actuelle = cleActuelleDeLaPage(cle);
-      const rubrique = rubriqueDeLaPage(groupes, actuelle);
-      if (!rubrique) return false;
-      setRubriqueCle(rubrique.cle);
-      setPageInterne(actuelle);
+    (cle: string, marquer = false) => {
+      const cible = cibleDesReglages(groupes, cle);
+      if (!cible) return false;
+      const premiere = cible.rubrique.pages.find((p) => !p.avance)?.cle;
+      const avance = !!(cible.page && cible.rubrique.pages.find((p) => p.cle === cible.page)?.avance);
+      setRubriqueCle(cible.rubrique.cle);
       setPageAuPremierPlan(true);
-      if (rubrique.pages.find((p) => p.cle === actuelle)?.avance) setAvanceOuvert(true);
+      setAvanceOuvert(avance);
+      const versLaSection = !!cible.page && (cible.page !== premiere || marquer);
+      setVisee({ cle: versLaSection ? cible.page! : '', marquer: marquer && versLaSection, n: Date.now() });
       return true;
     },
     [groupes],
   );
 
-  /* LA DERNIÈRE PAGE QUE LA FENÊTRE A ELLE-MÊME POSÉE DANS L'ADRESSE : l'adresse
-     qui revient ne doit pas rouvrir la page par-dessus la liste (téléphone). */
+  /* LA DERNIÈRE CLÉ QUE LA FENÊTRE A ELLE-MÊME POSÉE DANS L'ADRESSE : l'adresse
+     qui revient ne doit pas rejouer le saut (ni rouvrir la page sur téléphone). */
   const pageEmise = React.useRef<string | undefined>(undefined);
   const emettre = (cle?: string) => {
     pageEmise.current = cle;
     onPageChange?.(cle);
+  };
+
+  const versLaListe = () => {
+    setRubriqueCle((avant) => (groupes.some((g) => g.cle === avant) ? avant : groupes[0]?.cle ?? 'moi'));
+    setPageAuPremierPlan(false);
+    setVisee({ cle: '', marquer: false, n: Date.now() });
   };
 
   React.useEffect(() => {
@@ -334,57 +360,86 @@ function CorpsDesReglages({
     setRecherche('');
     pageEmise.current = page;
     if (!page || !allerA(page)) {
-      setRubriqueCle(null);
-      setPageAuPremierPlan(false);
+      setRubriqueCle(groupes[0]?.cle ?? 'moi');
+      setAvanceOuvert(false);
+      versLaListe();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  /* Une page demandée de l'extérieur pendant que la fenêtre est ouverte (bouton d'un autre écran, adresse). */
+  /* Une clé demandée de l'extérieur pendant que la fenêtre est ouverte (bouton d'un autre écran, adresse). */
   React.useEffect(() => {
     if (!open || page === pageEmise.current) return;
     pageEmise.current = page;
-    if (page) allerA(page);
-    else {
-      setRubriqueCle(null);
-      setPageAuPremierPlan(false);
-    }
+    if (!page || !allerA(page)) versLaListe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  const rubrique = rubriqueCle ? groupes.find((g) => g.cle === rubriqueCle) ?? null : null;
+  const rubrique = groupes.find((g) => g.cle === rubriqueCle) ?? groupes[0];
   const pagesOrdinaires = rubrique?.pages.filter((p) => !p.avance) ?? [];
   const pagesAvancees = rubrique?.pages.filter((p) => p.avance) ?? [];
-  const pageOuverte = rubrique ? rubrique.pages.find((p) => p.cle === pageInterne) ?? pagesOrdinaires[0] ?? rubrique.pages[0] : undefined;
-  const rendu = pageOuverte ? RENDU_DES_PAGES[pageOuverte.cle] : undefined;
-  /* La sous-page se retire d'elle-même en quittant l'écran (`useSousPageDeReglages`) : aucune remise à zéro ici, qui
-     passerait APRÈS la publication de l'enfant (les effets d'un parent jouent après ceux de ses enfants). */
+  /* Une rubrique d'une seule page (Accès, Ordinateurs) : le titre de la rubrique suffit, sa section n'en redit pas. */
+  const pageSeule = pagesOrdinaires.length === 1;
   const sommaire = sousPage?.parties?.length ? sousPage : null;
 
   const ouvrirRubrique = (cle: string) => {
     const cible = groupes.find((g) => g.cle === cle);
     if (!cible) return;
-    const premiere = cible.pages.find((p) => !p.avance) ?? cible.pages[0];
     setRubriqueCle(cle);
-    setPageInterne(premiere.cle);
-    setPageAuPremierPlan(false);
+    setPageAuPremierPlan(true);
     setAvanceOuvert(false);
     setRecherche('');
-    emettre(premiere.cle);
+    setVisee({ cle: '', marquer: false, n: Date.now() });
+    emettre(cle);
   };
 
   const ouvrirPage = (cle: string) => {
-    if (allerA(cle)) {
+    if (allerA(cle, true)) {
       setRecherche('');
       emettre(cle);
     }
   };
 
-  const revenirAuxRubriques = () => {
-    setRubriqueCle(null);
-    setPageAuPremierPlan(false);
-    emettre(undefined);
-  };
+  /*
+   * LE SAUT VERS UNE SECTION. Les sections au-dessus de la cible sont montées d'office (`force`) et se chargent
+   * l'une après l'autre : la page grandit sous les yeux. Le saut se RECALE donc à chaque changement de hauteur du
+   * contenu, deux secondes et demie durant — sauf si la personne a repris la main (molette, doigt, clavier).
+   */
+  const indexVise = visee.cle ? rubrique?.pages.findIndex((p) => p.cle === visee.cle) ?? -1 : -1;
+  React.useLayoutEffect(() => {
+    if (!zone) return;
+    if (!visee.cle) {
+      zone.scrollTop = 0;
+      return;
+    }
+    let repris = false;
+    const reprendre = () => {
+      repris = true;
+    };
+    const aligner = () => {
+      if (repris) return;
+      const section = zone.querySelector<HTMLElement>(`[data-section-page="${CSS.escape(visee.cle)}"]`);
+      if (!section) return;
+      zone.scrollTop = section.getBoundingClientRect().top - zone.getBoundingClientRect().top + zone.scrollTop - 12;
+    };
+    aligner();
+    const surveillance = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(aligner) : null;
+    if (contenuRef.current) surveillance?.observe(contenuRef.current);
+    zone.addEventListener('wheel', reprendre, { passive: true });
+    zone.addEventListener('touchstart', reprendre, { passive: true });
+    zone.addEventListener('keydown', reprendre);
+    const fin = window.setTimeout(() => surveillance?.disconnect(), 2500);
+    if (visee.marquer) setMarquee(visee.cle);
+    const eteindre = visee.marquer ? window.setTimeout(() => setMarquee(null), 1600) : undefined;
+    return () => {
+      surveillance?.disconnect();
+      window.clearTimeout(fin);
+      if (eteindre) window.clearTimeout(eteindre);
+      zone.removeEventListener('wheel', reprendre);
+      zone.removeEventListener('touchstart', reprendre);
+      zone.removeEventListener('keydown', reprendre);
+    };
+  }, [zone, visee, rubrique?.cle]);
 
   const settings = state.settings;
   /* UN RÉGLAGE PERDU EN SILENCE FAIT CROIRE À UN RÉGLAGE POSÉ : chaque
@@ -404,7 +459,7 @@ function CorpsDesReglages({
           cle: item.cle,
           titre: t(item.titre),
           groupe: t(groupe.titre),
-          motsCles: [...(item.motsCles ?? []), item.titre],
+          motsCles: [...(item.motsCles ?? []), item.titre, groupe.titre],
           libelles: (item.libelles ?? []).map((libelle) => t(libelle)),
           icone: RENDU_DES_PAGES[item.cle]?.icone,
         })),
@@ -417,65 +472,80 @@ function CorpsDesReglages({
     [fiches, recherche],
   );
 
-  /* L'EN-TÊTE : « ‹ Réglages » à gauche dès qu'une rubrique est ouverte. Sur
-     téléphone, la flèche remonte d'UN cran : de la page à la liste de la
-     rubrique, puis de la rubrique aux six rubriques. */
-  const retour = rubrique ? (
-    <>
-      {pageAuPremierPlan && sousPage ? (
-        /* Sur téléphone, la flèche remonte de la sous-page à la liste de la page (« ‹ Vos ordinateurs »). */
-        <button
-          type="button"
-          data-retour-menu-reglages="sous-page"
-          data-retour-ordinateurs="entete"
-          onClick={sousPage.onRetour}
-          className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
-        >
-          <ChevronLeft className="h-4 w-4 shrink-0" />
-          <span className="truncate text-[13px]">{sousPage.retour}</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-retour-menu-reglages={pageAuPremierPlan ? 'rubrique' : 'rubriques'}
-          onClick={() => (pageAuPremierPlan ? setPageAuPremierPlan(false) : revenirAuxRubriques())}
-          className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
-        >
-          <ChevronLeft className="h-4 w-4 shrink-0" />
-          <span className="truncate text-[13px]">{pageAuPremierPlan ? t(rubrique.titre) : t('Réglages')}</span>
-        </button>
-      )}
+  /* SUR TÉLÉPHONE, LA FLÈCHE DE L'EN-TÊTE remonte d'un cran : de la sous-page à sa page, de la page à la liste. */
+  const retour = pageAuPremierPlan ? (
+    sousPage ? (
       <button
         type="button"
-        data-retour-rubriques-reglages
-        onClick={revenirAuxRubriques}
-        className="hidden items-center gap-0.5 rounded-md py-1 pl-1 pr-2 text-muted hover:bg-raised hover:text-text sm:flex"
+        data-retour-menu-reglages="sous-page"
+        data-retour-ordinateurs="entete"
+        onClick={sousPage.onRetour}
+        className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
       >
-        <ChevronLeft className="h-4 w-4" />
-        <span className="text-[13px]">{t('Réglages')}</span>
+        <ChevronLeft className="h-4 w-4 shrink-0" />
+        <span className="truncate text-[13px]">{sousPage.retour}</span>
       </button>
-    </>
+    ) : (
+      <button
+        type="button"
+        data-retour-menu-reglages="rubriques"
+        onClick={() => {
+          versLaListe();
+          emettre(undefined);
+        }}
+        className="flex min-w-0 items-center gap-0.5 rounded-md p-1.5 text-muted hover:bg-raised hover:text-text sm:hidden"
+      >
+        <ChevronLeft className="h-4 w-4 shrink-0" />
+        <span className="truncate text-[13px]">{t('Réglages')}</span>
+      </button>
+    )
   ) : null;
+
+  const sectionDePage = (item: GroupeDeReglages['pages'][number], index: number) => {
+    const rendu = RENDU_DES_PAGES[item.cle];
+    if (!rendu) return null;
+    return (
+      <SectionDePage
+        key={item.cle}
+        cle={item.cle}
+        titre={t(item.titre)}
+        avecTitre={!(pageSeule && !item.avance)}
+        marquee={marquee === item.cle}
+        force={indexVise >= 0 && index <= indexVise}
+        racine={zone}
+      >
+        <rendu.rendu
+          {...(rendu.avecReglages ? { settings: settings ?? {}, update } : {})}
+          {...(rendu.avecOuverture ? { open } : {})}
+        />
+      </SectionDePage>
+    );
+  };
 
   return (
     <>
       <DialogHeader className="border-b border-border pb-2.5" gauche={retour}>
         <DialogTitle className="min-w-0 truncate" data-titre-reglages>
-          {!rubrique ? (
-            t('Réglages')
-          ) : (
-            <>
-              <span className={cn(pageAuPremierPlan && 'max-sm:hidden')}>{t(rubrique.titre)}</span>
-              {pageAuPremierPlan && pageOuverte ? <span className="sm:hidden">{sousPage?.titre ?? t(pageOuverte.titre)}</span> : null}
-            </>
-          )}
+          <span className={cn(pageAuPremierPlan && 'max-sm:hidden')}>{t('Réglages')}</span>
+          {pageAuPremierPlan && rubrique ? <span className="sm:hidden">{sousPage?.titre ?? t(rubrique.titre)}</span> : null}
         </DialogTitle>
       </DialogHeader>
 
-      {!rubrique ? (
-        /* ------------------------ PREMIER NIVEAU ------------------------ */
-        <div className="flex min-h-0 flex-1 flex-col" style={STYLE_DES_BLOCS} data-niveau-reglages="rubriques">
-          <div className="mx-auto w-full max-w-[720px] shrink-0 px-4 pb-1 pt-3 sm:pb-2 sm:pt-4">
+      <div
+        className="flex min-h-0 flex-1"
+        style={STYLE_DES_BLOCS}
+        data-niveau-reglages={pageAuPremierPlan ? 'page' : 'liste'}
+        data-rubrique-ouverte={rubrique?.cle}
+      >
+        {/* ------------------------ LA COLONNE FIXE ------------------------ */}
+        <nav
+          data-menu-reglages
+          className={cn(
+            'flex min-h-0 w-full flex-col sm:w-[232px] sm:shrink-0 sm:border-r sm:border-border',
+            pageAuPremierPlan && 'hidden sm:flex',
+          )}
+        >
+          <div className="shrink-0 px-3 pb-2 pt-3 sm:px-2.5">
             <ChampDeRecherche
               valeur={recherche}
               onChange={setRecherche}
@@ -488,182 +558,207 @@ function CorpsDesReglages({
               data-recherche-reglages
             />
           </div>
-          <ZoneDefilement className="px-4 pb-4">
-            <div className="mx-auto w-full max-w-[720px] pt-2">
-              {enRecherche ? (
-                <ResultatsDeRecherche groupes={resultatsGroupes} onOuvrir={ouvrirPage} />
-              ) : (
-                <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-2" data-rubriques-reglages>
-                  {groupes.map((groupe) => {
-                    const Icone = ICONES_DES_RUBRIQUES[groupe.cle] ?? Puzzle;
-                    return (
-                      <button
-                        key={groupe.cle}
-                        type="button"
-                        data-rubrique-reglages={groupe.cle}
-                        onClick={() => ouvrirRubrique(groupe.cle)}
-                        className="flex items-center gap-3 rounded-2xl bg-surface px-3.5 py-2.5 text-left transition-colors hover:bg-raised sm:items-start sm:p-4"
-                      >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-raised text-muted sm:h-9 sm:w-9">
-                          <Icone className="h-[18px] w-[18px]" />
-                        </span>
-                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className="text-[14.5px] font-semibold text-text">{t(groupe.titre)}</span>
-                          <span className="text-[12px] leading-snug text-muted sm:text-[12.5px]">{t(groupe.phrase)}</span>
-                        </span>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-faint sm:mt-2.5" />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </ZoneDefilement>
-        </div>
-      ) : (
-        /* ------------------------ SECOND NIVEAU ------------------------- */
-        <div className="flex min-h-0 flex-1" style={STYLE_DES_BLOCS} data-niveau-reglages="rubrique" data-rubrique-ouverte={rubrique.cle}>
-          <nav
-            data-menu-reglages
-            className={cn(
-              'flex min-h-0 w-full flex-col sm:w-[236px] sm:shrink-0 sm:border-r sm:border-border',
-              pageAuPremierPlan && 'hidden sm:flex',
-            )}
-          >
-            {sommaire ? (
-              <SommaireDeLaSousPage sousPage={sommaire} />
+          <ZoneDefilement className="px-3 pb-3 sm:px-2.5">
+            {enRecherche ? (
+              <ResultatsDeRecherche groupes={resultatsGroupes} onOuvrir={ouvrirPage} />
             ) : (
-            <ZoneDefilement className="px-2 pb-3 pt-3">
-              <p className="px-2.5 pb-2 text-[12.5px] leading-snug text-muted sm:px-2" data-phrase-rubrique>
-                {t(rubrique.phrase)}
-              </p>
-              <div className="space-y-0.5">
-                {pagesOrdinaires.map((item) => (
-                  <LigneDuMenu key={item.cle} cle={item.cle} titre={t(item.titre)} active={pageOuverte?.cle === item.cle} onOuvrir={ouvrirPage} />
+              <div className="flex flex-col gap-0.5" data-rubriques-reglages>
+                {groupes.map((groupe) => (
+                  <React.Fragment key={groupe.cle}>
+                    <LigneDeRubrique
+                      cle={groupe.cle}
+                      titre={t(groupe.titre)}
+                      active={groupe.cle === rubrique?.cle}
+                      onOuvrir={ouvrirRubrique}
+                    />
+                    {groupe.cle === rubrique?.cle && sommaire ? <SommaireDeLaSousPage sousPage={sommaire} /> : null}
+                  </React.Fragment>
                 ))}
               </div>
-              {pagesAvancees.length ? (
-                <div className="mt-3" data-avance-reglages={avanceOuvert ? 'ouvert' : 'replie'}>
-                  <button
-                    type="button"
-                    onClick={() => setAvanceOuvert((v) => !v)}
-                    aria-expanded={avanceOuvert}
-                    data-basculer-avance
-                    className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left text-[12px] uppercase tracking-wide text-faint hover:text-muted sm:px-2 sm:py-1.5"
-                  >
-                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', avanceOuvert && 'rotate-90')} />
-                    {t('Avancé')}
-                  </button>
-                  {avanceOuvert ? (
-                    <div className="space-y-0.5">
-                      {pagesAvancees.map((item) => (
-                        <LigneDuMenu key={item.cle} cle={item.cle} titre={t(item.titre)} active={pageOuverte?.cle === item.cle} onOuvrir={ouvrirPage} />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </ZoneDefilement>
             )}
-          </nav>
+          </ZoneDefilement>
+        </nav>
 
-          <section
-            data-page-reglages={pageOuverte?.cle}
-            className={cn('flex min-h-0 min-w-0 w-full flex-1 flex-col', !pageAuPremierPlan && 'hidden sm:flex')}
-          >
-            <ZoneDefilement className="p-4 sm:px-6 sm:py-5">
-              <FournisseurDeSousPage value={setSousPage}>
-                <React.Suspense fallback={<SilhouettePageReglages />}>
-                  {rendu ? (
-                    <rendu.rendu
-                      key={pageOuverte?.cle}
-                      {...(rendu.avecReglages ? { settings: settings ?? {}, update } : {})}
-                      {...(rendu.avecOuverture ? { open } : {})}
-                    />
-                  ) : null}
-                </React.Suspense>
-              </FournisseurDeSousPage>
-            </ZoneDefilement>
-          </section>
-        </div>
-      )}
+        {/* ------------------------ LA PAGE DE LA RUBRIQUE ------------------------ */}
+        <section
+          data-page-reglages={rubrique?.cle}
+          className={cn('flex min-h-0 min-w-0 w-full flex-1 flex-col', !pageAuPremierPlan && 'hidden sm:flex')}
+        >
+          <FournisseurDeSousPage value={setSousPage}>
+            <FournisseurDuPied value={pied}>
+              <ZoneDefilement ref={setZone} className="px-4 pb-6 pt-4 sm:px-6 sm:pt-5">
+                {rubrique ? (
+                  <div key={rubrique.cle} ref={contenuRef} className="flex flex-col gap-9 max-sm:gap-10" data-page-rubrique={rubrique.cle}>
+                    <header className="flex flex-col gap-1 px-1" data-tete-rubrique>
+                      <h2 className="text-[18px] font-semibold text-text max-sm:hidden">{t(rubrique.titre)}</h2>
+                      <p className="text-[13px] leading-relaxed text-muted">{t(rubrique.phrase)}</p>
+                    </header>
+                    {pagesOrdinaires.map((item) => sectionDePage(item, rubrique.pages.indexOf(item)))}
+                    {pagesAvancees.length ? (
+                      <div className="flex flex-col gap-6" data-avance-reglages={avanceOuvert ? 'ouvert' : 'replie'}>
+                        <button
+                          type="button"
+                          onClick={() => setAvanceOuvert((v) => !v)}
+                          aria-expanded={avanceOuvert}
+                          data-basculer-avance
+                          className="flex w-fit items-center gap-1.5 rounded-md px-1 py-1 text-left text-[12px] uppercase tracking-wide text-faint hover:text-muted"
+                        >
+                          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', avanceOuvert && 'rotate-90')} />
+                          {t('Avancé')}
+                        </button>
+                        {avanceOuvert ? pagesAvancees.map((item) => sectionDePage(item, rubrique.pages.indexOf(item))) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </ZoneDefilement>
+              {/* LE PIED D'UNE PAGE (« Ajouter un projet » d'Accès) : collé en bas, hors du défilement. */}
+              <div ref={setPied} className="shrink-0 empty:hidden" data-pied-page-reglages />
+            </FournisseurDuPied>
+          </FournisseurDeSousPage>
+        </section>
+      </div>
     </>
   );
 }
 
 /**
- * LE SOMMAIRE D'UNE SOUS-PAGE (maquette #a0549) : à la place des pages de la rubrique, sur ordinateur seulement (sur
- * téléphone, la colonne et la page ne se montrent jamais ensemble : la flèche de l'en-tête suffit). La partie lue se
- * marque par le fond gris de la page choisie, comme dans le menu.
+ * UNE PAGE DANS LA PAGE DE SA RUBRIQUE : son titre, puis ses blocs. Elle ne se MONTE qu'à l'approche de la vue
+ * (400 px avant) — ou d'office quand un saut la vise ou vise une section plus bas : un écran qu'on n'a pas fait
+ * défiler ne se télécharge pas. Montée, elle le reste.
  */
-function SommaireDeLaSousPage({ sousPage }: { sousPage: SousPageDeReglages }) {
+function SectionDePage({
+  cle,
+  titre,
+  avecTitre,
+  marquee,
+  force,
+  racine,
+  children,
+}: {
+  cle: string;
+  titre: string;
+  avecTitre: boolean;
+  marquee: boolean;
+  force: boolean;
+  racine: HTMLElement | null;
+  children: React.ReactNode;
+}) {
+  const ref = React.useRef<HTMLElement | null>(null);
+  const [montee, setMontee] = React.useState(force);
+  React.useEffect(() => {
+    if (force) setMontee(true);
+  }, [force]);
+  React.useEffect(() => {
+    if (montee || !racine) return;
+    const section = ref.current;
+    if (!section || typeof IntersectionObserver === 'undefined') {
+      setMontee(true);
+      return;
+    }
+    const observateur = new IntersectionObserver(
+      (entrees) => {
+        if (entrees.some((e) => e.isIntersecting)) {
+          setMontee(true);
+          observateur.disconnect();
+        }
+      },
+      { root: racine, rootMargin: '400px 0px' },
+    );
+    observateur.observe(section);
+    return () => observateur.disconnect();
+  }, [montee, racine]);
   return (
-    <ZoneDefilement className="px-2 pb-3 pt-3" data-sommaire-sous-page>
-      <button
-        type="button"
-        onClick={sousPage.onRetour}
-        className="flex w-fit items-center gap-0.5 rounded-md px-2 pb-3 text-[13px] text-muted hover:text-text"
-        data-retour-ordinateurs="colonne"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        {sousPage.retour}
-      </button>
-      {sousPage.titre ? (
-        <p className="truncate px-2 pb-2 text-[12px] uppercase tracking-wide text-faint" data-titre-sous-page>
-          {sousPage.titre}
-        </p>
+    <section
+      ref={ref}
+      data-section-page={cle}
+      data-section-montee={montee ? 'oui' : 'non'}
+      data-section-marquee={marquee ? 'oui' : undefined}
+      className={cn('-m-2 flex flex-col gap-4 rounded-2xl p-2 transition-colors duration-700 max-sm:gap-5', marquee ? 'bg-raised' : 'bg-transparent')}
+    >
+      {avecTitre ? (
+        <h3 className="px-1 text-[16px] font-semibold text-text" data-titre-section>
+          {titre}
+        </h3>
       ) : null}
-      <div className="space-y-0.5">
-        {(sousPage.parties ?? []).map((p) => {
-          const active = sousPage.active === p.cle;
-          const Icone = p.icone;
-          return (
-            <button
-              key={p.cle}
-              type="button"
-              data-aller-partie={p.cle}
-              data-actif={active ? 'oui' : undefined}
-              aria-current={active ? 'true' : undefined}
-              onClick={() => sousPage.onAller?.(p.cle)}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
-                active ? 'bg-raised font-medium text-text' : 'text-muted hover:bg-raised/60 hover:text-text',
-              )}
-            >
-              {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
-              <span className="min-w-0 flex-1 truncate">{p.titre}</span>
-            </button>
-          );
-        })}
-      </div>
-    </ZoneDefilement>
+      <ContexteTitreDeSection.Provider value={avecTitre ? titre : null}>
+        {montee ? <React.Suspense fallback={<SilhouettePageReglages />}>{children}</React.Suspense> : <SilhouettePageReglages />}
+      </ContexteTitreDeSection.Provider>
+    </section>
   );
 }
 
-/** Une page dans la colonne d'une rubrique. La page ouverte se marque par un fond gris, jamais par une couleur. */
-function LigneDuMenu({ cle, titre, active, onOuvrir }: { cle: string; titre: string; active: boolean; onOuvrir: (cle: string) => void }) {
-  const Icone = RENDU_DES_PAGES[cle]?.icone;
+/**
+ * LE SOMMAIRE D'UNE SOUS-PAGE (un ordinateur), posé SOUS sa rubrique dans la colonne, sur ordinateur seulement (sur
+ * téléphone, la colonne et la page ne se montrent jamais ensemble : la flèche de l'en-tête suffit). La partie lue se
+ * marque par le fond gris, comme la rubrique.
+ */
+function SommaireDeLaSousPage({ sousPage }: { sousPage: SousPageDeReglages }) {
+  return (
+    <div className="mb-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2 max-sm:hidden" data-sommaire-sous-page>
+      <button
+        type="button"
+        onClick={sousPage.onRetour}
+        className="flex w-fit items-center gap-0.5 rounded-md px-2 py-1 text-[12.5px] text-muted hover:text-text"
+        data-retour-ordinateurs="colonne"
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+        {sousPage.retour}
+      </button>
+      {sousPage.titre ? (
+        <p className="truncate px-2 pb-1 pt-1 text-[11.5px] uppercase tracking-wide text-faint" data-titre-sous-page>
+          {sousPage.titre}
+        </p>
+      ) : null}
+      {(sousPage.parties ?? []).map((p) => {
+        const active = sousPage.active === p.cle;
+        const Icone = p.icone;
+        return (
+          <button
+            key={p.cle}
+            type="button"
+            data-aller-partie={p.cle}
+            data-actif={active ? 'oui' : undefined}
+            aria-current={active ? 'true' : undefined}
+            onClick={() => sousPage.onAller?.(p.cle)}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]',
+              active ? 'bg-raised font-medium text-text' : 'text-muted hover:bg-raised/60 hover:text-text',
+            )}
+          >
+            {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
+            <span className="min-w-0 flex-1 truncate">{p.titre}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Une rubrique dans la colonne fixe. La rubrique ouverte se marque par un fond gris, jamais par une couleur. */
+function LigneDeRubrique({ cle, titre, active, onOuvrir }: { cle: string; titre: string; active: boolean; onOuvrir: (cle: string) => void }) {
+  const Icone = ICONES_DES_RUBRIQUES[cle] ?? Puzzle;
   return (
     <button
       type="button"
-      data-page-menu={cle}
+      data-rubrique-reglages={cle}
       data-actif={active ? 'oui' : undefined}
       aria-current={active ? 'page' : undefined}
       onClick={() => onOuvrir(cle)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13.5px] sm:px-2 sm:py-1.5',
-        /* Sur téléphone, cette colonne est une liste de pages : aucune n'est « choisie » tant qu'on ne l'a pas ouverte. */
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-[14px] sm:py-2 sm:text-[13.5px]',
+        /* Sur téléphone, cette colonne est une liste : aucune rubrique n'est « choisie » tant qu'on ne l'a pas ouverte. */
         active ? 'text-text sm:bg-raised sm:font-medium' : 'text-muted hover:bg-raised/60 hover:text-text',
       )}
     >
-      {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
+      <Icone className={cn('h-4 w-4 shrink-0', active ? 'text-muted' : 'text-faint')} />
       <span className="min-w-0 flex-1 truncate">{titre}</span>
-      <ChevronRight className="h-3 w-3 shrink-0 text-faint sm:hidden" />
+      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint sm:hidden" />
     </button>
   );
 }
 
-/** Les résultats de la recherche, rangés par rubrique : un clic ouvre la rubrique ET la page. */
+/** Les résultats de la recherche, rangés par rubrique : un clic ouvre la rubrique ET descend à la section. */
 function ResultatsDeRecherche({
   groupes,
   onOuvrir,
@@ -679,11 +774,11 @@ function ResultatsDeRecherche({
     );
   }
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-3" data-resultats-reglages>
       {groupes.map((groupe) => (
         <div key={groupe.groupe} data-groupe-reglages={groupe.groupe}>
-          <p className="px-1 pb-1.5 text-[11px] uppercase tracking-wide text-faint">{groupe.groupe}</p>
-          <div className="flex flex-col gap-0.5 rounded-2xl bg-surface p-1.5">
+          <p className="px-2 pb-1 text-[11px] uppercase tracking-wide text-faint">{groupe.groupe}</p>
+          <div className="flex flex-col gap-0.5">
             {groupe.fiches.map((fiche) => {
               const Icone = (fiche as any).icone as React.ComponentType<{ className?: string }> | undefined;
               return (
@@ -692,11 +787,10 @@ function ResultatsDeRecherche({
                   type="button"
                   data-page-menu={fiche.cle}
                   onClick={() => onOuvrir(fiche.cle)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[14px] text-text hover:bg-raised"
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-text hover:bg-raised"
                 >
-                  {Icone ? <Icone className="h-4 w-4 shrink-0 text-faint" /> : null}
+                  {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
                   <span className="min-w-0 flex-1 truncate">{fiche.titre}</span>
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
                 </button>
               );
             })}

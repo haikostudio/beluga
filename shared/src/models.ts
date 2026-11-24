@@ -1684,6 +1684,12 @@ export const Agent = z.object({
    * sur `adresse` (l'écran du service, « #<adresse> »).
    */
   service: z.object({ id: z.string(), nom: z.string(), adresse: z.string() }).optional(),
+  /**
+   * L'AGENT QUI A LANCÉ CELUI-CI (carte « Chefs invisibles et fausse carte », 24/11/2026) : un sous-agent paraît sous
+   * son parent dans « En cours » et dans la rangée d'onglets de sa conversation (`shared/src/sous-agents.ts`).
+   * Générique : tout agent qui en réveille un autre le pose ; les chefs de Communication le reçoivent à leur naissance.
+   */
+  parentAgentId: z.string().optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -3176,6 +3182,13 @@ export const Settings = z.object({
    * comptent jamais (`ordreDeMoteursComplet`).
    */
   ordreDesMoteurs: z.array(z.string()).default([]),
+  /**
+   * LES PROJETS DE LA PAGE « ACCÈS » (Réglages › Accès, 24/11/2026), dans l'ordre où ils ont été ajoutés. La page ne
+   * liste jamais tous les projets d'office : seulement ceux-ci, plus ceux qui ont déjà un accès
+   * (`projetsDeLaPageAcces`). ABSENTE tant que la page n'a jamais été ouverte : elle s'initialise alors avec les projets
+   * qui ont un accès. Réservée à l'administrateur (`settings.update` la refuse à tout autre compte).
+   */
+  projetsDesAcces: z.array(z.string()).optional(),
   /**
    * LES GROUPES DU PANNEAU DES QUOTAS, REPLIÉS OU DÉPLIÉS À LA MAIN (moteur → replié). Un réglage général, donc
    * partagé entre tous les appareils de l'utilisateur ; un moteur absent suit `groupeQuotaReplie` (replié d'office

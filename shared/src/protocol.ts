@@ -1529,7 +1529,15 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * fiche et son journal, l'interrupteur, « Lancer maintenant ». Chaque commande nomme son projet : les droits sont
    * ceux des cartes de ce projet. Les changements reviennent par l'événement `agentsPerso`, qui ne porte que le projet.
    */
+  /* LES SOUS-AGENTS (24/11/2026) : la famille entière d'un agent (racine et descendants, même au repos), et les chefs
+     de Communication qu'un projet porte, pour son onglet « Agents » (`server/src/sous-agents.ts`). */
+  z.object({ type: z.literal('agents.famille'), agentId: z.string() }),
+  z.object({ type: z.literal('agents.chefsDuProjet'), projectId: z.string() }),
+  /* Couper un chef (il sort de la ronde du matin et ne reçoit plus de travail confié), ou le rallumer. */
+  z.object({ type: z.literal('agents.couperLeChef'), agentId: z.string(), coupe: z.boolean() }),
   z.object({ type: z.literal('agentsPerso.lister'), projectId: z.string() }),
+  /** Les agents de TOUS les projets que la session voit (onglet « Agents » des Tableaux de bord), avec leur point du matin réuni. */
+  z.object({ type: z.literal('agentsPerso.listerTout') }),
   z.object({ type: z.literal('agentsPerso.creer'), projectId: z.string() }),
   z.object({ type: z.literal('agentsPerso.lire'), projectId: z.string(), id: z.string() }),
   z.object({ type: z.literal('agentsPerso.allumer'), projectId: z.string(), id: z.string() }),
@@ -2253,13 +2261,25 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Pose la grille des droits d'un accès tiers : projet par projet, service par service. */
   z.object({ type: z.literal('comptes.droits'), id: z.string(), droits: z.any() }),
   z.object({ type: z.literal('comptes.portee'), id: z.string(), projets: z.array(z.string()) }),
+  /**
+   * L'ACCÈS D'UNE PERSONNE SUR UN SEUL PROJET (Réglages › Accès) : `client`, `voir`, `travailler`, `deployer`, ou
+   * `null` pour le retirer. Seule l'entrée de CE projet change (`accesApresChangement`) ; un niveau de l'autre côté
+   * (un client promu dans l'équipe, ou l'inverse) est refusé.
+   */
+  z.object({
+    type: z.literal('comptes.accesProjet'),
+    id: z.string(),
+    projectId: z.string(),
+    niveau: z.enum(['client', 'voir', 'travailler', 'deployer']).nullable(),
+  }),
   /** Change le niveau d'un accès existant (jamais celui d'un administrateur, jamais vers administrateur). */
   z.object({ type: z.literal('comptes.niveau'), id: z.string(), role: z.enum(['membre', 'lecteur', 'client']) }),
   z.object({ type: z.literal('comptes.renommer'), id: z.string(), nomAffiche: z.string() }),
   /** L'adresse où écrire à ce client. Vide = ne rien lui envoyer. */
   z.object({ type: z.literal('comptes.courriel'), id: z.string(), courriel: z.string() }),
   z.object({ type: z.literal('comptes.suspendre'), id: z.string(), suspendu: z.boolean() }),
-  z.object({ type: z.literal('comptes.motDePasse'), id: z.string() }),
+  /** Tire un nouveau mot de passe ; avec `envoyerIdentifiants`, il part aussitôt par courriel à l'adresse du compte. */
+  z.object({ type: z.literal('comptes.motDePasse'), id: z.string(), envoyerIdentifiants: z.boolean().optional() }),
   z.object({ type: z.literal('comptes.retirer'), id: z.string() }),
   /**
    * Transformer une demande de client en carte Beluga, lien gardé des deux côtés.

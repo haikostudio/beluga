@@ -11,7 +11,7 @@
  *  - un client ne touche QUE ses propres demandes, dans les projets de sa portée.
  */
 import fs from 'node:fs';
-import { estLeCompteDesTickets } from '@beluga/shared';
+import { accesApresChangement, estLeCompteDesTickets } from '@beluga/shared';
 import {
   REFUS_HORS_PORTEE,
   TITRES_COLONNES_DEMANDE,
@@ -1207,6 +1207,20 @@ export async function commandeDeLEspaceClient(
       return { compte: compteMaj };
     }
 
+    case 'comptes.accesProjet': {
+      const projetsConnus = store.listProjects(true).map((p) => p.id);
+      if (!projetsConnus.includes(cmd.projectId)) throw new Error('Ce projet est introuvable.');
+      const vise = compteParId(cmd.id);
+      if (!vise) throw new Error('Ce compte est introuvable.');
+      const changement = accesApresChangement(vise, cmd.projectId, cmd.niveau);
+      const compteMaj =
+        changement.genre === 'portee'
+          ? changerLaPortee(cmd.id, changement.projets, projetsConnus)
+          : changerLesDroits(cmd.id, changement.droits, projetsConnus);
+      bus.emit({ type: 'comptes', comptes: listerComptes() });
+      return { compte: compteMaj };
+    }
+
     case 'comptes.droits': {
       const projetsConnus = store.listProjects(true).map((p) => p.id);
       const compteMaj = changerLesDroits(cmd.id, cmd.droits, projetsConnus);
@@ -1242,7 +1256,19 @@ export async function commandeDeLEspaceClient(
     case 'comptes.motDePasse': {
       const motDePasse = reinitialiserLeMotDePasse(cmd.id);
       bus.emit({ type: 'comptes', comptes: listerComptes() });
-      return { motDePasse };
+      /* ENVOYER LES IDENTIFIANTS D'UN COMPTE EXISTANT (Réglages › Accès) : l'ancien mot de passe n'est gardé qu'en
+         empreinte, c'est donc ce nouveau qui part. Un envoi raté se dit, le mot de passe reste montré à l'écran. */
+      const vise = cmd.envoyerIdentifiants ? compteParId(cmd.id) : null;
+      const courriel = vise
+        ? await envoyerLesIdentifiants({
+            envoyer: true,
+            courriel: vise.courriel,
+            nom: nomDuCompte(vise),
+            identifiant: vise.identifiant,
+            motDePasse,
+          })
+        : undefined;
+      return { motDePasse, courriel };
     }
 
     case 'comptes.retirer': {

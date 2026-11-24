@@ -544,6 +544,20 @@ test('ouvrir une carte sur un tableau de bord change d’écran ; l’onglet non
   assert.equal(memeEcran(a, { vue: 'tableau-de-bord', projectId: PROJET, cardId: CARTE }), false);
 });
 
+test('l’onglet « Agents » des Tableaux de bord a son adresse, sans casser la carte ouverte par-dessus', () => {
+  assert.equal(construireFragment({ vue: 'en-route', agents: true }), 'en-route/agents');
+  assert.deepEqual(lireFragment('#en-route/agents'), { vue: 'en-route', agents: true });
+  assert.equal(construireFragment({ vue: 'tableau-de-bord', agents: true }), 'tableau-de-bord');
+  assert.deepEqual(lireFragment('#tableau-de-bord/agents'), { vue: 'tableau-de-bord' });
+  // Une carte ouverte garde son adresse : l'onglet ne s'y écrit pas.
+  assert.equal(construireFragment({ vue: 'en-route', projectId: PROJET, cardId: CARTE, agents: true }), `en-route/projet/projet-42/tache/${CARTE}`);
+  assert.deepEqual(ecranDeLaVue({ vue: 'en-route', agents: {} }), { vue: 'en-route', agents: true });
+  assert.deepEqual(ecranDeLaVue({ vue: 'en-route', agents: null }), { vue: 'en-route' });
+  // Passer des tâches aux agents est un détail d'affichage : pas d'entrée d'historique.
+  assert.equal(memeEcran({ vue: 'en-route' }, { vue: 'en-route', agents: true }), true);
+  assert.equal(destinationDeLEcran(lireFragment('#en-route/agents')), 'en-route');
+});
+
 test('l’écran déduit de l’interface porte la carte d’un tableau de bord, et seulement elle', () => {
   assert.deepEqual(
     ecranDeLaVue({ vue: 'en-route', projectId: PROJET, cardId: CARTE, titreCarte: 'T', onglet: 'github' }),

@@ -112,7 +112,12 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'project.open': 'projet:id',
   'project.read': 'projet:projectId',
   'agentsPerso.lister': 'projet:projectId',
+  // Le tri se fait à la lecture : un chef ne part qu'à son compte, tout autre sous-agent qu'à l'administrateur.
+  'agents.famille': 'aucun',
+  'agents.chefsDuProjet': 'projet:projectId',
   'agentsPerso.lire': 'projet:projectId',
+  // Le démon ne lit que les projets ouverts au compte (`peutVoirProjet`) : la réponse est déjà sa part.
+  'agentsPerso.listerTout': 'aucun',
   'projects.relire': 'projet:ids',
   'cards.tranche': 'projet:projectId',
   // Ces trois réponses listent plusieurs projets : `reponsePourLeCollaborateur` les ramène à la portée.
@@ -233,6 +238,8 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'agent.reset': 'agent:agentId',
   'agent.prompt': 'agent:agentId',
   'agent.stop': 'agent:agentId',
+  // Couper un chef de Communication : le démon revérifie qu'il appartient au compte.
+  'agents.couperLeChef': 'agent:agentId',
   'agent.suspend': 'agent:agentId',
   'agent.config': 'agent:agentId',
   'queue.update': 'file:id',

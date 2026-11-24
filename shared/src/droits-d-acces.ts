@@ -9,16 +9,16 @@
  *    un projet absent de la grille est fermé ;
  *  - pour chaque service sensible : `aucun`, `voir` ou `modifier`.
  *
- * Les comptes CLIENTS (espace client) ne passent jamais par ici : ils se créent
- * depuis la messagerie, et n'ont que leur espace.
+ * Les comptes CLIENTS (espace client) ne passent jamais par ici : ils n'ont que
+ * leur espace et leur portée. Les deux se règlent projet par projet dans
+ * Réglages › Accès (`acces-par-projet.ts`, 24/11/2026).
  *
  * Le niveau rangé en base (`membre` / `lecteur`) se DÉDUIT de la grille
  * (`roleDesDroits`) : tout ce qui lisait le niveau continue de marcher, et la
  * liste des projets ouverts (`user_projects`) reste la clé de la portée.
  *
- * TOUT EST FERMÉ PAR DÉFAUT (`DROITS_VIDES`) : un premier accès créé n'ouvre
- * rien tant que personne n'a coché ; les suivants reprennent la grille du
- * dernier accès créé (`droitsDeDepart`).
+ * TOUT EST FERMÉ PAR DÉFAUT (`DROITS_VIDES`) : un accès naît dans le bloc d'UN
+ * projet, avec ce seul projet ouvert et aucun service.
  */
 import type { CompteUtilisateur } from './comptes-clients.js';
 
@@ -136,21 +136,6 @@ export function niveauSuffit(niveau: NiveauProjet | undefined, requis: NiveauPro
 /** Le niveau d'un service pour ce compte (`aucun` par défaut). */
 export function niveauDuService(droits: DroitsDAcces, service: ServiceOuvrable): NiveauService {
   return droits.services[service] ?? 'aucun';
-}
-
-/**
- * LE FORMULAIRE D'UN NOUVEL ACCÈS : le tout premier part de « rien d'ouvert »,
- * les suivants reprennent la grille du DERNIER accès créé (décision du
- * 18/10/2026), ramenée aux projets qui existent encore.
- */
-export function droitsDeDepart(
-  comptes: readonly (Pick<CompteUtilisateur, 'role' | 'projets' | 'creeLe'> & { droits?: DroitsDAcces })[],
-  projetsConnus: readonly string[],
-): DroitsDAcces {
-  const tiers = comptes.filter((c) => c.role === 'membre' || c.role === 'lecteur');
-  if (!tiers.length) return { projets: {}, services: {} };
-  const dernier = [...tiers].sort((a, b) => b.creeLe - a.creeLe)[0]!;
-  return droitsLus(droitsDuCompte(dernier), projetsConnus);
 }
 
 /**

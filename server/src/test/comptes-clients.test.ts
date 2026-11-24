@@ -14,7 +14,6 @@ import {
   MOT_DE_PASSE_MIN,
   courrielNettoye,
   decouperPourLaLecture,
-  etatDuCompteEnClair,
   jugerCourriel,
   jugerIdentifiant,
   jugerMotDePasse,
@@ -79,12 +78,6 @@ test('un compte sans nom affiché se présente par son identifiant', () => {
 
 test('un mot de passe tiré au hasard se coupe pour se recopier', () => {
   assert.equal(decouperPourLaLecture('abcdefghij', 5), 'abcde-fghij');
-});
-
-test('l’état d’un compte se dit en un mot', () => {
-  assert.equal(etatDuCompteEnClair({ actif: false }), 'Suspendu');
-  assert.equal(etatDuCompteEnClair({ actif: true }), 'Jamais entré');
-  assert.equal(etatDuCompteEnClair({ actif: true, derniereEntree: 1 }), 'Actif');
 });
 
 test('une adresse de courriel est jugée sans zèle, et l’absence est un choix', () => {

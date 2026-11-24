@@ -181,7 +181,7 @@ export function FicheDeLaMachineVue({ donnees }: { donnees: ReponseFiche | null 
             <div key={disque.montage} className="rounded-xl px-1.5 py-2.5" data-disque={disque.montage}>
               <div className="flex items-baseline gap-2">
                 <span className="shrink-0 text-[14px] text-text">{nomDuDisque(disque.montage, disque.externe)}</span>
-                <span className="min-w-0 flex-1 truncate text-[12px] text-faint">{disque.montage}</span>
+                <span className="min-w-0 flex-1 text-[12px] text-faint [overflow-wrap:anywhere] sm:truncate">{disque.montage}</span>
                 <span className="shrink-0 text-[13px] font-medium text-text">{pct} %</span>
               </div>
               <Gauge value={pct} tone={pct >= 90 ? 'auto' : 'neutral'} height="h-1.5" className="mt-1.5" />
@@ -223,7 +223,7 @@ function Tuile({
       <p className="truncate text-[11.5px] uppercase tracking-wide text-faint">{titre}</p>
       <p className="mt-0.5 truncate text-[15px] font-medium text-text">{valeur}</p>
       {barre !== undefined ? <Gauge value={barre} tone="neutral" height="h-1" className="mt-1" /> : null}
-      {detail ? <p className="mt-0.5 truncate text-[11.5px] text-faint" title={detail}>{detail}</p> : null}
+      {detail ? <p className="mt-0.5 text-[11.5px] leading-snug text-faint sm:truncate" title={detail}>{detail}</p> : null}
     </div>
   );
 }
@@ -335,7 +335,7 @@ function Courbe({
         <span className="truncate">{t('il y a {p}', { p: periode })}</span>
         <span className="shrink-0">{t('maintenant')}</span>
       </div>
-      {legende ? <p className="mt-0.5 truncate text-[11px] text-faint" title={legende}>{legende}</p> : null}
+      {legende ? <p className="mt-0.5 text-[11px] leading-snug text-faint sm:truncate" title={legende}>{legende}</p> : null}
     </div>
   );
 }

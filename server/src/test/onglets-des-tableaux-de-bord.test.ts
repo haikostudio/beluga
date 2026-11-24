@@ -4,10 +4,17 @@ import {
   ONGLETS_DES_TABLEAUX_DE_BORD,
   PREF_ONGLET_DES_TABLEAUX_DE_BORD,
   ongletDesTableauxDeBord,
+  agentsDesTableauxRetenus,
 } from '@beluga/shared';
 
 test('les onglets du téléphone : « Tâches » en premier', () => {
-  assert.deepEqual([...ONGLETS_DES_TABLEAUX_DE_BORD], ['taches', 'a-deployer', 'production']);
+  assert.deepEqual([...ONGLETS_DES_TABLEAUX_DE_BORD], ['taches', 'agents', 'a-deployer', 'production']);
+});
+
+test('« Agents » est retenu comme les autres, et lu par l’ordinateur', () => {
+  assert.equal(ongletDesTableauxDeBord('agents'), 'agents');
+  assert.equal(agentsDesTableauxRetenus('agents'), true);
+  for (const v of [undefined, 'taches', 'production', 'inconnu']) assert.equal(agentsDesTableauxRetenus(v), false);
 });
 
 test('sans préférence ou avec une valeur abîmée, la page s’ouvre sur « Tâches »', () => {

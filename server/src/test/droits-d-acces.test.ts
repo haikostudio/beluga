@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   DROITS_VIDES,
   commandeOuverteAuCompte,
-  droitsDeDepart,
   droitsDuCompte,
   droitsLus,
   evenementOuvertParUnService,
@@ -77,10 +76,3 @@ test('un accès d’avant la grille garde exactement ce qu’il avait', () => {
   assert.deepEqual(droitsDuCompte({ role: 'lecteur', projets: ['a'] }), { projets: { a: 'voir' }, services: {} });
 });
 
-test('le premier formulaire part de rien, les suivants reprennent le dernier accès créé', () => {
-  assert.deepEqual(droitsDeDepart([], ['a']), { projets: {}, services: {} });
-  const ancien = { role: 'membre' as const, projets: ['a'], creeLe: 1, droits: { projets: { a: 'travailler' as const }, services: {} } };
-  const recent = { role: 'lecteur' as const, projets: ['b'], creeLe: 2, droits: { projets: { b: 'voir' as const, x: 'voir' as const }, services: { coffre: 'voir' as const } } };
-  const client = { role: 'client' as const, projets: ['a'], creeLe: 3 };
-  assert.deepEqual(droitsDeDepart([ancien, recent, client], ['a', 'b']), { projets: { b: 'voir' }, services: { coffre: 'voir' } });
-});

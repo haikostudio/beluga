@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { cheminDeLaBaseServie } from './lib/base-servie.mjs';
 import { poserSessionDEssai } from './lib/session-d-essai.mjs';
+import { ouvrirSectionDesReglages } from './lib/navigation.mjs';
 
 /* La racine se déduit du script : lancé d'une copie de travail, il juge CE
    code-là, jamais le dossier principal. */
@@ -503,9 +504,8 @@ async function ouvrirLeMenu(page) {
     await page.click(BOUTON_REGLAGES, { timeout: 8000 });
     await page.waitForSelector('[data-modale-reglages]', { timeout: 8000 });
   }
-  /* Deux niveaux (refonte du 21/11/2026) : la rubrique « Moi », puis « Apparence et langue ». */
-  if (await page.$('[data-rubrique-reglages="moi"]')) await page.click('[data-rubrique-reglages="moi"]', { timeout: 8000 });
-  await page.click('[data-menu-reglages] [data-page-menu="theme"]', { timeout: 8000 });
+  /* Colonne fixe (24/11/2026) : la section « Apparence et langue » de la rubrique « Moi », par l'adresse. */
+  await ouvrirSectionDesReglages(page, 'theme', { timeout: 8000 });
   await page.waitForSelector('[data-langue-menu]', { timeout: 8000 });
 }
 
@@ -578,7 +578,7 @@ async function dansLaPage(page) {
   /* LA LANGUE VIT AVEC LE THÈME (refonte du 21/11/2026) : la page « Apparence et langue » de la rubrique « Moi »
      porte le choix du thème PUIS celui de la langue ; l'ancienne page « Langue » y mène. */
   const ordre = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-menu-reglages] [data-page-menu]')].map((ligne) => ligne.getAttribute('data-page-menu')),
+    [...document.querySelectorAll('[data-page-rubrique] [data-section-page]')].map((section) => section.getAttribute('data-section-page')),
   );
   if (!ordre.includes('theme')) anomalies.push(`la page « Apparence et langue » est absente de la rubrique « Moi » (ordre lu : ${ordre.join(', ')})`);
   if (ordre.includes('langue')) anomalies.push('une page « Langue » à part est revenue dans le menu des réglages');

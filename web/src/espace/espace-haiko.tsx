@@ -18,11 +18,11 @@
  * clients sont comptés sur le bouton du sélecteur, et repris client par client
  * dans le tiroir — projets du client compris.
  *
- * UN CLIENT S'AJOUTE DEPUIS CE TIROIR. Il fallait quitter la Messagerie pour la
- * page « Accès clients » des réglages, puis revenir le chercher. Le pied du
- * tiroir porte maintenant « Ajouter un client » : le formulaire des réglages,
- * le mot de passe montré une fois, la case qui l'envoie par courriel — et le
- * client créé est aussitôt sélectionné.
+ * LES COMPTES NE SE GÈRENT PLUS ICI (carte « Retrouver la gestion des accès
+ * clients », 24/11/2026 — décision de l'utilisateur : « tu me sors ça de la
+ * messagerie »). Créer un client, lui ouvrir des projets, renvoyer ses
+ * identifiants, le suspendre : tout vit dans Réglages › Accès, projet par
+ * projet. « Ajouter un client » ne fait plus qu'y mener.
  *
  * ET CET ÉCRAN N'A PLUS D'ENTÊTE À LUI. Le sélecteur descend DANS l'entête de
  * l'espace (`enteteAvant`), et le rang des projets disparaît.
@@ -31,26 +31,18 @@
  * télécharge pas.
  */
 import * as React from 'react';
-import { ChevronDown, Globe, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from '@/components/ui/icones';
+import { ChevronDown, Globe, LayoutGrid, UserPlus, UserRound, X } from '@/components/ui/icones';
 import { BulleInfo, Button, DialogTitle, Drawer, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
-import { OptionDePage } from '@/components/entete-de-zone';
 import { useProjetDuService } from '@/components/projet-du-service';
 import { SilhouetteEspaceHaiko } from '@/components/silhouettes';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
-import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { PasAPas } from '@/components/pas-a-pas';
 import { useTelephone } from '@/lib/telephone';
 import type { DemandeAffichee } from '@beluga/shared';
-import {
-  FormulaireCompteClient,
-  GestionComptesClients,
-  MotDePasseMontre,
-  type SecretMontre,
-} from '@/components/reglages/comptes-clients';
 import { RunSelectors, type RunChoix } from '@/components/run-selectors';
 import { useApp } from '@/lib/use-app';
 import { canalEspace } from './canal-espace';
@@ -103,14 +95,6 @@ export function EspaceHaiko({
     [tousLesClients, projetDuService],
   );
   const [choisi, setChoisi] = React.useState<string | null>(null);
-  /** Le tiroir « Ajouter un client », et le mot de passe du compte qu'il vient de créer. */
-  const [creation, setCreation] = React.useState(false);
-  const [secret, setSecret] = React.useState<SecretMontre | null>(null);
-  const [gestionAcces, setGestionAcces] = React.useState(false);
-  useTiroirAdresse('ajout-client', creation, setCreation, { pret: clients !== null });
-  useTiroirAdresse('acces-clients', gestionAcces, setGestionAcces, { pret: clients !== null });
-  /** Le client à sélectionner dès que la liste rechargée le contient. */
-  const aChoisir = React.useRef<string | null>(null);
   /*
    * Le seuil est celui de toute la maison — 640 px. Il ne décide plus ni du
    * CHOIX du client (le tiroir sert partout) ni de la place des projets (il
@@ -120,6 +104,11 @@ export function EspaceHaiko({
   const telephone = useTelephone();
   /* Les moteurs installés et les comptes connus : le bloc de réglages les lit. */
   const etat = useApp();
+  /** Ouvre Réglages › Accès, où les comptes des clients se créent et se règlent. */
+  const ouvrirLesAcces = React.useCallback(
+    () => window.dispatchEvent(new CustomEvent('beluga:ouvrir-reglages', { detail: { page: 'acces' } })),
+    [],
+  );
 
   /*
    * LA CIBLE LUE À L'ARRIVÉE DE LA RÉPONSE, PAS AU DÉPART DE LA DEMANDE. Ouvrir
@@ -138,11 +127,8 @@ export function EspaceHaiko({
         /*
          * L'ADRESSE COMMANDE LE CLIENT AFFICHÉ quand elle en désigne un —
          * c'est le lien du point quotidien, qui doit tomber sur la bonne
-         * personne. Un client QU'ON VIENT DE CRÉER passe encore avant : on l'a
-         * ajouté pour le voir. Sinon on garde celui qu'on regardait déjà.
+         * personne. Sinon on garde celui qu'on regardait déjà.
          */
-        const cree = aChoisir.current && reponse.clients.some((c) => c.id === aChoisir.current) ? aChoisir.current : null;
-        aChoisir.current = null;
         const cible = viseCourant.current?.clientId;
         const voulu = cible && reponse.clients.some((c) => c.id === cible) ? cible : null;
         /*
@@ -151,11 +137,9 @@ export function EspaceHaiko({
          * Le premier client de la liste était sélectionné d'office : on
          * tombait dans une conversation sans savoir si c'était celle qui
          * attendait quelque chose. `null` = l'accueil. Une notification qui
-         * DÉSIGNE un client (`vise`) continue de court-circuiter cet accueil,
-         * et un client qu'on vient de créer s'ouvre comme avant : on l'a
-         * ajouté pour le voir.
+         * DÉSIGNE un client (`vise`) continue de court-circuiter cet accueil.
          */
-        setChoisi((actuel) => cree ?? voulu ?? actuel);
+        setChoisi((actuel) => voulu ?? actuel);
       })
       .catch(() => {
         /*
@@ -378,31 +362,22 @@ export function EspaceHaiko({
     [recharger],
   );
 
-  /*
-   * LES COMPTES DU CLIENT SE GÈRENT DEPUIS SON ESPACE. Le burger ouvre la même
-   * gestion que la page des réglages, filtrée sur le projet affiché : ouvrir,
-   * borner, suspendre, retirer, régénérer — sans quitter la Messagerie.
-   */
-  const gestesHaiko = React.useMemo(
-    () => ({
-      onCarte: transformerEnCarte,
-      comptesDuClient: (projectId: string) => <GestionComptesClients projectId={projectId} nu />,
-    }),
-    [transformerEnCarte],
-  );
+  const gestesHaiko = React.useMemo(() => ({ onCarte: transformerEnCarte }), [transformerEnCarte]);
 
   if (clients === null) {
     return <SilhouetteEspaceHaiko />;
   }
 
-  /** Le bouton du pied, le même dans le tiroir et sur l'écran vide. */
+  /*
+   * « AJOUTER UN CLIENT » MÈNE À RÉGLAGES › ACCÈS (24/11/2026) : c'est là, et seulement là, qu'un compte se crée,
+   * dans le bloc du projet qu'il ouvre. Le même bouton dans le pied du sélecteur et sur l'écran vide.
+   */
   const boutonAjouter = (avant?: () => void) => (
     <Button
       size="pied"
       onClick={() => {
         avant?.();
-        setSecret(null);
-        setCreation(true);
+        ouvrirLesAcces();
       }}
       data-ajouter-client
     >
@@ -410,120 +385,6 @@ export function EspaceHaiko({
       {t('Ajouter un client')}
     </Button>
   );
-
-  /*
-   * LE TIROIR DE CRÉATION. Le mot de passe s'y montre une fois, avec ce qu'est
-   * devenu le courriel s'il a été demandé ; le tiroir reste ouvert tant qu'on
-   * ne l'a pas noté, et le client est déjà sélectionné derrière.
-   */
-  const tiroirDeCreation = (
-    <Drawer open={creation} onClose={() => setCreation(false)} className="max-h-[85dvh]">
-      <div className="flex min-h-0 flex-1 flex-col" data-tiroir-ajout-client>
-        <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Ajouter un client')}</DialogTitle>
-          <Button size="icon-sm" variant="ghost" onClick={() => setCreation(false)} title={t('Fermer')}>
-            <X className="h-4 w-4" />
-          </Button>
-        </header>
-        <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 flex-1 space-y-3 px-3 pb-3">
-          {secret ? (
-            <MotDePasseMontre
-              secret={secret}
-              onFermer={() => {
-                setSecret(null);
-                setCreation(false);
-              }}
-            />
-          ) : (
-            <FormulaireCompteClient
-              nu
-              onCree={({ compte, secret: neuf }) => {
-                setSecret(neuf);
-                aChoisir.current = compte.id;
-                recharger();
-              }}
-            />
-          )}
-        </ZoneDefilement>
-      </div>
-    </Drawer>
-  );
-
-  /*
-   * LES ACCÈS CLIENTS VIVENT ICI, PLUS DANS LES RÉGLAGES. L'engrenage posé à
-   * droite du titre « Clients » ouvre la gestion entière — créer, borner les
-   * projets, envoyer les identifiants, régénérer, suspendre, retirer —, la même
-   * que la page des réglages montrait, par-dessus le tiroir de choix. La
-   * refermer relit la liste : un accès créé ou retiré s'y voit aussitôt.
-   */
-  const boutonGestionAcces = (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      onClick={() => setGestionAcces(true)}
-      title={t('Accès clients')}
-      aria-label="Acces clients"
-      data-reglages-clients
-    >
-      <Settings className="h-4 w-4" />
-    </Button>
-  );
-
-  /*
-   * L'ENGRENAGE SEUL NE SE TROUVAIT PAS (demande du 09.10.2026) : il ne vivait
-   * que dans le titre du sélecteur, donc après avoir ouvert un client, et la
-   * vue d'ensemble n'en avait aucun. Deux accès de plus, vers LA MÊME gestion :
-   * l'engrenage en haut à droite de la vue d'ensemble (`action` d'
-   * `AccueilMessagerie`), et ce bouton libellé dans le pied du sélecteur, à
-   * côté de « Ajouter un client ». Il referme le sélecteur AVANT d'ouvrir la
-   * gestion : jamais deux tiroirs empilés sur un téléphone.
-   */
-  const boutonGererLesComptes = (avant?: () => void) => (
-    <Button
-      size="pied"
-      variant="ghost"
-      className="min-w-0 flex-1"
-      onClick={() => {
-        avant?.();
-        setGestionAcces(true);
-      }}
-      data-gerer-les-comptes
-    >
-      <UsersRound className="h-4 w-4 shrink-0" />
-      <span className="min-w-0 truncate">{t('Gérer les comptes')}</span>
-    </Button>
-  );
-
-  const tiroirGestionAcces = (
-    <Drawer
-      open={gestionAcces}
-      onClose={() => {
-        setGestionAcces(false);
-        recharger();
-      }}
-      empile
-      hauteurFixe
-    >
-      <div className="flex min-h-0 flex-1 flex-col" data-tiroir-acces-clients>
-        <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Accès clients')}</DialogTitle>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={() => {
-              setGestionAcces(false);
-              recharger();
-            }}
-            title={t('Fermer')}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </header>
-        <GestionComptesClients actif={gestionAcces} nu enTiroir />
-      </div>
-    </Drawer>
-  );
-
 
   /** LA COLONNE DU SERVICE (demande du 12/10/2026) : le geste qui ajoute, détaché ; la vue d'ensemble,
    *  un client par ligne, les comptes. Sur téléphone la colonne n'existe pas : le sélecteur de client
@@ -535,10 +396,7 @@ export function EspaceHaiko({
           libelle={t('Ajouter un client')}
           aria-label="Ajouter un client"
           data-ajouter-client-colonne
-          onClick={() => {
-            setSecret(null);
-            setCreation(true);
-          }}
+          onClick={ouvrirLesAcces}
         />
         {clients.length ? (
           <>
@@ -567,13 +425,6 @@ export function EspaceHaiko({
             ))}
           </>
         ) : null}
-        <p className={CLASSE_SECTION_DE_SERVICE}>{t('Comptes')}</p>
-        <RubriqueDeColonne
-          icone={<UsersRound />}
-          libelle={t('Gérer les comptes')}
-          onClick={() => setGestionAcces(true)}
-          data-gerer-les-comptes-colonne
-        />
       </nav>
     </ColonneDeService>
   );
@@ -593,12 +444,12 @@ export function EspaceHaiko({
             t('Chaque demande devient une carte confiée à un agent, et le client suit où elle en est.'),
           ]}
         />
-        <div className="flex w-full max-w-[280px] items-center gap-1.5">
+        <div className="flex w-full max-w-[280px] flex-col items-center gap-2">
           {boutonAjouter()}
-          {boutonGestionAcces}
+          <p className="text-center text-[12.5px] text-faint" data-acces-dans-les-reglages>
+            {t('Les accès de vos clients se gèrent dans Réglages › Accès, projet par projet.')}
+          </p>
         </div>
-        {tiroirDeCreation}
-        {tiroirGestionAcces}
       </div>
     );
   }
@@ -620,24 +471,7 @@ export function EspaceHaiko({
           onPeriodeLibre={(debut, fin) => setChoixPeriode({ debut, fin })}
           onOuvrirClient={ouvrirClient}
           onOuvrirDemande={ouvrirDemande}
-          action={
-            <>
-            <OptionDePage
-              compact
-              taille="icon-sm"
-              icone={<Settings className="h-4 w-4" />}
-              onClick={() => setGestionAcces(true)}
-              title={t('Gérer les comptes')}
-              aria-label="Gerer les comptes"
-              data-reglages-accueil
-            >
-              {t('Gérer les comptes')}
-            </OptionDePage>
-            </>
-          }
         />
-        {tiroirDeCreation}
-        {tiroirGestionAcces}
       </div>
     );
   }
@@ -694,10 +528,8 @@ export function EspaceHaiko({
         pied={(fermer) => (
           <div className="flex items-center gap-1.5" data-pied-clients>
             <span className="flex min-w-0 flex-1">{boutonAjouter(fermer)}</span>
-            {boutonGererLesComptes(fermer)}
           </div>
         )}
-        actionTitre={() => boutonGestionAcces}
         declencheur={(ouvrir, libelle) => (
           /* « MARC-OLIVIER RITZI (ETSIGNA) » : le nom du client et, entre parenthèses, son projet, dans le même cran.
              Le nom ramène à l'accueil du client ; le chevron ouvre la liste des clients. */
@@ -817,8 +649,6 @@ export function EspaceHaiko({
           enteteDansLeFil={revenirALAccueil}
         />
       </div>
-      {tiroirDeCreation}
-      {tiroirGestionAcces}
       {tiroirDeConversion}
     </div>
   );

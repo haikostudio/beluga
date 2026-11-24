@@ -1563,6 +1563,9 @@ export async function reprendreLesFilesEnAttente(): Promise<void> {
   }
 }
 
+/** Les outils natifs d'édition fermés aux chefs de Communication : ils lisent, ils proposent une carte, ils n'écrivent pas. */
+export const OUTILS_D_EDITION_FERMES_AUX_CHEFS = ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'] as const;
+
 /**
  * LE POINT DE PASSAGE UNIQUE (PLAN §9). Toutes les demandes partent d'ici :
  * chat, lancement de tâche, analyse, publication. Le gabarit est appliqué là,
@@ -3312,7 +3315,9 @@ async function startTurn(
       carte: agent.cardId ? store.getCard(agent.cardId) : null,
     }),
     allowedTools: bride ? [...cadrageAllowList(), ...(rea ? [`mcp__${SERVEUR_MCP_REA}`] : [])] : undefined,
-    disallowedTools: bride ? cadrageDenyList() : undefined,
+    /* UN CHEF DE COMMUNICATION NE MODIFIE JAMAIS LE CODE (24/11/2026) : ses outils d'édition sont fermés, il propose une
+       carte (`JAMAIS_DE_CODE_POUR_UN_CHEF`, `shared/src/chefs-de-communication.ts`). Ses outils de lecture restent. */
+    disallowedTools: bride ? cadrageDenyList() : agent.service?.id === SERVICE_DU_DIRECTEUR ? [...OUTILS_D_EDITION_FERMES_AUX_CHEFS] : undefined,
     env,
   };
 

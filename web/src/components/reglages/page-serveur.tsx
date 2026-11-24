@@ -249,16 +249,18 @@ function Ligne({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3.5 py-3">
+    /* SUR TÉLÉPHONE, CE QUI EST À DROITE PASSE DESSOUS (24/11/2026) : la version ou le bouton y laissaient au titre et à
+       sa phrase une colonne de trois mots, coupés ou empilés. Décalé sous le texte, aligné sur lui. */
+    <div className="flex items-center gap-3 rounded-xl px-3.5 py-3 max-sm:flex-wrap max-sm:gap-y-2">
       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted">{icone}</span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-[14px] text-text">
-          <span className="min-w-0 truncate">{titre}</span>
+          <span className="min-w-0 sm:truncate">{titre}</span>
           {point ? <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', point)} /> : null}
         </span>
         {detail ? <span className="mt-0.5 block text-[12.5px] leading-relaxed text-muted">{detail}</span> : null}
       </span>
-      <span className="shrink-0">{children}</span>
+      <span className="shrink-0 max-sm:basis-full max-sm:pl-7">{children}</span>
     </div>
   );
 }

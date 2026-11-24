@@ -26,7 +26,7 @@ const TiroirDonnees = React.lazy(() =>
 export function SectionExportDonnees() {
   const [ouvert, setOuvert] = React.useState(false);
   return (
-    <Groupe titre={t('Export et import des données')} aide={t('Emporter le coffre-fort, les backups, les projets, les cartes, les conversations et les branches dans une seule archive — puis les remonter sur une autre installation.')}>
+    <Groupe titre={t('Export des données')} aide={t('Emporter le coffre-fort, les backups, les projets, les cartes, les conversations et les branches dans une seule archive — puis les remonter sur une autre installation.')}>
       <Button variant="subtle" size="sm" data-ouvrir-export-donnees onClick={() => setOuvert(true)}>
         <Database className="h-3 w-3" />
         {t('Ouvrir')}

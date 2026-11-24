@@ -1,6 +1,23 @@
 import * as React from 'react';
+import { minusculesSansAccents } from '@beluga/shared';
 import { BulleInfo, CLASSE_GROUPE_DE_LIGNES } from '@/components/ui';
 import { t } from '@/lib/langue';
+
+/**
+ * LE TITRE DE LA SECTION QUI PORTE LA PAGE (colonne fixe des réglages, 24/11/2026). Une rubrique empile ses pages,
+ * chacune sous son titre (« Mon compte », « La machine ») : un `Groupe` qui redit EXACTEMENT ce titre ne le répète
+ * pas — son bloc suit directement le titre de la section. `null` hors d'une section (page seule, autre écran).
+ */
+export const ContexteTitreDeSection = React.createContext<string | null>(null);
+
+const normaliserTitre = (titre: string) => minusculesSansAccents(titre.replace(/[’‘]/g, "'").trim());
+export const memeTitre = (a: string, b: string) => normaliserTitre(a) === normaliserTitre(b);
+
+/** Ce titre redit-il celui de la section qui porte la page ? */
+export function useTitreRedit(titre: string): boolean {
+  const titreDeSection = React.useContext(ContexteTitreDeSection);
+  return !!titreDeSection && memeTitre(titre, titreDeSection);
+}
 
 /* ------------------------------------------------------------------ */
 /* Les briques partagées par plusieurs sous-pages des réglages          */
@@ -18,7 +35,7 @@ import { t } from '@/lib/langue';
  * Sans `liste`, le bloc pose une marge et espace ses enfants (texte, champs,
  * boutons). `nu` : pas de bloc du tout, pour un enfant qui dessine déjà le sien.
  */
-export const CLASSE_BLOC_DE_REGLAGES = 'flex flex-col gap-3 rounded-2xl bg-surface p-4';
+export const CLASSE_BLOC_DE_REGLAGES = 'flex flex-col gap-3 rounded-2xl bg-surface p-4 max-sm:gap-4';
 
 export function Groupe({
   titre,
@@ -35,15 +52,21 @@ export function Groupe({
   nu?: boolean;
   children: React.ReactNode;
 }) {
+  const titreRedit = useTitreRedit(titre);
   return (
-    <section className="flex flex-col gap-2" data-section-reglages>
-      <div className="flex flex-col gap-0.5 px-1">
-        <div className="flex items-center gap-1">
-          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
-          {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+    <section className="flex flex-col gap-2 max-sm:gap-2.5" data-section-reglages>
+      {titreRedit ? (
+        /* Le titre est déjà celui de la section : l'aide se lit en clair sous lui, plus dans une bulle orpheline. */
+        description || aide ? <p className="px-1 text-[13px] leading-relaxed text-muted">{description ?? aide}</p> : null
+      ) : (
+        <div className="flex flex-col gap-0.5 px-1">
+          <div className="flex items-center gap-1">
+            <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+            {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+          </div>
+          {description ? <p className="text-[13px] leading-relaxed text-muted">{description}</p> : null}
         </div>
-        {description ? <p className="text-[13px] leading-relaxed text-muted">{description}</p> : null}
-      </div>
+      )}
       {nu ? (
         <div className="flex flex-col gap-3">{children}</div>
       ) : (

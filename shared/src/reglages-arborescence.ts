@@ -1,5 +1,5 @@
 /**
- * L'ARBORESCENCE DES RÉGLAGES : six RUBRIQUES par usage, leurs PAGES, et les
+ * L'ARBORESCENCE DES RÉGLAGES : sept RUBRIQUES par usage, leurs PAGES, et les
  * mots qui y mènent (refonte « Réglages à deux niveaux », 21/11/2026 : 22 pages
  * en 9 groupes d'une seule colonne devenaient illisibles). Elle vit ICI, dans le
  * socle partagé, pour trois raisons.
@@ -12,11 +12,13 @@
  * 3. Une structure sans base ni disque se teste seule
  *    (`server/src/test/recherche-reglages.test.ts`).
  *
- * DEUX NIVEAUX : la fenêtre s'ouvre sur les six rubriques ; une rubrique ouverte
- * devient la colonne de gauche, ses pages techniques (`avance`) repliées sous
- * « Avancé » en bas. Les ANCIENNES clés de page (liens, événement
- * `beluga:ouvrir-reglages`, adresses `#reglages/<page>`) mènent toujours à leur
- * nouvelle place par `ALIAS_DES_PAGES_DE_REGLAGES`.
+ * UNE COLONNE FIXE (24/11/2026, remplace les « deux niveaux » du 21/11) : les
+ * sept rubriques restent toujours à gauche ; la rubrique ouverte est UNE page qui
+ * empile toutes ses pages en sections titrées, les pages techniques (`avance`)
+ * dans un bloc « Avancé » replié en bas. La clé d'une page est l'ANCRE de sa
+ * section. Les ANCIENNES clés de page (liens, événement `beluga:ouvrir-reglages`,
+ * adresses `#reglages/<page>`) mènent toujours à leur section par
+ * `ALIAS_DES_PAGES_DE_REGLAGES` ; une clé de RUBRIQUE ouvre la rubrique en haut.
  *
  * L'écran, lui, n'ajoute que ce qui ne peut pas vivre ici : l'icône de chaque
  * page et le module à charger quand on l'ouvre.
@@ -54,15 +56,13 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'mon-compte',
         titre: 'Mon compte',
-        // …ET LES ACCÈS TIERS À BELUGA (l'ancien onglet « Sous-comptes ») : une
-        // grille de droits par projet et par service. Les comptes clients se
-        // créent depuis la messagerie, jamais ici. La visite guidée y est réunie.
+        // Le compte de la personne connectée et la visite guidée. Les accès des
+        // autres (clients, équipe) vivent dans la rubrique « Accès ».
         motsCles: [
           'profil', 'mot de passe', 'identifiant', 'courriel', 'mail', 'pseudo', 'nom', 'connexion', 'adresse',
-          'accès', 'sous-comptes', 'équipe', 'collaborateur', 'droits', 'invitation', 'utilisateur', 'permission',
           'visite guidée', 'aide', 'tutoriel',
         ],
-        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe', 'Accès à Beluga', 'Ouvrir un accès', 'Revoir la visite guidée'],
+        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe', 'Revoir la visite guidée'],
       },
       {
         // Thème et langue réunis : l'ancienne page « Langue » y mène.
@@ -79,6 +79,28 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         titre: 'Notifications',
         motsCles: ['notification', 'alerte', 'silence', 'prévenir', 'sonnerie', 'appareil', 'appareils', 'téléphone', 'iphone', 'push', 'activer', 'désactiver', 'connecté'],
         libelles: ['Notifications sur cet appareil', 'Vos appareils connectés', 'Ce dont on vous prévient', 'Heures de silence'],
+      },
+    ],
+  },
+  {
+    /*
+     * LES ACCÈS, PROJET PAR PROJET (carte « Retrouver la gestion des accès clients », 24/11/2026) : la septième
+     * rubrique, accordée par l'utilisateur. Elle réunit les comptes clients (sortis de la Messagerie) et les accès
+     * tiers à Beluga (sortis de « Mon compte ») ; l'administrateur seul la voit.
+     */
+    cle: 'acces',
+    titre: 'Accès',
+    phrase: 'Les projets que vous ouvrez à d’autres personnes, et leurs accès.',
+    pages: [
+      {
+        cle: 'acces',
+        titre: 'Accès aux projets',
+        motsCles: [
+          'accès', 'client', 'clients', 'compte client', 'comptes clients', 'espace client', 'collaborateur', 'membre',
+          'lecteur', 'responsable', 'droits', 'invitation', 'identifiants', 'sous-comptes', 'équipe', 'utilisateur',
+          'permission', 'mot de passe client', 'suspendre', 'ajouter un projet', 'version de travail',
+        ],
+        libelles: ['Ajouter un projet', 'Ajouter un accès', 'Envoyer les identifiants par courriel', 'Nouveau mot de passe', 'Suspendre l’accès'],
       },
     ],
   },
@@ -264,6 +286,10 @@ export const ALIAS_DES_PAGES_DE_REGLAGES: Readonly<Record<string, string>> = {
   'beluga-connect': 'ordinateurs',
   navigateur: 'ordinateurs',
   installation: 'adresse',
+  // Les comptes clients (ex-Messagerie) et les accès tiers (ex-« Mon compte ») vivent dans « Accès ».
+  'sous-comptes': 'acces',
+  'comptes-clients': 'acces',
+  'acces-clients': 'acces',
 };
 
 /** La clé ACTUELLE d'une page : une ancienne clé suit son alias, une clé à jour reste telle quelle. */
@@ -278,4 +304,19 @@ export function rubriqueDeLaPage(
 ): GroupeDeReglages | undefined {
   const actuelle = cleActuelleDeLaPage(cle);
   return groupes.find((groupe) => groupe.pages.some((page) => page.cle === actuelle));
+}
+
+/**
+ * CE QUE DÉSIGNE UNE CLÉ DE L'ADRESSE (`#reglages/<clé>`) : une page (ancienne clé comprise) → sa rubrique et
+ * l'ancre de sa section ; une clé de RUBRIQUE seule (« moi », « donnees »…) → la rubrique, ouverte en haut ;
+ * sinon `undefined` (la fenêtre s'ouvre alors sur sa première rubrique, jamais sur un écran vide).
+ */
+export function cibleDesReglages(
+  groupes: readonly GroupeDeReglages[],
+  cle: string,
+): { rubrique: GroupeDeReglages; page?: string } | undefined {
+  const parPage = rubriqueDeLaPage(groupes, cle);
+  if (parPage) return { rubrique: parPage, page: cleActuelleDeLaPage(cle) };
+  const rubrique = groupes.find((groupe) => groupe.cle === cle);
+  return rubrique ? { rubrique } : undefined;
 }

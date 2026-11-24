@@ -342,7 +342,7 @@ export function EspaceClient({
    * gérer les comptes du client depuis le burger. Les comptes arrivent tout
    * rendus : la porte client n'a rien à charger de la gestion des accès.
    */
-  gestesHaiko?: { onCarte: (id: string) => void; comptesDuClient?: (projectId: string) => React.ReactNode };
+  gestesHaiko?: { onCarte: (id: string) => void };
   /**
    * CE QUI SE POSE À GAUCHE DE L'ENTÊTE, SUR LA MÊME LIGNE. Vu comme Haiko,
    * c'est le sélecteur de client : il avait son propre rang au-dessus du
@@ -887,7 +887,6 @@ export function EspaceClient({
               onAcces={() => basculerVolet('acces')}
               onProfil={monProfil ? () => setProfil(true) : undefined}
               onDeconnexion={onDeconnexion}
-              comptesDuClient={moi.role === 'admin' ? gestesHaiko?.comptesDuClient?.(projectId) : undefined}
               enPoints={!!enteteDansLeFil}
             />
           }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { adresseAuMotDuJour } from '@beluga/shared';
+import { adresseAuMotDuJour, adresseDeLAgentDeService } from '@beluga/shared';
 import {
   DUREE_D_UN_RENDU_A_OUVRIR_MS,
   DUREE_D_UNE_DEPLOYEE_A_OUVRIR_MS,
@@ -3179,8 +3179,13 @@ function decisionsHorsProjet(decisions: DecisionAttendue[]): DecisionAttendue[] 
       let service: { nom: string; adresse: string } | null = null;
       try {
         const raw = rawAgent(agentId);
-        const lu = raw ? (JSON.parse(raw).service as { nom?: string; adresse?: string } | undefined) : undefined;
+        const brut = raw ? (JSON.parse(raw) as { projectId?: string; service?: { id?: string; nom?: string; adresse?: string } }) : undefined;
+        const lu = brut?.service;
         if (lu?.nom && lu.adresse) service = { nom: lu.nom, adresse: lu.adresse };
+        /* UN CHEF DE COMMUNICATION (général, marque, projet) se lit dans SA CONVERSATION, onglet « Agents » de son
+           projet (24/11/2026) : l'écran « communication/<marque> » qui le montrait a disparu. Sa campagne garde sa page. */
+        if (service && lu?.id && brut?.projectId)
+          service = { nom: service.nom, adresse: adresseDeLAgentDeService({ id: agentId, projectId: brut.projectId, service: { id: lu.id, adresse: service.adresse } }) ?? service.adresse };
       } catch {
         service = null;
       }

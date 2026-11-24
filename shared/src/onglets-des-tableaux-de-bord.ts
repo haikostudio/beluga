@@ -8,7 +8,11 @@
  * Sans préférence, ou avec une valeur inconnue, la page s'ouvre sur « Tâches » : l'ancien choix automatique du
  * premier onglet non vide (16/11/2026) est retiré.
  */
-export const ONGLETS_DES_TABLEAUX_DE_BORD = ['taches', 'a-deployer', 'production'] as const;
+/*
+ * « AGENTS » (24/11/2026) : les agents personnalisés de tous les projets, juste après « Tâches ». La même préférence
+ * retient aussi le choix « Tâches | Agents » de l'ordinateur (`agentsDesTableauxRetenus`) : un seul souvenir par compte.
+ */
+export const ONGLETS_DES_TABLEAUX_DE_BORD = ['taches', 'agents', 'a-deployer', 'production'] as const;
 
 export type OngletDesTableauxDeBord = (typeof ONGLETS_DES_TABLEAUX_DE_BORD)[number];
 
@@ -20,4 +24,9 @@ export function ongletDesTableauxDeBord(valeur: unknown): OngletDesTableauxDeBor
   return (ONGLETS_DES_TABLEAUX_DE_BORD as readonly unknown[]).includes(valeur)
     ? (valeur as OngletDesTableauxDeBord)
     : 'taches';
+}
+
+/** L'onglet « Agents » est-il le dernier choisi ? (ordinateur : sélecteur « Tâches | Agents » à côté du titre). */
+export function agentsDesTableauxRetenus(valeur: unknown): boolean {
+  return ongletDesTableauxDeBord(valeur) === 'agents';
 }

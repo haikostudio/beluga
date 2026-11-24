@@ -93,3 +93,12 @@ test('chaque niveau a sa consigne, avec la mémoire, et un accueil minimal à ef
     assert.equal(effortParDefaut({ role: 'task', motif }), 'medium');
   }
 });
+
+test('aucun chef ne modifie le code : chaque consigne le dit et renvoie à une carte proposée (24/11/2026)', async () => {
+  const { JAMAIS_DE_CODE_POUR_UN_CHEF } = await import('@beluga/shared');
+  for (const consigne of [CONSIGNE_DU_CHEF_GENERAL, CONSIGNE_DU_CHEF_DE_MARQUE, CONSIGNE_DU_CHEF_DE_PROJET]) {
+    assert.ok(consigne.includes(JAMAIS_DE_CODE_POUR_UN_CHEF));
+  }
+  assert.match(JAMAIS_DE_CODE_POUR_UN_CHEF, /propose_task/);
+  assert.match(JAMAIS_DE_CODE_POUR_UN_CHEF, /git push/);
+});

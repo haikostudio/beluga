@@ -18,6 +18,8 @@ export default {
         'onglets-barre': 'hsl(var(--onglets-barre))',
         'onglets-repos': 'hsl(var(--onglets-repos))',
         'onglets-actif': 'hsl(var(--onglets-actif))',
+        'onglets-contraste': 'hsl(var(--onglets-contraste))',
+        'onglets-contraste-texte': 'hsl(var(--onglets-contraste-texte))',
         'tableau-entete': 'hsl(var(--tableau-entete))',
         border: 'hsl(var(--border))',
         text: 'hsl(var(--text))',

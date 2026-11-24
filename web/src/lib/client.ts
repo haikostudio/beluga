@@ -1117,6 +1117,19 @@ class Client {
    * qu'on connaît déjà sans rien demander ; sinon `agent.open` la rend ET
    * pousse ses messages, donc le fil est complet à l'ouverture.
    */
+  /**
+   * DES AGENTS LUS À PART, sans leur fil — la famille d'un agent qui a des sous-agents, les chefs d'un projet
+   * (24/11/2026). Un agent déjà connu et plus récent garde sa version : le canal a le dernier mot.
+   */
+  recevoirDesAgents(agents: readonly Agent[]): void {
+    const neufs = agents.filter((agent) => {
+      const connu = this.state.agents[agent.id];
+      return !connu || (connu.updatedAt ?? 0) < (agent.updatedAt ?? 0);
+    });
+    if (!neufs.length) return;
+    this.set((state) => ({ agents: { ...state.agents, ...Object.fromEntries(neufs.map((agent) => [agent.id, agent])) } }));
+  }
+
   async chargerAgent(agentId: string): Promise<Agent | null> {
     const deja = this.state.agents[agentId];
     if (deja) {

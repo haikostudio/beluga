@@ -4207,6 +4207,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       /* LE NOM DE L'ASSISTANT (17/11/2026) : refusé s'il ne serait pas entendu par le micro, quel que soit l'écran
          qui l'envoie ; enregistré nettoyé, puis l'agent de l'assistant est renommé. */
       const patch = { ...(cmd.patch as Record<string, unknown>) };
+      /* LA LISTE DES PROJETS DE LA PAGE « ACCÈS » est à l'administrateur seul, même pour un accès tiers qui peut
+         modifier les réglages : elle dit à qui chaque projet est ouvert. */
+      if ('projetsDesAcces' in patch && compte.role !== 'admin') throw new Error('Seul l’administrateur règle les accès.');
       if ('assistantNom' in patch) {
         const { verifierLeNomDeLAssistant } = await import('./assistant-global.js');
         const verdict = await verifierLeNomDeLAssistant(String(patch.assistantNom ?? ''));
@@ -5824,6 +5827,23 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { etat: await reglerLAcces(cmd.ouvrir === true) };
     }
 
+    /* -------- Les sous-agents (`server/src/sous-agents.ts`, 24/11/2026) -------- */
+
+    case 'agents.famille': {
+      const { familleDeLAgent } = await import('./sous-agents.js');
+      return { agents: familleDeLAgent(String(cmd.agentId ?? ''), compte) };
+    }
+    case 'agents.chefsDuProjet': {
+      const { chefsDuProjet } = await import('./sous-agents.js');
+      const projectId = String(cmd.projectId ?? '');
+      if (!store.getProject(projectId)) throw new Error('projet introuvable');
+      return chefsDuProjet(projectId, compte);
+    }
+    case 'agents.couperLeChef': {
+      const { couperLeChef } = await import('./directeur-marketing.js');
+      return { coupe: await couperLeChef(String(cmd.agentId ?? ''), cmd.coupe === true, compte.id) };
+    }
+
     /* -------- Agents personnalisés d'un projet (`server/src/agents-personnalises.ts`) -------- */
 
     case 'agentsPerso.lister': {
@@ -5831,6 +5851,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const projectId = String(cmd.projectId ?? '');
       if (!store.getProject(projectId)) throw new Error('projet introuvable');
       return { agents: perso.listerAgents(projectId), point: perso.pointDuMatinDuProjet(projectId) };
+    }
+
+    case 'agentsPerso.listerTout': {
+      /* TOUS LES PROJETS QUE LA SESSION VOIT, archivés exclus (Tableaux de bord, onglet « Agents »). */
+      const perso = await import('./agents-personnalises.js');
+      const projets = store
+        .listProjects(false)
+        .filter((projet) => !projet.marqueSansDepot && peutVoirProjet(compte, projet.id))
+        .map((projet) => projet.id);
+      return { agents: perso.listerTousLesAgents(projets), point: perso.pointDuMatinGlobal(projets) };
     }
 
     case 'agentsPerso.creer': {

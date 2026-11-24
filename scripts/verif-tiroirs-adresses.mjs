@@ -4,16 +4,12 @@
  *
  * Les formes d'adresse (« #espace/volet/acces-clients/nouvel-acces ») sont
  * verrouillées sans navigateur par `server/src/test/adresse-navigateur.test.ts`.
- * Ce contrôle-ci prouve l'autre moitié, sur le tiroir des accès clients de la
- * Messagerie :
+ * Ce contrôle-ci prouve l'autre moitié, dans un vrai navigateur :
  *
- *  1. ouvrir la liste écrit son adresse, avec des silhouettes avant les comptes
- *     et un bouton « Ajouter » dans le pied ;
- *  2. « Ajouter » ouvre le formulaire dans un SECOND tiroir, adressable aussi ;
- *  3. recharger rouvre les deux tiroirs ; un lien collé dans un onglet neuf aussi ;
- *  4. Précédent ferme le tiroir du dessus en UN appui, et fermer au clic ne
- *     laisse aucune entrée d'historique en trop ;
- *  5. un tiroir inconnu est ignoré, jamais bloquant.
+ *  1. un lien collé vers un tiroir l'ouvre, et recharger le garde ;
+ *  2. un ancien lien vers les tiroirs des accès clients (partis de la Messagerie
+ *     pour Réglages › Accès le 24/11/2026) ouvre la Messagerie sans tiroir ;
+ *  3. un tiroir inconnu est ignoré, jamais bloquant.
  *
  *   npm run dev --workspace web -- --port 7099
  *   env -u BELUGA_TOKEN HAIKO_ADRESSES_URL=http://localhost:7099 node scripts/verif-tiroirs-adresses.mjs
@@ -150,100 +146,15 @@ async function parcourir(page) {
   await attendreLApplication(page);
   await refermerLesTiroirs(page);
 
-  /* ---------- Les accès clients : une liste, des silhouettes, un second tiroir ---------- */
-  /* On entre par l'ADRESSE : c'est elle qu'on éprouve, et le menu replié peut
-     être recouvert par la carte que l'application rouvre d'elle-même. */
-  await page.goto(`${ADRESSE}/#espace`, { waitUntil: 'domcontentloaded' });
+  /* ---------- Les anciens tiroirs des accès clients : ignorés, jamais bloquants ---------- */
+  /* La gestion des comptes a quitté la Messagerie (24/11/2026, Réglages › Accès) : un ancien lien vers ses tiroirs
+     ouvre la Messagerie, sans tiroir ni écran bloqué. */
+  await page.goto(`${ADRESSE}/#espace/volet/acces-clients/nouvel-acces`, { waitUntil: 'domcontentloaded' });
   await attendreLApplication(page);
-  await attendreFragment(page, 'espace');
-  const engrenage = page.locator('[data-reglages-accueil], [data-reglages-clients]').first();
-  await engrenage.waitFor({ timeout: 30_000 });
-
-  /* La silhouette doit paraître AVANT la liste : on guette les deux dans la page. */
-  await page.evaluate(() => {
-    window.__vu = { silhouette: false, liste: false, silhouetteAvantListe: false };
-    const guetter = () => {
-      const silhouette = !!document.querySelector('[data-silhouette="acces-clients"]');
-      const liste = !!document.querySelector('[data-liste-acces]');
-      if (silhouette) window.__vu.silhouette = true;
-      if (liste && !window.__vu.liste) {
-        window.__vu.liste = true;
-        window.__vu.silhouetteAvantListe = window.__vu.silhouette;
-      }
-    };
-    new MutationObserver(guetter).observe(document.body, { childList: true, subtree: true });
-  });
-  await engrenage.click();
-  await attendreFragment(page, 'espace/volet/acces-clients');
-  await page.waitForSelector('[data-liste-acces]', { timeout: 30_000 });
-  const vu = await page.evaluate(() => window.__vu);
-  if (vu.silhouetteAvantListe) constater('la liste des accès montre ses silhouettes avant l’arrivée des comptes');
-  else refuser('la liste des accès n’a montré aucune silhouette avant ses comptes');
-
-  const f1 = await fragment(page);
-  if (f1 !== 'espace/volet/acces-clients') refuser(`ouvrir les accès laisse l'adresse sur « ${f1} »`);
-  else constater(`le tiroir des accès a son adresse « #${f1} »`);
-  if (await page.locator('[data-tiroir-acces-clients] [data-formulaire-compte]').count()) {
-    refuser('le formulaire de nouvel accès est encore dans la liste (il doit s’ouvrir dans un tiroir)');
-  }
-  if (!(await page.locator('[data-tiroir-acces-clients] [data-ajouter-acces]').count())) {
-    refuser('le bouton « Ajouter » est absent du pied du tiroir des accès');
-  } else constater('un bouton « Ajouter » tient le pied du tiroir des accès');
-
-  /* ---------- Le second tiroir, par-dessus ---------- */
-  await page.locator('[data-ajouter-acces]').first().click();
-  const ok2 = await attendreFragment(page, 'espace/volet/acces-clients/nouvel-acces');
-  if (!ok2) refuser(`« Ajouter » laisse l'adresse sur « ${await fragment(page)} »`);
-  await page.waitForSelector('[data-tiroir-nouvel-acces] [data-formulaire-compte]', { timeout: 10_000 }).catch(() => undefined);
-  if (!(await page.locator('[data-tiroir-nouvel-acces] [data-formulaire-compte]').count())) {
-    refuser('le formulaire de nouvel accès ne s’ouvre pas dans un second tiroir');
-  } else constater('le formulaire de nouvel accès s’ouvre dans un second tiroir par-dessus la liste');
-
-  /* ---------- Recharger : les DEUX tiroirs reviennent ---------- */
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await attendreLApplication(page);
-  await page.waitForSelector('[data-tiroir-nouvel-acces] [data-formulaire-compte]', { timeout: 30_000 }).catch(() => undefined);
-  const apres = await fragment(page);
-  const liste = await page.locator('[data-tiroir-acces-clients]').count();
-  const formulaire = await page.locator('[data-tiroir-nouvel-acces] [data-formulaire-compte]').count();
-  if (apres === 'espace/volet/acces-clients/nouvel-acces' && liste && formulaire) {
-    constater('recharger rouvre la liste des accès ET le formulaire par-dessus');
-  } else {
-    refuser(`après rechargement : adresse « ${apres} », liste ${liste}, formulaire ${formulaire}`);
-  }
-
-  /* ---------- Précédent ferme le tiroir du dessus, en UN appui ---------- */
-  await page.goBack();
-  await page.waitForTimeout(600);
-  const f3 = await fragment(page);
-  const reste = await page.locator('[data-tiroir-nouvel-acces]').count();
-  const listeEncore = await page.locator('[data-tiroir-acces-clients]').count();
-  if (f3 === 'espace/volet/acces-clients' && !reste && listeEncore) {
-    constater('un appui sur Précédent referme le formulaire et laisse la liste');
-  } else {
-    refuser(`Précédent : adresse « ${f3} », formulaire ${reste}, liste ${listeEncore}`);
-  }
-
-  /* ---------- Fermer au clic revient d'un cran, sans empiler ---------- */
-  await page.locator('[data-ajouter-acces]').first().click();
-  await attendreFragment(page, 'espace/volet/acces-clients/nouvel-acces');
-  await page.locator('[data-tiroir-nouvel-acces] button[title]').first().click();
-  await attendreFragment(page, 'espace/volet/acces-clients');
-  await page.goBack();
-  await page.waitForTimeout(600);
-  const f4 = await fragment(page);
-  if (f4 === 'espace') constater('fermer un tiroir au clic ne laisse aucune entrée en trop dans l’historique');
-  else refuser(`fermer au clic puis Précédent mène à « ${f4} » au lieu de « espace »`);
-
-  /* ---------- Un lien collé dans un onglet neuf ---------- */
-  const neuf = await page.context().newPage();
-  await neuf.goto(`${ADRESSE}/#espace/volet/acces-clients/nouvel-acces`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await attendreLApplication(neuf);
-  await neuf.waitForSelector('[data-tiroir-nouvel-acces] [data-formulaire-compte]', { timeout: 30_000 }).catch(() => undefined);
-  const collee = await neuf.locator('[data-tiroir-nouvel-acces] [data-formulaire-compte]').count();
-  await neuf.close();
-  if (collee) constater('un lien collé dans un onglet neuf ouvre les deux tiroirs');
-  else refuser('un lien collé dans un onglet neuf n’ouvre pas les deux tiroirs');
+  await page.waitForTimeout(1500);
+  if ((await tiroirsOuverts(page)) === 0) constater('un ancien lien vers les accès clients ouvre la Messagerie sans tiroir');
+  else refuser('un ancien lien vers les accès clients a ouvert un tiroir');
+  await refermerLesTiroirs(page);
 
   /* ---------- Les autres tiroirs : un lien collé les ouvre, recharger les garde ---------- */
   const AUTRES = [

@@ -403,8 +403,12 @@ export function PageAGrandTitre({ titre, repere, children }: { titre: string; re
         >
           {titre}
         </h1>
+        {/* LES RUBRIQUES COLLÉES AU TITRE (décision de l'utilisateur du 24/11/2026, capture #20dba, maquettes #e5044 et
+            #ccaab) : sur cette page seulement, le sélecteur de la page (« Tâches | Agents » de l'accueil d'un projet) se
+            pose JUSTE À DROITE du grand titre, à 20 px (gap-3 + ml-2) ; recherche, filtre, période et chevron restent
+            au bout de la ligne. `PageDeService` garde ses rubriques dans sa rangée de droite. */}
+        <div ref={rubriques} className="ml-2 flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
         <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-3" data-rangee-de-l-entete={repere}>
-          <div ref={rubriques} className="flex min-w-0 shrink-0 items-center empty:hidden" data-rubriques-de-la-page />
           <div className="flex min-w-0 shrink items-center gap-2">
             <div ref={recherche} className="flex min-w-[140px] shrink items-center gap-2 empty:hidden" data-recherche-de-la-page />
             <div ref={bascule} className="flex shrink-0 items-center gap-2 empty:hidden" data-bascule-de-la-page />

@@ -88,7 +88,7 @@ export function VoixDuDirect() {
                   {nomDeLaVoix(id)}
                   {active ? <span className="ml-1.5 text-[12px] text-faint">{t('· choisie')}</span> : null}
                 </p>
-                <p className="truncate text-[11.5px] text-faint">
+                <p className="text-[11.5px] leading-snug text-faint sm:truncate">
                   {active ? t('C’est elle qui vous répond en direct.') : t('Une voix d’OpenAI pour le direct.')}
                 </p>
               </button>

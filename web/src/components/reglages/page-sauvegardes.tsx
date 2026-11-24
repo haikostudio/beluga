@@ -47,7 +47,7 @@ export function SectionSauvegardes({ open }: { open: boolean }) {
   }, [open]);
 
   return (
-    <Groupe titre={t('Sauvegardes')}>
+    <Groupe titre={t('Sauvegarde automatique')}>
       {/* Le libellé est long : sur un écran étroit, le bouton se met sur deux
           lignes plutôt que de sortir du tiroir par la droite. */}
       <Button
@@ -79,7 +79,7 @@ export function SectionSauvegardes({ open }: { open: boolean }) {
       <div className="mt-2 space-y-0.5">
         {backups.map((backup) => (
           <div key={backup.name} className="flex items-center gap-2 text-[12.5px] text-faint">
-            <span className="min-w-0 flex-1 truncate">{backup.name}</span>
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere] sm:truncate">{backup.name}</span>
             <span>{bytes(backup.size)}</span>
           </div>
         ))}

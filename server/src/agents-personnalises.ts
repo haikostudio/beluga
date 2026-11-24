@@ -234,6 +234,32 @@ export function pointDuMatinDuProjet(projectId: string, maintenant = Date.now())
   return pointDuMatin(agents, journal, maintenant);
 }
 
+/**
+ * LES AGENTS DE PLUSIEURS PROJETS (onglet « Agents » des Tableaux de bord, 24/11/2026) : une seule lecture, du plus
+ * ancien au plus récent. Le démon passe les projets que la session a le droit de voir — rien d'autre ne filtre ici.
+ */
+export function listerTousLesAgents(projectIds: readonly string[], maintenant = Date.now()): AgentPerso[] {
+  if (!projectIds.length) return [];
+  const trous = projectIds.map(() => '?').join(', ');
+  return (getDb().prepare(`SELECT * FROM agents_perso WHERE project_id IN (${trous}) ORDER BY cree_le ASC`).all(...projectIds) as LigneAgent[]).map((l) =>
+    agentDeLigne(l, maintenant),
+  );
+}
+
+/** Le point du matin de ces projets réunis : chaque entrée cite son agent, dont la liste dit le projet. */
+export function pointDuMatinGlobal(projectIds: readonly string[], maintenant = Date.now()): PointDuMatin {
+  const agents = listerTousLesAgents(projectIds, maintenant);
+  const trous = projectIds.map(() => '?').join(', ');
+  const journal = projectIds.length
+    ? (
+        getDb()
+          .prepare(`SELECT * FROM agents_perso_journal WHERE project_id IN (${trous}) AND date >= ?`)
+          .all(...projectIds, maintenant - 2 * 86_400_000) as LigneJournal[]
+      ).map(ligneDeJournal)
+    : [];
+  return pointDuMatin(agents, journal, maintenant);
+}
+
 /** L'agent personnalisé dont cet agent de conversation est la voix, ou `null`. */
 export function agentPersoDeLAgent(agentId: string | null | undefined): LigneAgent | null {
   if (!agentId) return null;

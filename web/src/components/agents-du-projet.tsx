@@ -7,6 +7,11 @@
  *
  * Le bleu (`text-important`) ne dit qu'une chose : ce qui attend un geste. Tout le reste est monochrome.
  * Tout se lit au démon (`agentsPerso.lister`) et se relit à chaque événement `agentsPerso` du projet.
+ *
+ * LA MÊME VUE POUR TOUS LES PROJETS (onglet « Agents » des Tableaux de bord, 24/11/2026, maquette #d9190) : sans projet,
+ * elle lit `agentsPerso.listerTout` (les projets que la session voit), se relit sur l'événement de N'IMPORTE QUEL projet,
+ * remplace la colonne « Ce qu'il fait » par « Projet » (filtrable), nomme le projet dans le point du matin, et
+ * « Nouvel agent » demande d'abord le projet (décision de l'utilisateur du 24/11/2026).
  */
 import * as React from 'react';
 import {
@@ -21,30 +26,40 @@ import {
   type EtatAffiche,
   type PointDuMatin,
 } from '@beluga/shared';
-import { Switch } from '@/components/ui';
+import { ListeDeroulante, Switch } from '@/components/ui';
+import { CelluleProjet } from '@/components/ui/colonne-projet';
+import { PastilleProjet } from '@/components/pastille-projet';
+import { IconeDuMembre, etatDuMembre } from '@/components/sous-agents';
+import { TITRE_DE_SECTION } from '@/lib/echelle-de-texte';
+import type { Agent } from '@beluga/shared';
 import { Tableau, type ColonneDuTableauCommun } from '@/components/ui/tableau';
 import { Bot, Loader2, Plus } from '@/components/ui/icones';
 import { BoutonPrincipal, GestePrincipal } from '@/components/entete-de-zone';
 import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
-/** La liste des agents d'un projet et son point du matin, relus à l'ouverture et à chaque changement annoncé. */
-export function useAgentsDuProjet(projectId: string): {
+/**
+ * La liste des agents d'un projet et son point du matin, relus à l'ouverture et à chaque changement annoncé. `null` :
+ * tous les projets que la session voit, relus au changement de n'importe lequel.
+ */
+export function useAgentsDuProjet(projectId: string | null): {
   agents: AgentPerso[] | null;
   point: PointDuMatin | null;
   erreur: string | null;
   recharger: () => void;
 } {
-  const version = useApp().agentsPersoVersions[projectId] ?? 0;
+  const versions = useApp().agentsPersoVersions;
+  const version = projectId ? versions[projectId] ?? 0 : Object.values(versions).reduce((somme, v) => somme + v, 0);
   const [etat, setEtat] = React.useState<{ agents: AgentPerso[] | null; point: PointDuMatin | null; erreur: string | null }>({ agents: null, point: null, erreur: null });
   const [tour, setTour] = React.useState(0);
   React.useEffect(() => {
     let vivant = true;
     client
-      .call<{ agents: AgentPerso[]; point: PointDuMatin }>({ type: 'agentsPerso.lister', projectId })
+      .call<{ agents: AgentPerso[]; point: PointDuMatin }>(projectId ? { type: 'agentsPerso.lister', projectId } : { type: 'agentsPerso.listerTout' })
       .then((r) => vivant && setEtat({ agents: r.agents ?? [], point: r.point ?? null, erreur: null }))
       .catch((err: any) => vivant && setEtat((e) => ({ ...e, agents: e.agents ?? [], erreur: err?.message ?? t('La liste des agents n’a pas pu se lire') })));
     return () => {
@@ -244,7 +259,24 @@ type Ligne = AgentPerso & { etat: EtatAffiche };
  * attend un geste (en bleu, un bouton par agent), ce qui est fait, ce qui est tombé, qui est en pause. Chaque phrase
  * vient du journal des agents.
  */
-function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvrir: (id: string) => void }) {
+function PointDuMatinDuProjet({
+  point,
+  onOuvrir,
+  projetDe,
+}: {
+  point: PointDuMatin;
+  onOuvrir: (id: string) => void;
+  /** Sur la vue de tous les projets : le nom du projet de chaque agent cité. */
+  projetDe?: (agentPersoId: string) => string | null;
+}) {
+  const projet = (id: string) => {
+    const nom = projetDe?.(id);
+    return nom ? (
+      <span className="shrink-0 text-faint" data-projet-du-point={id}>
+        {nom}
+      </span>
+    ) : null;
+  };
   const resume =
     point.passages === 0
       ? t('Rien depuis hier soir. {v0} agent(s) allumé(s).', { v0: point.agentsActifs })
@@ -260,11 +292,12 @@ function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvr
               key={a.agentPersoId}
               type="button"
               onClick={() => onOuvrir(a.agentPersoId)}
-              className="inline-flex h-8 items-center gap-2 rounded-lg bg-important-fond px-3 text-[13px] font-medium text-important transition-colors hover:bg-important-fond/70"
+              /* Le nom du projet allonge le libellé (vue de tous les projets) : sur téléphone il passe à la ligne, aligné à gauche. */
+              className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-lg bg-important-fond px-3 py-1 text-left text-[13px] font-medium text-important transition-colors hover:bg-important-fond/70"
               data-point-ouvrir={a.agentPersoId}
             >
-              <span aria-hidden className="block h-1.5 w-1.5 rounded-full bg-important" />
-              {t('{v0} : {v1} à valider', { v0: a.nom, v1: a.attentes })}
+              <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full bg-important" />
+              {t('{v0} : {v1} à valider', { v0: projetDe?.(a.agentPersoId) ? `${a.nom} · ${projetDe(a.agentPersoId)}` : a.nom, v1: a.attentes })}
             </button>
           ))}
         </div>
@@ -275,6 +308,7 @@ function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvr
             <li key={`f${i}`} className="flex min-w-0 gap-2 text-text">
               <span className="shrink-0 tabular-nums text-faint">{quandLisible(f.date)}</span>
               <span className="shrink-0 font-medium">{f.nom}</span>
+              {projet(f.agentPersoId)}
               <span className="min-w-0 truncate text-muted" title={f.resume}>
                 {f.resume}
               </span>
@@ -284,6 +318,7 @@ function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvr
             <li key={`p${i}`} className="flex min-w-0 gap-2">
               <span className="shrink-0 tabular-nums text-faint">{quandLisible(f.date)}</span>
               <span className="shrink-0 font-medium text-text">{f.nom}</span>
+              {projet(f.agentPersoId)}
               <span className="min-w-0 truncate text-danger" title={f.resume}>
                 {f.resume}
               </span>
@@ -292,6 +327,7 @@ function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvr
           {point.enPause.map((p) => (
             <li key={`z${p.agentPersoId}`} className="flex min-w-0 gap-2 text-muted">
               <span className="shrink-0 font-medium text-text">{p.nom}</span>
+              {projet(p.agentPersoId)}
               <span className="min-w-0 truncate">{t('en pause : sa limite est atteinte pour cette période.')}</span>
             </li>
           ))}
@@ -301,18 +337,49 @@ function PointDuMatinDuProjet({ point, onOuvrir }: { point: PointDuMatin; onOuvr
   );
 }
 
-/** L'ONGLET « AGENTS » : le point du matin, le tableau, et « Nouvel agent » en geste principal de la page. */
-export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onOuvrir: (agentPersoId: string) => void }) {
+/**
+ * L'ONGLET « AGENTS » : le point du matin, le tableau, et « Nouvel agent » en geste principal de la page. Sans projet
+ * (`null`), les agents de TOUS les projets : colonne « Projet », et « Nouvel agent » demande d'abord le projet.
+ */
+export function AgentsDuProjet({
+  projectId,
+  onOuvrir,
+  onOuvrirUnChef,
+}: {
+  projectId: string | null;
+  onOuvrir: (agentPersoId: string, projectId: string) => void;
+  /** Ouvre la conversation d'un chef de Communication porté par ce projet (24/11/2026). */
+  onOuvrirUnChef?: (agentId: string) => void;
+}) {
   const { agents, point, erreur } = useAgentsDuProjet(projectId);
-  const projet = useApp().projects.find((p) => p.id === projectId);
+  const projets = useApp().projects;
+  const projet = projectId ? projets.find((p) => p.id === projectId) : undefined;
+  const tous = !projectId;
+  const telephone = useTelephone();
   const [creation, setCreation] = React.useState(false);
+  /* L'ouverture de la liste des projets, gardée pour le bouton du téléphone (voir plus bas). */
+  const ouvrirLaListe = React.useRef<(() => void) | null>(null);
   const lignes = React.useMemo<Ligne[]>(() => (agents ?? []).map((a) => ({ ...a, etat: etatAffiche(a) })), [agents]);
+  const nomsDesProjets = React.useMemo(() => new Map(projets.map((p) => [p.id, p.name])), [projets]);
+  const projetDeLAgent = React.useMemo(() => new Map((agents ?? []).map((a) => [a.id, a.projectId])), [agents]);
+  const ouvrirParId = (id: string) => {
+    const duProjet = projectId ?? projetDeLAgent.get(id);
+    if (duProjet) onOuvrir(id, duProjet);
+  };
+  /* LES PROJETS QUI PEUVENT RECEVOIR UN AGENT, dans l'ordre de la colonne de gauche (rang, puis nom). */
+  const projetsOuverts = React.useMemo(
+    () =>
+      projets
+        .filter((p) => !p.archived && !p.marqueSansDepot)
+        .sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000) || a.name.localeCompare(b.name)),
+    [projets],
+  );
 
-  const nouvelAgent = async () => {
+  const nouvelAgent = async (dansLeProjet: string) => {
     setCreation(true);
     try {
-      const r = await client.call<{ agent: AgentPerso }>({ type: 'agentsPerso.creer', projectId }, 30000);
-      onOuvrir(r.agent.id);
+      const r = await client.call<{ agent: AgentPerso }>({ type: 'agentsPerso.creer', projectId: dansLeProjet }, 30000);
+      onOuvrir(r.agent.id, dansLeProjet);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('L’agent n’a pas pu être créé'));
     } finally {
@@ -335,11 +402,32 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
           </span>
         ),
       },
+      ...(tous
+        ? [
+            {
+              cle: 'projet',
+              libelle: t('Projet'),
+              largeur: 170,
+              filtre: 'choix' as const,
+              lireFiltre: (l: Ligne) => l.projectId,
+              libelleDuChoix: (v: string) => nomsDesProjets.get(v) ?? v,
+              valeur: (l: Ligne) => nomsDesProjets.get(l.projectId) ?? '',
+              rendu: (l: Ligne) => (
+                <span className="block min-w-0 max-w-[11rem]">
+                  <CelluleProjet id={l.projectId} />
+                </span>
+              ),
+            },
+          ]
+        : []),
       {
         cle: 'quand',
         libelle: t('Quand il agit'),
         valeur: (l) => quandIlAgit(l),
         masqueSurTelephone: true,
+        /* UN CADRE ÉTROIT (1024 px, colonne de gauche ouverte) garde Agent, Projet, État et Actif : la vue de tous les
+           projets retire « Quand il agit » ; celle d'un projet le garde, elle n'a pas de colonne « Projet ». */
+        secondaire: tous,
         rendu: (l) => (
           /* Trois colonnes de texte BORNÉES (deux lignes au plus) : les six colonnes tiennent sur un écran d'ordinateur. */
           <span className="line-clamp-2 block min-w-0 max-w-[12rem] text-muted" title={quandIlAgit(l)}>
@@ -347,17 +435,22 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
           </span>
         ),
       },
-      {
-        cle: 'mission',
-        libelle: t('Ce qu’il fait'),
-        valeur: (l) => l.fiche.mission,
-        masqueSurTelephone: true,
-        rendu: (l) => (
-          <span className={cn('line-clamp-2 block min-w-0 max-w-[12rem]', l.fiche.mission ? 'text-muted' : 'text-faint')} title={l.fiche.mission}>
-            {l.fiche.mission || t('À définir dans la conversation')}
-          </span>
-        ),
-      },
+      ...(tous
+        ? []
+        : [
+          {
+            cle: 'mission',
+            libelle: t('Ce qu’il fait'),
+            valeur: (l: Ligne) => l.fiche.mission,
+            masqueSurTelephone: true,
+            secondaire: true,
+            rendu: (l: Ligne) => (
+              <span className={cn('line-clamp-2 block min-w-0 max-w-[12rem]', l.fiche.mission ? 'text-muted' : 'text-faint')} title={l.fiche.mission}>
+                {l.fiche.mission || t('À définir dans la conversation')}
+              </span>
+            ),
+          },
+          ]),
       {
         cle: 'etat',
         libelle: t('État'),
@@ -375,6 +468,7 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
         sensNaturel: 'desc',
         valeur: (l) => l.derniereAction?.date ?? 0,
         masqueSurTelephone: true,
+        secondaire: true,
         rendu: (l) =>
           l.derniereAction ? (
             <span className="flex min-w-0 max-w-[13rem] items-baseline gap-2" title={l.derniereAction.resume}>
@@ -394,11 +488,18 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
         rendu: (l) => <InterrupteurDeLAgent agent={l} />,
       },
     ],
-    [],
+    [tous, nomsDesProjets],
+  );
+
+  const contenuDuBouton = (
+    <>
+      {creation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+      {t('Nouvel agent')}
+    </>
   );
 
   return (
-    <section className="flex min-w-0 flex-col gap-4" data-agents-du-projet={projectId}>
+    <section className="flex min-w-0 flex-col gap-4" data-agents-du-projet={projectId ?? 'tous'}>
       {agents === null ? (
         <div className="flex flex-col gap-3" data-silhouette-des-agents="">
           <Silhouette className="h-20 w-full rounded-2xl" />
@@ -408,14 +509,20 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
         </div>
       ) : (
         <>
-          {point && agents.length ? <PointDuMatinDuProjet point={point} onOuvrir={onOuvrir} /> : null}
+          {point && agents.length ? (
+            <PointDuMatinDuProjet
+              point={point}
+              onOuvrir={ouvrirParId}
+              projetDe={tous ? (id) => nomsDesProjets.get(projetDeLAgent.get(id) ?? '') ?? null : undefined}
+            />
+          ) : null}
           {agents.length ? (
             <Tableau
-              repere="agents-du-projet"
+              repere={tous ? 'agents-de-tous-les-projets' : 'agents-du-projet'}
               lignes={lignes}
               colonnes={colonnes}
               cle={(l) => l.id}
-              onLigne={(l) => onOuvrir(l.id)}
+              onLigne={(l) => onOuvrir(l.id, l.projectId)}
               triInitial={{ colonne: 'nom', sens: 'asc' }}
               recherche={t('Chercher un agent…')}
               aere
@@ -424,6 +531,15 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
                 <span className="flex min-w-0 flex-1 items-center gap-3">
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="truncate font-medium text-text">{nomDeLAgent(l)}</span>
+                    {tous ? (
+                      <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted" data-projet-de-l-agent={l.projectId}>
+                        {(() => {
+                          const p = projets.find((x) => x.id === l.projectId);
+                          return p ? <PastilleProjet project={p} /> : null;
+                        })()}
+                        <span className="truncate">{nomsDesProjets.get(l.projectId) ?? ''}</span>
+                      </span>
+                    ) : null}
                     <span className="truncate text-[13px] text-muted">{quandIlAgit(l)}</span>
                     <BadgeDEtat etat={l.etat} />
                   </span>
@@ -433,21 +549,224 @@ export function AgentsDuProjet({ projectId, onOuvrir }: { projectId: string; onO
             />
           ) : (
             <div className="rounded-2xl bg-surface px-5 py-6" data-agents-vide="">
-              <p className="text-[15px] font-medium text-text">{t('Aucun agent dans {v0} pour l’instant.', { v0: projet?.name ?? '' })}</p>
+              <p className="text-[15px] font-medium text-text">
+                {tous ? t('Aucun agent dans vos projets pour l’instant.') : t('Aucun agent dans {v0} pour l’instant.', { v0: projet?.name ?? '' })}
+              </p>
               <p className="mt-1 max-w-[560px] text-[13.5px] text-muted">
-                {t('Un agent travaille seul dans ce projet, au moment et dans les limites que vous fixez. Créez-le en lui parlant : il vous pose quelques questions et remplit sa configuration.')}
+                {tous
+                  ? t('Un agent travaille seul dans un projet, au moment et dans les limites que vous fixez. « Nouvel agent » vous demande d’abord le projet, puis vous le créez en lui parlant.')
+                  : t('Un agent travaille seul dans ce projet, au moment et dans les limites que vous fixez. Créez-le en lui parlant : il vous pose quelques questions et remplit sa configuration.')}
               </p>
             </div>
           )}
           {erreur ? <p className="text-[13px] text-faint">{erreur}</p> : null}
         </>
       )}
+      {tous && telephone ? (
+        /* SUR TÉLÉPHONE, LE GESTE PRINCIPAL VIT DANS LES TROIS POINTS DU HAUT, qui ne se referment pas d'eux-mêmes : une
+           liste montée dans ce menu disparaissait avec lui. Elle est donc montée ici, sans déclencheur, et le bouton du
+           menu le referme (Échap, que Radix écoute) avant de l'ouvrir. */
+        <ListeDeroulante
+          valeur=""
+          titre={t('Dans quel projet ?')}
+          options={projetsOuverts.map((p) => ({
+            valeur: p.id,
+            libelle: p.name,
+            icone: <PastilleProjet project={p} />,
+            attributs: { 'data-projet-du-nouvel-agent': p.id },
+          }))}
+          onChoisir={(id) => void nouvelAgent(id)}
+          repere="choix-projet-nouvel-agent"
+          declencheur={(ouvrir) => {
+            ouvrirLaListe.current = () => ouvrir(null);
+            return null;
+          }}
+        />
+      ) : null}
+      {onOuvrirUnChef && projectId ? <ChefsDuProjet projectId={projectId} onOuvrir={onOuvrirUnChef} /> : null}
       <GestePrincipal>
-        <BoutonPrincipal onClick={() => void nouvelAgent()} disabled={creation || !!projet?.archived} data-nouvel-agent-perso="">
-          {creation ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          {t('Nouvel agent')}
-        </BoutonPrincipal>
+        {tous && telephone ? (
+          <BoutonPrincipal
+            onClick={() => {
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              window.setTimeout(() => ouvrirLaListe.current?.(), 0);
+            }}
+            disabled={creation || !projetsOuverts.length}
+            data-nouvel-agent-perso="tous"
+          >
+            {contenuDuBouton}
+          </BoutonPrincipal>
+        ) : tous ? (
+          /* LE PROJET D'ABORD (décision du 24/11/2026) : la liste déroulante commune, ancrée au bouton sur ordinateur,
+             montée du bas sur téléphone — jamais une liste native. */
+          <ListeDeroulante
+            valeur=""
+            titre={t('Dans quel projet ?')}
+            options={projetsOuverts.map((p) => ({
+              valeur: p.id,
+              libelle: p.name,
+              icone: <PastilleProjet project={p} />,
+              attributs: { 'data-projet-du-nouvel-agent': p.id },
+            }))}
+            onChoisir={(id) => void nouvelAgent(id)}
+            repere="choix-projet-nouvel-agent"
+            data-choix-projet-nouvel-agent=""
+            declencheur={(ouvrir) => (
+              <BoutonPrincipal onClick={(e: React.MouseEvent) => ouvrir(e)} disabled={creation || !projetsOuverts.length} data-nouvel-agent-perso="tous">
+                {contenuDuBouton}
+              </BoutonPrincipal>
+            )}
+          />
+        ) : (
+          <BoutonPrincipal onClick={() => void nouvelAgent(projectId)} disabled={creation || !!projet?.archived} data-nouvel-agent-perso="">
+            {contenuDuBouton}
+          </BoutonPrincipal>
+        )}
       </GestePrincipal>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Les chefs de Communication du projet (24/11/2026)                    */
+/* ------------------------------------------------------------------ */
+
+/** Les chefs que ce projet porte, et ceux que la personne a coupés ; relus à l'ouverture et quand un chef change. */
+function useChefsDuProjet(projectId: string): { chefs: Agent[] | null; coupes: Set<string>; relire: () => void } {
+  const [lus, setLus] = React.useState<{ ids: string[]; coupes: string[] } | null>(null);
+  const [version, setVersion] = React.useState(0);
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call<{ agents: Agent[]; coupes: string[] }>({ type: 'agents.chefsDuProjet', projectId })
+      .then((r) => {
+        if (!vivant) return;
+        client.recevoirDesAgents(r.agents ?? []);
+        setLus({ ids: (r.agents ?? []).map((a) => a.id), coupes: r.coupes ?? [] });
+      })
+      .catch(() => vivant && setLus({ ids: [], coupes: [] }));
+    return () => {
+      vivant = false;
+    };
+  }, [projectId, version]);
+  /* L'état vivant de chaque chef (au travail, à vous) suit le canal : on relit le magasin, pas le démon. */
+  const magasin = useApp().agents;
+  const chefs = React.useMemo(() => (lus ? lus.ids.map((id) => magasin[id]).filter((a): a is Agent => !!a) : null), [lus, magasin]);
+  const coupes = React.useMemo(() => new Set(lus?.coupes ?? []), [lus]);
+  const relire = React.useCallback(() => setVersion((v) => v + 1), []);
+  return { chefs, coupes, relire };
+}
+
+type LigneDeChef = Agent & { coupe: boolean };
+
+/** L'interrupteur « Actif » d'un chef : coupé, il n'est plus relancé chaque matin et ne reçoit plus de travail. */
+function InterrupteurDuChef({ chef, onChange }: { chef: LigneDeChef; onChange: () => void }) {
+  const [attente, setAttente] = React.useState(false);
+  const basculer = async (actif: boolean) => {
+    setAttente(true);
+    try {
+      await client.call({ type: 'agents.couperLeChef', agentId: chef.id, coupe: !actif });
+      onChange();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’agent n’a pas pu changer d’état'));
+    } finally {
+      setAttente(false);
+    }
+  };
+  return (
+    <span className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+      <Switch
+        checked={!chef.coupe}
+        attente={attente}
+        onCheckedChange={(v) => void basculer(v)}
+        aria-label={chef.coupe ? 'Rallumer le chef' : 'Couper le chef'}
+        title={chef.coupe ? t('Rallumer le chef') : t('Couper le chef : il n’est plus relancé chaque matin')}
+        data-interrupteur-chef={chef.id}
+      />
+    </span>
+  );
+}
+
+function libelleDuMembre(chef: LigneDeChef): string {
+  if (chef.coupe) return t('Coupé');
+  const etat = etatDuMembre(chef);
+  return etat === 'a-vous' ? t('Attend votre réponse') : etat === 'travail' ? t('Au travail') : t('Au repos');
+}
+
+/**
+ * LES CHEFS DE COMMUNICATION DU PROJET, sous ses agents personnalisés (décision de l'utilisateur, 24/11/2026 : « les
+ * garder, en agents visibles du projet »). Une ligne par chef : son état, sa dernière activité, son interrupteur ; un
+ * clic ouvre sa conversation (avec les onglets de sa famille). Rien ne s'affiche quand le projet n'en porte aucun.
+ */
+function ChefsDuProjet({ projectId, onOuvrir }: { projectId: string; onOuvrir: (agentId: string) => void }) {
+  const { chefs, coupes, relire } = useChefsDuProjet(projectId);
+  const lignes = React.useMemo<LigneDeChef[]>(() => (chefs ?? []).map((c) => ({ ...c, coupe: coupes.has(c.id) })), [chefs, coupes]);
+  const colonnes = React.useMemo<ColonneDuTableauCommun<LigneDeChef>[]>(
+    () => [
+      {
+        cle: 'nom',
+        libelle: t('Agent'),
+        valeur: (l) => l.title ?? '',
+        rendu: (l) => (
+          <span className="flex min-w-0 items-center gap-2.5">
+            <IconeDuMembre agent={l} />
+            <span className="truncate font-medium text-text" title={l.title}>
+              {l.title || t('Agent')}
+            </span>
+          </span>
+        ),
+      },
+      {
+        cle: 'etat',
+        libelle: t('État'),
+        largeur: 160,
+        valeur: (l) => libelleDuMembre(l),
+        rendu: (l) => <span className="truncate text-muted">{libelleDuMembre(l)}</span>,
+      },
+      {
+        cle: 'derniere',
+        libelle: t('Dernière activité'),
+        largeur: 150,
+        sensNaturel: 'desc',
+        masqueSurTelephone: true,
+        valeur: (l) => l.endedAt ?? l.startedAt ?? l.updatedAt ?? 0,
+        rendu: (l) => <span className="tabular-nums text-[12.5px] text-faint">{quandLisible(l.endedAt ?? l.startedAt ?? l.updatedAt)}</span>,
+      },
+      {
+        cle: 'actif',
+        libelle: t('Actif'),
+        largeur: 70,
+        droite: true,
+        valeur: (l) => (l.coupe ? 0 : 1),
+        rendu: (l) => <InterrupteurDuChef chef={l} onChange={relire} />,
+      },
+    ],
+    [relire],
+  );
+  if (!lignes.length) return null;
+  return (
+    <section className="flex min-w-0 flex-col gap-2" data-chefs-du-projet={projectId}>
+      <h2 className={cn(TITRE_DE_SECTION, 'text-text')}>{t('Chefs de communication')}</h2>
+      <Tableau
+        repere="chefs-du-projet"
+        lignes={lignes}
+        colonnes={colonnes}
+        cle={(l) => l.id}
+        onLigne={(l) => onOuvrir(l.id)}
+        triInitial={{ colonne: 'nom', sens: 'asc' }}
+        aere
+        attributsLigne={(l) => ({ 'data-ligne-chef': l.id, 'data-etat': l.coupe ? 'coupe' : etatDuMembre(l) })}
+        pile={(l) => (
+          <span className="flex min-w-0 flex-1 items-center gap-3">
+            <IconeDuMembre agent={l} />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate font-medium text-text">{l.title || t('Agent')}</span>
+              <span className="truncate text-[13px] text-muted">{libelleDuMembre(l)}</span>
+            </span>
+            <InterrupteurDuChef chef={l} onChange={relire} />
+          </span>
+        )}
+      />
     </section>
   );
 }

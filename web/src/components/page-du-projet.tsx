@@ -22,6 +22,7 @@ import { ouvrirLArchivage } from '@/lib/archivage-projet';
 import { TableauDesTaches } from '@/components/tableau-des-taches';
 import { AgentsDuProjet } from '@/components/agents-du-projet';
 import { PageDeLAgent } from '@/components/page-de-l-agent';
+import { PageDuSousAgent } from '@/components/sous-agents';
 import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre, RubriquesDePage } from '@/components/fenetre-de-service';
 import { CranDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
@@ -35,7 +36,7 @@ import { cn } from '@/lib/utils';
 const Dashboard = React.lazy(() => import('@/components/dashboard').then((m) => ({ default: m.Dashboard })));
 
 /** CE QUE MONTRE L'ACCUEIL : l'onglet « Agents » (`null` : les tâches), et l'agent personnalisé ouvert. */
-export type AccueilDesAgents = { agentPersoId?: string } | null;
+export type AccueilDesAgents = { agentPersoId?: string; agentId?: string } | null;
 
 export function PageDuProjet({
   projectId,
@@ -76,6 +77,7 @@ export function PageDuProjet({
   const selecteur = onAgents ? (
     <BarreDOnglets
       repere="accueil-taches-agents"
+      variante="accueil"
       pleineLargeur={telephone}
       valeur={agents ? 'agents' : 'taches'}
       onChange={(v) => onAgents(v === 'agents' ? {} : null)}
@@ -86,6 +88,15 @@ export function PageDuProjet({
     />
   ) : null;
   if (agents && onAgents) {
+    /* LA CONVERSATION D'UN AGENT SANS FICHE — un chef de Communication, un sous-agent (24/11/2026) : sa page, avec la
+       rangée d'onglets de sa famille sous le fil d'Ariane. */
+    if (agents.agentId) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
+          <PageDuSousAgent projectId={projectId} agentId={agents.agentId} onRetour={() => onAgents({})} />
+        </div>
+      );
+    }
     if (agents.agentPersoId) {
       return (
         <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
@@ -93,7 +104,7 @@ export function PageDuProjet({
         </div>
       );
     }
-    const liste = <AgentsDuProjet projectId={projectId} onOuvrir={(id) => onAgents({ agentPersoId: id })} />;
+    const liste = <AgentsDuProjet projectId={projectId} onOuvrir={(id) => onAgents({ agentPersoId: id })} onOuvrirUnChef={(id) => onAgents({ agentId: id })} />;
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
         {projet ? <BandeauDuProjetArchive projet={projet} /> : null}

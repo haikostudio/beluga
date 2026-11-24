@@ -18,7 +18,7 @@ export interface ProprietesReglages {
 export function ReglagesBackups({ settings, update }: ProprietesReglages) {
   return (
     <div className="space-y-5">
-      <Groupe titre={t('Backups des sites en production')}>
+      <Groupe titre={t('Backups des sites')}>
         <Champ
           label={t('Dossier du disque de stockage')}
           aide={t('Le point de montage du disque, chemin absolu. Vide, aucun backup ne part.')}

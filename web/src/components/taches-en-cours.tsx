@@ -16,7 +16,8 @@
 import { LignesDesAgentsSansCarte, LignesDesChefsAuTravail, useAgentsSansCarteAuTravail, useChefsAuTravail } from '@/components/chefs-au-travail';
 import * as React from 'react';
 import { ChevronRight } from '@/components/ui/icones';
-import { carteCacheeDesListes, decisionsParCarte, deployeeNonVue, miseEnLigneAfficheeActive, sansEchecsRemplaces, sansLesFillesRangees, tachesEnCours, type Card } from '@beluga/shared';
+import { carteCacheeDesListes, decisionsParCarte, deployeeNonVue, estChefDeLArbre, miseEnLigneAfficheeActive, racinesEnCours, sansEchecsRemplaces, sansLesFillesRangees, tachesEnCours, type Card } from '@beluga/shared';
+import { ArbreDesSousAgents } from '@/components/sous-agents';
 import { LigneDeMiseEnLigne, useMisesEnLigneParDate } from '@/components/mises-en-ligne';
 import { LigneEtFilles, useCartesAvecAgentActif, useLignesDAgents } from '@/components/liste-des-agents';
 import { client } from '@/lib/client';
@@ -64,7 +65,14 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
   const projets = React.useMemo(() => new Map(state.projects.map((p) => [p.id, p])), [state.projects]);
   /* LES AGENTS SANS CARTE QUI TRAVAILLENT AUSSI (04/11/2026) : configuration d'un déploiement ou d'une mise en
      production, chefs de Communication. Ils comptent dans la zone et y paraissent en tête. */
-  const sansCarte = useAgentsSansCarteAuTravail().length + useChefsAuTravail().length;
+  /* LES CHEFS DE COMMUNICATION EN ARBRE (24/11/2026, décision de l'utilisateur) : une ligne par RACINE de famille —
+     le chef général —, repliée par défaut, ses sous-agents dessous en tirets quand on est dedans. Un sous-agent ne
+     paraît plus en ligne autonome (la « fausse carte » de la capture #34197). Les agents de campagne gardent leur ligne. */
+  const chefs = useChefsAuTravail();
+  const tousLesAgents = state.agents;
+  const racines = React.useMemo(() => racinesEnCours(chefs.filter(estChefDeLArbre), Object.values(tousLesAgents)), [chefs, tousLesAgents]);
+  const chefsHorsArbre = chefs.filter((a) => !estChefDeLArbre(a)).length;
+  const sansCarte = useAgentsSansCarteAuTravail().length + chefsHorsArbre + racines.length;
   /* …ET LES MISES EN LIGNE QUI TOURNENT (04/11/2026, capture #8a35 : « Déploiement · HaikoBill · 50 % » au tableau de
      bord, rien dans la colonne). Un déploiement ou une mise en production n'est ni une carte ni un agent : la zone ne
      le voyait pas. Même ligne que sous le projet (`LigneDeMiseEnLigne`), avec la pastille de son projet. */
@@ -104,7 +112,12 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
             </div>
           ))}
           <LignesDesAgentsSansCarte avecProjet />
-          <LignesDesChefsAuTravail compacte />
+          {racines.map((racine) => (
+            <div key={racine} data-famille-en-cours={racine}>
+              <ArbreDesSousAgents racineId={racine} />
+            </div>
+          ))}
+          <LignesDesChefsAuTravail compacte horsArbre />
           {lignes.map((ligne) => {
             const deployee = deployeeNonVue(ligne.carte);
             return (

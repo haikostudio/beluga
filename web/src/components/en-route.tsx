@@ -53,7 +53,9 @@ import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { Dot, ZoneDefilement } from '@/components/ui';
 import { TableauDesTaches } from '@/components/tableau-des-taches';
-import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre } from '@/components/fenetre-de-service';
+import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre, RubriquesDePage } from '@/components/fenetre-de-service';
+import { AgentsDuProjet } from '@/components/agents-du-projet';
+import { naviguerVers } from '@/components/ui/lien-interne';
 import {
   PublicationsEnAttenteDesProjets,
   TableauADeployer,
@@ -76,9 +78,14 @@ const GRILLE_DE_BANDE = `${GRILLE_EN_ROUTE} pt-3`;
 export function EnRoute({
   onOpenCard,
   onOpenAgent,
+  agentsPerso = false,
+  onAgentsPerso,
 }: {
   onOpenCard: (card: Card) => void;
   onOpenAgent: (agentId: string) => void;
+  /** L'ONGLET « AGENTS » (24/11/2026) : les agents personnalisés de tous les projets, « #en-route/agents ». */
+  agentsPerso?: boolean;
+  onAgentsPerso?: (agents: boolean) => void;
 }) {
   const state = useApp();
   // L'heure « rendue il y a… » se refait à chaque minute, pour toute la page —
@@ -128,7 +135,7 @@ export function EnRoute({
   const ouvrirAgent = (agent: Agent) => {
     /* L'AGENT D'UN SERVICE (sans projet) s'ouvre sur l'écran de son service, jamais sur un tableau. */
     if (agent.service) {
-      allerALEcranDeLAgentDeService(agent.service);
+      allerALEcranDeLAgentDeService({ id: agent.id, projectId: agent.projectId, service: agent.service });
       return;
     }
     const carte = agent.cardId
@@ -167,6 +174,27 @@ export function EnRoute({
   );
   const aDesBandes = depannages.length > 0 || bande.length > 0;
 
+  /*
+   * « TÂCHES | AGENTS » (demande du 24/11/2026, maquette #d9190) : le même sélecteur que l'accueil d'un projet, collé
+   * au grand titre, en variante « accueil » (plus grand, onglet choisi en aplat contrasté). « Agents » montre les agents
+   * personnalisés de TOUS les projets ; un clic ouvre l'agent dans son projet.
+   */
+  const agentsDeTousLesProjets = (
+    <AgentsDuProjet projectId={null} onOuvrir={(id, projet) => naviguerVers(`projet/${encodeURIComponent(projet)}/agents/${encodeURIComponent(id)}`)} />
+  );
+  const selecteur = onAgentsPerso ? (
+    <BarreDOnglets
+      repere="tableaux-de-bord-taches-agents"
+      variante="accueil"
+      valeur={agentsPerso ? 'agents' : 'taches'}
+      onChange={(v) => onAgentsPerso(v === 'agents')}
+      onglets={[
+        { cle: 'taches', libelle: t('Tâches') },
+        { cle: 'agents', libelle: t('Agents') },
+      ]}
+    />
+  ) : null;
+
   /* Le redémarrage du serveur, rangé au chevron des options de la page (voir plus bas). */
   const options = (
     <OptionsDePage enMenu>
@@ -198,7 +226,13 @@ export function EnRoute({
           que la colonne d'un projet — le projet sur chaque ligne, un filtre par
           projet en plus. Un agent s'ouvre dans son projet. */}
       {telephone ? (
-        <TableauxDeBordTelephone bandes={aDesBandes ? bandes : null} onOuvrir={onOpenCard} />
+        <TableauxDeBordTelephone
+          bandes={aDesBandes ? bandes : null}
+          onOuvrir={onOpenCard}
+          agentsPerso={agentsPerso}
+          onAgentsPerso={onAgentsPerso}
+          agents={agentsDeTousLesProjets}
+        />
       ) : (
         /*
          * SUR ORDINATEUR, UNE PAGE COMME CELLES DES SERVICES (16/11/2026, captures #56359 et #4f41) : UNE zone qui défile
@@ -214,10 +248,19 @@ export function EnRoute({
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="[--retrait-droit-pied-tableau:132px]" hauteur={28}>
           <div className={cn(CLASSE_COLONNE_DE_SERVICE, 'flex min-h-full flex-col')} data-colonne-des-tableaux-de-bord>
             <PageAGrandTitre titre={t('Tableaux de bord')} repere="tableaux-de-bord">
+              {selecteur ? <RubriquesDePage>{selecteur}</RubriquesDePage> : null}
               {options}
-              {aDesBandes ? <div className="pb-2">{bandes}</div> : null}
-              <PublicationsEnAttenteDesProjets titreDeLaSuite={t('Toutes les tâches')} />
-              <TableauDesTaches onOuvrir={onOpenCard} titre={null} />
+              {/* EN VUE « AGENTS », LE TABLEAU DES TÂCHES N'EST PAS MONTÉ : sa recherche et son filtre quittent la rangée du
+                  titre avec lui, le tableau des agents pose les siens. */}
+              {agentsPerso && onAgentsPerso ? (
+                agentsDeTousLesProjets
+              ) : (
+                <>
+                  {aDesBandes ? <div className="pb-2">{bandes}</div> : null}
+                  <PublicationsEnAttenteDesProjets titreDeLaSuite={t('Toutes les tâches')} />
+                  <TableauDesTaches onOuvrir={onOpenCard} titre={null} />
+                </>
+              )}
             </PageAGrandTitre>
           </div>
         </ZoneDefilement>
@@ -485,7 +528,20 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
  * DERNIER onglet touché — une préférence du compte (`shared/src/onglets-des-tableaux-de-bord.ts`), « Tâches » sans
  * elle. Le choix automatique du premier onglet non vide est retiré.
  */
-function TableauxDeBordTelephone({ bandes, onOuvrir }: { bandes: React.ReactNode; onOuvrir: (card: Card) => void }) {
+function TableauxDeBordTelephone({
+  bandes,
+  onOuvrir,
+  agentsPerso,
+  onAgentsPerso,
+  agents,
+}: {
+  bandes: React.ReactNode;
+  onOuvrir: (card: Card) => void;
+  agentsPerso: boolean;
+  onAgentsPerso?: (agents: boolean) => void;
+  /** La vue des agents de tous les projets, montée quand l'onglet « Agents » est choisi. */
+  agents: React.ReactNode;
+}) {
   const { charge, permis, aDeployer, aProduire } = usePublicationsEnAttenteVisibles();
   const lignes = useLignesDAgents(useCartesParDate().cartes);
   const actives = React.useMemo(() => lignes.filter((l) => l.active).length, [lignes]);
@@ -496,8 +552,47 @@ function TableauxDeBordTelephone({ bandes, onOuvrir }: { bandes: React.ReactNode
       <ListeDesAgents avecProjet pleinePage onOuvrir={onOuvrir} />
     </div>
   );
-  if (!permis) return <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">{liste}</div>;
-  const onglet = ongletDesTableauxDeBord(retenu);
+  /*
+   * « AGENTS » ENTRE DANS LA MÊME RANGÉE (24/11/2026), juste après « Tâches » : une seule rangée d'onglets sur téléphone.
+   * Son choix vit dans l'application (adresse « #en-route/agents ») ; les trois autres restent dans la préférence.
+   */
+  const retenuSansAgents = ongletDesTableauxDeBord(retenu);
+  const onglet: OngletDesTableauxDeBord = agentsPerso && onAgentsPerso ? 'agents' : retenuSansAgents === 'agents' ? 'taches' : retenuSansAgents;
+  const choisir = (v: OngletDesTableauxDeBord) => {
+    if (v === 'agents') {
+      onAgentsPerso?.(true);
+      return;
+    }
+    retenir(v);
+    if (agentsPerso) onAgentsPerso?.(false);
+  };
+  const vueDesAgents = (
+    <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-[var(--marge-de-page,1rem)] pb-4 pt-2" hauteur={16} data-fil="agents-de-tous-les-projets">
+      {agents}
+    </ZoneDefilement>
+  );
+  if (!permis) {
+    if (!onAgentsPerso) return <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">{liste}</div>;
+    return (
+      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">
+        <div className="shrink-0 px-[var(--marge-de-page,1rem)] pb-1 pt-2">
+          <BarreDOnglets<OngletDesTableauxDeBord>
+            repere="tableaux-de-bord"
+            libelle={t('Tableaux de bord')}
+            pleineLargeur
+            attributs={{ 'data-onglets-tableaux-de-bord': onglet }}
+            valeur={onglet}
+            onChange={choisir}
+            onglets={[
+              { cle: 'taches', libelle: t('Tâches'), nombre: actives },
+              { cle: 'agents', libelle: t('Agents') },
+            ]}
+          />
+        </div>
+        {onglet === 'agents' ? vueDesAgents : liste}
+      </div>
+    );
+  }
   return (
     <div className="mx-auto flex min-h-0 w-full flex-1 flex-col">
       <div className="shrink-0 px-[var(--marge-de-page,1rem)] pb-1 pt-2">
@@ -507,9 +602,10 @@ function TableauxDeBordTelephone({ bandes, onOuvrir }: { bandes: React.ReactNode
           pleineLargeur
           attributs={{ 'data-onglets-tableaux-de-bord': onglet }}
           valeur={onglet}
-          onChange={retenir}
+          onChange={choisir}
           onglets={[
             { cle: 'taches', libelle: t('Tâches'), nombre: actives },
+            ...(onAgentsPerso ? [{ cle: 'agents' as const, libelle: t('Agents') }] : []),
             { cle: 'a-deployer', libelle: t('À déployer'), nombre: charge ? aDeployer.length : null },
             { cle: 'production', libelle: t('Production'), nombre: charge ? aProduire.length : null },
           ]}
@@ -517,6 +613,8 @@ function TableauxDeBordTelephone({ bandes, onOuvrir }: { bandes: React.ReactNode
       </div>
       {onglet === 'taches' ? (
         liste
+      ) : onglet === 'agents' ? (
+        vueDesAgents
       ) : (
         <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-[var(--marge-de-page,1rem)] pb-4 pt-2" hauteur={16}>
           {!charge ? (

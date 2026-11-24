@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTitreRedit } from '@/components/reglages/communs';
 import {
   CalendarClock,
   ChevronDown,
@@ -49,6 +50,8 @@ import { t } from '@/lib/langue';
 
 export function SectionComptes() {
   const state = useApp();
+  /* Dans la page « Agents et IA », la section porte déjà le titre « Comptes et quotas » : seule l'aide reste. */
+  const titreRedit = useTitreRedit(t('Comptes et quotas'));
   const settings = state.settings;
   const update = (patch: Record<string, unknown>) =>
     void client.geste({ type: 'settings.update', patch }, t('Enregistrement du réglage'));
@@ -89,8 +92,13 @@ export function SectionComptes() {
 
   return (
     <section>
-      <div className="mb-2 flex items-center gap-1.5">
-        <h3 className="flex items-center gap-1 flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}<BulleInfo cote="start">{t('Vous réglez l\'ordre avec les flèches. Pour les moteurs : le premier qui a de la place reçoit une carte dont le moteur n\'est pas choisi. Pour les comptes d\'un moteur : le plus haut reçoit le travail, le suivant ne sert que s\'il est épuisé. Un moteur facturé au crédit n\'est jamais choisi tout seul.')}</BulleInfo></h3>
+      <div className="mb-2 flex items-start gap-1.5">
+        {titreRedit ? (
+          /* Le titre est celui de la section : l'aide se lit en clair, plus dans une bulle orpheline. */
+          <p className="flex-1 px-1 text-[13px] leading-relaxed text-muted">{t('Vous réglez l\'ordre avec les flèches. Pour les moteurs : le premier qui a de la place reçoit une carte dont le moteur n\'est pas choisi. Pour les comptes d\'un moteur : le plus haut reçoit le travail, le suivant ne sert que s\'il est épuisé. Un moteur facturé au crédit n\'est jamais choisi tout seul.')}</p>
+        ) : (
+          <h3 className="flex items-center gap-1 flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}<BulleInfo cote="start">{t('Vous réglez l\'ordre avec les flèches. Pour les moteurs : le premier qui a de la place reçoit une carte dont le moteur n\'est pas choisi. Pour les comptes d\'un moteur : le plus haut reçoit le travail, le suivant ne sert que s\'il est épuisé. Un moteur facturé au crédit n\'est jamais choisi tout seul.')}</BulleInfo></h3>
+        )}
         <Button variant="ghost" size="icon-sm" aria-label="Relire les quotas" data-relire-quotas onClick={() => void client.geste({ type: 'quota.refresh' }, t('Relecture des quotas'))}>
           <RefreshCw className="h-3 w-3" />
         </Button>
@@ -248,13 +256,15 @@ function PlaceDeReconnecter() {
 
 /** LA PLACE DU CRAYON ET DE LA CORBEILLE, VIDE : dans le titre d'un groupe, pour caler ses flèches sur celles des comptes. */
 function PlaceDesOutilsDeCompte() {
+  /* SUR TÉLÉPHONE, PAS DE PLACE RÉSERVÉE (24/11/2026) : les commandes d'un compte y passent sous son nom, et la place
+     vide de « Reconnecter » + crayon + corbeille ne laissait au nom du moteur que sa première lettre (« C… »). */
   return (
     <>
-      <span className="grid shrink-0">
+      <span className="grid shrink-0 max-sm:hidden">
         <PlaceDeReconnecter />
       </span>
-      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible')} />
-      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible')} />
+      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible max-sm:hidden')} />
+      <span aria-hidden className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'invisible max-sm:hidden')} />
     </>
   );
 }
@@ -395,7 +405,7 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
             // nom, dans son propre bloc, qui se tronque.
             <p className="flex min-w-0 items-center gap-1.5 text-[13.5px] text-text">
               <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 truncate" data-nom-compte={quota.id}>
+              <span className="min-w-0 break-words sm:truncate" data-nom-compte={quota.id}>
                 {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
               </span>
               {/* LES ÉTIQUETTES D'ÉTAT SUIVENT LE NOM (01/11/2026, capture #985d5) : à droite, elles

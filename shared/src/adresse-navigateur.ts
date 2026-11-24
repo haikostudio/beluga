@@ -39,6 +39,9 @@ type CarteSurTableauDeBord<V extends 'tableau-de-bord' | 'en-route'> = {
   cardId?: string;
   titreCarte?: string;
   onglet?: string;
+  /* L'ONGLET « AGENTS » DES TABLEAUX DE BORD (« #en-route/agents », 24/11/2026) : les agents personnalisés de tous
+     les projets. Seul « en-route » le porte, et jamais avec une carte ouverte. */
+  agents?: true;
 };
 
 /**
@@ -68,6 +71,9 @@ type EcranDeBase =
          (« #projet/<id>/agents/<agent> ») — carte « Agents personnalisés dans les projets », 24/11/2026. */
       agents?: true;
       agentPersoId?: string;
+      /* LA CONVERSATION D'UN AGENT SANS FICHE — un chef de Communication, un sous-agent (« #projet/<id>/agents/fil/<agent> »),
+         carte « Chefs invisibles et fausse carte », 24/11/2026. */
+      agentId?: string;
     }
   /*
    * LA CONFIGURATION D'UN PROJET, OUVERTE SUR UNE RUBRIQUE. Même nature que
@@ -374,6 +380,7 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       const base = `projet/${encodeURIComponent(ecran.projectId)}`;
       /* L'onglet « Agents » ne porte pas de carte : une carte ouverte s'écrit sur l'onglet des tâches. */
       if (ecran.agents && !ecran.cardId) {
+        if (ecran.agentId) return `${base}/agents/fil/${encodeURIComponent(ecran.agentId)}`;
         return ecran.agentPersoId ? `${base}/agents/${encodeURIComponent(ecran.agentPersoId)}` : `${base}/agents`;
       }
       return fragmentDeCarte(base, ecran);
@@ -413,9 +420,9 @@ function fragmentDeCarte(
  */
 function fragmentDeCarteSurTableau(
   mot: 'tableau-de-bord' | 'en-route',
-  ecran: { projectId?: string; cardId?: string; titreCarte?: string; onglet?: string },
+  ecran: { projectId?: string; cardId?: string; titreCarte?: string; onglet?: string; agents?: true },
 ): string {
-  if (!ecran.cardId || !ecran.projectId) return mot;
+  if (!ecran.cardId || !ecran.projectId) return mot === 'en-route' && ecran.agents ? 'en-route/agents' : mot;
   return fragmentDeCarte(`${mot}/projet/${encodeURIComponent(ecran.projectId)}`, ecran);
 }
 
@@ -459,6 +466,7 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
       const onglet = decodeSegment(morceaux[5] ?? '');
       if (cardId) return { vue: tete, projectId, cardId, ...(onglet ? { onglet } : {}) };
     }
+    if (tete === 'en-route' && morceaux[1] === 'agents') return { vue: 'en-route', agents: true };
     return { vue: tete };
   }
   /* LE SERVICE NOTES (retiré le 11/11/2026) : son ancienne adresse rend l'accueil, jamais une page vide — comme toute adresse inconnue. */
@@ -564,6 +572,10 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
       if (cardId) return { vue: 'projet', projectId, cardId, ...(onglet ? { onglet } : {}) };
     }
     if (morceaux[2] === 'agents') {
+      if (morceaux[3] === 'fil') {
+        const agentId = decodeSegment(morceaux[4] ?? '');
+        return { vue: 'projet', projectId, agents: true, ...(agentId ? { agentId } : {}) };
+      }
       const agentPersoId = decodeSegment(morceaux[3] ?? '');
       return { vue: 'projet', projectId, agents: true, ...(agentPersoId ? { agentPersoId } : {}) };
     }
@@ -603,7 +615,7 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
        en arrière avant de sortir de la carte. */
     /* PASSER DES TÂCHES AUX AGENTS EST UN DÉTAIL D'AFFICHAGE (le choix est retenu par projet) ; OUVRIR UN AGENT est
        une destination : Précédent ramène au tableau des agents. */
-    return a.projectId === b.projectId && (a.cardId ?? '') === (b.cardId ?? '') && (a.agentPersoId ?? '') === (b.agentPersoId ?? '');
+    return a.projectId === b.projectId && (a.cardId ?? '') === (b.cardId ?? '') && (a.agentPersoId ?? '') === (b.agentPersoId ?? '') && (a.agentId ?? '') === (b.agentId ?? '');
   }
   if (
     (a.vue === 'en-route' && b.vue === 'en-route') ||
@@ -840,7 +852,7 @@ export function ecranDeLaVue(etat: {
   titreCarte?: string | null;
   onglet?: string | null;
   /** L'onglet « Agents » de l'accueil du projet, et l'agent personnalisé ouvert. */
-  agents?: { agentPersoId?: string | null } | null;
+  agents?: { agentPersoId?: string | null; agentId?: string | null } | null;
 }): EcranNavigateur {
   const element = etat.element ?? {};
   switch (etat.vue) {
@@ -857,7 +869,8 @@ export function ecranDeLaVue(etat: {
               ...(etat.onglet ? { onglet: etat.onglet } : {}),
             }
           : {};
-      return etat.vue === 'en-route' ? { vue: 'en-route', ...carte } : { vue: 'tableau-de-bord', ...carte };
+      if (etat.vue === 'en-route') return { vue: 'en-route', ...carte, ...(etat.agents && !etat.cardId ? { agents: true as const } : {}) };
+      return { vue: 'tableau-de-bord', ...carte };
     }
     case 'coffre':
       return { vue: 'coffre', ...(element.coffre ? { ficheId: element.coffre } : {}) };
@@ -916,6 +929,7 @@ export function ecranDeLaVue(etat: {
           projectId: etat.projectId,
           agents: true,
           ...(etat.agents.agentPersoId ? { agentPersoId: etat.agents.agentPersoId } : {}),
+          ...(etat.agents.agentId ? { agentId: etat.agents.agentId } : {}),
         };
       }
       return {

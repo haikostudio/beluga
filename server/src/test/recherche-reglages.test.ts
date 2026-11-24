@@ -75,16 +75,16 @@ test('le titre passe devant le groupe : « apparence » sort les deux pages du g
 });
 
 /* ------------------------------------------------------------------ */
-/* LES SIX RUBRIQUES (refonte « Réglages à deux niveaux », 21/11/2026)  */
+/* LES SEPT RUBRIQUES (colonne fixe, 24/11/2026)                       */
 /* ------------------------------------------------------------------ */
 
-const { ARBORESCENCE_REGLAGES, ALIAS_DES_PAGES_DE_REGLAGES, cleActuelleDeLaPage, rubriqueDeLaPage } =
+const { ARBORESCENCE_REGLAGES, ALIAS_DES_PAGES_DE_REGLAGES, cibleDesReglages, cleActuelleDeLaPage, rubriqueDeLaPage } =
   await import('@beluga/shared');
 
-test('les réglages tiennent en six rubriques, chacune avec sa phrase', () => {
+test('les réglages tiennent en sept rubriques, « Accès » en deuxième, chacune avec sa phrase', () => {
   assert.deepEqual(
     ARBORESCENCE_REGLAGES.map((r: any) => r.cle),
-    ['moi', 'agents-ia', 'ordinateurs', 'serveur', 'donnees', 'connexions'],
+    ['moi', 'acces', 'agents-ia', 'ordinateurs', 'serveur', 'donnees', 'connexions'],
   );
   for (const rubrique of ARBORESCENCE_REGLAGES as any[]) {
     assert.ok(rubrique.phrase && rubrique.phrase.length > 10, `${rubrique.cle} a sa phrase`);
@@ -112,4 +112,27 @@ test('chaque ancienne clé de page mène à une page qui existe', () => {
   assert.equal(rubriqueDeLaPage(ARBORESCENCE_REGLAGES, 'extension')?.cle, 'ordinateurs');
   assert.equal(rubriqueDeLaPage(ARBORESCENCE_REGLAGES, 'langue')?.cle, 'moi');
   assert.equal(rubriqueDeLaPage(ARBORESCENCE_REGLAGES, 'inconnue'), undefined);
+  // Les comptes clients (ex-Messagerie) et les accès tiers (ex-« Mon compte ») mènent à « Accès ».
+  assert.equal(rubriqueDeLaPage(ARBORESCENCE_REGLAGES, 'sous-comptes')?.cle, 'acces');
+  assert.equal(rubriqueDeLaPage(ARBORESCENCE_REGLAGES, 'comptes-clients')?.cle, 'acces');
+});
+
+test('une clé de rubrique seule ouvre la rubrique, une clé de page descend à sa section', () => {
+  assert.deepEqual(
+    { r: cibleDesReglages(ARBORESCENCE_REGLAGES, 'donnees')?.rubrique.cle, p: cibleDesReglages(ARBORESCENCE_REGLAGES, 'donnees')?.page },
+    { r: 'donnees', p: undefined },
+  );
+  assert.equal(cibleDesReglages(ARBORESCENCE_REGLAGES, 'notifications')?.page, 'notifications');
+  assert.equal(cibleDesReglages(ARBORESCENCE_REGLAGES, 'langue')?.page, 'theme');
+  assert.equal(cibleDesReglages(ARBORESCENCE_REGLAGES, 'inconnue'), undefined);
+});
+
+test('la recherche trouve les accès des clients et de l’équipe dans « Accès », plus dans « Mon compte »', () => {
+  const fiches = (ARBORESCENCE_REGLAGES as any[]).flatMap((r) =>
+    r.pages.map((p: any) => ({ cle: p.cle, titre: p.titre, groupe: r.titre, motsCles: p.motsCles, libelles: p.libelles })),
+  );
+  for (const requete of ['client', 'collaborateur', 'mot de passe client', 'sous-comptes']) {
+    assert.equal(chercherDansLesReglages(fiches, requete)[0]?.fiche.cle, 'acces', requete);
+  }
+  assert.ok(chercherDansLesReglages(fiches, 'mot de passe').some((r: any) => r.fiche.cle === 'mon-compte'));
 });

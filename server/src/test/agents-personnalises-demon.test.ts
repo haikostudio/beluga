@@ -247,6 +247,27 @@ test('retirer un agent ferme ses demandes et efface sa ligne et son journal', as
   assert.equal(perso.journalDeLAgent(agent.id).length, 0);
 });
 
+test('les agents de plusieurs projets se lisent ensemble, chacun avec son projet, et rien d’un projet non demandé', async () => {
+  const autre = store.saveProject(
+    Project.parse({ id: 'p-agents-autre', name: 'Autre projet', path: bacASable, createdAt: store.now(), updatedAt: store.now() }),
+  );
+  const ferme = store.saveProject(
+    Project.parse({ id: 'p-agents-ferme', name: 'Projet fermé', path: bacASable, createdAt: store.now(), updatedAt: store.now() }),
+  );
+  const ici = await perso.creerAgent(projet.id);
+  const la = await perso.creerAgent(autre.id);
+  const cache = await perso.creerAgent(ferme.id);
+  const tous = perso.listerTousLesAgents([projet.id, autre.id]);
+  const ids = new Set(tous.map((a) => a.id));
+  assert.ok(ids.has(ici.id) && ids.has(la.id), 'les deux projets demandés');
+  assert.ok(!ids.has(cache.id), 'le projet non demandé reste fermé');
+  assert.equal(tous.find((a) => a.id === la.id)?.projectId, autre.id);
+  assert.deepEqual(perso.listerTousLesAgents([]), []);
+  const point = perso.pointDuMatinGlobal([projet.id, autre.id]);
+  assert.equal(point.agentsActifs, tous.filter((a) => a.actif).length);
+  assert.equal(perso.pointDuMatinGlobal([]).agentsActifs, 0);
+});
+
 test.after(() => {
   perso.oublierLEtatEnMemoire();
   fs.rmSync(bacASable, { recursive: true, force: true });

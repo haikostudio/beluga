@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Loader2, Megaphone, MessageCircleQuestion, UploadCloud } from '@/components/ui/icones';
-import { SERVICE_DU_DIRECTEUR, agentAuTravailALEcran, agentsDeLaBande, familleDeCouleur, type Agent } from '@beluga/shared';
+import { SERVICE_DU_DIRECTEUR, adresseDeLAgentDeService, agentAuTravailALEcran, agentsDeLaBande, estChefDeLArbre, familleDeCouleur, type Agent } from '@beluga/shared';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { ouvrirUnAgent } from '@/lib/ouvrir-un-agent';
 import { BadgeDEtatDAgent, DateDeLAgent, IconeDeLAgent } from '@/components/liste-des-agents';
@@ -32,15 +32,26 @@ export function useChefsAuTravail(projectId?: string): Agent[] {
  * posent EN TÊTE des actives, tant qu'il travaille ou attend une réponse — au repos, il disparaît (DEC-452). Un appui
  * ouvre sa conversation dans Communication. Il ne compte ni dans l'avancement ni dans l'arrêt du projet (MEM-5822).
  */
-export function LignesDesChefsAuTravail({ projectId, compacte = false }: { projectId?: string; compacte?: boolean }) {
-  const chefs = useChefsAuTravail(projectId);
+export function LignesDesChefsAuTravail({
+  projectId,
+  compacte = false,
+  horsArbre = false,
+}: {
+  projectId?: string;
+  compacte?: boolean;
+  /** « En cours » range les chefs de l'arbre sous leur racine (`ArbreDesSousAgents`) : ici, seuls les agents de campagne. */
+  horsArbre?: boolean;
+}) {
+  const tous = useChefsAuTravail(projectId);
+  const chefs = React.useMemo(() => (horsArbre ? tous.filter((a) => !estChefDeLArbre(a)) : tous), [tous, horsArbre]);
   const projets = useApp().projects;
   if (!chefs.length) return null;
   return (
     <>
       {chefs.map((agent) => {
         const attend = agent.attendReponse === true;
-        const adresse = agent.service?.adresse ?? 'communication';
+        /* SA CONVERSATION (24/11/2026) : « communication/<marque> » ne mène plus à aucun chef depuis le 11/11. */
+        const adresse = adresseDeLAgentDeService(agent) ?? 'communication';
         if (compacte)
           return (
             <LienInterne

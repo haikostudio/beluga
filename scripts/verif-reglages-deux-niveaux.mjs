@@ -1,181 +1,194 @@
 #!/usr/bin/env node
 /**
- * LES RÉGLAGES À DEUX NIVEAUX (refonte du 21/11/2026), DANS UN VRAI NAVIGATEUR.
+ * LES RÉGLAGES EN COLONNE FIXE, DANS UN VRAI NAVIGATEUR (carte « Retrouver la gestion des accès clients », 24/11/2026 ;
+ * le nom du fichier date des « deux niveaux » du 21/11, qu'il contrôlait avant d'être réécrit).
  *
- * Premier niveau : six rubriques et la recherche, sans défiler. Second niveau :
- * la colonne de gauche devient celle de la rubrique, « ‹ Réglages » dans
- * l'en-tête ramène au premier niveau, « Avancé » est replié. Sur téléphone,
- * trois crans et la flèche de l'en-tête remonte d'un cran. Les anciennes clés
- * de page (`extension`, `installation`, `langue`, `voix`, `capacite`) mènent à
- * leur nouvelle place. Captures 1440 et 390, clair et sombre.
+ * Sur un DÉMON D'ESSAI (base neuve, jamais la production) qui sert l'interface construite de CETTE copie :
+ *  - la colonne de gauche est toujours là : la recherche et SEPT rubriques, « Accès » en deuxième ; plus d'écran
+ *    d'accueil à tuiles ni de « ‹ Réglages » sur ordinateur ;
+ *  - une rubrique est UNE page qui empile ses sections titrées ; « Avancé » replié en bas, qui s'ouvre ;
+ *  - la recherche ouvre la rubrique et descend jusqu'à la section, qu'elle marque ;
+ *  - les anciennes adresses mènent toujours quelque part (page, alias, clé de rubrique) ;
+ *  - aucun titre de section n'est redit par le bloc qui le suit ;
+ *  - sur téléphone, deux crans : la liste des rubriques, puis la page ; la flèche de l'en-tête remonte ;
+ *  - les champs posés dans un bloc sont CREUSÉS à la couleur de la page (rapport champ / bloc ≥ 1,07), et la recherche
+ *    de la colonne garde son propre gris sur le fond de la fenêtre ; rien ne déborde en largeur sur téléphone ;
+ *  - captures de chaque rubrique, 1440 / 390, clair / sombre.
  *
- * Il fabrique une session d'UNE HEURE, la retire en partant, et n'écrit rien
- * d'autre : le thème se pose sur la page seulement (jamais la préférence du
- * serveur). Il vise le serveur de DÉVELOPPEMENT par sa propre variable.
- *
- *   HAIKO_REGLAGES_URL=http://localhost:7099 VERIF_CAPTURES=<dossier> node scripts/verif-reglages-deux-niveaux.mjs
+ *   npm run build   # l'interface de la copie
+ *   VERIF_CAPTURES=/root/beluga/data/fichiers/verif-reglages node scripts/verif-reglages-deux-niveaux.mjs
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { chromium } from 'playwright';
-import { cheminDeLaBaseServie } from './lib/base-servie.mjs';
+import { monterLeDecorDesReglages } from './lib/decor-reglages.mjs';
+import { contrasteDesChamps } from './lib/contraste-des-champs.mjs';
 
-const ADRESSE = process.env.HAIKO_REGLAGES_URL || 'http://localhost:7099';
-const CAPTURES = process.env.VERIF_CAPTURES || '/tmp/reglages-deux-niveaux';
+const PORT = Number(process.env.BELUGA_VERIF_PORT || 7319);
+const CAPTURES = process.env.VERIF_CAPTURES || '/tmp/verif-reglages-colonne-fixe';
 fs.mkdirSync(CAPTURES, { recursive: true });
 
-const require = createRequire('/root/beluga/package.json');
-const Database = require('better-sqlite3');
-const base = new Database(cheminDeLaBaseServie());
-const cookie = crypto.randomBytes(24).toString('hex');
-const jeton = crypto.createHash('sha256').update(cookie).digest('hex');
-const maintenant = Date.now();
-base
-  .prepare('INSERT INTO sessions (token, created_at, expires_at, label, user_id) VALUES (?, ?, ?, ?, ?)')
-  .run(jeton, maintenant, maintenant + 3600_000, 'verif-reglages-deux-niveaux', 'admin-premier');
+const RUBRIQUES = ['moi', 'acces', 'agents-ia', 'ordinateurs', 'serveur', 'donnees', 'connexions'];
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
   resultats.push({ nom, ok });
   console.log(`${ok ? '✓' : '✗'} ${nom}${detail ? ` — ${detail}` : ''}`);
 };
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const decor = await monterLeDecorDesReglages({ port: PORT, projets: [{ id: 'p-essai', name: 'Projet d’essai' }], prefixe: 'verif-reglages-' });
 const navigateur = await chromium.launch({ channel: 'chrome' });
+
 try {
   for (const largeur of [1440, 390]) {
-    const telephone = largeur === 390;
+    const telephone = largeur < 640;
     for (const theme of ['clair', 'sombre']) {
-      const ctx = await navigateur.newContext({
-        viewport: { width: largeur, height: telephone ? 844 : 900 },
-        isMobile: telephone,
-        hasTouch: telephone,
-        serviceWorkers: 'block',
-      });
-      await ctx.addCookies([{ name: 'beluga_session', value: cookie, url: ADRESSE }]);
-      const page = await ctx.newPage();
-      /* LE THÈME SE POSE SUR LE CANAL, JAMAIS EN BASE : la préférence reçue du serveur est réécrite en route, et
-         aucune écriture de préférence ne repart (le thème de l'utilisateur reste le sien). */
-      await page.routeWebSocket(/\/ws(\?|$)/, (ws) => {
-        const serveur = ws.connectToServer();
-        ws.onMessage((m) => {
-          if (typeof m === 'string' && /"type":"prefs\.set"/.test(m)) return;
-          serveur.send(m);
-        });
-        serveur.onMessage((m) => ws.send(typeof m === 'string' ? m.replace(/"theme":"(clair|sombre)"/g, `"theme":"${theme}"`) : m));
-      });
-      await page.addInitScript((th) => {
-        try {
-          localStorage.setItem('beluga-theme-flash', th);
-        } catch {}
-      }, theme);
-      const erreurs = [];
-      page.on('pageerror', (e) => erreurs.push(String(e)));
-      const poserTheme = async () => {
-        const sombre = await page.evaluate(() => document.documentElement.classList.contains('dark'));
-        noter(`${largeur}/${theme} : le thème demandé est appliqué`, sombre === (theme === 'sombre'));
+      const premier = theme === 'clair';
+      const { page, ctx, erreurs } = await decor.ouvrirPage(navigateur, { largeur, theme });
+      const capture = (n) => page.screenshot({ path: path.join(CAPTURES, `${n}-${largeur}-${theme}.png`) });
+      const aller = async (cle) => {
+        await page.goto(`${decor.ADRESSE}/#reglages${cle ? `/${cle}` : ''}`, { waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('[data-modale-reglages] [data-menu-reglages]', { timeout: 45000, state: 'attached' });
+        await pause(500);
       };
-      const nom = (n) => path.join(CAPTURES, `${n}-${largeur}-${theme}.png`);
-      const pause = (ms) => page.waitForTimeout(ms);
 
-      await page.goto(`${ADRESSE}/#reglages`, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('[data-rubriques-reglages]', { timeout: 45000 });
-      await poserTheme();
-      await pause(600);
-      const rubriques = await page.locator('[data-rubrique-reglages]').count();
-      noter(`${largeur}/${theme} : six rubriques au premier niveau`, rubriques === 6, String(rubriques));
-      const tient = await page.evaluate(() => {
-        const grille = document.querySelector('[data-rubriques-reglages]');
-        const modale = document.querySelector('[data-modale-reglages]');
-        if (!grille || !modale) return false;
-        return grille.getBoundingClientRect().bottom <= modale.getBoundingClientRect().bottom + 1;
-      });
-      noter(`${largeur}/${theme} : les six rubriques tiennent sans défiler`, tient);
-      await page.screenshot({ path: nom('1-rubriques') });
-
-      // Recherche
-      await page.fill('[data-recherche-reglages] input, input[data-recherche-reglages]', 'connect').catch(async () => {
-        await page.locator('[data-recherche-reglages]').locator('input').first().fill('connect');
-      });
-      await pause(300);
-      /* Beluga Connect vit dans la page unique « Ordinateurs » (21/11/2026) : la recherche y mène. */
-      const trouve = await page.locator('[data-page-menu="ordinateurs"]').count();
-      noter(`${largeur}/${theme} : « connect » trouve la page des ordinateurs (Beluga Connect)`, trouve > 0);
-      if (largeur === 1440 && theme === 'clair') await page.screenshot({ path: nom('2-recherche') });
-      await page.locator('[data-page-menu="ordinateurs"]').first().click();
-      await page.waitForSelector('[data-page-ordinateurs]', { timeout: 20000 });
-      noter(`${largeur}/${theme} : un résultat ouvre sa rubrique et sa page`, (await page.locator('[data-rubrique-ouverte="ordinateurs"]').count()) === 1);
-      await pause(800);
-      await page.screenshot({ path: nom('3-beluga-connect') });
-
-      // Retour d'un cran sur téléphone, puis au premier niveau
+      await aller('');
+      const sombre = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+      noter(`${largeur}/${theme} : le thème demandé est appliqué`, sombre === (theme === 'sombre'));
+      const rubriques = await page.locator('[data-rubrique-reglages]').evaluateAll((els) => els.map((e) => e.getAttribute('data-rubrique-reglages')));
+      noter(`${largeur}/${theme} : sept rubriques, « Accès » en deuxième`, JSON.stringify(rubriques) === JSON.stringify(RUBRIQUES), rubriques.join(','));
+      noter(
+        `${largeur}/${theme} : plus d'écran d'accueil à tuiles ni de « ‹ Réglages »`,
+        (await page.locator('[data-niveau-reglages="rubriques"]').count()) === 0 && (await page.locator('[data-modale-reglages] [data-retour-menu-reglages]:visible').count()) === 0,
+      );
+      const recherche = (await page.evaluate(contrasteDesChamps, '[data-modale-reglages]')).recherche;
+      noter(`${largeur}/${theme} : la recherche de la colonne garde son gris sur le fond de la fenêtre`, recherche !== null && recherche >= 1.04, String(recherche));
       if (telephone) {
-        await page.locator('[data-retour-menu-reglages="rubrique"]').click();
-        await pause(300);
-        noter(`${largeur}/${theme} : la flèche remonte à la liste de la rubrique`, await page.locator('[data-menu-reglages]').isVisible());
-        await page.screenshot({ path: nom('4-liste-rubrique') });
-        await page.locator('[data-retour-menu-reglages="rubriques"]').click();
+        noter('390 : la fenêtre s’ouvre sur la liste des rubriques', await page.locator('[data-menu-reglages]').isVisible());
+        await capture('0-liste');
       } else {
-        await page.locator('[data-retour-rubriques-reglages]').click();
+        noter('1440 : la fenêtre s’ouvre sur la première rubrique, colonne et page côte à côte', (await page.locator('[data-page-reglages="moi"]').isVisible()) && (await page.locator('[data-menu-reglages]').isVisible()));
       }
-      await pause(300);
-      noter(`${largeur}/${theme} : « ‹ Réglages » ramène aux six rubriques`, (await page.locator('[data-rubriques-reglages]').count()) === 1);
 
-      // Rubrique Serveur, Avancé replié puis ouvert
-      await page.locator('[data-rubrique-reglages="serveur"]').click();
-      await pause(400);
-      noter(`${largeur}/${theme} : « Avancé » est replié à l'ouverture`, (await page.locator('[data-avance-reglages="replie"]').count()) === 1);
-      await page.locator('[data-basculer-avance]').click();
-      await pause(200);
-      const avancees = await page.locator('[data-avance-reglages="ouvert"] [data-page-menu]').count();
-      noter(`${largeur}/${theme} : « Avancé » ouvert montre ses deux pages`, avancees === 2, String(avancees));
-      if (!telephone) {
-        await page.waitForSelector('[data-reglages-serveur]', { timeout: 20000 }).catch(() => undefined);
-        await pause(1200);
-      }
-      await page.screenshot({ path: nom('5-serveur-avance') });
-      await page.locator('[data-page-menu="gestes-serveur"]').click();
-      await page.waitForSelector('[data-reglages-gestes-serveur]', { timeout: 20000 });
-      noter(`${largeur}/${theme} : la page des gestes garde le terminal`, (await page.locator('[data-terminal-bouton]').count()) === 1);
-      await pause(400);
-      await page.screenshot({ path: nom('6-gestes-serveur') });
-
-      // Anciennes clés
-      if (theme === 'clair') {
-        for (const [ancienne, repere] of [
-          ['extension', '[data-page-ordinateurs]'],
-          ['installation', '[data-page-reglages-adresse]'],
-          ['langue', '[data-langue-menu]'],
-          ['capacite', '[data-reglages-serveur]'],
-        ]) {
-          await page.goto('about:blank');
-          await page.goto(`${ADRESSE}/#reglages/${ancienne}`, { waitUntil: 'domcontentloaded' });
-          const ok = await page.waitForSelector(repere, { timeout: 30000 }).then(() => true).catch(() => false);
-          noter(`${largeur} : l'ancienne adresse « ${ancienne} » mène à sa page`, ok);
-          if (ancienne === 'extension') {
-            await pause(800);
-            await page.screenshot({ path: nom('7-ordinateurs') });
+      /* CHAQUE RUBRIQUE : sa page, ses sections, aucun titre redit. */
+      for (const cle of RUBRIQUES) {
+        await page.locator(`[data-rubrique-reglages="${cle}"]`).click();
+        await page.waitForSelector(`[data-page-rubrique="${cle}"]`, { timeout: 20000 });
+        await pause(1500);
+        const etat = await page.evaluate(() => {
+          const sections = [...document.querySelectorAll('[data-page-rubrique] [data-section-page]')];
+          const redits = [];
+          for (const s of sections) {
+            const titre = s.querySelector(':scope > [data-titre-section]')?.textContent?.trim().toLowerCase();
+            const premier = s.querySelector('[data-section-reglages] h3, [data-modele="reglages"] h3')?.textContent?.trim().toLowerCase();
+            if (titre && premier && titre === premier) redits.push(titre);
           }
-          if (ancienne === 'langue') {
-            await pause(600);
-            await page.screenshot({ path: nom('8-apparence') });
-          }
+          return { sections: sections.length, redits };
+        });
+        noter(`${largeur}/${theme} : « ${cle} » est une page de sections`, etat.sections >= 1, String(etat.sections));
+        noter(`${largeur}/${theme} : « ${cle} » ne redit aucun titre de section`, etat.redits.length === 0, etat.redits.join(', '));
+        /* LES CHAMPS CREUSÉS : chaque champ d'un bloc se détache nettement de lui. */
+        const champs = await page.evaluate(contrasteDesChamps, '[data-page-reglages]');
+        if (champs.champs.length) {
+          noter(
+            `${largeur}/${theme} : « ${cle} » — chaque champ se détache de son bloc (≥ 1,07)`,
+            champs.plusFaible >= 1.07,
+            `${champs.champs.length} champ(s), le plus faible ${champs.plusFaible} ${champs.champs.find((c) => c.rapport === champs.plusFaible)?.champ ?? ''}`,
+          );
+        }
+        if (cle === 'moi') noter(`${largeur}/${theme} : « moi » montre ses champs à l'ouverture`, champs.champs.length >= 2, String(champs.champs.length));
+        if (telephone) {
+          /* Ce qui sort de l'écran à droite, hors d'une zone qui défile en largeur (tableau) : rien. */
+          const deborde = await page.evaluate(() => {
+            const zone = document.querySelector('[data-page-reglages]');
+            if (!zone) return ['(page absente)'];
+            const dehors = [];
+            for (const el of zone.querySelectorAll('*')) {
+              const b = el.getBoundingClientRect();
+              if (b.width < 1 || b.right <= innerWidth + 1) continue;
+              let defile = false;
+              for (let p = el.parentElement; p && p !== zone; p = p.parentElement) {
+                const ox = getComputedStyle(p).overflowX;
+                if (ox !== 'visible' && p.getBoundingClientRect().right <= innerWidth + 1) defile = true;
+              }
+              if (!defile) dehors.push(`<${el.tagName.toLowerCase()}> ${(el.textContent ?? '').trim().slice(0, 30)}`);
+            }
+            return dehors;
+          });
+          noter(`390/${theme} : « ${cle} » ne déborde pas en largeur`, deborde.length === 0, deborde.slice(0, 3).join(' | '));
+        }
+        await capture(`1-rubrique-${cle}`);
+        if (telephone) {
+          await page.locator('[data-retour-menu-reglages="rubriques"]').click();
+          await pause(300);
+          noter(`390/${theme} : la flèche remonte de « ${cle} » à la liste`, await page.locator('[data-menu-reglages]').isVisible());
         }
       }
 
-      const deborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      noter(`${largeur}/${theme} : rien ne déborde en largeur`, deborde <= 0, String(deborde));
-      noter(`${largeur}/${theme} : aucune erreur de page`, erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
+      /* « AVANCÉ » replié en bas de Serveur, puis ouvert. */
+      await aller('serveur');
+      noter(`${largeur}/${theme} : « Avancé » est replié à l'ouverture`, (await page.locator('[data-avance-reglages="replie"]').count()) === 1);
+      await page.locator('[data-basculer-avance]').click();
+      await pause(400);
+      const avancees = await page.locator('[data-avance-reglages="ouvert"] [data-section-page]').count();
+      noter(`${largeur}/${theme} : « Avancé » ouvert montre ses deux sections`, avancees === 2, String(avancees));
+
+      if (premier) {
+        /* LA RECHERCHE descend jusqu'à la section et la marque. */
+        await aller('');
+        if (telephone) await pause(200);
+        await page.locator('[data-recherche-reglages]').locator('input').first().fill('heures de silence').catch(async () => {
+          await page.fill('input[data-recherche-reglages]', 'heures de silence');
+        });
+        await pause(400);
+        noter(`${largeur} : la recherche trouve les notifications`, (await page.locator('[data-page-menu="notifications"]').count()) > 0);
+        await page.locator('[data-page-menu="notifications"]').first().click();
+        await page.waitForSelector('[data-section-page="notifications"][data-section-marquee="oui"]', { timeout: 5000 }).catch(() => undefined);
+        await pause(600);
+        const enVue = await page.evaluate(() => {
+          const s = document.querySelector('[data-section-page="notifications"]');
+          const z = document.querySelector('[data-page-reglages] [data-page-rubrique]')?.parentElement;
+          if (!s || !z) return null;
+          const haut = s.getBoundingClientRect().top - z.getBoundingClientRect().top;
+          return Math.round(haut);
+        });
+        noter(`${largeur} : un résultat ouvre la rubrique et descend jusqu'à sa section`, enVue !== null && enVue >= -20 && enVue < 140, String(enVue));
+        await capture('2-recherche-section');
+
+        /* LES ANCIENNES ADRESSES. */
+        for (const [cle, rubrique, section] of [
+          ['langue', 'moi', 'theme'],
+          ['sous-comptes', 'acces', null],
+          ['comptes-clients', 'acces', null],
+          ['extension', 'ordinateurs', null],
+          ['donnees', 'donnees', null],
+          ['gestes-serveur', 'serveur', 'gestes-serveur'],
+        ]) {
+          await aller(cle);
+          const ouverte = await page.locator('[data-niveau-reglages]').getAttribute('data-rubrique-ouverte');
+          const presente = section ? (await page.locator(`[data-section-page="${section}"]`).count()) === 1 : true;
+          noter(`${largeur} : #reglages/${cle} mène à « ${rubrique} »${section ? ` › ${section}` : ''}`, ouverte === rubrique && presente, String(ouverte));
+        }
+        await aller('inconnue');
+        noter(`${largeur} : une adresse inconnue n'ouvre pas un écran vide`, (await page.locator('[data-rubrique-reglages]').count()) === RUBRIQUES.length);
+
+        /* LE SOMMAIRE D'UN ORDINATEUR reste possible (sous-page). */
+        await aller('ordinateurs');
+        noter(`${largeur} : la page des ordinateurs s'ouvre`, (await page.locator('[data-page-ordinateurs]').count()) === 1);
+      }
+
+      noter(`${largeur}/${theme} : aucune erreur de page`, erreurs.length === 0, erreurs.join(' | ').slice(0, 300));
       await ctx.close();
     }
   }
+} catch (err) {
+  noter('le contrôle va au bout', false, String(err?.stack ?? err).slice(0, 600));
 } finally {
   await navigateur.close();
-  base.prepare('DELETE FROM sessions WHERE token = ?').run(jeton);
-  base.close();
+  decor.nettoyer();
 }
 
-const echecs = resultats.filter((r) => !r.ok).length;
-console.log(`\n${resultats.length - echecs}/${resultats.length} contrôle(s) réussi(s). Captures : ${CAPTURES}`);
-process.exit(echecs ? 1 : 0);
+const echecs = resultats.filter((r) => !r.ok);
+console.log(`\n${resultats.length - echecs.length}/${resultats.length} — captures dans ${CAPTURES}`);
+process.exit(echecs.length ? 1 : 0);

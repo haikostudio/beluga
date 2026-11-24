@@ -22,6 +22,7 @@
  * (`ask_user`) avant d'être construit — jamais une variante inventée en silence.
  */
 import * as React from 'react';
+import { useTitreRedit } from '@/components/reglages/communs';
 import {
   CLASSE_GROUPE_DE_LIGNES,
   CLASSE_LIGNE_DE_GROUPE,
@@ -327,15 +328,19 @@ export function RubriqueDeReglages({
   avant?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  /* Dans les réglages, un titre qui redit celui de sa section ne se répète pas (colonne fixe, 24/11/2026). */
+  const titreRedit = useTitreRedit(titre);
   return (
     <section className="flex flex-col gap-2" data-modele="reglages">
+      {titreRedit && !description && !action ? null : (
       <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:gap-4">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h3 className="text-[14px] font-semibold text-text">{titre}</h3>
+          {titreRedit ? null : <h3 className="text-[14px] font-semibold text-text">{titre}</h3>}
           {description ? <p className="text-[13px] text-muted">{description}</p> : null}
         </div>
         {action ? <div className="shrink-0 max-sm:[&>*]:w-full">{action}</div> : null}
       </div>
+      )}
       {avant}
       <div className={CLASSE_GROUPE_DE_LIGNES}>{children}</div>
     </section>

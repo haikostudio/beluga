@@ -39,6 +39,7 @@ import {
   rubriquesManquantes,
   cleDuChefDeCampagne,
   titreProvisoireDeCampagne,
+  adresseDuFilDeLAgent,
 } from '@beluga/shared';
 import { bus } from './bus.js';
 import { getDb, getMeta, setMeta } from './db.js';
@@ -150,6 +151,7 @@ function retenu(cle: string): Agent | null {
 
 /** Un chef naît comme le directeur : un agent de service, son atelier, son compte, son mot d'accueil sans moteur. */
 function naitreUnChef(compte: Compte, role: RoleDuChef, projetPorteurId: string, nom: string, accueil: string | null): Agent {
+  const parent = parentDuChef(role);
   const agent = store.saveAgent({
     ...Agent.parse({
       id: store.newId(),
@@ -169,6 +171,7 @@ function naitreUnChef(compte: Compte, role: RoleDuChef, projetPorteurId: string,
       nom: 'Communication',
       adresse: role.niveau === 'campagne' ? `communication/${role.marqueId}/campagnes/${role.campagneId}` : `communication/${role.marqueId}`,
     },
+    ...(parent ? { parentAgentId: parent } : {}),
   });
   setMeta(cleDuRoleDuChef(agent.id), JSON.stringify(role));
   setMeta(cleCompte(agent.id), compte.id);
@@ -176,6 +179,67 @@ function naitreUnChef(compte: Compte, role: RoleDuChef, projetPorteurId: string,
   bus.emit({ type: 'agent.upsert', agent });
   if (accueil) poserMessage(agent.id, accueil, { sansNotification: true });
   return agent;
+}
+
+/**
+ * LE PARENT D'UN CHEF (carte « Chefs invisibles et fausse carte », 24/11/2026) : le chef général pour un chef de marque,
+ * le chef de la marque pour un chef de projet. Un agent de campagne n'en a pas : il vit dans Communication, hors de
+ * l'arbre des sous-agents. `null` quand le parent n'est pas encore né.
+ */
+function parentDuChef(role: RoleDuChef): string | null {
+  const id = role.niveau === 'marque' ? getMeta(cleAgent(role.compteId)) : role.niveau === 'projet' ? getMeta(cleChefDeMarque(role.compteId, role.marqueId)) : null;
+  return id && store.getAgent(id) ? id : null;
+}
+
+/**
+ * LES CHEFS DÉJÀ NÉS REÇOIVENT LEUR PARENT (au démarrage, puis à chaque ronde) : ceux d'avant le 24/11/2026 n'en
+ * avaient pas, et un chef de projet né avant son chef de marque l'attendait. Rend le nombre d'agents rattachés.
+ */
+export function rattacherLesChefsASonParent(): number {
+  const lignes = getDb()
+    .prepare(`SELECT id FROM agents WHERE json_extract(data, '$.service.id') = ? AND json_extract(data, '$.parentAgentId') IS NULL`)
+    .all(SERVICE_DU_DIRECTEUR) as { id: string }[];
+  let rattaches = 0;
+  for (const { id } of lignes) {
+    const role = roleDuChef(id);
+    if (!role) continue;
+    const parent = parentDuChef(role);
+    const agent = parent ? store.getAgent(id) : null;
+    if (!agent || !parent || parent === id) continue;
+    const suite = store.saveAgent({ ...agent, parentAgentId: parent });
+    bus.emit({ type: 'agent.upsert', agent: suite });
+    rattaches += 1;
+  }
+  if (rattaches) log.info('directeur', `${rattaches} chef(s) rattaché(s) à leur parent`);
+  return rattaches;
+}
+
+/**
+ * UN CHEF COUPÉ (24/11/2026, onglet « Agents » du projet) : la personne l'a éteint. Il n'est plus relancé par la ronde
+ * du matin, et aucun travail ne lui est confié ; sa conversation reste lisible, et on peut toujours lui écrire.
+ */
+const cleChefCoupe = (agentId: string) => `communication.chef.coupe.${agentId}`;
+
+export function chefCoupe(agentId: string | null | undefined): boolean {
+  return !!agentId && getMeta(cleChefCoupe(agentId)) === '1';
+}
+
+/** Coupe ou rallume un chef ; le couper arrête aussi le tour qu'il tient. Rend son nouvel état. */
+export async function couperLeChef(agentId: string, coupe: boolean, compteId: string): Promise<boolean> {
+  const agent = store.getAgent(agentId);
+  if (!agent || !estDirecteur(agent)) throw new Error('chef introuvable');
+  if (compteDuDirecteur(agentId) && compteDuDirecteur(agentId) !== compteId) throw new Error('ce chef appartient à un autre compte');
+  setMeta(cleChefCoupe(agentId), coupe ? '1' : '');
+  if (coupe && (agent.status === 'running' || agent.status === 'starting')) {
+    const { stopAgent } = await import('./runtime.js');
+    try {
+      stopAgent(agentId);
+    } catch (err) {
+      log.warn('chef coupé : tour non arrêté', err);
+    }
+  }
+  bus.emit({ type: 'agent.upsert', agent: store.getAgent(agentId) ?? agent });
+  return coupe;
 }
 
 /** LE CHEF D'UNE MARQUE, créé à la première ouverture de la marque. */
@@ -313,6 +377,7 @@ export async function equipeDesChefs(compte: Compte, marqueId?: string): Promise
 
 /** UN TRAVAIL CONFIÉ À UN CHEF, par son chef : un tour silencieux, jamais une bulle de l'utilisateur. */
 async function confier(cible: Agent, consigne: string, de: string): Promise<void> {
+  if (chefCoupe(cible.id)) throw new Error('ce chef a été coupé par la personne : ne lui confie rien');
   if (occupe(cible)) throw new Error('ce chef travaille déjà, ou attend une réponse : réessaie plus tard');
   const { sendPrompt } = await import('./runtime.js');
   void sendPrompt(cible.id, `Travail confié par ${de} : ${consigne.trim().slice(0, 1200)}\nPrépare-le, puis dis en un message court ce qui est prêt et ce qui attend une décision.`, {
@@ -465,7 +530,9 @@ async function notifierDuMessage(agentId: string, maintenant = new Date()): Prom
   const apercu = apercuDuMessage(dernier.content);
   const titre = role ? `${agent.title} · ${apercu.titre}` : apercu.titre;
   const corps = apercu.corps;
-  const adresse = role?.niveau === 'campagne' ? `communication/${role.marqueId}/campagnes/${role.campagneId}` : role ? `communication/${role.marqueId}` : undefined;
+  /* LA NOTIFICATION D'UN CHEF MÈNE À SA CONVERSATION (24/11/2026) : l'ancien écran Communication qui la montrait a
+     disparu le 11/11, et « communication/<marque> » n'ouvrait plus aucun chef. Un agent de campagne garde sa page. */
+  const adresse = role?.niveau === 'campagne' ? `communication/${role.marqueId}/campagnes/${role.campagneId}` : adresseDuFilDeLAgent(agent);
   if (decision === 'envoyer') await envoyer(compteId, titre, corps, adresse);
   else if (decision === 'reporter') {
     const attente = lireReport(agentId);
@@ -616,6 +683,7 @@ export async function tourDesRoutines(maintenant = new Date()): Promise<RoutineD
     const compte = compteId ? compteParId(compteId) : null;
     if (!compte || !compte.actif || !lireReglages(compte.id).routines) continue;
     if (agent.status === 'running' || agent.status === 'starting' || agent.attendReponse) continue;
+    if (chefCoupe(agent.id)) continue;
     const deja = lireRoutines(agent.id);
     const cles = { semaine: lundi(maintenant), jour: `${maintenant.getFullYear()}-${maintenant.getMonth() + 1}-${maintenant.getDate()}` };
     const dernierPoint = Number(getMeta(clePointDuJour(agent.id)) ?? 0);
@@ -651,7 +719,11 @@ export async function tourDesRoutines(maintenant = new Date()): Promise<RoutineD
  * déjà au travail, plafond), d'un tour silencieux chacun. Les chefs naissent à la demande. Rend les marques relancées.
  */
 async function rondeEnCascade(compte: Compte, parMarque: readonly MarqueALaRonde[]): Promise<MarqueALaRonde[]> {
-  const notees = parMarque.map((m) => ({ ...m, chefOccupe: occupe(retenu(cleChefDeMarque(compte.id, m.marqueId))) }));
+  /* Un chef COUPÉ par la personne compte comme occupé : la ronde ne le relance pas. */
+  const notees = parMarque.map((m) => {
+    const chef = retenu(cleChefDeMarque(compte.id, m.marqueId));
+    return { ...m, chefOccupe: occupe(chef) || chefCoupe(chef?.id) };
+  });
   const retenues = marquesARelancer(notees);
   if (!retenues.length) return [];
   const { sendPrompt } = await import('./runtime.js');
@@ -677,6 +749,11 @@ async function rondeEnCascade(compte: Compte, parMarque: readonly MarqueALaRonde
 const INTERVALLE_ROUTINES_MS = 15 * 60_000;
 
 export function demarrerLeDirecteur(): NodeJS.Timeout {
+  try {
+    rattacherLesChefsASonParent();
+  } catch (err) {
+    log.warn('directeur : chefs non rattachés à leur parent', err);
+  }
   /* CHAQUE MESSAGE RENDU FAIT SONNER LE TÉLÉPHONE : à la fin du tour, jamais pendant qu'il s'écrit. */
   bus.subscribe((event) => {
     if (event.type !== 'agent.upsert' || !estDirecteur(event.agent)) return;
@@ -684,6 +761,11 @@ export function demarrerLeDirecteur(): NodeJS.Timeout {
     void notifierDuMessage(event.agent.id).catch((err) => log.debug('directeur : notification non partie', err));
   });
   const minuteur = setInterval(() => {
+    try {
+      rattacherLesChefsASonParent();
+    } catch (err) {
+      log.debug('directeur : chefs non rattachés à leur parent', err);
+    }
     void tourDesRoutines().catch((err) => log.warn('directeur : tour des routines en échec', err));
   }, INTERVALLE_ROUTINES_MS);
   minuteur.unref?.();

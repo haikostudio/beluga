@@ -425,7 +425,9 @@ export function Tableau<L>({
             valeur={recherche}
             onChange={setRecherche}
             placeholder={typeof avecRecherche === 'string' ? avecRecherche : t('Filtrer…')}
-            className="flex-1 sm:w-72 sm:flex-none"
+            /* 288 px quand il y a la place ; dans une rangée de titre serrée (1024 px, sélecteur collé au titre), le champ
+               se resserre jusqu'à 140 px au lieu de pousser la rangée hors du cadre. */
+            className="flex-1 sm:w-72 sm:min-w-[140px] sm:flex-initial"
             data-tableau-recherche={repere}
           />
         ) : null}

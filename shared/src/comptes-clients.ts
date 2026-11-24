@@ -235,13 +235,3 @@ export function porteeNettoyee(role: RoleCompte, demandes: readonly string[], pr
   }
   return gardes;
 }
-
-/**
- * CE QU'ON DIT D'UN COMPTE À L'ÉCRAN, en une phrase. Sert la liste des accès
- * dans les réglages, où l'état compte plus que la date exacte.
- */
-export function etatDuCompteEnClair(compte: Pick<CompteUtilisateur, 'actif' | 'derniereEntree'>): string {
-  if (!compte.actif) return 'Suspendu';
-  if (!compte.derniereEntree) return "Jamais entré";
-  return 'Actif';
-}

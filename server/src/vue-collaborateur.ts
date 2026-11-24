@@ -302,7 +302,11 @@ function evenementDeSonDirecteur(event: ServerEvent, compteId: string): boolean 
 
 export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUtilisateur): ServerEvent | null {
   // Un service ouvert par la grille laisse passer SES événements globaux (réglages, quotas).
-  if (evenementOuvertParUnService(compte, event.type)) return event;
+  if (evenementOuvertParUnService(compte, event.type)) {
+    /* La liste des projets de la page « Accès » reste à l'administrateur, même quand les réglages sont ouverts. */
+    if (event.type === 'settings') return { ...event, settings: { ...event.settings, projetsDesAcces: undefined } };
+    return event;
+  }
   if (!evenementAutorise(compte.role, event.type)) return null;
   const droits = droitsDuCompte(compte);
   switch (event.type) {
@@ -321,7 +325,7 @@ export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUti
         studioOuvert: false,
         // Aucun réglage général, aucune préférence d'un autre, aucun compte moteur ni ligne de quota —
         // sauf les services que sa grille lui ouvre.
-        settings: reglages ? event.settings : Settings.parse({}),
+        settings: reglages ? { ...event.settings, projetsDesAcces: undefined } : Settings.parse({}),
         prefs: {},
         projects: projets,
         quotas: moteurs ? event.quotas : [],

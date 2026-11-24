@@ -163,6 +163,9 @@
     --onglets-barre: 0 0% 11%;
     --onglets-repos: 0 0% 13%;
     --onglets-actif: 0 0% 17%;
+    /* L'ONGLET CHOISI EN APLAT CONTRASTÉ (24/11/2026, maquette #ccaab) : le sélecteur « Tâches | Agents » de l'accueil d'un projet seulement — noir et texte blanc en clair, gris très clair (jamais blanc pur) et texte noir en sombre. */
+    --onglets-contraste: 0 0% 90%;
+    --onglets-contraste-texte: 0 0% 7%;
     --tableau-entete: 0 0% 11%;
     /* LE PAVÉ D'UN CHIFFRE-CLÉ (14/11/2026, « un bg contrasté mais léger ») : à peine relevé sur la page. */
     /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
@@ -421,6 +424,9 @@
     --onglets-barre: 0 0% 96%;
     --onglets-repos: 0 0% 98.3%;
     --onglets-actif: 0 0% 100%;
+    /* L'ONGLET CHOISI EN APLAT CONTRASTÉ (24/11/2026, maquette #ccaab) : le sélecteur « Tâches | Agents » de l'accueil d'un projet seulement — noir et texte blanc en clair, gris très clair (jamais blanc pur) et texte noir en sombre. */
+    --onglets-contraste: 0 0% 7%;
+    --onglets-contraste-texte: 0 0% 100%;
     --tableau-entete: 0 0% 96%;
     --teinte: 0 0% 5%;
     --important: 215 84% 52%;
@@ -1658,6 +1664,9 @@ html[data-clavier-ouvert] [data-composer] {
   --onglets-barre: 0 0% 10.5%;
   --onglets-repos: 0 0% 18%;
   --onglets-actif: 0 0% 28%;
+  /* L'ONGLET CHOISI EN APLAT CONTRASTÉ (24/11/2026, maquette #ccaab) : le sélecteur « Tâches | Agents » de l'accueil d'un projet seulement — noir et texte blanc en clair, gris très clair (jamais blanc pur) et texte noir en sombre. */
+  --onglets-contraste: 0 0% 90%;
+  --onglets-contraste-texte: 0 0% 7%;
   --tableau-entete: 0 0% 23.5%;
   /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
      (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
@@ -2613,4 +2622,32 @@ html :is(.bg-surface, .bg-raised):where(.rounded-md, .rounded-lg, .rounded-xl, .
    prennent le voile (23/11/2026) : leurs gris clairs (96 %) tombaient sur le fond de la feuille (98,6 %). */
 [data-feuille-du-bas] :is(.bg-tableau-entete, .bg-onglets-barre) {
   background-color: hsl(var(--controle-doux));
+}
+
+/* LES CHAMPS DES RÉGLAGES SONT CREUSÉS, À LA COULEUR DE LA PAGE (décision de l'utilisateur du 24/11/2026, capture #c4e5
+   « gris clair sur gris clair, on ne comprend pas que c'est un champ », piste A #696a). Mesuré : dans un bloc des
+   réglages, le champ (`--champ`) n'avait qu'un ou deux points d'écart avec le voile du bloc (clair 246 sur 244, sombre
+   34 sur 35). Tout champ posé DANS un bloc de la page d'une rubrique (`[data-bloc-reglages]`, ou un bloc `bg-surface` /
+   `bg-raised` : page Accès, formulaire d'ajout, fiche) prend donc le fond de la fenêtre (`--bg`, sur ordinateur comme
+   sur téléphone) : blanc sur le bloc gris clair, presque noir sur le bloc gris foncé, sans trait ni couleur.
+   Hors d'un bloc (recherche de la colonne, champ posé à nu sur la page), le champ garde `--champ` : il resterait sinon
+   invisible sur la page. Le sélecteur entier est dans `:where` : son poids est celui de `.bg-champ`, écrit APRÈS les
+   utilitaires — il remplace le fond de repos, mais un survol ou un focus écrit par l'écran (`hover:bg-fond-survol`,
+   `focus-within:bg-fond-survol`) garde la main. Un panneau de liste resté dans la page n'est pas visé.
+   Contrôle : `node scripts/verif-reglages-deux-niveaux.mjs` (rapport champ / bloc ≥ 1,07). */
+:where([data-modale-reglages] [data-page-reglages] :is([data-bloc-reglages], .bg-surface, .bg-raised))
+  .bg-champ:where(:not([data-radix-popper-content-wrapper] *, [role='listbox'] *, [role='menu'] *)) {
+  background-color: hsl(var(--bg));
+}
+
+/* SUR TÉLÉPHONE, LES LIGNES DES RÉGLAGES ONT DE L'AIR (décision de l'utilisateur du 24/11/2026 : « tout est compacté, on
+   ne voit rien du tout »). Le texte y est déjà monté de deux crans (règle « LE TEXTE DU TÉLÉPHONE » plus haut) ; ce qui
+   manquait, c'est la hauteur : une ligne qui se touche (bouton, lien, interrupteur, projet, service) dans un bloc de
+   liste fait au moins 52 px. Un élément à hauteur imposée (`h-…` : pastille, icône) n'est pas visé. Contrôle :
+   `node scripts/verif-page-acces.mjs` (lignes ≥ 52 px à 390). */
+@media (width < 640px) {
+  [data-modale-reglages] [data-page-reglages] [data-bloc-reglages='liste']
+    :is(button, a, label, [data-projet-fiche], [data-droit-service]).rounded-xl:not([class^='h-'], [class*=' h-']) {
+    min-height: 52px;
+  }
 }
