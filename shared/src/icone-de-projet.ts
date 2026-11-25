@@ -43,8 +43,12 @@ export const DOSSIERS_ECARTES = [
  * Les dossiers où un site RANGE ses icônes. Un fichier trouvé ailleurs (une
  * image d'interface, une capture) ne compte pas : c'est ce qui évite de
  * confondre `assets/imgs/icon-folder.png` avec l'icône du site.
+ *
+ * Le serveur ne lit QUE ces dossiers (lecture non récursive de chacun) : un
+ * parcours de tout le dépôt s'épuisait dans `data/` sur les gros projets
+ * (Beluga) avant d'atteindre `web/public`, et l'icône n'était jamais revue.
  */
-const DOSSIERS_D_ICONES = [
+export const DOSSIERS_D_ICONES: readonly string[] = [
   '',
   'public',
   'static',

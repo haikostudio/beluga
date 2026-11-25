@@ -75,6 +75,16 @@ const DEPOT_AVEC_ICONE = depot('depot-avec-icone', {
   'public/favicon.svg': SVG,
   'src/components/icon-phone.png': PNG, // un piège : image d'interface, pas l'icône du site
 });
+// Un GROS dépôt, comme Beluga : plus de 4000 images dans `data/` (rangé avant
+// `web/`), l'icône dans `web/public`. Un parcours plafonné s'y épuisait et
+// l'icône n'était jamais revue (constat du 25/11/2026).
+const DEPOT_GROS = depot('depot-gros', {
+  'README.md': '# gros dépôt\n',
+  'web/public/icon-192.png': fs.readFileSync(path.join(RACINE, 'web/public/icon-192.png')), // le vrai béluga
+  ...Object.fromEntries(
+    Array.from({ length: 4100 }, (_, i) => [`data/lot-${Math.floor(i / 100)}/favicon-${i}.png`, 'x']),
+  ),
+});
 const DEPOT_SANS_ICONE = depot('depot-sans-icone', { 'README.md': '# sans icône\n', 'src/index.ts': 'export {};\n' });
 
 // Le faux site du projet 1 : une page qui DÉCLARE son icône, comme un vrai.
@@ -94,6 +104,7 @@ const PROJETS_D_ESSAI = [
   { id: 'p-site', name: 'Site avec adresse', path: DEPOT_SITE, devUrl: `http://127.0.0.1:${PORT_SITE}` },
   { id: 'p-depot', name: 'Depot avec icone', path: DEPOT_AVEC_ICONE },
   { id: 'p-rien', name: 'Rien du tout', path: DEPOT_SANS_ICONE },
+  { id: 'p-gros', name: 'Gros depot', path: DEPOT_GROS },
 ];
 
 let demon = null;
@@ -131,7 +142,7 @@ process.on('exit', () => {
   // dise POURQUOI, une fois le démon d'essai éteint.
   if (!garderLesTraces) fs.rmSync(TMP, { recursive: true, force: true });
 });
-let garderLesTraces = false;
+let garderLesTraces = process.env.VERIF_FAVICON_GARDER === '1';
 
 async function attendrePort(port, limiteMs = 60000) {
   const fin = Date.now() + limiteMs;
@@ -263,13 +274,16 @@ async function main() {
     JSON.stringify(rien),
   );
 
+  const gros = await pastilleDuProjet(page, 'p-gros');
+  noter('un GROS dépôt (4100 images dans data/) montre l’icône de web/public', gros.chargee, JSON.stringify(gros));
+
   await page.screenshot({ path: path.join(TMP, 'icones-colonne-gauche.png') });
 
   // L'icône disparue du disque ne doit pas laisser un carré vide à l'écran.
   const fichiers = fs.existsSync(path.join(DATA, 'favicons')) ? fs.readdirSync(path.join(DATA, 'favicons')) : [];
   noter(
     'chaque icône est rangée sur le disque du démon, avec sa vraie extension',
-    fichiers.includes('p-site.png') && fichiers.includes('p-depot.svg') && !fichiers.some((n) => n.startsWith('p-rien.')),
+    fichiers.includes('p-site.png') && fichiers.includes('p-depot.svg') && fichiers.includes('p-gros.png') && !fichiers.some((n) => n.startsWith('p-rien.')),
     fichiers.join(', '),
   );
 

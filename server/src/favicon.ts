@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  DOSSIERS_ECARTES,
+  DOSSIERS_D_ICONES,
   EXTENSIONS_D_ICONE,
   meilleureIconeDuDepot,
   Project,
@@ -31,10 +31,6 @@ import { log } from './logger.js';
  */
 const DELAI_MS = 8000;
 const TAILLE_MAX = 2 * 1024 * 1024;
-
-/** Le parcours du dépôt reste borné : on cherche une icône, pas tout un disque. */
-const PROFONDEUR_MAX = 4;
-const FICHIERS_PARCOURUS_MAX = 4000;
 
 const EXTENSION_PAR_MIME: Record<string, string> = {
   'image/x-icon': '.ico',
@@ -110,40 +106,62 @@ function retirerAnciensFichiers(projectId: string): void {
 }
 
 /**
- * Les chemins RELATIFS des fichiers du dépôt qui pourraient être une icône :
- * parcours borné en profondeur et en nombre de fichiers, dossiers de machine
- * écartés. Le CHOIX, lui, appartient à `shared` (`meilleureIconeDuDepot`).
+ * Retrouve sur le disque le dossier `relatif` (« web/public ») sous `racine`,
+ * segment par segment et SANS tenir compte de la casse — le choix compare des
+ * chemins en minuscules, un `Public/` doit donc compter comme `public/`.
+ * Rend le chemin réel et sa forme relative telle qu'écrite sur le disque.
  */
-function fichiersCandidatsDuDepot(racine: string): string[] {
+function dossierReel(racine: string, relatif: string): { absolu: string; relatif: string } | null {
+  let absolu = racine;
+  const vus: string[] = [];
+  for (const segment of relatif ? relatif.split('/') : []) {
+    let noms: fs.Dirent[];
+    try {
+      noms = fs.readdirSync(absolu, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    const trouve =
+      noms.find((n) => n.isDirectory() && n.name === segment) ??
+      noms.find((n) => n.isDirectory() && n.name.toLowerCase() === segment);
+    if (!trouve) return null;
+    absolu = path.join(absolu, trouve.name);
+    vus.push(trouve.name);
+  }
+  return { absolu, relatif: vus.join('/') };
+}
+
+/**
+ * Les chemins RELATIFS des fichiers du dépôt qui pourraient être une icône.
+ * On ne lit QUE les dossiers où un site range ses icônes (`DOSSIERS_D_ICONES`,
+ * dans `shared`), chacun sans descendre : le choix n'accepte rien d'autre, et
+ * un parcours de tout le dépôt plafonné à quelques milliers de fichiers
+ * s'épuisait dans `data/` avant d'atteindre `web/public` (projet Beluga). Le
+ * CHOIX, lui, appartient à `shared` (`meilleureIconeDuDepot`).
+ */
+export function fichiersCandidatsDuDepot(racine: string): string[] {
   const trouves: string[] = [];
-  let vus = 0;
-  const parcourir = (dossier: string, relatif: string, profondeur: number): void => {
-    if (profondeur > PROFONDEUR_MAX || vus > FICHIERS_PARCOURUS_MAX) return;
+  for (const voulu of DOSSIERS_D_ICONES) {
+    const dossier = dossierReel(racine, voulu);
+    if (!dossier) continue; // absent ou illisible : on passe au suivant
     let entrees: fs.Dirent[];
     try {
-      entrees = fs.readdirSync(dossier, { withFileTypes: true });
+      entrees = fs.readdirSync(dossier.absolu, { withFileTypes: true });
     } catch {
-      return; // dossier illisible : ce n'est pas une raison d'arrêter le reste
+      continue;
     }
     for (const entree of entrees) {
-      if (vus++ > FICHIERS_PARCOURUS_MAX) return;
-      if (entree.name.startsWith('.') && entree.name !== '.') continue;
-      const chemin = relatif ? `${relatif}/${entree.name}` : entree.name;
-      if (entree.isDirectory()) {
-        if ((DOSSIERS_ECARTES as readonly string[]).includes(entree.name)) continue;
-        parcourir(path.join(dossier, entree.name), chemin, profondeur + 1);
-      } else if (entree.isFile()) {
-        const ext = path.extname(entree.name).toLowerCase();
-        if ((EXTENSIONS_D_ICONE as readonly string[]).includes(ext)) trouves.push(chemin);
-      }
+      if (!entree.isFile() || entree.name.startsWith('.')) continue;
+      const ext = path.extname(entree.name).toLowerCase();
+      if (!(EXTENSIONS_D_ICONE as readonly string[]).includes(ext)) continue;
+      trouves.push(dossier.relatif ? `${dossier.relatif}/${entree.name}` : entree.name);
     }
-  };
-  parcourir(racine, '', 0);
+  }
   return trouves;
 }
 
 /** L'icône que porte le DÉPÔT du projet, quand son adresse n'a rien donné. */
-function iconeDuDepot(project: Project): { data: Buffer; ext: string; source: string } | null {
+export function iconeDuDepot(project: Pick<Project, 'path'>): { data: Buffer; ext: string; source: string } | null {
   const racine = project.path?.trim();
   if (!racine || !fs.existsSync(racine)) return null;
   const choisi = meilleureIconeDuDepot(fichiersCandidatsDuDepot(racine));
