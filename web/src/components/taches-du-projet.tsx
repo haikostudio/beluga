@@ -11,6 +11,7 @@
 import * as React from 'react';
 import { BranchesDArbre } from '@/components/branches-d-arbre';
 import { LignesDesAgentsSansCarte, LignesDesChefsAuTravail } from '@/components/chefs-au-travail';
+import { LignesDesTravauxDeService, useLignesDesServices } from '@/components/travaux-des-services';
 import { ChevronRight, Loader2 } from '@/components/ui/icones';
 import {
   TACHES_DE_LA_COLONNE_PAR_PAQUET,
@@ -167,6 +168,7 @@ export function TachesDuProjet({
   onOuvrir: (card: Card) => void;
 }) {
   const state = useApp();
+  const services = useLignesDesServices(projectId);
   const [nombre, setNombre] = React.useState(TACHES_DE_LA_COLONNE_PAR_PAQUET);
   const [enCours, setEnCours] = React.useState(false);
   const portee = React.useMemo(() => ({ projectId }), [projectId]);
@@ -237,6 +239,8 @@ export function TachesDuProjet({
       <LignesDesChefsAuTravail projectId={projectId} compacte />
       {/* …ET SES AGENTS SANS CARTE AU TRAVAIL : la configuration du déploiement ou de la mise en production (04/11/2026). */}
       <LignesDesAgentsSansCarte projectId={projectId} />
+      {/* …ET LES AGENTS DE SES SERVICES, AVEC LEURS TRAVAUX DE FOND (études, exports, audit, sauvegarde ; 25/11/2026). */}
+      <LignesDesTravauxDeService lignes={services} />
       {flux.map((entree) => (
         <React.Fragment key={entree.id}>
         {entree.genre === 'mise-en-ligne' ? (

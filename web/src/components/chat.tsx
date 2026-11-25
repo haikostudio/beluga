@@ -88,6 +88,7 @@ import {
   auteurDeLaDemandeEcrite,
   LIBELLE_AUTEUR_DE_CARTE,
   deployeeNonVue,
+  type RepereDeService,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -151,6 +152,17 @@ import {
   type TexteDuChamp,
 } from '@/lib/texte-du-champ';
 import { cn, duration, jourDuMessage } from '@/lib/utils';
+import {
+  Bot as IconeAgent,
+  CircleCheck as IconeRetabli,
+  DatabaseBackup as IconeSauvegarde,
+  Film as IconeExport,
+  Loader2 as IconeChargement,
+  ShieldCheck as IconeAudit,
+  Sparkles as IconeEtude,
+  TriangleAlert as IconeAlerte,
+  Wrench as IconeCorrection,
+} from '@/components/ui/icones';
 import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
 import { useSeconde } from '@/lib/horloge';
@@ -343,11 +355,25 @@ function FilDeConversation({
      cochée après l'envoi (`useIdeeEnvoyee`). La liste ne change que lorsqu'un
      message part, jamais à chaque signe de la réponse qui s'écrit. */
   const textesEnvoyes = useTextesEnvoyes(messages);
+  /*
+   * L'HISTORIQUE D'UN AGENT DE SERVICE (carte « Sécurité : bilan, écran et historique », 25/11/2026, maquette #3dc0) :
+   * la conversation d'un agent qui sert un sujet (projet suivi, site surveillé, dossier, création…) porte, entre ses
+   * messages, une ligne fine pour chaque événement du service — audit, correction, panne, sauvegarde, étude, export.
+   * Le démon dit s'il s'agit d'un agent de service (`service`) : seul celui-là charge son passé en remontant.
+   */
+  const historique = useHistoriqueDeService(cardId ? null : (agent?.id ?? null), messagesDuFil.length);
+  const blocsEtReperes = React.useMemo(() => {
+    if (!historique.reperes.length) return blocsALHeure;
+    return [
+      ...(blocsALHeure ?? []),
+      ...historique.reperes.map((r) => ({ cle: `repere:${r.id}`, le: r.le, pleine: true, noeud: <RepereDuFil repere={r} /> })),
+    ];
+  }, [blocsALHeure, historique.reperes]);
   /* LES BLOCS À LEUR HEURE : avant le premier message, ou après le dernier message commencé avant eux. */
   const blocsDuFil = React.useMemo(() => {
     const apres = new Map<string, React.ReactNode[]>();
     const avant: React.ReactNode[] = [];
-    for (const b of [...(blocsALHeure ?? [])].sort((x, y) => x.le - y.le)) {
+    for (const b of [...(blocsEtReperes ?? [])].sort((x, y) => x.le - y.le)) {
       let porteur: Message | null = null;
       for (const m of messages) if (m.createdAt <= b.le) porteur = m;
       /* À LA LARGEUR DU CÔTÉ AGENT, alignés à gauche comme une réponse : un bloc ne dépasse jamais la bulle de l'agent
@@ -361,7 +387,7 @@ function FilDeConversation({
       else apres.set(porteur.id, [...(apres.get(porteur.id) ?? []), noeud]);
     }
     return { avant, apres };
-  }, [blocsALHeure, messages]);
+  }, [blocsEtReperes, messages]);
   /*
    * LES MÉDIAS EN FABRICATION DE CETTE CONVERSATION (`medias-en-fabrication.tsx`) :
    * leurs blocs se posent au bas du fil, ceux partis depuis la dernière demande
@@ -1059,6 +1085,8 @@ function FilDeConversation({
   React.useEffect(() => {
     if (agent) client.send({ type: 'agent.open', id: agent.id, precedents: paquets * PRECEDENTS_PAR_PAQUET });
   }, [agent?.id, paquets]);
+  /* CE QUI DORT ENCORE AU-DESSUS : les échanges d'avant le dernier nouveau départ pas encore reçus. */
+  const plusAnciensRestants = Math.max(0, precedents - (depart ? messages.filter((m) => m.createdAt < depart).length : 0));
 
   /*
    * La carte est SOUS LES YEUX : dès que l'agent se tait, sa réponse est lue.
@@ -1114,6 +1142,18 @@ function FilDeConversation({
    * redescend donc que si l'on était déjà en bas.
    */
   const filRef = React.useRef<HTMLDivElement>(null);
+  /* LA LECTURE GARDÉE PENDANT QU'UN PAQUET PLUS ANCIEN ARRIVE AU-DESSUS : la distance au bas du fil, reposée dès qu'il
+     est rendu — sans elle, l'écran sauterait au début du paquet chargé. */
+  const ancrageDuHaut = React.useRef<number | null>(null);
+  /* Un paquet ANCIEN vient d'arriver au-dessus : le suivi du bas ne doit pas le prendre pour des messages neufs. */
+  const paquetAncienArrive = React.useRef(false);
+  React.useLayoutEffect(() => {
+    const fil = filRef.current;
+    if (ancrageDuHaut.current === null || !fil) return;
+    fil.scrollTop = Math.max(0, fil.scrollHeight - ancrageDuHaut.current);
+    ancrageDuHaut.current = null;
+    paquetAncienArrive.current = true;
+  }, [messages.length]);
   const ouvertePour = React.useRef<string | undefined>(undefined);
   /** Le nombre de messages déjà suivis : un de plus, c'est un message neuf. */
   const nombreVu = React.useRef(0);
@@ -1296,6 +1336,14 @@ function FilDeConversation({
       suit.current = true;
       marquerNotreDefilement(150);
       bottomRef.current?.scrollIntoView({ block: 'end' });
+      return;
+    }
+    /* LE PAQUET D'ÉCHANGES PLUS ANCIENS d'un agent de service s'est posé AU-DESSUS : rien de neuf en bas, la lecture
+       reste où l'a reposée `ancrageDuHaut`. */
+    if (paquetAncienArrive.current) {
+      paquetAncienArrive.current = false;
+      nombreVu.current = messages.length;
+      suit.current = false;
       return;
     }
     // UN NOUVEAU MESSAGE ARRIVE EN GLISSANT ; UN TEXTE QUI S'ALLONGE RESTE
@@ -2027,6 +2075,19 @@ function FilDeConversation({
         className={cn('flex flex-col', enTeteDuFil ? 'pb-3' : 'px-[var(--retrait-du-fil,0.75rem)] py-3')}
       >
         {enTeteDuFil ? <div className={enTeteDuFilLibre ? 'contents' : 'shrink-0'}>{enTeteDuFil}</div> : null}
+        {/* LE DÉFILEMENT INFINI INVERSÉ D'UN AGENT DE SERVICE : arrivé en haut, le paquet d'échanges précédent se charge
+            tout seul, et la lecture reste où elle était (`ChargeurDuHaut`). */}
+        {historique.service && plusAnciensRestants > 0 && agent ? (
+          <ChargeurDuHaut
+            key={`${agent.id}:${paquets}`}
+            fil={filRef}
+            onCharger={() => {
+              const fil = filRef.current;
+              if (fil) ancrageDuHaut.current = fil.scrollHeight - fil.scrollTop;
+              setPaquets((n) => n + 1);
+            }}
+          />
+        ) : null}
         {/*
          * Un échange court — une phrase de l'agent et sa carte proposée — ne
          * remplit pas la hauteur du fil, et le contenu resterait collé EN HAUT
@@ -2091,7 +2152,7 @@ function FilDeConversation({
                silhouette, jamais « Aucun échange pour le moment » — une phrase
                qui annoncerait une conversation vide sur un fil bien fourni. */
             <SilhouetteConversation />
-          ) : blocsALHeure?.length ? (
+          ) : blocsEtReperes?.length ? (
             blocsDuFil.avant
           ) : (
             <EmptyState
@@ -3135,5 +3196,90 @@ function LignesDeMediasDuMessage({ medias }: { medias?: readonly MediaLivre[] })
         );
       })}
     </ol>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* L'historique d'un agent de service                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES REPÈRES DU SUJET DE L'AGENT (`agent.historique`, `server/src/historique-de-service.ts`), relus à l'ouverture et à
+ * chaque message neuf. `service` dit si l'agent sert un sujet : seul celui-là charge son passé en remontant.
+ */
+function useHistoriqueDeService(agentId: string | null, nombreDeMessages: number): { service: boolean; reperes: RepereDeService[] } {
+  const [etat, setEtat] = React.useState<{ agentId: string | null; service: boolean; reperes: RepereDeService[] }>({ agentId: null, service: false, reperes: [] });
+  React.useEffect(() => {
+    if (!agentId) return;
+    let vivant = true;
+    client
+      .call<{ reperes?: RepereDeService[]; service?: boolean }>({ type: 'agent.historique', agentId })
+      .then((r) => vivant && setEtat({ agentId, service: r.service === true, reperes: r.reperes ?? [] }))
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+  }, [agentId, nombreDeMessages]);
+  return etat.agentId === agentId ? etat : { service: false, reperes: [] };
+}
+
+const ICONE_DU_REPERE: Record<RepereDeService['icone'], React.ComponentType<{ className?: string }>> = {
+  audit: IconeAudit,
+  correction: IconeCorrection,
+  panne: IconeAlerte,
+  retabli: IconeRetabli,
+  sauvegarde: IconeSauvegarde,
+  echec: IconeAlerte,
+  etude: IconeEtude,
+  export: IconeExport,
+  agent: IconeAgent,
+};
+
+/** Un événement du service, entre deux messages : une ligne fine centrée, jamais une bulle. */
+function RepereDuFil({ repere: r }: { repere: RepereDeService }) {
+  const Icone = ICONE_DU_REPERE[r.icone] ?? IconeAudit;
+  const quand = new Date(r.le).toLocaleString(formatRegional(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="flex w-full min-w-0 items-center gap-2 py-0.5 text-[12.5px]" data-repere-du-fil={r.icone} title={quand}>
+      <span className="h-px min-w-4 flex-1 bg-faint/30" aria-hidden />
+      <span className={cn('flex min-w-0 max-w-[85%] items-center gap-1.5', r.alerte ? 'text-important' : 'text-muted')}>
+        <Icone className="h-[15px] w-[15px] shrink-0" />
+        <span className="min-w-0 truncate">{r.texte}</span>
+        <span className="shrink-0 text-faint">· {quand}</span>
+      </span>
+      <span className="h-px min-w-4 flex-1 bg-faint/30" aria-hidden />
+    </div>
+  );
+}
+
+/**
+ * LE HAUT DU FIL QUI CHARGE LE PAQUET PRÉCÉDENT : visible dans la zone qui défile, il le demande UNE fois (un nouveau
+ * paquet remonte ce repère sous une nouvelle clé). Jamais de rafale : le verrou tient jusqu'au démontage.
+ */
+function ChargeurDuHaut({ fil, onCharger }: { fil: React.RefObject<HTMLDivElement | null>; onCharger: () => void }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const parti = React.useRef(false);
+  const charger = React.useRef(onCharger);
+  charger.current = onCharger;
+  React.useEffect(() => {
+    const cible = ref.current;
+    if (!cible || typeof IntersectionObserver === 'undefined') return;
+    const observateur = new IntersectionObserver(
+      (entrees) => {
+        if (parti.current || !entrees.some((e) => e.isIntersecting)) return;
+        parti.current = true;
+        charger.current();
+      },
+      { root: fil.current, rootMargin: '200px 0px 0px 0px' },
+    );
+    observateur.observe(cible);
+    return () => observateur.disconnect();
+  }, [fil]);
+  return (
+    <div ref={ref} className="flex shrink-0 items-center justify-center gap-2 py-2 text-[12.5px] text-muted" data-chargeur-du-haut="">
+      <IconeChargement className="h-3.5 w-3.5 animate-spin" />
+      {t('Chargement des échanges plus anciens…')}
+    </div>
   );
 }

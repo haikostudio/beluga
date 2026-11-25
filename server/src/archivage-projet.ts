@@ -342,7 +342,7 @@ async function arreterLesVersions(unites: string[]): Promise<{ unite: string; ac
     if (etat.activee) await lancer(['systemctl', 'disable', unite], 60_000);
     if (etat.active) {
       const r = await lancer(['systemctl', 'stop', unite], 90_000);
-      if (!r.ok) throw new Error(`La version de travail « ${unite} » refuse de s’arrêter : ${r.err.trim().slice(0, 200)}`);
+      if (!r.ok) throw new Error(`Le site en développement « ${unite} » refuse de s’arrêter : ${r.err.trim().slice(0, 200)}`);
     }
   }
   return arretees;
@@ -752,7 +752,7 @@ async function suiteDuDesarchivage(project: Project, t: Transfert, origine: Orig
     majProjet(project.id, (p) => ({ ...p, archived: false, archive: undefined }));
     t.octets = t.total;
     t.bilan = echecs.length
-      ? `Fichiers remis en place, mais la version de travail n’a pas redémarré (${echecs.join(', ')}).`
+      ? `Fichiers remis en place, mais le site en développement n’a pas redémarré (${echecs.join(', ')}).`
       : `Fichiers remis en place (${tailleLisible(project.archive?.octetsSource ?? 0)}), copie externe supprimée.`;
     t.fini = true;
     diffuser(t);

@@ -124,6 +124,7 @@ import {
   type PorteeDeLecture,
   type SoldeDeServiceIa,
   projetFigeParLArchive,
+  type TravailDeService,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -302,6 +303,8 @@ export interface AppState {
    * `null` avant la première réponse.
    */
   tachesDeLaColonne: Record<string, Card> | null;
+  /** LES TRAVAUX DES SERVICES (`shared/src/travaux-des-services.ts`) : ce qui tourne, et les finis pas vus. `null` avant la lecture. */
+  travauxDesServices: TravailDeService[] | null;
   version: string;
   settings: Settings | null;
   prefs: Record<string, unknown>;
@@ -557,6 +560,7 @@ const initialState: AppState = {
   enRouteArchive: null,
   lecturesParDate: {},
   tachesDeLaColonne: null,
+  travauxDesServices: null,
   version: '',
   settings: null,
   prefs: {},
@@ -2214,6 +2218,10 @@ class Client {
         this.set({ agentsPersoVersions: { ...this.state.agentsPersoVersions, [event.projectId]: (this.state.agentsPersoVersions[event.projectId] ?? 0) + 1 } });
         break;
 
+      case 'travaux.services':
+        this.set({ travauxDesServices: event.travaux as TravailDeService[] });
+        break;
+
 
       case 'belugapass':
         this.set({ belugapassVersion: this.state.belugapassVersion + 1 });
@@ -3367,9 +3375,28 @@ class Client {
     }
   }
 
+  /** Les travaux des services pour la colonne : réservés à l'administrateur (la commande est fermée aux autres rôles). */
+  async chargerLesTravauxDesServices(): Promise<void> {
+    if (this.state.monRole !== 'admin') return;
+    try {
+      const reponse = await this.call<{ travaux: TravailDeService[] }>({ type: 'travaux.services.lire' });
+      this.set({ travauxDesServices: reponse.travaux });
+    } catch {
+      /* Un démon d'avant cette commande : la colonne reste sans travaux. */
+    }
+  }
+
+  /** L'écran du service est ouvert : ses travaux finis quittent la colonne tout de suite, et pour tous les appareils. */
+  marquerLesTravauxVus(ids: readonly string[]): void {
+    if (!ids.length) return;
+    this.set((state) => ({ travauxDesServices: (state.travauxDesServices ?? []).filter((t) => !ids.includes(t.id)) }));
+    void this.call({ type: 'travaux.services.vus', ids: [...ids] }).catch(() => undefined);
+  }
+
   /** Au retour du lien, ce qui a déjà été lu se relit d'un bloc : les événements de la coupure sont perdus. */
   private relireLesListesParDate(): void {
     if (this.state.tachesDeLaColonne) void this.chargerLesTachesDeLaColonne();
+    if (this.state.travauxDesServices) void this.chargerLesTravauxDesServices();
     for (const [cle, lecture] of Object.entries(this.state.lecturesParDate)) {
       const profondeur = this.profondeurDesLectures.get(cle) ?? CARTES_PAR_DATE_PAR_PAQUET;
       void this.chargerParDate(lecture.portee, Math.min(LIMITE_EN_ROUTE_PAR_DEMANDE, Math.max(CARTES_PAR_DATE_PAR_PAQUET, profondeur)));

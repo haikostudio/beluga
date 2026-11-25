@@ -195,7 +195,7 @@ export function TiroirDemande({
    * Absent (vu comme client, ou carte déjà créée) : rien ne change.
    */
   onDemanderCarte?: (demandeId: string) => void;
-  /** Les deux versions du site du projet : la frise dit où vérifier quand il y a une version de travail. */
+  /** Les deux versions du site du projet : la frise dit où vérifier quand il y a un site en développement. */
   sites?: SitesDuProjet;
 }) {
   const [demande, setDemande] = React.useState<Demande | null>(null);

@@ -98,7 +98,7 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         motsCles: [
           'accès', 'client', 'clients', 'compte client', 'comptes clients', 'espace client', 'collaborateur', 'membre',
           'lecteur', 'responsable', 'droits', 'invitation', 'identifiants', 'sous-comptes', 'équipe', 'utilisateur',
-          'permission', 'mot de passe client', 'suspendre', 'ajouter un projet', 'version de travail',
+          'permission', 'mot de passe client', 'suspendre', 'ajouter un projet', 'version de travail', 'site en développement', 'site final',
         ],
         libelles: ['Ajouter un projet', 'Ajouter un accès', 'Envoyer les identifiants par courriel', 'Nouveau mot de passe', 'Suspendre l’accès'],
       },

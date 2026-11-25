@@ -97,6 +97,7 @@ import {
   peutVoirProjet,
   CARTES_DE_LA_RECHERCHE_DE_COLONNE,
   evenementAutorise,
+  travauxDuCompte,
   evenementOuvertParUnService,
   commandeOuverteAuCompte,
   trierLaRechercheGlobale,
@@ -551,6 +552,11 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       /* UNE ROUTINE D'ENTRETIEN INVISIBLE NE PART VERS AUCUN ÉCRAN (`shared/src/entretien-invisible.ts`). */
       const visible = sansEntretienInvisible(event);
       if (!visible) return;
+      /* LES TRAVAUX DES SERVICES PARTENT RÉDUITS À CE COMPTE : ce qui tourne, et les finis qu'il n'a pas vus. */
+      if (visible.type === 'travaux.services') {
+        ws.send(JSON.stringify({ type: 'travaux.services', travaux: travauxDuCompte(visible.travaux, compte.id) }));
+        return;
+      }
       ws.send(JSON.stringify(sansContexteRepete(evenementPourLEcran(visible))));
     };
     /*
@@ -828,7 +834,9 @@ function contexteDeCommande(cmd: ClientEnvelope['cmd']): string {
  * (`precedents`). Ce n'est qu'un affichage : le contexte du moteur reste vidé au nouveau départ.
  */
 function envoyerConversation(agentId: string, tout = false, combien: number = PRECEDENTS_PAR_PAQUET): void {
-  const messages = store.listMessages(agentId);
+  /* LE PLAFOND DE LECTURE SUIT LES PAQUETS DEMANDÉS (25/11/2026, historique des services) : à 400 messages fixes, un
+     fil long ne pouvait jamais remonter au-delà, quel que soit le nombre de paquets réclamés en remontant. */
+  const messages = store.listMessages(agentId, tout ? 100_000 : 400 + Math.max(0, combien));
   const depuis = store.nouveauDepart(agentId);
   bus.emit({
     type: 'agent.etat',
@@ -5046,6 +5054,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     /* -------- Backups des sites en production -------- */
 
+    /* LES TRAVAUX DES SERVICES (25/11/2026) : réservés à l'administrateur, fermés d'office aux autres rôles. */
+    case 'travaux.services.lire': {
+      const { travauxSuivis } = await import('./travaux-des-services.js');
+      return { travaux: travauxDuCompte(travauxSuivis(), compte.id) };
+    }
+    case 'travaux.services.vus': {
+      const { marquerVus } = await import('./travaux-des-services.js');
+      marquerVus(cmd.ids, compte.id);
+      return { ok: true };
+    }
     case 'backups.etat':
       return {
         sites: listerSitesBackups(),
@@ -5937,6 +5955,25 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ...resultat, projets: listerProjetsSuivis() };
     }
 
+    case 'securite.auditerSelection': {
+      const { auditerLaSelection, listerProjetsSuivis } = await import('./service-securite.js');
+      const resultat = auditerLaSelection(cmd.projets.map(String));
+      return { ...resultat, projets: listerProjetsSuivis() };
+    }
+
+    case 'securite.bilanDeLaCarte': {
+      const { bilanDeLaCarte } = await import('./service-securite.js');
+      return bilanDeLaCarte(String(cmd.cardId ?? ''));
+    }
+
+    case 'agent.historique': {
+      /* Les repères du SUJET de l'agent (audits, corrections, pannes, sauvegardes, études, exports). Jamais d'exception : un
+         service muet rend une liste vide, le fil reste celui des messages. */
+      const { reperesDeLAgent, estAgentDeService } = await import('./historique-de-service.js');
+      const agentId = String(cmd.agentId ?? '');
+      return { service: estAgentDeService(agentId), reperes: reperesDeLAgent(agentId) };
+    }
+
     case 'securite.bloques': {
       const { estSuivi } = await import('./service-securite.js');
       const projectId = String(cmd.projectId ?? '');
@@ -5970,6 +6007,45 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!store.getProject(cmd.projectId)) throw new Error('projet introuvable');
       const { etatDeLaGardeDuProjet } = await import('./garde-acces.js');
       return etatDeLaGardeDuProjet(cmd.projectId);
+    }
+
+    case 'projet.accesClients': {
+      if (!store.getProject(cmd.projectId)) throw new Error('projet introuvable');
+      const { accesClientsDuProjet } = await import('./acces-clients.js');
+      return accesClientsDuProjet(cmd.projectId);
+    }
+
+    case 'projet.accesClients.noter': {
+      const m = await import('./acces-clients.js');
+      const note = m.noterAccesClient({
+        projectId: cmd.projectId,
+        version: cmd.version,
+        adresse: cmd.adresse,
+        identifiant: cmd.identifiant,
+        motDePasse: cmd.motDePasse,
+        par: compte.nomAffiche || compte.identifiant,
+      });
+      if (!note.ok) throw new Error(note.raison);
+      return m.accesClientsDuProjet(cmd.projectId);
+    }
+
+    case 'projet.accesClients.sansAdministration': {
+      const m = await import('./acces-clients.js');
+      if (cmd.valeur) {
+        const declare = m.declarerSansAdministration({ projectId: cmd.projectId, version: cmd.version, par: compte.nomAffiche || compte.identifiant });
+        if (!declare.ok) throw new Error(declare.raison);
+      } else m.retirerSansAdministration(cmd.projectId, cmd.version);
+      return m.accesClientsDuProjet(cmd.projectId);
+    }
+
+    case 'projet.accesClients.carte': {
+      const project = store.getProject(cmd.projectId);
+      if (!project) throw new Error('projet introuvable');
+      const m = await import('./acces-clients.js');
+      const versions = m.versionsAPourvoirDuProjet(project);
+      if (!versions.length) throw new Error('Rien à créer : chaque version a son accès noté, ou ce projet n’a pas de client.');
+      const carte = m.poserLaCarteDesAccesClients(project, versions, createCard);
+      return { ...m.accesClientsDuProjet(cmd.projectId), carte: { id: carte.id, titre: carte.title } };
     }
 
     case 'securite.robots.regler': {

@@ -13,7 +13,7 @@ import { log } from './logger.js';
  * qui choisit entre deux familles larges.
  *
  * GARDE-FOUS — l'explication ne peut ni retarder ni casser une réponse :
- *  - délai court, tenu par le juge (`DELAI_LAYA_ERREUR_MS`), et jamais
+ *  - délai court, tenu par le juge (`DELAI_JUGE_EXPRESS_MS`, 2,5 s), et jamais
  *    d'attente d'un modèle qui dort : on garde alors « erreur inattendue » ;
  *  - un CACHE par empreinte du message brut : la même panne en rafale (vingt
  *    projets décrochés d'un coup) ne relance pas vingt fois le modèle ;

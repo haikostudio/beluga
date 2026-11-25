@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AppWindow, ChevronLeft, ChevronRight, EllipsisVertical, Eye, Globe, Hand, Laptop, Link, Link2Off, Loader2, Monitor, Pause, PencilLine, Play, Plus, Repeat, ShieldCheck, ShieldOff, Trash2 } from '@/components/ui/icones';
+import { ChevronLeft, ChevronRight, EllipsisVertical, Eye, Link, Link2Off, Loader2, Monitor, Pause, PencilLine, Play, Plus, Repeat, ShieldCheck, ShieldOff, Trash2 } from '@/components/ui/icones';
 import {
   LIBELLE_DU_NAVIGATEUR,
   autorisationsDonnees,
@@ -43,7 +43,7 @@ import { cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { EtapesDeChrome, EtatDesServices, ParcoursDeConnexion, navigateurDeCetAppareil, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
 import { ChoixDesNavigateursDeLaPage, marqueDeCetAppareil } from './choix-des-navigateurs';
-import { useSousPageDeReglages, type PartieDeSommaire } from './sous-page';
+import { useSousPageDeReglages } from './sous-page';
 
 /** Le nom propre de l'application : le même dans toutes les langues. */
 const CONNECT = ['Beluga', 'Connect'].join(' ');
@@ -56,8 +56,8 @@ const CONNECT = ['Beluga', 'Connect'].join(' ');
  *    l'est pas, une ligne « Ajouter cet ordinateur » ouvre la liste (carte « Liaison d'ordinateur simplifiée »,
  *    22/11/2026, maquette #b823) : son bouton « Lier » remplace la liste par le parcours en étapes empilées
  *    (`ParcoursDeConnexion`, assistant-installation.tsx), qui avance tout seul dans le même onglet ;
- *  - la page de chaque ordinateur (sommaire dans la colonne de gauche) : Autorisations, Confirmations, Beluga
- *    Connect, Navigateurs, Accès du Mac ;
+ *  - la page de chaque ordinateur (dans le volet de droite, retour « ‹ Vos ordinateurs » en tête) : Autorisations,
+ *    Confirmations, Beluga Connect, Navigateurs, Accès du Mac ;
  *  - les sites et les gestes répétés, qui valent pour tout le compte.
  * `?connecter=1` (ouvert par Beluga Connect quand sa liaison a échoué) relance le parcours par le lien seul.
  */
@@ -253,22 +253,26 @@ function LigneAjouterCetOrdinateur({ systeme, onLier }: { systeme: 'mac' | 'wind
 function PageDuParcours({ etat, depart, onRetour, onVoir }: { etat: EtatDeLExtension; depart: DepartDuParcours; onRetour: () => void; onVoir: (id: string) => void }) {
   const systeme = React.useMemo(systemeDeCetAppareil, []);
   const titre = systeme === 'mac' ? t('Ajouter ce Mac') : systeme === 'windows' ? t('Ajouter ce PC') : t('Ajouter cet ordinateur');
-  const accueillie = useSousPageDeReglages({ retour: t('Vos ordinateurs'), onRetour, titre });
+  const accueillie = useSousPageDeReglages({ cle: 'parcours', retour: t('Vos ordinateurs'), onRetour, titre });
   const racine = React.useRef<HTMLDivElement>(null);
+  /* Dans la fenêtre des réglages, c'est elle qui ramène la zone en haut (avec le retour en tête) ; ailleurs, la page. */
   React.useLayoutEffect(() => {
-    racine.current?.scrollIntoView({ block: 'start' });
+    if (!accueillie) racine.current?.scrollIntoView({ block: 'start' });
   }, []);
   return (
     <div ref={racine} className="flex scroll-mt-4 flex-col gap-[18px]" data-page-ordinateurs data-page-parcours>
-      <button
-        type="button"
-        onClick={onRetour}
-        className={cn('flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text', accueillie && 'max-sm:hidden')}
-        data-retour-ordinateurs="page"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        {t('Vos ordinateurs')}
-      </button>
+      {/* Hors de la fenêtre des réglages (aucune entête de retour) : le retour reste dans la page. */}
+      {!accueillie ? (
+        <button
+          type="button"
+          onClick={onRetour}
+          className="flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text"
+          data-retour-ordinateurs="page"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          {t('Vos ordinateurs')}
+        </button>
+      ) : null}
       <div className="flex flex-col gap-0.5 px-1">
         {/* Sur téléphone, la barre d'en-tête porte déjà ce titre (sous-page publiée) : il n'est pas redit ici. */}
         <h3 className={cn('text-[17px] font-semibold text-text', accueillie && 'max-sm:hidden')} data-titre-parcours>
@@ -610,11 +614,13 @@ function PageDUnOrdinateur({
   React.useEffect(() => {
     setLocal({});
   }, [ordinateur.id]);
-  /* La page remplace la liste dans la MÊME zone qui défile : elle s'ouvre par son haut, pas là où la liste en était. */
+  /* La page remplace la liste dans la MÊME zone qui défile : elle s'ouvre par son haut, pas là où la liste en était.
+     Dans la fenêtre des réglages, c'est elle qui ramène la zone en haut (`cle` de la sous-page) ; ailleurs, la page. */
   const racine = React.useRef<HTMLDivElement>(null);
+  const accueillie = useSousPageDeReglages({ cle: `ordinateur:${ordinateur.id}`, retour: t('Vos ordinateurs'), onRetour, titre: ordinateur.nom });
   /* Entre accolades : Chrome 152 fait rendre une promesse à `scrollIntoView`, que React prendrait pour un nettoyage. */
   React.useLayoutEffect(() => {
-    racine.current?.scrollIntoView({ block: 'start' });
+    if (!accueillie) racine.current?.scrollIntoView({ block: 'start' });
   }, [ordinateur.id]);
   const droits = { ...droitsDeLOrdinateur(ordinateur.droits), ...local };
   const allume = ordinateurEnLigne(ordinateur);
@@ -630,47 +636,6 @@ function PageDUnOrdinateur({
       (!!preparationDeLaPage && preparationDeLaPage.etat !== 'fait' && etapesDeLaPreparation(preparationDeLaPage, chromeDeLaPage, estUnMac).some((e) => e.etat !== 'fait')));
   const [delier, setDelier] = React.useState<string | null>(null);
 
-  /* LE SOMMAIRE DANS LA COLONNE DE GAUCHE : un bouton par partie, la partie lue surlignée d'après le défilement. */
-  const parties: PartieDeSommaire[] = [
-    { cle: 'autorisations', titre: t('Autorisations'), icone: ShieldCheck },
-    { cle: 'confirmations', titre: t('Confirmations'), icone: Hand },
-    { cle: 'connect', titre: CONNECT, icone: AppWindow },
-    { cle: 'navigateurs', titre: t('Navigateurs'), icone: Globe },
-    ...(estUnMac ? [{ cle: 'acces', titre: t('Accès du Mac'), icone: Laptop }] : []),
-  ];
-  const [active, setActive] = React.useState<string>('autorisations');
-  /* La partie choisie au sommaire reste surlignée pendant le défilement qu'elle lance (et en bas de page, quand une
-     partie courte ne peut pas monter jusqu'en haut) ; un défilement à la main reprend la main. */
-  const choisie = React.useRef<{ cle: string; le: number } | null>(null);
-  const aller = (cle: string) => {
-    choisie.current = { cle, le: Date.now() };
-    setActive(cle);
-    racine.current?.querySelector(`[data-partie-ordinateur="${cle}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-  const accueillie = useSousPageDeReglages({ retour: t('Vos ordinateurs'), onRetour, titre: ordinateur.nom, parties, active, onAller: aller });
-  React.useEffect(() => {
-    const zone = zoneQuiDefile(racine.current);
-    if (!zone) return;
-    const suivre = () => {
-      if (choisie.current && Date.now() - choisie.current.le < 1_200) return;
-      choisie.current = null;
-      const haut = zone.getBoundingClientRect().top;
-      const blocs = [...(racine.current?.querySelectorAll<HTMLElement>('[data-partie-ordinateur]') ?? [])];
-      if (!blocs.length) return;
-      /* Tout en bas : la dernière partie, même courte, est celle qu'on lit. */
-      if (zone.scrollTop + zone.clientHeight >= zone.scrollHeight - 4) {
-        setActive(blocs[blocs.length - 1]!.dataset.partieOrdinateur!);
-        return;
-      }
-      let lue = blocs[0]!.dataset.partieOrdinateur!;
-      for (const b of blocs) if (b.getBoundingClientRect().top - haut <= 96) lue = b.dataset.partieOrdinateur!;
-      setActive(lue);
-    };
-    zone.addEventListener('scroll', suivre, { passive: true });
-    return () => {
-      zone.removeEventListener('scroll', suivre);
-    };
-  }, [ordinateur.id]);
   const delierUnNavigateur = async (n: NavigateurDOrdinateur) => {
     setDelier(n.id);
     try {
@@ -703,7 +668,7 @@ function PageDUnOrdinateur({
   return (
     <div ref={racine} className="flex scroll-mt-4 flex-col gap-7" data-page-ordinateur={ordinateur.id}>
       <div className="flex flex-col gap-3">
-        {/* Hors de la fenêtre des réglages (aucune colonne pour le sommaire) : le retour reste dans la page. */}
+        {/* Hors de la fenêtre des réglages (aucune entête de retour) : le retour reste dans la page. */}
         {!accueillie ? (
           <button type="button" onClick={onRetour} className="flex w-fit items-center gap-0.5 rounded px-1 text-[13px] text-muted hover:text-text" data-retour-ordinateurs="page">
             <ChevronLeft className="h-4 w-4" />
@@ -831,15 +796,6 @@ function PageDUnOrdinateur({
       ) : null}
     </div>
   );
-}
-
-/** La zone qui défile autour d'un élément (celle de la fenêtre des réglages). */
-function zoneQuiDefile(el: HTMLElement | null): HTMLElement | null {
-  for (let n = el?.parentElement ?? null; n; n = n.parentElement) {
-    const o = getComputedStyle(n).overflowY;
-    if (o === 'auto' || o === 'scroll') return n;
-  }
-  return null;
 }
 
 /** Allumé : un ROND vert ; éteint : un CARRÉ gris — l'état se lit par la forme, pas seulement par la couleur. */

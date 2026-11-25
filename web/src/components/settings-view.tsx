@@ -317,8 +317,9 @@ function CorpsDesReglages({
   const [visee, setVisee] = React.useState<Visee>({ cle: '', marquer: false, n: 0 });
   /* LA SECTION MARQUÉE UN INSTANT après une recherche : un fond gris qui s'éteint, aucune couleur. */
   const [marquee, setMarquee] = React.useState<string | null>(null);
-  /* LA SOUS-PAGE OUVERTE PAR UNE PAGE (un ordinateur) : son sommaire se pose sous sa rubrique dans la colonne, et la
-     flèche de l'en-tête y remonte sur téléphone (`reglages/sous-page.tsx`). */
+  /* LA SOUS-PAGE OUVERTE PAR UNE PAGE (une personne, un ordinateur) : elle s'ouvre dans le volet de droite, l'entête de
+     la page devient son retour (ordinateur) et la flèche de l'en-tête y remonte (téléphone) — `reglages/sous-page.tsx`.
+     La colonne de gauche ne change jamais. */
   const [sousPage, setSousPage] = React.useState<SousPageDeReglages | null>(null);
   const [zone, setZone] = React.useState<HTMLDivElement | null>(null);
   const [pied, setPied] = React.useState<HTMLDivElement | null>(null);
@@ -380,7 +381,6 @@ function CorpsDesReglages({
   const pagesAvancees = rubrique?.pages.filter((p) => p.avance) ?? [];
   /* Une rubrique d'une seule page (Accès, Ordinateurs) : le titre de la rubrique suffit, sa section n'en redit pas. */
   const pageSeule = pagesOrdinaires.length === 1;
-  const sommaire = sousPage?.parties?.length ? sousPage : null;
 
   const ouvrirRubrique = (cle: string) => {
     const cible = groupes.find((g) => g.cle === cle);
@@ -564,15 +564,13 @@ function CorpsDesReglages({
             ) : (
               <div className="flex flex-col gap-0.5" data-rubriques-reglages>
                 {groupes.map((groupe) => (
-                  <React.Fragment key={groupe.cle}>
-                    <LigneDeRubrique
-                      cle={groupe.cle}
-                      titre={t(groupe.titre)}
-                      active={groupe.cle === rubrique?.cle}
-                      onOuvrir={ouvrirRubrique}
-                    />
-                    {groupe.cle === rubrique?.cle && sommaire ? <SommaireDeLaSousPage sousPage={sommaire} /> : null}
-                  </React.Fragment>
+                  <LigneDeRubrique
+                    key={groupe.cle}
+                    cle={groupe.cle}
+                    titre={t(groupe.titre)}
+                    active={groupe.cle === rubrique?.cle}
+                    onOuvrir={ouvrirRubrique}
+                  />
                 ))}
               </div>
             )}
@@ -586,13 +584,33 @@ function CorpsDesReglages({
         >
           <FournisseurDeSousPage value={setSousPage}>
             <FournisseurDuPied value={pied}>
-              <ZoneDefilement ref={setZone} className="px-4 pb-6 pt-4 sm:px-6 sm:pt-5">
+              {/* TOUTE PAGE S'OUVRE EN HAUT (décision du 25/11/2026 — « je rentre dans un profil et j'arrive au milieu ») :
+                  une sous-page qui s'ouvre, change ou se ferme ramène la zone en haut. Renommer la personne ouverte
+                  ne change pas son identité, donc ne fait pas sauter la page. */}
+              <ZoneDefilement ref={setZone} hautSur={sousPage?.cle ?? null} className="px-4 pb-6 pt-4 sm:px-6 sm:pt-5">
                 {rubrique ? (
                   <div key={rubrique.cle} ref={contenuRef} className="flex flex-col gap-9 max-sm:gap-10" data-page-rubrique={rubrique.cle}>
-                    <header className="flex flex-col gap-1 px-1" data-tete-rubrique>
-                      <h2 className="text-[18px] font-semibold text-text max-sm:hidden">{t(rubrique.titre)}</h2>
-                      <p className="text-[13px] leading-relaxed text-muted">{t(rubrique.phrase)}</p>
-                    </header>
+                    {sousPage ? (
+                      /* UNE SOUS-PAGE OUVERTE : l'entête devient son retour vers le volet précédent (ordinateur). Sur
+                         téléphone, c'est la flèche de la barre d'en-tête qui remonte : l'entête s'efface. */
+                      <header className="-mb-4 flex items-center max-sm:hidden" data-tete-rubrique data-tete-sous-page>
+                        <button
+                          type="button"
+                          onClick={sousPage.onRetour}
+                          className="-ml-1 flex min-w-0 items-center gap-0.5 rounded-md py-1 pl-1 pr-2 text-[13px] text-muted transition-colors hover:bg-raised hover:text-text"
+                          data-retour-sous-page
+                          data-retour-ordinateurs="tete-de-page"
+                        >
+                          <ChevronLeft className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{sousPage.retour}</span>
+                        </button>
+                      </header>
+                    ) : (
+                      <header className="flex flex-col gap-1 px-1" data-tete-rubrique>
+                        <h2 className="text-[18px] font-semibold text-text max-sm:hidden">{t(rubrique.titre)}</h2>
+                        <p className="text-[13px] leading-relaxed text-muted">{t(rubrique.phrase)}</p>
+                      </header>
+                    )}
                     {pagesOrdinaires.map((item) => sectionDePage(item, rubrique.pages.indexOf(item)))}
                     {pagesAvancees.length ? (
                       <div className="flex flex-col gap-6" data-avance-reglages={avanceOuvert ? 'ouvert' : 'replie'}>
@@ -685,53 +703,6 @@ function SectionDePage({
         {montee ? <React.Suspense fallback={<SilhouettePageReglages />}>{children}</React.Suspense> : <SilhouettePageReglages />}
       </ContexteTitreDeSection.Provider>
     </section>
-  );
-}
-
-/**
- * LE SOMMAIRE D'UNE SOUS-PAGE (un ordinateur), posé SOUS sa rubrique dans la colonne, sur ordinateur seulement (sur
- * téléphone, la colonne et la page ne se montrent jamais ensemble : la flèche de l'en-tête suffit). La partie lue se
- * marque par le fond gris, comme la rubrique.
- */
-function SommaireDeLaSousPage({ sousPage }: { sousPage: SousPageDeReglages }) {
-  return (
-    <div className="mb-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2 max-sm:hidden" data-sommaire-sous-page>
-      <button
-        type="button"
-        onClick={sousPage.onRetour}
-        className="flex w-fit items-center gap-0.5 rounded-md px-2 py-1 text-[12.5px] text-muted hover:text-text"
-        data-retour-ordinateurs="colonne"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-        {sousPage.retour}
-      </button>
-      {sousPage.titre ? (
-        <p className="truncate px-2 pb-1 pt-1 text-[11.5px] uppercase tracking-wide text-faint" data-titre-sous-page>
-          {sousPage.titre}
-        </p>
-      ) : null}
-      {(sousPage.parties ?? []).map((p) => {
-        const active = sousPage.active === p.cle;
-        const Icone = p.icone;
-        return (
-          <button
-            key={p.cle}
-            type="button"
-            data-aller-partie={p.cle}
-            data-actif={active ? 'oui' : undefined}
-            aria-current={active ? 'true' : undefined}
-            onClick={() => sousPage.onAller?.(p.cle)}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]',
-              active ? 'bg-raised font-medium text-text' : 'text-muted hover:bg-raised/60 hover:text-text',
-            )}
-          >
-            {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
-            <span className="min-w-0 flex-1 truncate">{p.titre}</span>
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

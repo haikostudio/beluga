@@ -5730,6 +5730,60 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_demande_resumes_demande ON demande_resumes(demande_id, etat);
     `,
   },
+  {
+    id: 191,
+    name: 'acces-clients',
+    siTable: 'secrets',
+    /*
+     * LES ACCÈS CLIENTS (carte « Connexion Haiko pour les sites clients », 25/11/2026, `server/src/acces-clients.ts`) :
+     * le compte administrateur d'une version du site, partagé par les clients du projet, est une fiche ORDINAIRE du
+     * coffre (type « mot-de-passe ») marquée par sa version (`acces_client` : 'production' | 'dev'), avec qui l'a notée
+     * (`acces_note_par`) et depuis quelle carte (`acces_note_carte`). L'index unique partiel interdit deux fiches
+     * actives pour la même version d'un même projet. Une version déclarée « pas d'administration » vit dans sa table :
+     * aucune fiche sans secret dans le coffre. Additif.
+     */
+    sql: `
+      ALTER TABLE secrets ADD COLUMN acces_client TEXT;
+      ALTER TABLE secrets ADD COLUMN acces_note_par TEXT;
+      ALTER TABLE secrets ADD COLUMN acces_note_carte TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_acces_client
+        ON secrets(project_id, acces_client) WHERE archive_le IS NULL AND acces_client IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS acces_clients_sans_administration (
+        project_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        declare_le INTEGER NOT NULL,
+        par TEXT,
+        carte_id TEXT,
+        PRIMARY KEY (project_id, version)
+      );
+    `,
+  },
+  {
+    id: 192,
+    name: 'gestes-de-production-des-corrections',
+    /*
+     * LES GESTES DU SITE EN LIGNE D'UNE CARTE DE CORRECTION DE SÉCURITÉ (carte « Sécurité : bilan, écran et
+     * historique », 25/11/2026, `server/src/service-securite.ts`). L'agent qui corrige ne touche JAMAIS au site en
+     * ligne (MEM-4501) : ce qui ne se règle que là, il le PRÉPARE par l'outil `geste_de_production`, qui écrit ici une
+     * ligne et n'exécute rien. La mise en production lancée par l'utilisateur joue ensuite les gestes non appliqués des
+     * cartes qui partent, une fois chacun (`applique_le`, posé atomiquement). Additif.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS securite_gestes (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        empreinte TEXT,
+        libelle TEXT NOT NULL,
+        commande TEXT NOT NULL,
+        delai_s INTEGER NOT NULL,
+        cree_le INTEGER NOT NULL,
+        applique_le INTEGER,
+        sortie TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_securite_gestes_carte ON securite_gestes(card_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

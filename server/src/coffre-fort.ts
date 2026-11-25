@@ -713,7 +713,32 @@ export function supprimerAcces(id: string, maintenant = Date.now()): { ok: boole
     };
   getDb().prepare('UPDATE secrets SET archive_le = ? WHERE id = ?').run(maintenant, id);
   log.info(`coffre-fort : accès « ${ligne.nom} » archivé`);
+  /* Un ACCÈS CLIENT retiré rend sa version « à créer » : la carte qui le recrée peut revenir (`acces-clients.ts`). */
+  const marque = getDb().prepare('SELECT project_id, acces_client FROM secrets WHERE id = ?').get(id) as
+    | { project_id: string | null; acces_client: string | null }
+    | undefined;
+  if (marque?.acces_client && marque.project_id) {
+    const projet = marque.project_id;
+    void import('./acces-clients.js').then((m) => m.reexaminerLesAccesClients(projet)).catch(() => {});
+  }
   return { ok: true };
+}
+
+/**
+ * UN SEUL ACCÈS CLIENT ACTIF PAR VERSION (index unique partiel `idx_secrets_acces_client`, migration 191). Une fiche
+ * archivée qui revient alors qu'une autre a pris sa place depuis redevient une fiche ORDINAIRE (sa marque de version
+ * est retirée) : la restauration réussit, et l'accès noté depuis reste celui que voit le client.
+ */
+function libererLesAccesClientsEnDouble(filtre: string, valeurs: unknown[]): void {
+  getDb()
+    .prepare(
+      `UPDATE secrets SET acces_client = NULL
+        WHERE ${filtre} AND archive_le IS NOT NULL AND acces_client IS NOT NULL
+          AND EXISTS (SELECT 1 FROM secrets AS actif
+                       WHERE actif.archive_le IS NULL AND actif.acces_client = secrets.acces_client
+                         AND actif.project_id IS secrets.project_id AND actif.id <> secrets.id)`,
+    )
+    .run(...valeurs);
 }
 
 /**
@@ -722,6 +747,7 @@ export function supprimerAcces(id: string, maintenant = Date.now()): { ok: boole
  * dans un dossier que la liste ne montre pas.
  */
 export function restaurerAcces(id: string): { ok: boolean; raison?: string } {
+  libererLesAccesClientsEnDouble('id = ?', [id]);
   const res = getDb().prepare('UPDATE secrets SET archive_le = NULL WHERE id = ? AND archive_le IS NOT NULL').run(id);
   if (!res.changes) return { ok: false, raison: 'Archive introuvable.' };
   getDb()
@@ -814,6 +840,7 @@ export function restaurerDossier(id: string): { ok: boolean; raison?: string; fi
     if ((dossier.parent_id ?? null) !== parentFinal) {
       base.prepare('UPDATE dossiers_coffre SET parent_id = ? WHERE id = ?').run(parentFinal, id);
     }
+    libererLesAccesClientsEnDouble(`dossier_id IN (${marques}) AND archive_le = ?`, [...ids, instant]);
     fiches = base
       .prepare(`UPDATE secrets SET archive_le = NULL WHERE dossier_id IN (${marques}) AND archive_le = ?`)
       .run(...ids, instant).changes;

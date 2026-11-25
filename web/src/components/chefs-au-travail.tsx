@@ -116,7 +116,8 @@ export function LignesDesChefsAuTravail({
 export function useAgentsSansCarteAuTravail(projectId?: string): Agent[] {
   const agents = useApp().agents;
   return React.useMemo(
-    () => agentsDeLaBande(Object.values(agents)).filter((a) => a.service?.id !== SERVICE_DU_DIRECTEUR && (!projectId || a.projectId === projectId)),
+    /* Les agents de SERVICE ont leurs lignes, avec leur travail de fond (`LignesDesTravauxDeService`, 25/11/2026). */
+    () => agentsDeLaBande(Object.values(agents)).filter((a) => !a.service && (!projectId || a.projectId === projectId)),
     [agents, projectId],
   );
 }

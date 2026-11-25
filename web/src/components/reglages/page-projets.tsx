@@ -45,7 +45,7 @@ function DelaiDArchivageAuto() {
       <p className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
         {t('Archivage automatique')}
         <BulleInfo cote="start">
-          {t('Chaque nuit, un projet sans aucune tâche depuis ce nombre de jours part sur le disque de stockage, sauf s’il sert un site en ligne, qu’un agent y travaille ou qu’il en est exempté dans sa rubrique « Archivage ». 0 coupe l’archivage automatique.')}
+          {t('Chaque nuit, un projet sans aucune tâche depuis ce nombre de jours part sur le disque de stockage, sauf s’il sert un site final, qu’un agent y travaille ou qu’il en est exempté dans sa rubrique « Archivage ». 0 coupe l’archivage automatique.')}
         </BulleInfo>
       </p>
       <div className="flex items-center gap-2 text-[13.5px] text-muted">

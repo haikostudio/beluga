@@ -151,7 +151,7 @@ export function RubriqueArchivage({ ctx }: { ctx: ContexteConfig }) {
       <TeteDeRubrique
         titre={t('Archivage')}
         resume={t('Où en est le projet, ce qu’il pèse, où vit son archive, et l’historique de ses mouvements.')}
-        aide={t('Archiver envoie tous les fichiers du projet sur le disque de stockage pour libérer la place sur le serveur. Le projet reste dans la colonne avec un badge, son tableau et ses conversations restent lisibles, et il revient d’un clic. Chaque nuit, un projet sans tâche depuis le délai réglé part tout seul, sauf s’il sert un site en ligne ou qu’un agent y travaille.')}
+        aide={t('Archiver envoie tous les fichiers du projet sur le disque de stockage pour libérer la place sur le serveur. Le projet reste dans la colonne avec un badge, son tableau et ses conversations restent lisibles, et il revient d’un clic. Chaque nuit, un projet sans tâche depuis le délai réglé part tout seul, sauf s’il sert un site final ou qu’un agent y travaille.')}
       />
 
       {/* --------------------------- L'ÉTAT --------------------------- */}

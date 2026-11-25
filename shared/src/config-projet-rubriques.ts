@@ -44,6 +44,9 @@ export const RUBRIQUE_DEPLOIEMENT = 'deploiement';
 /** La mise en production : celle qu'ouvre le bandeau bas du tableau. */
 export const RUBRIQUE_PRODUCTION = 'production';
 
+/** Les accès administrateur des sites que voient les clients du projet. */
+export const RUBRIQUE_ACCES_CLIENTS = 'acces-clients';
+
 export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
   {
     cle: 'general',
@@ -63,12 +66,19 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
   {
     cle: RUBRIQUE_DEPLOIEMENT,
     titre: 'Déploiement',
-    resume: 'Rafraîchir la version de travail de ce projet, sur ce serveur.',
+    resume: 'Rafraîchir le site en développement de ce projet, sur ce serveur.',
   },
   {
     cle: RUBRIQUE_PRODUCTION,
     titre: 'Mise en production',
     resume: 'Envoyer le résultat là où le public le voit, souvent ailleurs.',
+  },
+  /* LES ACCÈS CLIENTS (25/11/2026) : le compte administrateur de chaque version du site, montré aux clients du projet
+     dans « Voir mon site » (`server/src/acces-clients.ts`). */
+  {
+    cle: RUBRIQUE_ACCES_CLIENTS,
+    titre: 'Accès clients',
+    resume: 'Les accès administrateur que les clients voient en cliquant sur « Voir mon site ».',
   },
   /* L'ARCHIVAGE A SA RUBRIQUE (20/11/2026) : il était caché sous « Supprimer ». */
   {

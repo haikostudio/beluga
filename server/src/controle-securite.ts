@@ -332,7 +332,7 @@ export async function controlerLaSecurite(options: OptionsDuControle): Promise<R
     }
     constats.push(...constatsDeLaGarde({ ...g, reponse }));
     etapes.push({
-      nom: 'Version de travail réservée',
+      nom: 'Site en développement réservé',
       etat: 'fait',
       note: g.protege ? `${g.hotes.join(', ')} : ${reponseFermee(reponse) ? 'fermée aux visiteurs anonymes' : 'OUVERTE à un visiteur anonyme'}` : 'protection coupée par l’utilisateur',
     });

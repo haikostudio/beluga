@@ -560,6 +560,13 @@ export interface MarkdownProps {
  */
 export const ContexteBlocsDeCode = React.createContext<((langage: string, texte: string) => React.ReactNode) | null>(null);
 
+/**
+ * LE BILAN D'UNE CORRECTION DE SÉCURITÉ (bloc ```bilan-securite```) se lit en LISTE À COCHER, partout où un compte
+ * rendu s'affiche (`bilan-securite.tsx`, carte « Sécurité : bilan, écran et historique ») — chargé à la demande : un
+ * fil qui n'en a pas ne l'embarque pas.
+ */
+const BilanDeSecurite = React.lazy(() => import('@/components/bilan-securite').then((m) => ({ default: m.BilanDeSecurite })));
+
 export function Markdown({
   content,
   onToggleEvolution,
@@ -662,6 +669,20 @@ export function Markdown({
 
       case 'code': {
         /* UN BLOC QU'UN ÉCRAN SAIT RENDRE LUI-MÊME (le message structuré du directeur marketing) : rendu par lui, jamais comme du code. */
+        if (block.langage === 'bilan-securite' && !streaming) {
+          return (
+            <React.Suspense
+              key={index}
+              fallback={
+                <pre>
+                  <code>{block.text}</code>
+                </pre>
+              }
+            >
+              <BilanDeSecurite texte={block.text} />
+            </React.Suspense>
+          );
+        }
         const rendu = block.langage && rendreBlocDeCode ? rendreBlocDeCode(block.langage, block.text) : null;
         if (rendu) return <React.Fragment key={index}>{rendu}</React.Fragment>;
         return (

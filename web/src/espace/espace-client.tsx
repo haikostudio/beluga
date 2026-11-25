@@ -873,7 +873,7 @@ export function EspaceClient({
            * l'espace montent dans la même rangée que ceux de la fiche, et « Voir mon site » n'a pas sa place dans la
            * page d'une tâche (refusé au cadrage du 24/11/2026). Ils reviennent en refermant la fiche.
            */
-          site={ouverte && enteteDansLeFil ? undefined : <VoirMonSite sites={sites} />}
+          site={ouverte && enteteDansLeFil ? undefined : <VoirMonSite sites={sites} projectId={projectId} />}
           cloche={
             moi.role === 'client' ? (
               <ClocheEspace

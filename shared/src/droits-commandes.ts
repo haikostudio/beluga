@@ -63,6 +63,9 @@ export const COMMANDES_CLIENT: readonly string[] = [
   // l'ouvrir après la prise de responsabilité.
   'espace.acces.lire',
   'espace.acces.deverrouiller',
+  // L'accès administrateur d'une version de SON site, à l'ouverture de la fenêtre « Voir mon site ». Le serveur
+  // revérifie que le compte est client de CE projet (ou administrateur).
+  'espace.accesDuSite',
   /*
    * MON COMPTE, ET LE MIEN SEULEMENT. Ces commandes ne portent AUCUN
    * identifiant de compte : le serveur agit sur celui du canal, donc viser le
@@ -135,6 +138,8 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'carte.lieu-de-service': 'carte:cardId',
   'project.unreadCard': 'projet:projectId',
   'agent.open': 'agent:id',
+  /* Les repères d'un agent de service : bornés à l'agent que le compte voit déjà (sa conversation est ouverte). */
+  'agent.historique': 'agent:agentId',
   'comment.list': 'carte:cardId',
   'files.list': 'projet:projectId',
   /* LES FICHIERS RANGÉS : réponses bornées au serveur aux projets du compte, sans journaux, sauvegardes ni mémoire. */

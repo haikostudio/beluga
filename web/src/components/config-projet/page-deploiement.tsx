@@ -39,7 +39,7 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
     <div data-rubrique-contenu="deploiement" data-deploiement className="space-y-5">
       <TeteDeRubrique
         titre={t('Déploiement')}
-        resume={t('Rafraîchir la version de travail de ce projet, sur ce serveur.')}
+        resume={t('Rafraîchir le site en développement de ce projet, sur ce serveur.')}
         aide={t('Déployer fusionne les branches des cartes, enregistre et envoie sur le dépôt, puis joue le processus propre au projet s’il en a un, sinon la commande de mise à jour et les services réglés ci-dessous. Rien de tout cela ne passe par un agent : chaque étape a une durée maximale, et une panne s’arrête net en disant pourquoi.')}
       />
 

@@ -33,6 +33,6 @@ export function icone(nom, taille = 16) {
   const span = document.createElement('span');
   span.className = 'icone';
   span.setAttribute('aria-hidden', 'true');
-  span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${taille}" height="${taille}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TRACES[nom] ?? ''}</svg>`;
+  span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${Number(taille) || 16}" height="${Number(taille) || 16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${TRACES[nom] ?? ''}</svg>`;
   return span;
 }

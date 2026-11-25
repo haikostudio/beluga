@@ -822,9 +822,12 @@ function PageDeService({
         `data-pleine-hauteur` (ou par le fil d'une conversation), et la règle `[data-contenu-de-la-page-de-service]` de
         styles.css borne alors le contenu à la zone.
       */}
+      {/* TOUTE PAGE S'OUVRE EN HAUT (25/11/2026) : la page montrée se lit dans le fil — une sous-page qui s'ouvre, une
+          autre qui la remplace (le dernier cran change), le retour à la liste : la zone repart en haut. */}
       <ZoneDefilement
         classeEnveloppe="min-h-0 flex-1"
         className="flex flex-col"
+        hautSur={sousPage ? `sous-page:${titreDeLaSousPage}` : 'liste'}
         data-defilement-de-la-page-de-service={repere}
       >
       {/* `shrink-0` : sans lui, ce bloc — élément d'une colonne flexible — se tassait à la hauteur de la zone, et c'était

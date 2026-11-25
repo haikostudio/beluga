@@ -197,7 +197,7 @@ function ActionDePublication({ projectId, cible, taches }: { projectId: string; 
         <ConfirmDialog
           open={confirmer}
           title={t('Mettre en production {v0} ?', { v0: projet?.name ?? '' })}
-          description={taches > 1 ? t('{v0} tâches partiront sur le site en ligne.', { v0: taches }) : t('{v0} tâche partira sur le site en ligne.', { v0: taches })}
+          description={taches > 1 ? t('{v0} tâches partiront sur le site final.', { v0: taches }) : t('{v0} tâche partira sur le site final.', { v0: taches })}
           confirmLabel={t('Mettre en production')}
           onConfirm={() => void lancer().catch(() => undefined)}
           onClose={() => setConfirmer(false)}

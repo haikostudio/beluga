@@ -18,6 +18,7 @@ import * as React from 'react';
 import { ChevronRight } from '@/components/ui/icones';
 import { carteCacheeDesListes, decisionsParCarte, deployeeNonVue, estChefDeLArbre, miseEnLigneAfficheeActive, racinesEnCours, sansEchecsRemplaces, sansLesFillesRangees, tachesEnCours, type Card } from '@beluga/shared';
 import { ArbreDesSousAgents } from '@/components/sous-agents';
+import { LignesDesTravauxDeService, useLignesDesServices } from '@/components/travaux-des-services';
 import { LigneDeMiseEnLigne, useMisesEnLigneParDate } from '@/components/mises-en-ligne';
 import { LigneEtFilles, useCartesAvecAgentActif, useLignesDAgents } from '@/components/liste-des-agents';
 import { client } from '@/lib/client';
@@ -72,7 +73,10 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
   const tousLesAgents = state.agents;
   const racines = React.useMemo(() => racinesEnCours(chefs.filter(estChefDeLArbre), Object.values(tousLesAgents)), [chefs, tousLesAgents]);
   const chefsHorsArbre = chefs.filter((a) => !estChefDeLArbre(a)).length;
-  const sansCarte = useAgentsSansCarteAuTravail().length + chefsHorsArbre + racines.length;
+  /* LES AGENTS DES SERVICES ET LEURS TRAVAUX DE FOND (25/11/2026) : une ligne chacun, l'agent qui répond fondu dans le
+     travail du même écran ; les finis restent en gras jusqu'à l'ouverture du service. */
+  const services = useLignesDesServices();
+  const sansCarte = useAgentsSansCarteAuTravail().length + chefsHorsArbre + racines.length + services.length;
   /* …ET LES MISES EN LIGNE QUI TOURNENT (04/11/2026, capture #8a35 : « Déploiement · HaikoBill · 50 % » au tableau de
      bord, rien dans la colonne). Un déploiement ou une mise en production n'est ni une carte ni un agent : la zone ne
      le voyait pas. Même ligne que sous le projet (`LigneDeMiseEnLigne`), avec la pastille de son projet. */
@@ -111,6 +115,7 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
               <LigneDeMiseEnLigne run={run} compacte avecProjet projet={projets.get(run.projectId)} />
             </div>
           ))}
+          <LignesDesTravauxDeService lignes={services} />
           <LignesDesAgentsSansCarte avecProjet />
           {racines.map((racine) => (
             <div key={racine} data-famille-en-cours={racine}>

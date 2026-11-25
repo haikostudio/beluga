@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderGit2,
+  KeyRound,
   Palette,
   Loader2,
   Rocket,
@@ -44,6 +45,7 @@ import { RubriqueDossiers } from '@/components/config-projet/page-dossiers';
 import { RubriqueChartes } from '@/components/config-projet/page-chartes';
 import { RubriqueDeploiement } from '@/components/config-projet/page-deploiement';
 import { RubriqueProduction } from '@/components/config-projet/page-production';
+import { RubriqueAccesClients } from '@/components/config-projet/page-acces-clients';
 import { RubriqueRetrait } from '@/components/config-projet/page-retrait';
 import { RubriqueArchivage } from '@/components/config-projet/page-archivage';
 
@@ -65,6 +67,7 @@ const RENDU_DES_RUBRIQUES: Record<
   chartes: { icone: Palette, rendu: RubriqueChartes },
   deploiement: { icone: Rocket, rendu: RubriqueDeploiement },
   production: { icone: Upload, rendu: RubriqueProduction },
+  'acces-clients': { icone: KeyRound, rendu: RubriqueAccesClients },
   archivage: { icone: Archive, rendu: RubriqueArchivage },
   retrait: { icone: Trash2, rendu: RubriqueRetrait },
 };

@@ -871,7 +871,7 @@ export function MemoireClasseurs({
                 {t('Partout')}
               </label>
             </div>
-            <ZoneDefilement hauteur={16} className="pb-4" data-memoire-zone={pageTel === 'portees' && !trouvees ? 'portees' : 'fiches'}>
+            <ZoneDefilement hauteur={16} className="pb-4" hautSur={trouvees ? 'trouvees' : pageTel} data-memoire-zone={pageTel === 'portees' && !trouvees ? 'portees' : 'fiches'}>
               {trouvees ? (
                 <ListeDesTrouvees trouvees={trouvees} demande={recherche} partout={partout} portees={portees} onOuvrir={ouvrirTrouvee} />
               ) : pageTel === 'portees' ? (
@@ -909,13 +909,13 @@ export function MemoireClasseurs({
             </section>
           ) : pageTel === 'portees' ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="portees" data-memoire-page="portees">
-              <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
+              <ZoneDefilement fond="hsl(var(--bg))" hautSur={pageTel} className={MARGE_DES_LISTES_AU_TELEPHONE}>
                 {listeDesPortees(() => setPageTel('fiches'))}
               </ZoneDefilement>
             </section>
           ) : pageTel === 'fiches' ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiches" data-memoire-page="fiches">
-              <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
+              <ZoneDefilement fond="hsl(var(--bg))" hautSur={pageTel} className={MARGE_DES_LISTES_AU_TELEPHONE}>
                 {listeDesFiches(() => setPageTel('fiche'))}
               </ZoneDefilement>
             </section>

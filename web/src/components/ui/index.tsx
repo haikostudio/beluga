@@ -332,8 +332,10 @@ export const ChampMotDePasse = React.forwardRef<
     visible?: boolean;
     onVisibleChange?: (visible: boolean) => void;
     cadre?: string;
+    /** Un bouton de plus, posé APRÈS l'œil dans le champ (le « copier » des accès clients). */
+    apres?: React.ReactNode;
   }
->(({ className, cadre, onGenerer, visible: visibleImpose, onVisibleChange, ...props }, ref) => {
+>(({ className, cadre, onGenerer, visible: visibleImpose, onVisibleChange, apres, ...props }, ref) => {
   const [visibleLocal, setVisibleLocal] = React.useState(false);
   const visible = visibleImpose ?? visibleLocal;
   const basculer = (suivant: boolean) => {
@@ -355,7 +357,7 @@ export const ChampMotDePasse = React.forwardRef<
         className={cn(
           HAUTEUR_DE_CONTROLE,
         'w-full rounded-lg border border-transparent bg-champ px-3 text-[14px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
-          onGenerer ? 'pr-[4.25rem]' : 'pr-10',
+          onGenerer || apres ? 'pr-[4.25rem]' : 'pr-10',
           className,
         )}
         {...props}
@@ -385,6 +387,7 @@ export const ChampMotDePasse = React.forwardRef<
         >
           {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
+        {apres}
       </div>
     </div>
   );
@@ -975,6 +978,14 @@ export const ZoneDefilement = React.forwardRef<
     voileCaleSur?: string;
     /** La bande d'extinction des côtés de l'ombre, en pixels (défaut : `BORD_ARRONDI_PX`). */
     fonduLateral?: number;
+    /**
+     * TOUTE PAGE S'OUVRE EN HAUT (décision de l'utilisateur du 25/11/2026) : l'IDENTITÉ de la page que la zone montre
+     * (un onglet, un élément ouvert, une sous-page). Quand elle CHANGE, la zone repart tout en haut avant la peinture —
+     * jamais au premier rendu, ni à un simple nouveau rendu. À poser sur toute zone qui reste montée pendant que son
+     * contenu passe d'une page à une autre. Exceptions voulues : un fil de conversation (calé en bas), un saut vers
+     * une section.
+     */
+    hautSur?: unknown;
   }
 >(function ZoneDefilement(
   {
@@ -997,6 +1008,7 @@ export const ZoneDefilement = React.forwardRef<
     jusquAuBord = true,
     voileCaleSur,
     fonduLateral = BORD_ARRONDI_PX,
+    hautSur,
     className,
     onScroll,
     children,
@@ -1010,6 +1022,13 @@ export const ZoneDefilement = React.forwardRef<
   // Sans voile ni barre, il n'y a rien à mesurer.
   const mesureUtile = avecVoile || barre;
   const interne = React.useRef<HTMLDivElement | null>(null);
+  /* La page montrée a changé : la zone repart en haut (le premier rendu garde sa place, un saut voulu passe après). */
+  const pageVue = React.useRef(hautSur);
+  React.useLayoutEffect(() => {
+    if (Object.is(pageVue.current, hautSur)) return;
+    pageVue.current = hautSur;
+    if (!horizontal && interne.current) interne.current.scrollTop = 0;
+  }, [hautSur, horizontal]);
   const [debut, setDebut] = React.useState(false);
   const [fin, setFin] = React.useState(false);
   /**

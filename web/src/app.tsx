@@ -1,4 +1,5 @@
 import { FenetreDAccordOrdinateur } from '@/components/fenetre-d-accord-ordinateur';
+import { useTravauxVusALOuverture } from '@/components/travaux-des-services';
 import { FenetreDeLiaison } from '@/components/fenetre-de-liaison';
 import { EVENEMENT_OUVRIR_UN_AGENT, allerALEcranDeLAgentDeService } from '@/lib/ouvrir-un-agent';
 import { EVENEMENT_QUESTION_DU_DEPANNEUR } from '@/lib/evenements-publier';
@@ -386,6 +387,8 @@ type OngletMobile = (typeof ONGLETS_MOBILES)[number];
 /** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
 export function App() {
   const state = useApp();
+  /* Ouvrir l'écran d'un service marque vus ses travaux finis : leur ligne quitte « En cours » (25/11/2026). */
+  useTravauxVusALOuverture();
   /*
    * LE THÈME S'APPLIQUE DEPUIS LA RACINE, jamais depuis un panneau. Il était posé
    * par un effet du bandeau des quotas : sur téléphone, ce bandeau n'est pas

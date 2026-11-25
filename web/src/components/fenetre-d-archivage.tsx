@@ -36,7 +36,7 @@ function titreDEtape(sens: SensDArchivage, cle: string): string {
     case 'desarchiver:controles':
       return t('Contrôles avant de partir');
     case 'archiver:services':
-      return t('Arrêt de la version de travail');
+      return t('Arrêt du site en développement');
     case 'archiver:copie':
       return t('Copie vers le disque externe');
     case 'archiver:verification':
@@ -50,7 +50,7 @@ function titreDEtape(sens: SensDArchivage, cle: string): string {
     case 'desarchiver:remise':
       return t('Remise en place du dossier');
     case 'desarchiver:services':
-      return t('Relance de la version de travail');
+      return t('Relance du site en développement');
     case 'desarchiver:nettoyage':
       return t('Copie externe supprimée');
     default:
@@ -178,8 +178,8 @@ export function FenetreDArchivage() {
                 {estimation.versionsDeTravail.length ? (
                   <p className="text-muted">
                     {sens === 'archiver'
-                      ? t('La version de travail sera arrêtée, puis relancée au désarchivage.')
-                      : t('La version de travail sera relancée.')}
+                      ? t('Le site en développement sera arrêté, puis relancé au désarchivage.')
+                      : t('Le site en développement sera relancé.')}
                   </p>
                 ) : null}
                 {sens === 'archiver' ? (

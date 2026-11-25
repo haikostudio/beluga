@@ -15,8 +15,15 @@
  *  9. la page d'un projet prend TOUT le cadre (capture #66c6), en clair et en sombre : le volet du rapport touche la
  *     barre du fil et le bord droit, la conversation se centre dans la place à gauche du volet, son champ est en bas ;
  *     la LISTE, elle, garde sa colonne centrée ;
- * 10. cocher une ligne fait du bouton du pied « Corriger la sélection (N) », sans ouvrir la page du projet ;
- * 11. un DOUBLE CLIC sur un cran à liste du fil (le service, la portée) ramène à l'accueil du service, liste refermée.
+ * 10. cocher une ligne fait du bouton du pied « Actions sur la sélection (N) », sans ouvrir la page du projet ; son menu
+ *     propose « Relancer l'analyse » (un audit part) et « Lancer la correction » ;
+ * 11. un DOUBLE CLIC sur un cran à liste du fil (le service, la portée) ramène à l'accueil du service, liste refermée ;
+ * 12. (carte « Sécurité : bilan, écran et historique », 25/11/2026) le volet s'ouvre sur la NOTE sur 100 (anneau, une
+ *     barre par gravité), puis une ligne par catégorie, repliée, qui s'ouvre sur ses points ; la liste porte la colonne
+ *     « Note » et des dates en français ;
+ * 13. la conversation de l'agent porte les repères du service (l'audit), un bilan ```bilan-securite``` s'y lit en liste
+ *     rangée Pas fait → À finir → Fait, et les échanges d'avant un nouveau départ se chargent EN REMONTANT, la lecture
+ *     restant en place.
  *
  *   node scripts/verif-service-securite.mjs        (après `npm run build`, depuis la copie de la carte)
  *   VERIF_CAPTURES=/tmp/captures-securite node scripts/verif-service-securite.mjs   (écrit les captures)
@@ -148,16 +155,24 @@ async function principal() {
         await page.locator('[data-securite-rapport]:not([data-securite-rapport="attente"])').waitFor({ state: 'visible', timeout: 120_000 });
         const rapport = await page.locator('[data-securite-rapport]').getAttribute('data-securite-rapport');
         verifier('le premier audit est rendu dans le volet de droite', rapport && rapport !== 'attente' && rapport !== 'erreur', rapport ?? '');
+        /* 3. LA DISPOSITION A (25/11/2026, maquette #2312) : la note et ses barres, puis une ligne par catégorie. */
+        const carteNote = page.locator('[data-securite-carte-note]').first();
+        verifier('la note de sécurité ouvre le rapport', await carteNote.isVisible(), (await carteNote.getAttribute('data-securite-carte-note')) ?? '');
+        verifier('la note se lit dans un anneau, sur 100', (await carteNote.locator('[data-anneau-note]').count()) === 1 && /sur 100/.test((await carteNote.textContent()) ?? ''));
+        const barres = await carteNote.locator('[data-securite-barre]').count();
+        verifier('une barre par gravité', barres === 4, String(barres));
+        const ordre = await page.$$eval('[data-securite-carte-note], [data-securite-categories], [data-bloc-repliable="securite-robots"]', (els) =>
+          els.map((e) => (e.hasAttribute('data-securite-carte-note') ? 'note' : e.hasAttribute('data-securite-categories') ? 'categories' : 'robots')),
+        );
+        verifier('la note, puis les catégories, puis l’accès des robots', ordre.join(',') === 'note,categories,robots', ordre.join(','));
+        const categorie = page.locator('[data-securite-categorie="injection"]').first();
+        verifier('la requête montée avec une saisie est rangée dans « Requêtes et commandes »', (await categorie.count()) > 0);
+        verifier('les catégories sont repliées à l’ouverture', (await categorie.getAttribute('data-ouvert')) === 'non');
+        verifier('les contrôles sans point gardent leur ligne', (await page.locator('[data-securite-controle]').count()) > 0);
+        await categorie.locator('button').first().click();
         const injection = page.locator('[data-securite-point*="injection"]').first();
-        verifier('la requête montée avec une saisie est relevée', (await injection.count()) > 0);
-
-        /* 3. Les blocs : « vérifié » en tête et ouvert, graves ouverts. */
-        const blocs = await page.$$eval('[data-bloc-repliable^="securite-"]', (els) => els.map((e) => [e.getAttribute('data-bloc-repliable'), e.hasAttribute('data-bloc-ouvert')]));
-        const graves = blocs.filter(([r]) => r === 'securite-critique' || r === 'securite-elevee');
-        verifier('les blocs graves sont ouverts', graves.length > 0 && graves.every(([, o]) => o), JSON.stringify(blocs));
-        verifier('« Ce qui a été vérifié » est déplié', blocs.some(([r, o]) => r === 'securite-verifie' && o));
-        /* « ACCÈS DES ROBOTS » EN TÊTE (22/11/2026, maquette #9542), puis « Ce qui a été vérifié ». */
-        verifier('« Accès des robots » ouvre le rapport, « Ce qui a été vérifié » le suit', blocs[0]?.[0] === 'securite-robots' && blocs[1]?.[0] === 'securite-verifie', JSON.stringify(blocs.map(([r]) => r)));
+        await injection.waitFor({ state: 'visible', timeout: 5_000 });
+        verifier('une catégorie s’ouvre sur ses points', (await categorie.getAttribute('data-ouvert')) === 'oui');
 
         /* 8. Aucune valeur secrète dans la page. */
         verifier('aucune valeur de clé recopiée dans le rapport', !(await page.content()).includes(SECRET));
@@ -178,6 +193,7 @@ async function principal() {
         const messages = await page.locator('[data-securite-conversation] [data-message]').count();
         verifier('rien n’a été envoyé à l’agent', messages === 0, `${messages} message(s)`);
         await mesurerLePleinCadre(page, 'clair');
+        await verifierLaConversation(page);
 
         /* 5. La tête du rapport sur une hauteur. */
         const tete = await hauteurs(page, '[data-securite-tete-du-rapport] > *');
@@ -187,6 +203,11 @@ async function principal() {
         await ouvrirTousLesProjets(page);
         await page.locator('[data-securite-ligne="p-essai"]').first().waitFor({ state: 'visible', timeout: 30_000 });
         verifier('la liste montre le projet suivi', true);
+        /* 12. LA COLONNE « NOTE » ET LES DATES EN FRANÇAIS (25/11/2026). */
+        const note = await page.locator('[data-securite-ligne="p-essai"] [data-securite-note]').first().getAttribute('data-securite-note').catch(() => null);
+        verifier('la liste porte la note du projet', note !== null && Number(note) >= 0 && Number(note) <= 100, String(note));
+        const texteDeLaLigne = (await page.locator('[data-securite-ligne="p-essai"]').first().textContent()) ?? '';
+        verifier('les dates de la liste sont en français', !/January|February|March|April|May|June|July|August|September|October|November|December/.test(texteDeLaLigne), texteDeLaLigne.slice(-60));
         /* LA RECHERCHE EST UNE LOUPE (22/11/2026) : la loupe fermée porte `data-recherche-en-icone`. */
         const entete = await hauteurs(page, '[data-tete-de-la-page-de-service] [data-recherche-en-icone], [data-bascule-tableau-cartes="vue-de-la-securite"]');
         verifier('les contrôles d’en-tête de la liste ont la même hauteur (32 px)', entete.length >= 2 && entete.every((h) => h === 32), JSON.stringify(entete));
@@ -198,14 +219,39 @@ async function principal() {
         await caseLigne.click();
         await page.waitForTimeout(300);
         verifier('cocher une ligne n’ouvre pas la page du projet', (await page.locator('[data-securite-page]').count()) === 0);
-        const corriger = page.locator('[data-securite-corriger]').first();
-        verifier('le pied devient « Corriger la sélection (1) »', /Corriger la sélection \(1\)/.test((await corriger.textContent().catch(() => '')) ?? ''));
+        const actions = page.locator('[data-securite-actions]').first();
+        verifier('le pied devient « Actions sur la sélection (1) »', /Actions sur la sélection \(1\)/.test((await actions.textContent().catch(() => '')) ?? ''));
         verifier('la case se lit cochée', (await caseLigne.getAttribute('aria-checked')) === 'true');
-        verifier('la case d’en-tête se lit cochée (toutes les lignes visibles)', (await page.locator('[data-securite-tout-choisir]').first().getAttribute('aria-checked')) === 'true');
+        /* La case d'en-tête ne se lit cochée que si TOUTES les lignes visibles le sont (Beluga Build est suivi aussi). */
+        const lignesVisibles = await page.locator('[data-securite-ligne]').count();
+        verifier(
+          'la case d’en-tête suit les lignes visibles',
+          (await page.locator('[data-securite-tout-choisir]').first().getAttribute('aria-checked')) === String(lignesVisibles === 1),
+          `${lignesVisibles} ligne(s)`,
+        );
+        await actions.click();
+        const relancer = page.locator('[data-securite-relancer-selection]').first();
+        await relancer.waitFor({ state: 'visible', timeout: 5_000 });
+        verifier('le menu propose « Relancer l’analyse » et « Lancer la correction »', (await page.locator('[data-securite-corriger]').first().isVisible()) && /Relancer l’analyse/.test((await relancer.textContent()) ?? ''));
         await capturer(page, 'selection-ordinateur-clair');
+        const auditsAvant = compterLesAudits('manuel');
+        await relancer.click();
+        const auditParti = await attendre(() => compterLesAudits('manuel') > auditsAvant, 15_000);
+        verifier('« Relancer l’analyse » lance un audit du projet coché', auditParti, `${auditsAvant} → ${compterLesAudits('manuel')}`);
+        /* Le relevé occupe le démon quelques secondes : la réponse (et la sélection vidée) peut suivre l'audit en base. */
+        /* « Ajouter un projet » ne revient que s'il reste un projet à ajouter : on juge le bouton des actions. */
+        const vide = await attendre(async () => (await page.locator('[data-securite-actions]').count()) === 0, 20_000);
+        const messagesPassagers = await page.$$eval('[data-toast-texte]', (els) => els.map((e) => e.textContent).join(' | ')).catch(() => '');
+        verifier('après le geste, la sélection se vide', vide && (await caseLigne.getAttribute('aria-checked')) !== 'true', messagesPassagers);
+        await capturer(page, 'apres-relance-ordinateur-clair');
+        await caseLigne.click();
+        await page.waitForTimeout(300);
         await page.locator('[data-securite-tout-choisir]').first().click();
         await page.waitForTimeout(300);
-        verifier('tout décocher rend « Ajouter un projet »', (await page.locator('[data-securite-corriger]').count()) === 0 && (await page.locator('[data-securite-ajouter]').count()) > 0);
+        verifier('la case d’en-tête coche toutes les lignes visibles', (await page.locator('[data-securite-actions]').first().textContent().catch(() => ''))?.includes(`(${lignesVisibles})`));
+        await page.locator('[data-securite-tout-choisir]').first().click();
+        await page.waitForTimeout(300);
+        verifier('tout décocher retire le bouton des actions', (await page.locator('[data-securite-actions]').count()) === 0);
 
         /* 11. Le double clic sur le cran du service ramène à son accueil, liste refermée. */
         await page.locator('[data-securite-ligne="p-essai"]').first().click();
@@ -253,7 +299,7 @@ async function principal() {
       /* UNE SEULE MARGE DE 16 PX, LE RETOUR ET « LANCER UN AUDIT » DANS L'EN-TÊTE DE LA FEUILLE (22/11/2026, #7ae7, #ccad). */
       const feuille = await page.evaluate(() => {
         const vis = (el) => !!el && el.getBoundingClientRect().height > 0 && getComputedStyle(el).display !== 'none';
-        const bloc = [...document.querySelectorAll('[data-securite-page] .bloc-repliable')].find(vis);
+        const bloc = [...document.querySelectorAll('[data-securite-page] [data-securite-carte-note]')].find(vis);
         return {
           bord: bloc ? Math.round(bloc.getBoundingClientRect().left) : null,
           retour: !!document.querySelector('[data-entete-feuille] [data-entete-gauche] [data-retour-de-la-feuille]'),
@@ -283,6 +329,95 @@ async function principal() {
   }
 }
 
+
+/** Le nombre d'audits du projet d'essai pour un déclencheur. */
+function compterLesAudits(declencheur) {
+  const db = new Database(path.join(DATA, 'beluga.db'), { readonly: true });
+  try {
+    return db.prepare("SELECT COUNT(*) AS n FROM securite_audits WHERE project_id = 'p-essai' AND declencheur = ?").get(declencheur).n;
+  } finally {
+    db.close();
+  }
+}
+
+async function attendre(condition, delai) {
+  const fin = Date.now() + delai;
+  while (Date.now() < fin) {
+    if (await condition()) return true;
+    await new Promise((ok) => setTimeout(ok, 250));
+  }
+  return false;
+}
+
+/**
+ * 13. LA CONVERSATION DE L'AGENT : ses repères, un bilan en liste à cocher, et le chargement EN REMONTANT. Un long
+ * passé est posé en base — 300 messages avant un nouveau départ, puis un compte rendu qui porte un bloc
+ * ```bilan-securite``` —, et la page est rechargée.
+ */
+async function verifierLaConversation(page) {
+  const db = new Database(path.join(DATA, 'beluga.db'));
+  const agentId = db.prepare("SELECT agent_id FROM securite_projets WHERE project_id = 'p-essai'").get()?.agent_id;
+  if (!agentId) {
+    db.close();
+    verifier('historique : l’agent de sécurité est né', false);
+    return;
+  }
+  const debut = Date.now() - 30 * 24 * 3600_000;
+  const inserer = db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)');
+  const poser = (id, role, content, at) => inserer.run(id, agentId, role, JSON.stringify({ id, agentId, role, content, createdAt: at }), at);
+  db.transaction(() => {
+    for (let i = 0; i < 150; i++) {
+      poser(`essai-q-${i}`, 'user', `Question ancienne numéro ${i}`, debut + i * 60_000);
+      poser(`essai-r-${i}`, 'assistant', `Réponse ancienne numéro ${i}`, debut + i * 60_000 + 1000);
+    }
+  })();
+  const depart = debut + 200 * 60_000;
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(`chat.depart.${agentId}`, String(depart));
+  const bilan = [
+    { empreinte: 'injection-sql:injection-sql', titre: 'Requête montée à la main', categorie: 'injection-sql', statut: 'fait', but: 'Empêcher un visiteur de glisser des ordres dans la base.', fait: 'La requête est protégée.' },
+    { empreinte: 'robots:garde', titre: 'Rien ne coupe les aspirateurs', categorie: 'robots', statut: 'a-finir', but: 'Bloquer les visiteurs insistants.', fait: 'Protection prête.', production: true },
+    { empreinte: 'secrets:cle', titre: 'Clé dans le dépôt', categorie: 'secrets', statut: 'pas-fait', but: 'Sortir la clé du dépôt.', fait: 'Aucun coffre côté serveur.' },
+  ];
+  poser('essai-demande', 'user', 'Fais le bilan', Date.now() - 60_000);
+  poser('essai-bilan', 'assistant', `### Ce qui est fait\n\nVoici le bilan.\n\n\`\`\`bilan-securite\n${JSON.stringify(bilan)}\n\`\`\``, Date.now() - 50_000);
+  db.close();
+
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('[data-securite-conversation] [data-message]').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await page.locator('[data-bilan-securite]').first().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
+  const groupes = await page.$$eval('[data-bilan-groupe]', (els) => els.map((e) => e.getAttribute('data-bilan-groupe')));
+  verifier('un bilan de correction se lit en liste rangée Pas fait → À finir → Fait', groupes.join(',') === 'pas-fait,a-finir,fait', groupes.join(','));
+  verifier('le compteur du bilan est juste', /1 fait · 1 à finir · 1 pas fait/.test((await page.locator('[data-bilan-compteur]').first().textContent().catch(() => '')) ?? ''));
+  verifier('une ligne qui attend la production le dit', /Attend votre mise en production/.test((await page.locator('[data-bilan-ligne="robots:garde"]').first().textContent().catch(() => '')) ?? ''));
+  verifier('les messages ordinaires restent du texte', /Réponse ancienne numéro 149/.test((await page.locator('[data-securite-conversation]').first().textContent()) ?? ''));
+  const reperes = await page.locator('[data-securite-conversation] [data-repere-du-fil="audit"]').count();
+  verifier('la conversation porte les repères des audits', reperes >= 1, String(reperes));
+  if (CAPTURES) await capturer(page, 'conversation-bilan-ordinateur-clair');
+
+  const avant = await page.locator('[data-securite-conversation] [data-message]').count();
+  verifier('le chargeur du haut attend les échanges plus anciens', (await page.locator('[data-chargeur-du-haut]').count()) === 1, `${avant} message(s) reçus`);
+  /* On remonte en haut du fil : le paquet précédent arrive tout seul, et le message lu reste à l'écran. */
+  const repere = await page.evaluate(() => {
+    const premier = document.querySelector('[data-securite-conversation] [data-message]');
+    let zone = premier?.parentElement ?? null;
+    while (zone && zone.scrollHeight <= zone.clientHeight + 2) zone = zone.parentElement;
+    if (!zone || !premier) return null;
+    zone.scrollTop = 0;
+    return premier.getAttribute('data-message');
+  });
+  const charge = await attendre(async () => (await page.locator('[data-securite-conversation] [data-message]').count()) > avant, 15_000);
+  const apres = await page.locator('[data-securite-conversation] [data-message]').count();
+  verifier('en remontant, les échanges plus anciens se chargent', charge && apres >= 300, `${avant} → ${apres}`);
+  await page.waitForTimeout(500);
+  const resteVisible = await page.evaluate((id) => {
+    const el = id ? document.querySelector(`[data-securite-conversation] [data-message="${id}"]`) : null;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < window.innerHeight;
+  }, repere);
+  verifier('la lecture reste en place pendant le chargement (aucun saut au début du paquet)', resteVisible);
+  verifier('plus rien à charger : le chargeur du haut disparaît', (await page.locator('[data-chargeur-du-haut]').count()) === 0);
+}
 
 /** 9. LA PAGE D'UN PROJET EN PLEIN CADRE : mesures au pixel, sur la page ouverte à 1440 × 1000. */
 async function mesurerLePleinCadre(page, theme) {

@@ -28,6 +28,11 @@ export interface SitesDuProjet {
   enLigne?: string;
   /** Les changements à vérifier avant leur mise en ligne. */
   travail?: string;
+  /**
+   * LES VERSIONS DONT L'ACCÈS ADMINISTRATEUR EST NOTÉ (`shared/src/acces-clients.ts`) : de simples booléens, jamais
+   * le secret. Vrai = le clic du client ouvre la fenêtre des accès au lieu du site. Ajoutés par `espace.etat`.
+   */
+  accesNotes?: { enLigne?: boolean; travail?: boolean };
 }
 
 /**

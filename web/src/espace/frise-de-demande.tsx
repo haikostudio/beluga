@@ -28,7 +28,7 @@ function phraseDuSuivi(suivi: SuiviDeDemande, aUneVersionDeTravail: boolean): st
     case 'a-verifier':
       if (suivi.validee) return t('Validée le {date}.', { date });
       return aUneVersionDeTravail
-        ? t('Travail terminé le {date} · à vérifier sur la version de travail avant la mise en ligne.', { date })
+        ? t('Travail terminé le {date} · à vérifier sur le site en développement avant la mise en ligne.', { date })
         : t('Travail terminé le {date}.', { date });
     case 'en-ligne':
       return t('En ligne depuis le {date}.', { date });
@@ -42,7 +42,7 @@ export function FriseDeDemande({
 }: {
   demande: Pick<Demande, 'colonne' | 'creeeLe'>;
   activite: readonly ActiviteDemande[];
-  /** Le projet a une version de travail : la phrase dit où vérifier. */
+  /** Le projet a un site en développement : la phrase dit où vérifier. */
   aUneVersionDeTravail: boolean;
 }) {
   const suivi = suiviDeLaDemande(demande, activite);

@@ -26,6 +26,8 @@ export const ANCIENNES_TABLES: Readonly<Record<string, string>> = {
   snapshot_points: 'backup_points',
 };
 
+/** Liste blanche des noms posés dans une requête de structure (jamais une valeur reçue). */
+const NOM_SUR = /^[a-z_][a-z0-9_]*$/;
 const ANCIEN_INDEX = 'idx_snapshot_points_site';
 
 /** Les lignes du registre des migrations : renommées, elles ne se rejouent pas. */
@@ -64,6 +66,7 @@ export function passerLaBaseAuxBackups(database: Database.Database): string[] {
     for (const [ancienne, neuve] of Object.entries(ANCIENNES_TABLES)) {
       if (existe(database, 'table', ancienne) && !existe(database, 'table', neuve)) {
         // SQLite réécrit aussi la clé étrangère des points qui visait l'ancienne table.
+        if (!NOM_SUR.test(ancienne) || !NOM_SUR.test(neuve)) throw new Error('nom de table refusé');
         database.exec(`ALTER TABLE ${ancienne} RENAME TO ${neuve}`);
         faits.push(`table ${ancienne} → ${neuve}`);
       }

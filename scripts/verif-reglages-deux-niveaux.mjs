@@ -173,7 +173,7 @@ try {
         await aller('inconnue');
         noter(`${largeur} : une adresse inconnue n'ouvre pas un écran vide`, (await page.locator('[data-rubrique-reglages]').count()) === RUBRIQUES.length);
 
-        /* LE SOMMAIRE D'UN ORDINATEUR reste possible (sous-page). */
+        /* LA PAGE DES ORDINATEURS s'ouvre ; la page d'un ordinateur s'ouvre ensuite dans le volet de droite (sous-page). */
         await aller('ordinateurs');
         noter(`${largeur} : la page des ordinateurs s'ouvre`, (await page.locator('[data-page-ordinateurs]').count()) === 1);
       }

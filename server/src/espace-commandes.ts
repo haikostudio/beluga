@@ -11,7 +11,15 @@
  *  - un client ne touche QUE ses propres demandes, dans les projets de sa portée.
  */
 import fs from 'node:fs';
-import { accesApresChangement, estLeCompteDesTickets, sitesDuProjet } from '@beluga/shared';
+import {
+  accesApresChangement,
+  adresseDeLaVersion,
+  estLeCompteDesTickets,
+  libelleDeLaVersion,
+  sitesDuProjet,
+  type Project,
+  type SitesDuProjet,
+} from '@beluga/shared';
 import {
   REFUS_HORS_PORTEE,
   TITRES_COLONNES_DEMANDE,
@@ -76,6 +84,7 @@ import {
 } from './comptes.js';
 import * as espace from './espace-client.js';
 import * as resumes from './resume-client.js';
+import { accesClientDe, accesNotesDuProjet } from './acces-clients.js';
 import * as store from './store.js';
 import { notify } from './notify.js';
 import { createCard } from './tools.js';
@@ -95,6 +104,16 @@ export type CommandeDeLEspace = Extract<
 
 export function estCommandeDeLEspace(cmd: ClientEnvelope['cmd']): cmd is CommandeDeLEspace {
   return cmd.type.startsWith('espace.') || cmd.type.startsWith('comptes.');
+}
+
+/**
+ * LES VERSIONS DU SITE ET, POUR CHACUNE, SI SON ACCÈS ADMINISTRATEUR EST NOTÉ : de simples booléens — le secret ne
+ * part qu'à l'ouverture de la fenêtre (`espace.accesDuSite`).
+ */
+function sitesAvecLeursAcces(projet: Project | null | undefined): SitesDuProjet {
+  const sites = sitesDuProjet(projet);
+  const notes = accesNotesDuProjet(projet);
+  return notes.enLigne || notes.travail ? { ...sites, accesNotes: notes } : sites;
 }
 
 /**
@@ -532,7 +551,7 @@ export async function commandeDeLEspaceClient(
          * retenir, celle de son espace. Lues ICI, projet par projet, et non sur le compte : `compteVisible` sert
          * aussi à présenter un compte aux autres, et `projetDuClient` a déjà refusé tout projet hors de sa portée.
          */
-        sites: sitesDuProjet(store.getProject(projectId)),
+        sites: sitesAvecLeursAcces(store.getProject(projectId)),
         /* VU PAR HAIKO SEUL : les demandes dont le résumé attend son envoi (la marque de leur vignette). */
         ...(compte.role === 'admin' ? { resumesAEnvoyer: resumes.demandesAvecResumeEnAttente([projectId]) } : {}),
         // LA PORTÉE EST LE PROJET : le client voit tout ce qui s'y passe, quel
@@ -906,6 +925,22 @@ export async function commandeDeLEspaceClient(
     }
 
     /* ---------------- L'espace « Accès » ---------------- */
+
+    /*
+     * L'ACCÈS ADMINISTRATEUR D'UNE VERSION DE SON SITE, demandé à l'ouverture de la fenêtre de « Voir mon site ».
+     * Réservé au client de CE projet et à l'administrateur (vue Haiko) ; jamais diffusé sur le bus. Le journal note
+     * l'ouverture, jamais le secret.
+     */
+    case 'espace.accesDuSite': {
+      const projectId = projetDuClient(compte, cmd.projectId);
+      if (compte.role !== 'admin' && compte.role !== 'client') throw new Error(REFUS_HORS_PORTEE);
+      const projet = store.getProject(projectId);
+      if (!projet || !adresseDeLaVersion(projet, cmd.version)) return null;
+      const note = accesClientDe(projectId, cmd.version);
+      if (!note) return null;
+      log.info('espace client', `accès « ${libelleDeLaVersion(cmd.version)} » de « ${projet.name} » ouvert par ${nomDuCompte(compte)}`);
+      return { adresse: note.adresse, identifiant: note.identifiant, motDePasse: note.motDePasse };
+    }
 
     case 'espace.acces.lire': {
       const projectId = projetDuClient(compte, cmd.projectId);

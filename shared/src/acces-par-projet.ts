@@ -44,7 +44,7 @@ export function libelleDuNiveauDAcces(niveau: NiveauDAcces): string {
 export function aideDuNiveauDAcces(niveau: NiveauDAcces): string {
   switch (niveau) {
     case 'client':
-      return 'Son espace client : ses demandes, la version de travail du site, les backups et l’hébergement.';
+      return 'Son espace client : ses demandes, le site en développement, les backups et l’hébergement.';
     case 'voir':
       return 'Voit le projet dans Beluga sans rien changer.';
     case 'travailler':

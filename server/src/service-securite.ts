@@ -29,6 +29,15 @@ import {
   RETENTION_AUDITS_MS,
   auditDu,
   auditsAPurger,
+  avancementDesCorrections,
+  blocDuBilanEnTexte,
+  completerLeBilan,
+  consigneDeCorrectionSecurite,
+  empreintesOubliees,
+  noteDeSecurite,
+  phraseCourte,
+  type LigneDuBilan,
+  type PointDeLaCarte,
   carteDeCorrectionGroupee,
   compteParGravite,
   compteurVide,
@@ -112,7 +121,7 @@ function resumeDeLigne(l: LigneAudit): ResumeDAudit {
     // Un déclencheur inconnu (base écrite par une version plus récente) se lit « à la demande », jamais un trou.
     declencheur: DECLENCHEURS_D_AUDIT.includes(l.declencheur as DeclencheurDAudit) ? (l.declencheur as DeclencheurDAudit) : 'manuel',
     ...(l.erreur ? { erreur: l.erreur } : {}),
-    ...(rapport ? { compte: compteParGravite(rapport.constats) } : {}),
+    ...(rapport ? { compte: compteParGravite(rapport.constats), note: noteDeSecurite(compteParGravite(rapport.constats)) } : {}),
   };
 }
 
@@ -176,11 +185,14 @@ export function listerProjetsSuivis(): ProjetSuiviSecurite[] {
       const reussi = dernierAuditReussi(l.project_id);
       const etats = new Map(pointsDuProjet(l.project_id).map((p) => [p.empreinte, p.etat]));
       const aTraiter = compteurVide();
+      /* LES POINTS ENCORE PRÉSENTS (à traiter ET en correction) : c'est sur eux que la note se compte. */
+      const restants = compteurVide();
       let enCorrection = 0;
       for (const c of reussi?.rapport?.constats ?? []) {
         const etat = etats.get(empreinteDuConstat(c)) ?? 'a-traiter';
         if (etat === 'a-traiter') aTraiter[c.gravite]++;
         else if (etat === 'en-correction') enCorrection++;
+        if (etat !== 'corrige') restants[c.gravite]++;
       }
       return {
         projectId: l.project_id,
@@ -192,6 +204,8 @@ export function listerProjetsSuivis(): ProjetSuiviSecurite[] {
         prochainPassage: prochainPassage(dernierLance, l.ajoute_le),
         aTraiter,
         enCorrection,
+        note: reussi?.rapport ? noteDeSecurite(restants) : null,
+        restants,
       };
     });
 }
@@ -444,7 +458,239 @@ export function lireVueDAudit(projectId: string, auditId?: string | null): VueDA
     const carte = store.getCard(p.cardId);
     if (carte) cartes[p.cardId] = { titre: carte.title, projectId: carte.projectId };
   }
-  return { audit, points, nouveaux, cartes };
+  /* LA COURBE : la note de chaque audit réussi des douze mois, du plus ancien au plus récent. */
+  const evolution = listerAudits(projectId)
+    .filter((a) => typeof a.note === 'number')
+    .map((a) => ({ lance: a.lance, note: a.note! }))
+    .reverse();
+  return { audit, points, nouveaux, cartes, avancement: avancementDesCorrections(points), evolution };
+}
+
+/**
+ * « RELANCER L'ANALYSE » DE LA SÉLECTION (carte « Sécurité : bilan, écran et historique », 25/11/2026) : un audit à la
+ * demande pour chaque projet coché, par la file commune — un projet déjà en file ou en cours ne part pas deux fois.
+ * Rend ce qui est parti, ce qui tournait déjà et ce qui est écarté.
+ */
+export function auditerLaSelection(projets: readonly string[]): { lances: string[]; dejaEnCours: string[]; ecartes: { projectId: string; raison: string }[] } {
+  const lances: string[] = [];
+  const dejaEnCours: string[] = [];
+  const ecartes: { projectId: string; raison: string }[] = [];
+  for (const projectId of [...new Set(projets)]) {
+    const projet = store.getProject(projectId);
+    if (!projet) ecartes.push({ projectId, raison: 'projet introuvable' });
+    else if (projet.archived) ecartes.push({ projectId, raison: 'projet archivé' });
+    else if (!estSuivi(projectId)) ecartes.push({ projectId, raison: 'projet non suivi' });
+    else if (enFile.has(projectId) || enCoursDAudit === projectId) dejaEnCours.push(projectId);
+    else {
+      lancerAudit(projectId, 'manuel');
+      lances.push(projectId);
+    }
+  }
+  log.info(`sécurité : analyse de la sélection — ${lances.length} audit(s) lancé(s), ${dejaEnCours.length} déjà en cours, ${ecartes.length} écarté(s)`);
+  return { lances, dejaEnCours, ecartes };
+}
+
+/* ------------------------------------------------------------------ */
+/* Le bilan d'une carte de correction                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES POINTS QU'UNE CARTE DE CORRECTION EMPORTE (en correction, ou corrigés par elle), avec leur titre et leur
+ * catégorie relus dans les audits du projet (le plus récent qui les nomme). Vide pour une carte ordinaire.
+ */
+export function pointsDeLaCarte(cardId: string): PointDeLaCarte[] {
+  let lignes: { project_id: string; empreinte: string }[] = [];
+  try {
+    lignes = getDb().prepare('SELECT project_id, empreinte FROM securite_points WHERE card_id = ? ORDER BY empreinte').all(cardId) as typeof lignes;
+  } catch {
+    return [];
+  }
+  if (!lignes.length) return [];
+  const projectId = lignes[0]!.project_id;
+  const audits = getDb()
+    .prepare('SELECT rapport FROM securite_audits WHERE project_id = ? AND rapport IS NOT NULL ORDER BY lance DESC')
+    .all(projectId) as { rapport: string }[];
+  const connus = new Map<string, ConstatSecurite>();
+  for (const a of audits) {
+    for (const c of rapportDeLigne(a.rapport)?.constats ?? []) {
+      const e = empreinteDuConstat(c);
+      if (!connus.has(e)) connus.set(e, c);
+    }
+    if (lignes.every((l) => connus.has(l.empreinte))) break;
+  }
+  return lignes.map((l) => {
+    const c = connus.get(l.empreinte);
+    return { empreinte: l.empreinte, titre: c?.titre.replace(/\s+/g, ' ').trim() ?? l.empreinte, categorie: c?.categorie ?? l.empreinte.split(':')[0]! };
+  });
+}
+
+/**
+ * LA CONSIGNE « ALLER AU BOUT » d'un tour de tâche : seulement pour une carte qui porte des points d'audit (correction
+ * groupée ou carte proposée par l'agent de sécurité). Vide sinon.
+ */
+export function consigneDeCorrectionDeLaCarte(cardId: string): string {
+  const points = pointsDeLaCarte(cardId);
+  return points.length ? consigneDeCorrectionSecurite(points) : '';
+}
+
+/** Ce que l'écran du compte rendu lit : les points de la carte et ses gestes du site en ligne (sans leur commande). */
+export function bilanDeLaCarte(cardId: string): { points: PointDeLaCarte[]; gestes: { id: string; empreinte: string | null; libelle: string; creeLe: number; appliqueLe: number | null }[] } {
+  return {
+    points: pointsDeLaCarte(cardId),
+    gestes: gestesDeLaCarte(cardId).map((g) => ({ id: g.id, empreinte: g.empreinte, libelle: g.libelle, creeLe: g.creeLe, appliqueLe: g.appliqueLe })),
+  };
+}
+
+/** Clé de méta : la carte a déjà été renvoyée une fois traiter les points oubliés de son bilan. */
+const CLE_RENVOI_DU_BILAN = (cardId: string) => `securite.bilan.renvoi.${cardId}`;
+
+/**
+ * L'OUTIL « bilan_securite » : l'agent déclare une ligne par point. Un bilan qui OUBLIE des points de la carte est
+ * renvoyé UNE fois (« traite-les puis redonne le bilan ») ; ensuite, il est accepté et les oubliés s'y ajoutent en
+ * « pas fait — non traité ». Jamais de blocage : la carte se ferme toujours. Rend le bloc à recopier tel quel.
+ */
+export function noterLeBilan(cardId: string, lignesBrutes: unknown): { ok: true; bloc: string; lignes: LigneDuBilan[] } | { ok: false; raison: string } {
+  const points = pointsDeLaCarte(cardId);
+  if (!points.length) return { ok: false, raison: 'Cette carte ne porte aucun point d’audit de sécurité : aucun bilan à rendre.' };
+  if (!Array.isArray(lignesBrutes)) return { ok: false, raison: '« lignes » doit être une liste, une ligne par point.' };
+  const lu = lignesBrutes
+    .filter((l): l is Record<string, unknown> => !!l && typeof l === 'object')
+    .map((l) => ({
+      empreinte: String(l.empreinte ?? '').trim(),
+      titre: phraseCourte(l.titre, 140),
+      categorie: String(l.categorie ?? '').trim(),
+      statut: (['fait', 'a-finir', 'pas-fait'].includes(String(l.statut)) ? String(l.statut) : 'a-finir') as LigneDuBilan['statut'],
+      but: phraseCourte(l.but),
+      fait: phraseCourte(l.fait),
+      ...(l.production === true ? { production: true } : {}),
+    }))
+    .filter((l) => l.empreinte);
+  const oublies = empreintesOubliees(lu, points);
+  const dejaRenvoye = (() => {
+    try {
+      return getDb().prepare('SELECT 1 FROM meta WHERE key = ?').get(CLE_RENVOI_DU_BILAN(cardId)) !== undefined;
+    } catch {
+      return true;
+    }
+  })();
+  if (oublies.length && !dejaRenvoye) {
+    getDb().prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(CLE_RENVOI_DU_BILAN(cardId), String(Date.now()));
+    const titres = points.filter((p) => oublies.includes(p.empreinte)).map((p) => `[${p.empreinte}] ${p.titre}`);
+    return {
+      ok: false,
+      raison: `Ton bilan oublie ${oublies.length} point(s) de cette carte :\n${titres.join('\n')}\nTraite-les jusqu'au bout (ou dis en une phrase pourquoi c'est impossible après un vrai essai), puis rappelle « bilan_securite » avec TOUS les points.`,
+    };
+  }
+  const connus = new Set(points.map((p) => p.empreinte));
+  const lignes = completerLeBilan(lu.filter((l) => connus.has(l.empreinte)), points);
+  return { ok: true, bloc: blocDuBilanEnTexte(lignes), lignes };
+}
+
+/* ------------------------------------------------------------------ */
+/* Les gestes du site en ligne                                         */
+/* ------------------------------------------------------------------ */
+
+export interface GesteDeProduction {
+  id: string;
+  cardId: string;
+  projectId: string;
+  empreinte: string | null;
+  libelle: string;
+  commande: string;
+  delaiS: number;
+  creeLe: number;
+  appliqueLe: number | null;
+  sortie: string | null;
+}
+
+interface LigneGeste {
+  id: string;
+  card_id: string;
+  project_id: string;
+  empreinte: string | null;
+  libelle: string;
+  commande: string;
+  delai_s: number;
+  cree_le: number;
+  applique_le: number | null;
+  sortie: string | null;
+}
+
+function gesteDeLigne(l: LigneGeste): GesteDeProduction {
+  return {
+    id: l.id,
+    cardId: l.card_id,
+    projectId: l.project_id,
+    empreinte: l.empreinte,
+    libelle: l.libelle,
+    commande: l.commande,
+    delaiS: l.delai_s,
+    creeLe: l.cree_le,
+    appliqueLe: l.applique_le,
+    sortie: l.sortie,
+  };
+}
+
+export function gestesDeLaCarte(cardId: string): GesteDeProduction[] {
+  try {
+    return (getDb().prepare('SELECT * FROM securite_gestes WHERE card_id = ? ORDER BY cree_le').all(cardId) as LigneGeste[]).map(gesteDeLigne);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * L'OUTIL « geste_de_production » : le geste est ENREGISTRÉ, jamais exécuté (MEM-4501 — aucun agent ne touche à la
+ * production). Seule la mise en production lancée par l'utilisateur le jouera. Réservé aux cartes de correction.
+ */
+export function enregistrerLeGeste(
+  cardId: string,
+  args: { libelle?: unknown; commande?: unknown; delai_s?: unknown; empreinte?: unknown },
+): { ok: true; geste: GesteDeProduction } | { ok: false; raison: string } {
+  const carte = store.getCard(cardId);
+  if (!carte) return { ok: false, raison: 'carte introuvable' };
+  if (!pointsDeLaCarte(cardId).length) return { ok: false, raison: 'Seule une carte de correction de sécurité (liée à des points d’audit) prépare un geste du site en ligne.' };
+  const libelle = phraseCourte(args.libelle, 140);
+  const commande = String(args.commande ?? '').trim();
+  if (!libelle) return { ok: false, raison: '« libelle » manque : dis en quelques mots ce que fait le geste.' };
+  if (!commande) return { ok: false, raison: '« commande » manque : la commande prête, telle que la mise en production la jouera.' };
+  if (commande.length > 4000) return { ok: false, raison: 'La commande dépasse 4000 signes : range-la dans un script du dépôt et appelle ce script.' };
+  const delai = Math.max(10, Math.min(1800, Math.round(Number(args.delai_s) || 120)));
+  const empreinte = String(args.empreinte ?? '').trim() || null;
+  const geste: GesteDeProduction = {
+    id: store.newId(),
+    cardId,
+    projectId: carte.projectId,
+    empreinte,
+    libelle,
+    commande,
+    delaiS: delai,
+    creeLe: Date.now(),
+    appliqueLe: null,
+    sortie: null,
+  };
+  getDb()
+    .prepare('INSERT INTO securite_gestes (id, card_id, project_id, empreinte, libelle, commande, delai_s, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(geste.id, cardId, geste.projectId, empreinte, libelle, commande, delai, geste.creeLe);
+  return { ok: true, geste };
+}
+
+/** Les gestes NON APPLIQUÉS des cartes qui partent en production, dans l'ordre où ils ont été préparés. */
+export function gestesAAppliquer(cardIds: readonly string[]): GesteDeProduction[] {
+  if (!cardIds.length) return [];
+  try {
+    const marques = cardIds.map(() => '?').join(',');
+    return (
+      getDb().prepare(`SELECT * FROM securite_gestes WHERE applique_le IS NULL AND card_id IN (${marques}) ORDER BY cree_le`).all(...cardIds) as LigneGeste[]
+    ).map(gesteDeLigne);
+  } catch {
+    return [];
+  }
+}
+
+/** Marque un geste appliqué, UNE fois (atomique) : rend faux s'il l'était déjà. */
+export function marquerLeGesteApplique(id: string, sortie: string, maintenant = Date.now()): boolean {
+  return getDb().prepare('UPDATE securite_gestes SET applique_le = ?, sortie = ? WHERE id = ? AND applique_le IS NULL').run(maintenant, sortie.slice(-4000), id).changes === 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -813,6 +1059,8 @@ export function contexteDeLAgentSecurite(agent: Pick<Agent, 'id'>): string | und
     'Ton rôle : expliquer le rapport d’audit ci-dessous en mots simples, mener à la demande une étude approfondie (compétence « beluga-controle-de-securite-d-un-projet », section « Étude complète », et la relecture statique « security-audit-static »), puis PRÉPARER LA CORRECTION.',
     'TU NE MODIFIES AUCUN FICHIER DU PROJET : tu lis, tu expliques, tu proposes. La correction se fait dans une carte, lancée par l’utilisateur.',
     'CARTE DE CORRECTION : quand l’utilisateur demande de corriger des points (ses lignes « Corriger : … »), regroupe-les en UNE SEULE carte avec l’outil board_create_card — champ « projet » = ce projet, champ « points_securite » = la liste des empreintes entre crochets de ces points (ex. ["entetes:entete-csp"]). La description reprend pour chaque point ce qui risque, ce qu’on propose, où regarder, et une ligne **Vérification** : « le contrôle de sécurité relancé ne remonte plus ce point ». La carte se crée d’un clic de l’utilisateur ; une fois mise en ligne, un audit repasse seul et prouve la correction.',
+    'LA CORRECTION VA JUSQU’AU BOUT : la carte emporte d’office la consigne qui oblige l’agent correcteur à traiter TOUS les points, à essayer un contournement avant de renoncer, à préparer (sans l’exécuter) ce qui ne se règle que sur le site en ligne, et à rendre un bilan point par point. Ne promets jamais moins.',
+    'TON HISTORIQUE avec l’utilisateur (échanges d’avant un « Repartir de zéro » compris) et celui du projet (audits, corrections) se relit avec l’outil « historique_du_service » quand une question y renvoie.',
     'Ne recopie JAMAIS la valeur d’une clé, d’un mot de passe ou d’un jeton : nomme seulement le fichier.',
     '',
     'RAPPORT D’AUDIT (empreinte entre crochets · gravité · état · titre) :',

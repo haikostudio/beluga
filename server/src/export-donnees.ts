@@ -248,7 +248,7 @@ function copierLaBase(): Buffer | null {
   const temp = path.join(PATHS.archives, `base-${crypto.randomBytes(6).toString('hex')}.db`);
   try {
     fs.mkdirSync(PATHS.archives, { recursive: true });
-    getDb().exec(`VACUUM INTO '${temp.replace(/'/g, "''")}'`);
+    getDb().prepare('VACUUM INTO ?').run(temp);
     return fs.readFileSync(temp);
   } catch (err: any) {
     log.warn('copie brute de la base sautée', err?.message ?? err);

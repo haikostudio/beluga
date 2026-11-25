@@ -2,7 +2,7 @@
 /**
  * « AJOUTER CET ORDINATEUR » ET LA BANDE DE L'EXTENSION, DANS UN VRAI NAVIGATEUR (carte « Beluga Connect :
  * installation simplifiée », 21/11/2026 ; refait par la carte « Liaison d'ordinateur simplifiée », 22/11/2026 : ligne
- * « Ajouter cet ordinateur » + « Lier », étapes empilées dans le même onglet, page d'un ordinateur avec sommaire).
+ * « Ajouter cet ordinateur » + « Lier », étapes empilées dans le même onglet, page d'un ordinateur dans le volet de droite).
  *
  * L'interface de la copie (serveur de développement) parle au démon, mais les lectures de l'extension sont
  * INTERCEPTÉES sur le canal : chaque écran reçoit un état fabriqué. Rien ne part en base : les gestes qui écriraient
@@ -584,7 +584,7 @@ try {
         await page.screenshot({ path: nom('mac-tout-pret'), fullPage: true });
         const deborde = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         noter(`${T} rien ne déborde en largeur`, deborde <= 0, String(deborde));
-        // --- La page d'un ordinateur : sommaire à gauche, titres simples, plus la rangée des autres ---------------
+        // --- La page d'un ordinateur : retour en tête, titres simples, plus la rangée des autres ---------------
         await page.locator('[data-parcours-voir]').click();
         await page.locator(`[data-page-ordinateur="${MAC}"]`).waitFor({ timeout: 10_000 }).catch(() => undefined);
         await page.waitForTimeout(300);
@@ -620,40 +620,28 @@ try {
         }).catch(() => undefined);
         await page.waitForTimeout(600);
         if (largeur === 1440) {
-          const sommaire = page.locator('[data-sommaire-sous-page]');
+          /* LA PAGE D'UN ORDINATEUR S'OUVRE DANS LE VOLET DE DROITE (25/11/2026, décision de l'utilisateur) : la colonne
+             garde ses sept rubriques, aucun sommaire ; le retour « ‹ Vos ordinateurs » est en tête de la page. */
+          const colonne = await page.evaluate(() => ({
+            enfants: document.querySelector('[data-rubriques-reglages]')?.children.length ?? 0,
+            texte: document.querySelector('[data-menu-reglages]')?.textContent ?? '',
+          }));
+          const retour = page.locator('[data-tete-sous-page] [data-retour-sous-page]');
           noter(
-            `${T} la colonne de gauche devient le sommaire : retour, nom, cinq parties, « Autorisations » surlignée`,
-            (await sommaire.isVisible().catch(() => false)) &&
-              (await page.locator('[data-page-menu]:visible').count()) === 0 &&
-              (await page.locator('[data-retour-ordinateurs="colonne"]').isVisible().catch(() => false)) &&
-              /Chris - MacBook Pro/.test((await page.locator('[data-titre-sous-page]').textContent().catch(() => '')) ?? '') &&
-              (await page.locator('[data-aller-partie]').count()) === 5 &&
-              (await page.locator('[data-aller-partie="autorisations"][data-actif="oui"]').count()) === 1,
+            `${T} la colonne de gauche ne change pas, le retour « Vos ordinateurs » est en tête de la page`,
+            colonne.enfants === 7 &&
+              !colonne.texte.includes('Chris - MacBook Pro') &&
+              (await retour.isVisible().catch(() => false)) &&
+              /Vos ordinateurs/.test((await retour.textContent().catch(() => '')) ?? '') &&
+              (await page.locator('[data-retour-ordinateurs="page"]').count()) === 0,
+            JSON.stringify({ enfants: colonne.enfants }),
           );
           await page.screenshot({ path: nom('page-d-un-mac') });
-          await page.locator('[data-aller-partie="navigateurs"]').click();
-          await page.waitForTimeout(1_000);
-          /* La partie arrive en haut de la zone, ou aussi haut que le bas de la page le permet. */
-          const position = await page.locator('[data-partie-ordinateur="navigateurs"]').evaluate((el) => {
-            let n = el.parentElement;
-            while (n && !['auto', 'scroll'].includes(getComputedStyle(n).overflowY)) n = n.parentElement;
-            const haut = el.getBoundingClientRect().top - (n?.getBoundingClientRect().top ?? 0);
-            const enBas = !!n && n.scrollTop + n.clientHeight >= n.scrollHeight - 4;
-            return { haut, enBas };
-          }).catch(() => ({ haut: 999, enBas: false }));
-          noter(
-            `${T} un clic du sommaire mène à sa partie et la surligne, seule`,
-            (position.haut < 60 || (position.enBas && position.haut < 400)) &&
-              (await page.locator('[data-aller-partie="navigateurs"][data-actif="oui"]').count()) === 1 &&
-              (await page.locator('[data-aller-partie][data-actif="oui"]').count()) === 1,
-            JSON.stringify(position),
-          );
-          await page.screenshot({ path: nom('page-d-un-mac-navigateurs') });
-          await page.locator('[data-retour-ordinateurs="colonne"]').click({ timeout: 10_000 }).catch((e) => console.log('retour :', String(e?.message ?? e).split('\n')[0]));
+          await retour.click({ timeout: 10_000 }).catch((e) => console.log('retour :', String(e?.message ?? e).split('\n')[0]));
         } else {
           noter(
-            `${T} téléphone : pas de sommaire, la flèche de l'en-tête dit « Vos ordinateurs », aucun retour dans la page`,
-            (await page.locator('[data-sommaire-sous-page]:visible').count()) === 0 &&
+            `${T} téléphone : la flèche de l'en-tête dit « Vos ordinateurs », aucun retour dans la page`,
+            !(await page.locator('[data-retour-sous-page]').isVisible().catch(() => false)) &&
               (await page.locator('[data-retour-ordinateurs="entete"]').isVisible().catch(() => false)) &&
               (await page.locator('[data-retour-ordinateurs="page"]').count()) === 0,
           );
@@ -663,9 +651,9 @@ try {
         await page.locator('[data-ouvrir-ordinateur]').first().waitFor({ timeout: 10_000 }).catch(() => undefined);
         await page.waitForTimeout(300);
         noter(
-          `${T} le retour ramène à la liste, et la colonne reprend ses pages`,
-          (await page.locator(`[data-ouvrir-ordinateur="${MAC}"]`).count()) === 1 && (await page.locator('[data-sommaire-sous-page]').count()) === 0,
-          `ligne ${await page.locator(`[data-ouvrir-ordinateur="${MAC}"]`).count()} · sommaire ${await page.locator('[data-sommaire-sous-page]').count()}`,
+          `${T} le retour ramène à la liste, et l'entête de la rubrique revient`,
+          (await page.locator(`[data-ouvrir-ordinateur="${MAC}"]`).count()) === 1 && (await page.locator('[data-tete-sous-page]').count()) === 0,
+          `ligne ${await page.locator(`[data-ouvrir-ordinateur="${MAC}"]`).count()}`,
         );
         await page.screenshot({ path: nom('retour-a-la-liste') });
         noter(`${T} Mac : aucune erreur de page`, erreurs.length === 0, erreurs.slice(0, 2).join(' | '));

@@ -27,7 +27,7 @@ export interface EtapeDArchivage {
 export const ETAPES_D_ARCHIVAGE: Record<SensDArchivage, EtapeDArchivage[]> = {
   archiver: [
     { cle: 'controles', titre: 'Contrôles avant de partir' },
-    { cle: 'services', titre: 'Arrêt de la version de travail' },
+    { cle: 'services', titre: 'Arrêt du site en développement' },
     { cle: 'copie', titre: 'Copie vers le disque externe' },
     { cle: 'verification', titre: 'Vérification de la copie' },
     { cle: 'liberation', titre: 'Place libérée sur le serveur' },
@@ -37,7 +37,7 @@ export const ETAPES_D_ARCHIVAGE: Record<SensDArchivage, EtapeDArchivage[]> = {
     { cle: 'copie', titre: 'Retour des fichiers sur le serveur' },
     { cle: 'verification', titre: 'Vérification des fichiers' },
     { cle: 'remise', titre: 'Remise en place du dossier' },
-    { cle: 'services', titre: 'Relance de la version de travail' },
+    { cle: 'services', titre: 'Relance du site en développement' },
     { cle: 'nettoyage', titre: 'Copie externe supprimée' },
   ],
 };

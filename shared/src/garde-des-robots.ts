@@ -172,7 +172,7 @@ export function constatsDeRobots(r: ReleveDesRobots, reglage?: ReglageRobots | n
       id: 'robots-travail-ouvert-aux-ia',
       gravite: 'moyenne',
       titre: 'Les IA lisent l’adresse de travail',
-      risque: 'Une version de travail, pas finie, peut être lue et citée par ChatGPT ou Perplexity à la place du vrai site.',
+      risque: 'Un site en développement, pas fini, peut être lu et cité par ChatGPT ou Perplexity à la place du vrai site.',
       proposition: `Renvoyer tous les robots d'IA vers « ${PAGE_POUR_LES_IA} » sur l’adresse de travail.`,
       technique: `Réponse à un User-Agent OAI-SearchBot : ${r.recherche.statut}. Le bloc commun « garde-robots » (matcher @robot-ia-travail) le fait sur les adresses de travail.`,
     });
@@ -192,7 +192,7 @@ export function constatsDeRobots(r: ReleveDesRobots, reglage?: ReglageRobots | n
       id: 'robots-travail-indexable',
       gravite: 'moyenne',
       titre: 'L’adresse de travail peut apparaître dans Google',
-      risque: 'Une version de travail, pas finie, peut être trouvée dans les moteurs de recherche et faire concurrence au vrai site.',
+      risque: 'Un site en développement, pas fini, peut être trouvé dans les moteurs de recherche et faire concurrence au vrai site.',
       proposition: 'Fermer l’adresse de travail à tous les robots (consigne « noindex » et fichier robots.txt fermé).',
       technique: 'Entête X-Robots-Tag absent. Le bloc commun « garde-robots » du Caddyfile le pose sur les adresses de travail.',
     });

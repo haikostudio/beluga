@@ -1,6 +1,9 @@
 import * as React from 'react';
 import {
   ORDRE_DES_GRAVITES,
+  compteParGravite,
+  noteDeSecurite,
+  phraseDeLaNoteDeSecurite,
   construireFragment,
   empreinteDuConstat,
   ligneDeSuggestion,
@@ -27,8 +30,21 @@ interface VisiteursBloquesDuProjet {
   visiteurs: VisiteurBloque[];
   note?: string;
 }
-import { Check, ExternalLink, Loader2, Plus, RefreshCw, ShieldCheck, X } from '@/components/ui/icones';
-import { BlocRepliable, Button, Drawer, ListeDeroulante, Switch, TitreDePage, ZoneDefilement } from '@/components/ui';
+import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, ExternalLink, Info, Loader2, Plus, RefreshCw, ShieldCheck, TriangleAlert, X } from '@/components/ui/icones';
+import {
+  BlocRepliable,
+  Button,
+  Drawer,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  ListeDeroulante,
+  Switch,
+  TitreDePage,
+  ZoneDefilement,
+} from '@/components/ui';
+import { AnneauDeNote, BarreDeGravite, CourbeDeNote, NoteEnLigne } from '@/components/note-de-securite';
 import { Tableau } from '@/components/ui/tableau';
 import { BasculeTableauCartes, useVueDeLaListe } from '@/components/ui/apercu-au-survol';
 import { colonneProjet } from '@/components/ui/colonne-projet';
@@ -46,7 +62,7 @@ import { ContexteTexteDuChamp, creerTexteDuChamp, useLignesDansLeChamp, type Tex
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
-import { t } from '@/lib/langue';
+import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
 /**
@@ -76,12 +92,14 @@ function libelleGravite(g: GraviteSecurite): string {
   }
 }
 
+/* LES DATES DANS LA LANGUE DE L'INTERFACE (25/11/2026) : la locale du navigateur faisait lire « November 22, 2026 » sur
+   un écran en français. */
 function dateLisible(at: number): string {
-  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(at).toLocaleDateString(formatRegional(), { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function dateEtHeure(at: number): string {
-  return new Date(at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(at).toLocaleString(formatRegional(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function declencheurLisible(d: ResumeDAudit['declencheur']): string {
@@ -142,6 +160,7 @@ export function Securite({
   /* LA SÉLECTION DE LA LISTE (« Corriger la sélection ») : les projets cochés, vidés de ceux qui quittent la liste. */
   const [selection, setSelection] = React.useState<ReadonlySet<string>>(() => new Set());
   const [correction, setCorrection] = React.useState(false);
+  const [analyse, setAnalyse] = React.useState(false);
 
   const nomDuProjet = (id: string) => state.projects.find((p) => p.id === id)?.name ?? id;
   const lignes = React.useMemo(
@@ -195,6 +214,30 @@ export function Securite({
       client.pushToast('error', err?.message ?? t('La correction n’a pas pu partir'));
     } finally {
       setCorrection(false);
+    }
+  };
+
+  /* « RELANCER L'ANALYSE » DE LA SÉLECTION : un audit par projet coché, gratuit, par la file commune. */
+  const relancerLAnalyse = async () => {
+    if (!selection.size || analyse) return;
+    setAnalyse(true);
+    try {
+      const r = await client.call<{ lances: string[]; dejaEnCours: string[]; ecartes: { projectId: string; raison: string }[]; projets: ProjetSuiviSecurite[] }>(
+        { type: 'securite.auditerSelection', projets: [...selection] },
+        30000,
+      );
+      setProjets(r.projets ?? []);
+      setSelection(new Set());
+      const parts = [
+        r.lances.length > 1 ? t('{v0} analyses lancées.', { v0: r.lances.length }) : r.lances.length ? t('1 analyse lancée.') : t('Aucune analyse lancée.'),
+        r.dejaEnCours.length ? t('{v0} déjà en cours.', { v0: r.dejaEnCours.length }) : '',
+        r.ecartes.length ? t('Écartés : {v0}', { v0: r.ecartes.map((e) => `${nomDuProjet(e.projectId)} (${e.raison})`).join(', ') }) : '',
+      ].filter(Boolean);
+      client.pushToast(r.lances.length ? 'success' : 'info', parts.join(' '));
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’analyse n’a pas pu partir'));
+    } finally {
+      setAnalyse(false);
     }
   };
 
@@ -276,6 +319,7 @@ export function Securite({
                 titre={nomDuProjet(p.projectId)}
                 texte={compteLisible(p.aTraiter)}
                 chiffres={[
+                  { libelle: t('Note'), valeur: p.note === null || p.note === undefined ? '—' : String(p.note) },
                   { libelle: t('Dernier audit'), valeur: p.dernierAudit ? dateLisible(p.dernierAudit.lance) : '—' },
                   { libelle: t('En correction'), valeur: String(p.enCorrection) },
                   { libelle: t('Prochain audit'), valeur: dateLisible(p.prochainPassage) },
@@ -327,6 +371,14 @@ export function Securite({
           ),
         },
         colonneProjet<ProjetSuiviSecurite>((p) => ({ id: p.projectId, nom: nomDuProjet(p.projectId) })),
+        {
+          /* LA NOTE DE SÉCURITÉ SUR 100 (25/11/2026, maquette #c972) : un petit anneau et le chiffre, l'anneau dans la teinte
+             importante sous 40. Un projet sans audit réussi : « — », jamais 100. */
+          cle: 'note',
+          libelle: t('Note'),
+          valeur: (p) => p.note ?? -1,
+          rendu: (p) => <NoteEnLigne note={p.note} />,
+        },
         {
           cle: 'etat',
           libelle: t('État'),
@@ -390,10 +442,35 @@ export function Securite({
       {projets !== null ? (
         <GestePrincipal>
           {selection.size ? (
-            <BoutonPrincipal onClick={() => void corriger()} disabled={correction} data-securite-corriger={selection.size}>
-              {correction ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              {t('Corriger la sélection ({v0})', { v0: selection.size })}
-            </BoutonPrincipal>
+            /* LES ACTIONS SUR LA SÉLECTION (25/11/2026, maquette #c972) : un menu à deux gestes — relancer l'analyse de
+               chaque projet coché, ou lancer leur correction (une carte par projet). */
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <BoutonPrincipal disabled={correction || analyse} data-securite-actions={selection.size}>
+                  {correction || analyse ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {t('Actions sur la sélection ({v0})', { v0: selection.size })}
+                  {correction || analyse ? null : <ChevronUp className="h-4 w-4" />}
+                </BoutonPrincipal>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="center" titre={t('Actions sur la sélection ({v0})', { v0: selection.size })} className="min-w-[300px]">
+                <DropdownMenuItem onSelect={() => void relancerLAnalyse()} data-securite-relancer-selection={selection.size}>
+                  <RefreshCw />
+                  <span className="flex min-w-0 flex-col">
+                    <span>{t('Relancer l’analyse')}</span>
+                    <span className="text-[12.5px] text-muted">
+                      {selection.size > 1 ? t('Un audit pour chacun des {v0} projets · gratuit', { v0: selection.size }) : t('Un audit pour ce projet · gratuit')}
+                    </span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void corriger()} data-securite-corriger={selection.size}>
+                  <ShieldCheck />
+                  <span className="flex min-w-0 flex-col">
+                    <span>{t('Lancer la correction')}</span>
+                    <span className="text-[12.5px] text-muted">{t('Une carte par projet, avec tous ses points')}</span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             boutonAjouter(t('Ajouter un projet'))
           )}
@@ -583,7 +660,12 @@ function PageDuProjet({ projet, nom, onRetour }: { projet: ProjetSuiviSecurite; 
           </div>
           {/* Caché par son ENVELOPPE : cacher l'intérieur laissait l'enveloppe prendre la moitié de la hauteur, et le champ
               d'écriture de la conversation flottait au milieu de l'écran. */}
-          <ZoneDefilement className="px-4 pb-6" classeEnveloppe={onglet === 'rapport' ? undefined : 'hidden'} data-securite-volet="">
+          <ZoneDefilement
+            className="px-4 pb-6"
+            classeEnveloppe={onglet === 'rapport' ? undefined : 'hidden'}
+            hautSur={`${projet.projectId}:${onglet}`}
+            data-securite-volet=""
+          >
             {rapport}
           </ZoneDefilement>
         </div>
@@ -692,50 +774,287 @@ function RapportDuVolet({
       </div>
     );
 
+  const note = typeof audit.note === 'number' ? audit.note : noteDeSecurite(compteParGravite(constats));
   return (
-    <div className="flex flex-col gap-2" data-securite-rapport={audit.id}>
+    <div className="flex flex-col gap-3" data-securite-rapport={audit.id}>
       {tete}
-      {dernier ? <AccesDesRobots projectId={projectId} /> : null}
-      <p className="pb-1 text-[12.5px] text-faint">
+      <p className="text-[12.5px] text-faint">
         {t('Audit du {v0}, {v1}.', { v0: dateLisible(audit.lance), v1: declencheurLisible(audit.declencheur) })}{' '}
         {audit.rapport.depotPublic === null ? t('Visibilité du dépôt inconnue.') : audit.rapport.depotPublic ? t('Dépôt public.') : t('Dépôt privé.')}
       </p>
-      {/* « CE QUI A ÉTÉ VÉRIFIÉ » EN TÊTE, DÉPLIÉ : on lit d'abord l'étendue du contrôle, puis ce qu'il a trouvé. */}
-      <BlocRepliable titre={t('Ce qui a été vérifié')} repere="securite-verifie" defautOuvert compte={audit.rapport.etapes.length}>
-        <ul className="flex flex-col gap-1" data-securite-verifie="">
-          {audit.rapport.etapes.map((e, i) => (
-            <li key={i} className="flex items-start gap-2 text-[13px]">
-              <span className={cn('mt-0.5 shrink-0', e.etat === 'fait' ? 'text-text' : 'text-faint')}>{e.etat === 'fait' ? '✓' : '–'}</span>
-              <span className="min-w-0 flex-1">
-                <span className={e.etat === 'fait' ? 'text-text' : 'text-muted'}>{e.nom}</span>
-                {e.etat !== 'fait' ? <span className="text-muted"> · {t('non vérifié')}</span> : null}
-                {e.note ? <span className="block text-[12px] text-faint">{e.note}</span> : null}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </BlocRepliable>
+      <CarteDeLaNote note={note} constats={constats} vue={vue ?? null} />
+      <CarteDesCategories
+        key={audit.id}
+        constats={constats}
+        etapes={audit.rapport.etapes}
+        etats={etats}
+        nouveaux={nouveaux}
+        cartes={vue?.cartes ?? {}}
+        onDeposer={dernier ? onDeposer : null}
+      />
+      {dernier ? <AccesDesRobots projectId={projectId} /> : null}
       {dernier ? <VisiteursBloques projectId={projectId} /> : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* La note, l'avancement et l'évolution (disposition A, maquette #2312) */
+/* ------------------------------------------------------------------ */
+
+const CLASSE_CARTE_DU_VOLET = 'flex min-w-0 flex-col rounded-[14px] bg-raised px-4 py-3.5';
+
+/** La phrase de la note, traduite (chaque texte passe par `t` en toutes lettres). */
+function phraseDeLaNoteAffichee(note: number | null): string {
+  const phrase = phraseDeLaNoteDeSecurite(note);
+  switch (phrase) {
+    case 'Bonne protection':
+      return t('Bonne protection');
+    case 'Protection correcte':
+      return t('Protection correcte');
+    case 'Protection moyenne':
+      return t('Protection moyenne');
+    case 'Protection faible':
+      return t('Protection faible');
+    default:
+      return t('Pas encore notée');
+  }
+}
+
+/** Une ligne qu'on déplie : un bouton plein, le chevron TOUJOURS en dernier. */
+function LigneRepliable({
+  ouvert,
+  onBasculer,
+  devant,
+  titre,
+  detail,
+  compte,
+  repere,
+  children,
+}: {
+  ouvert: boolean;
+  onBasculer: () => void;
+  devant?: React.ReactNode;
+  titre: React.ReactNode;
+  detail?: React.ReactNode;
+  compte?: React.ReactNode;
+  repere: Record<string, string>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col" {...repere} data-ouvert={ouvert ? 'oui' : 'non'}>
+      <button type="button" onClick={onBasculer} aria-expanded={ouvert} className="flex min-w-0 items-center gap-2.5 py-2.5 text-left">
+        {devant}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-[13.5px] font-medium text-text">{titre}</span>
+          {detail ? <span className="truncate text-[12.5px] text-muted">{detail}</span> : null}
+        </span>
+        {compte !== undefined && compte !== null ? <span className="shrink-0 text-[12.5px] tabular-nums text-muted">{compte}</span> : null}
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted transition-transform', ouvert && 'rotate-180')} />
+      </button>
+      {ouvert ? <div className="flex min-w-0 flex-col gap-1.5 pb-3">{children}</div> : null}
+    </div>
+  );
+}
+
+function CarteDeLaNote({ note, constats, vue }: { note: number; constats: ConstatSecurite[]; vue: VueDAudit | null }) {
+  const [avancementOuvert, setAvancementOuvert] = React.useState(false);
+  const compte = compteParGravite(constats);
+  const maximum = Math.max(1, ...ORDRE_DES_GRAVITES.map((g) => compte[g]));
+  const avancement = vue?.avancement;
+  const evolution = vue?.evolution ?? [];
+  const premier = evolution[0];
+  const dernier = evolution[evolution.length - 1];
+  const ecart = premier && dernier && evolution.length >= 2 ? dernier.note - premier.note : null;
+  const cartes = Object.entries(vue?.cartes ?? {});
+  return (
+    <div className={CLASSE_CARTE_DU_VOLET} data-securite-carte-note={note}>
+      <div className="flex min-w-0 items-center gap-4 pb-3">
+        <AnneauDeNote note={note}>
+          <span className="text-[26px] font-semibold leading-none tabular-nums text-text">{note}</span>
+          <span className="text-[11px] text-muted">{t('sur 100')}</span>
+        </AnneauDeNote>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <p className="truncate text-[15px] font-semibold text-text" data-securite-phrase-note="">
+            {phraseDeLaNoteAffichee(note)}
+          </p>
+          {ORDRE_DES_GRAVITES.map((g) => (
+            <BarreDeGravite key={g} libelle={libelleGravite(g)} valeur={compte[g]} maximum={maximum} teinte={g === 'critique' || g === 'elevee' ? 'important' : g === 'moyenne' ? 'text' : 'muted'} />
+          ))}
+        </div>
+      </div>
+      {avancement && avancement.total ? (
+        <div className="border-t border-faint/25">
+          <LigneRepliable
+            ouvert={avancementOuvert}
+            onBasculer={() => setAvancementOuvert((o) => !o)}
+            titre={t('Avancement des corrections')}
+            compte={
+              avancement.corriges > 1
+                ? t('{v0} corrigés sur {v1} · {v2} %', { v0: avancement.corriges, v1: avancement.total, v2: avancement.pourcent ?? 0 })
+                : t('{v0} corrigé sur {v1} · {v2} %', { v0: avancement.corriges, v1: avancement.total, v2: avancement.pourcent ?? 0 })
+            }
+            repere={{ 'data-securite-avancement': String(avancement.pourcent ?? 0) }}
+          >
+            <div className="h-1.5 overflow-hidden rounded-full bg-faint/30" aria-hidden>
+              <div className="h-full rounded-full bg-text" style={{ width: `${avancement.pourcent ?? 0}%` }} />
+            </div>
+            <p className="text-[12.5px] text-muted">
+              {t('{v0} corrigé(s) · {v1} en correction · {v2} à traiter', { v0: avancement.corriges, v1: avancement.enCorrection, v2: avancement.aTraiter })}
+            </p>
+            {cartes.map(([cardId, carte]) => (
+              <button
+                key={cardId}
+                type="button"
+                onClick={() => ouvrirLaCarte(carte.projectId, cardId)}
+                className="inline-flex w-fit max-w-full items-center gap-1 text-left text-[12.5px] text-accent hover:underline"
+                data-securite-ouvrir-carte={cardId}
+              >
+                <span className="min-w-0 truncate">{carte.titre}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+              </button>
+            ))}
+          </LigneRepliable>
+        </div>
+      ) : null}
+      <div className="flex min-w-0 flex-col gap-2 border-t border-faint/25 pt-2.5" data-securite-evolution={evolution.length}>
+        <p className="flex min-w-0 items-center gap-2">
+          <span className="flex-1 truncate text-[13px] font-medium text-muted">{t('Évolution')}</span>
+          {ecart !== null && premier ? (
+            <span className="shrink-0 rounded-full bg-faint/20 px-2 py-0.5 text-[12px] text-text">
+              {ecart > 0
+                ? t('+{v0} depuis le {v1}', { v0: ecart, v1: dateLisible(premier.lance) })
+                : ecart < 0
+                  ? t('{v0} depuis le {v1}', { v0: ecart, v1: dateLisible(premier.lance) })
+                  : t('Stable depuis le {v0}', { v0: dateLisible(premier.lance) })}
+            </span>
+          ) : null}
+        </p>
+        {evolution.length >= 2 ? <CourbeDeNote points={evolution} /> : <p className="text-[12.5px] text-muted">{t('La courbe se dessine à partir du deuxième audit.')}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Par catégorie                                                        */
+/* ------------------------------------------------------------------ */
+
+type FamilleDuRapport = 'dependances' | 'cadre' | 'secrets' | 'acces' | 'injection' | 'xss' | 'entetes' | 'robots' | 'etude';
+
+function familleDe(c: ConstatSecurite): FamilleDuRapport {
+  return c.categorie === 'injection-sql' || c.categorie === 'injection-shell' ? 'injection' : (c.categorie as FamilleDuRapport);
+}
+
+function nomDeFamille(f: FamilleDuRapport): string {
+  switch (f) {
+    case 'dependances':
+      return t('Composants externes');
+    case 'cadre':
+      return t('Socle du site');
+    case 'secrets':
+      return t('Clés et secrets');
+    case 'acces':
+      return t('Accès au serveur');
+    case 'injection':
+      return t('Requêtes et commandes');
+    case 'xss':
+      return t('Insertions de HTML');
+    case 'entetes':
+      return t('En-têtes');
+    case 'robots':
+      return t('Robots');
+    case 'etude':
+      return t('Étude approfondie');
+  }
+}
+
+/** Les mots d'un contrôle (« Ce qui a été vérifié ») qui le rattachent à une famille : un contrôle couvert n'a pas de ligne à lui. */
+const MOTS_DES_FAMILLES: Record<FamilleDuRapport, RegExp> = {
+  dependances: /composant|d[ée]pendance/i,
+  cadre: /socle|cadre/i,
+  secrets: /cl[ée]|mot de passe|secret/i,
+  acces: /acc[eè]s/i,
+  injection: /requ[êe]te|commande/i,
+  xss: /html/i,
+  entetes: /en-t[êe]te/i,
+  robots: /robot/i,
+  etude: /^$/,
+};
+
+/** Le signe d'une ligne : la forme dit la gravité (monochrome), seule l'alerte prend la teinte importante. */
+function SigneDeGravite({ pire }: { pire: GraviteSecurite | 'ok' | 'non-verifie' }) {
+  if (pire === 'critique' || pire === 'elevee') return <TriangleAlert className="h-[17px] w-[17px] shrink-0 text-important" aria-label="Grave" />;
+  if (pire === 'moyenne') return <CircleAlert className="h-[17px] w-[17px] shrink-0 text-text" aria-label="Moyenne" />;
+  if (pire === 'faible') return <Info className="h-[17px] w-[17px] shrink-0 text-muted" aria-label="Faible" />;
+  if (pire === 'ok') return <CircleCheck className="h-[17px] w-[17px] shrink-0 text-text" aria-label="Rien à signaler" />;
+  return (
+    <svg viewBox="0 0 24 24" className="h-[17px] w-[17px] shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" aria-label="Non vérifié">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12h8" />
+    </svg>
+  );
+}
+
+function CarteDesCategories({
+  constats,
+  etapes,
+  etats,
+  nouveaux,
+  cartes,
+  onDeposer,
+}: {
+  constats: ConstatSecurite[];
+  etapes: { nom: string; etat: string; note?: string }[];
+  etats: Map<string, PointSuivi>;
+  nouveaux: Set<string>;
+  cartes: VueDAudit['cartes'];
+  onDeposer: ((texte: string, retirer: boolean) => void) | null;
+}) {
+  const [ouverte, setOuverte] = React.useState<string | null>(null);
+  const familles = new Map<FamilleDuRapport, ConstatSecurite[]>();
+  for (const c of constats) familles.set(familleDe(c), [...(familles.get(familleDe(c)) ?? []), c]);
+  const rang = (liste: ConstatSecurite[]) => Math.min(...liste.map((c) => ORDRE_DES_GRAVITES.indexOf(c.gravite)));
+  const lignes = [...familles.entries()].sort((a, b) => rang(a[1]) - rang(b[1]) || b[1].length - a[1].length);
+  const avecPoints = new Set(lignes.map(([f]) => f));
+  /* Les contrôles qui n'ont rien trouvé gardent leur ligne : on voit d'un coup d'œil ce qui va ET ce qui ne va pas. */
+  const controles = etapes.filter((e) => ![...avecPoints].some((f) => MOTS_DES_FAMILLES[f].test(e.nom)));
+  return (
+    <div className={cn(CLASSE_CARTE_DU_VOLET, 'py-1.5')} data-securite-categories={lignes.length}>
+      <p className="py-2 text-[13px] font-medium text-muted">{t('Par catégorie')}</p>
       {!constats.length ? (
-        <p className="pb-2 text-[13.5px] text-text" data-securite-aucun-point="">
+        <p className="border-t border-faint/25 py-2.5 text-[13.5px] text-text" data-securite-aucun-point="">
           {t('Aucun point relevé par cet audit.')}
         </p>
       ) : null}
-      {ORDRE_DES_GRAVITES.map((g) => {
-        const liste = constats.filter((c) => c.gravite === g);
-        if (!liste.length) return null;
+      {lignes.map(([famille, liste]) => {
+        const pire = ORDRE_DES_GRAVITES[rang(liste)]!;
         return (
-          <BlocDeGravite
-            key={`${audit.id}:${g}`}
-            gravite={g}
-            constats={liste}
-            etats={etats}
-            nouveaux={nouveaux}
-            cartes={vue?.cartes ?? {}}
-            onDeposer={dernier ? onDeposer : null}
-          />
+          <div key={famille} className="border-t border-faint/25">
+            <BlocDeCategorie
+              famille={famille}
+              pire={pire}
+              constats={[...liste].sort((a, b) => ORDRE_DES_GRAVITES.indexOf(a.gravite) - ORDRE_DES_GRAVITES.indexOf(b.gravite))}
+              controles={etapes.filter((e) => MOTS_DES_FAMILLES[famille].test(e.nom))}
+              ouvert={ouverte === famille}
+              onBasculer={() => setOuverte((o) => (o === famille ? null : famille))}
+              etats={etats}
+              nouveaux={nouveaux}
+              cartes={cartes}
+              onDeposer={onDeposer}
+            />
+          </div>
         );
       })}
+      {controles.map((e, i) => (
+        <div key={`controle:${i}`} className="flex min-w-0 items-center gap-2.5 border-t border-faint/25 py-2.5" data-securite-controle={e.etat === 'fait' ? 'ok' : 'non-verifie'}>
+          <SigneDeGravite pire={e.etat === 'fait' ? 'ok' : 'non-verifie'} />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[13.5px] font-medium text-text">{e.nom}</span>
+            <span className="truncate text-[12.5px] text-muted">{e.etat === 'fait' ? e.note || t('Rien à signaler') : `${t('Non vérifié')}${e.note ? ` — ${e.note}` : ''}`}</span>
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -809,7 +1128,7 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
   /* TOUTES LES ADRESSES DU SITE, ET LA VERSION QU'ELLES PORTENT (carte « Accès des IA : prod ou dev », 23/11/2026). */
   const adresses = (etat.hotes?.length ? etat.hotes : hote ? [hote] : []).join(', ');
   const version =
-    etat.version === 'en-ligne' ? t('Version en ligne') : etat.version === 'travail' ? t('Version de travail') : null;
+    etat.version === 'en-ligne' ? t('Site final') : etat.version === 'travail' ? t('Site en développement') : null;
   return (
     <BlocRepliable
       titre={t('Accès des robots')}
@@ -842,7 +1161,7 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
         ) : null}
         {etat.reserveeAuxConnectes ? (
           <p className="text-[13px] text-muted" data-securite-robots-reservee="">
-            {t('Cette version de travail est réservée aux personnes connectées : aucun robot ni aucune IA n’y entre. Renseignez l’adresse de la version en ligne dans les paramètres du projet pour régler l’accès des IA au vrai site.')}
+            {t('Ce site en développement est réservé aux personnes connectées : aucun robot ni aucune IA n’y entre. Renseignez l’adresse du site final dans les paramètres du projet pour régler l’accès des IA au vrai site.')}
           </p>
         ) : !etat.reglable ? (
           <p className="text-[13px] text-muted" data-securite-robots-ailleurs="">
@@ -888,7 +1207,7 @@ function AccesDesRobots({ projectId }: { projectId: string }) {
             </p>
             {etat.version === 'en-ligne' && etat.hotesDeTravail?.length ? (
               <p className="text-[12.5px] text-faint" data-securite-robots-travail="">
-                {t('La version de travail ({v0}) n’est pas concernée : elle est fermée aux robots, et réservée aux personnes connectées quand sa protection est allumée.', {
+                {t('Le site en développement ({v0}) n’est pas concerné : il est fermé aux robots, et réservé aux personnes connectées quand sa protection est allumée.', {
                   v0: etat.hotesDeTravail.join(', '),
                 })}
               </p>
@@ -1016,16 +1335,25 @@ function ligneDuPoint(c: ConstatSecurite): string {
   return ligneDeSuggestion(texteDuPointPourLeChamp(c));
 }
 
-function BlocDeGravite({
-  gravite,
+function BlocDeCategorie({
+  famille,
+  pire,
   constats,
+  controles,
+  ouvert,
+  onBasculer,
   etats,
   nouveaux,
   cartes,
   onDeposer,
 }: {
-  gravite: GraviteSecurite;
+  famille: FamilleDuRapport;
+  pire: GraviteSecurite;
   constats: ConstatSecurite[];
+  /** Les contrôles de l'audit rattachés à cette catégorie : leur mesure se lit en tête du bloc ouvert. */
+  controles: { nom: string; etat: string; note?: string }[];
+  ouvert: boolean;
+  onBasculer: () => void;
   etats: Map<string, PointSuivi>;
   nouveaux: Set<string>;
   cartes: VueDAudit['cartes'];
@@ -1035,32 +1363,38 @@ function BlocDeGravite({
   const lignes = aTraiter.map(ligneDuPoint);
   const toutes = useLignesDansLeChamp(lignes);
   return (
-    <BlocRepliable
-      titre={libelleGravite(gravite)}
-      repere={`securite-${gravite}`}
-      defautOuvert={gravite === 'critique' || gravite === 'elevee'}
+    <LigneRepliable
+      ouvert={ouvert}
+      onBasculer={onBasculer}
+      devant={<SigneDeGravite pire={pire} />}
+      titre={nomDeFamille(famille)}
+      detail={compteLisible(compteParGravite(constats))}
       compte={constats.length}
-      action={
-        onDeposer && lignes.length ? (
-          <button
-            type="button"
-            onClick={() => onDeposer(lignes.join('\n'), toutes)}
-            className="rounded-md bg-raised px-2.5 py-1 text-[12px] text-muted transition-colors hover:text-text sm:px-2 sm:py-0.5"
-            data-securite-tout-ajouter={gravite}
-          >
-            {toutes ? t('Tout retirer') : t('Tout ajouter')}
-          </button>
-        ) : null
-      }
+      repere={{ 'data-securite-categorie': famille }}
     >
-      <div className="flex flex-col gap-1.5">
-        {constats.map((c) => {
-          const empreinte = empreinteDuConstat(c);
-          const point = etats.get(empreinte);
-          return <PointDuRapport key={empreinte} constat={c} point={point ?? null} nouveau={nouveaux.has(empreinte)} carte={point?.cardId ? cartes[point.cardId] ?? null : null} onDeposer={onDeposer} />;
-        })}
-      </div>
-    </BlocRepliable>
+      {controles.map((e, i) => (
+        <p key={i} className="select-text text-[12.5px] leading-snug text-muted" data-securite-controle-de-categorie="">
+          <span className="text-text">{e.nom}</span>
+          {e.etat !== 'fait' ? ` · ${t('non vérifié')}` : ''}
+          {e.note ? ` — ${e.note}` : ''}
+        </p>
+      ))}
+      {onDeposer && lignes.length ? (
+        <button
+          type="button"
+          onClick={() => onDeposer(lignes.join('\n'), toutes)}
+          className="w-fit rounded-md bg-bg px-2.5 py-1 text-[12px] text-muted transition-colors hover:text-text sm:px-2 sm:py-0.5"
+          data-securite-tout-ajouter={famille}
+        >
+          {toutes ? t('Tout retirer') : t('Tout ajouter')}
+        </button>
+      ) : null}
+      {constats.map((c) => {
+        const empreinte = empreinteDuConstat(c);
+        const point = etats.get(empreinte);
+        return <PointDuRapport key={empreinte} constat={c} point={point ?? null} nouveau={nouveaux.has(empreinte)} carte={point?.cardId ? cartes[point.cardId] ?? null : null} onDeposer={onDeposer} />;
+      })}
+    </LigneRepliable>
   );
 }
 
@@ -1083,7 +1417,7 @@ function PointDuRapport({
   const cochable = etat === 'a-traiter' && !!onDeposer;
   const coche = cochable && dansLeChamp;
   return (
-    <div className="flex items-start gap-2.5 rounded-lg bg-raised px-3 py-2.5" data-securite-point={empreinteDuConstat(c)} data-securite-etat-point={etat}>
+    <div className="flex items-start gap-2.5 rounded-lg bg-bg px-3 py-2.5" data-securite-point={empreinteDuConstat(c)} data-securite-etat-point={etat}>
       <button
         type="button"
         role="checkbox"
@@ -1103,6 +1437,9 @@ function PointDuRapport({
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="min-w-0 select-text break-words text-[13.5px] font-medium text-text">{c.titre}</span>
+          <span className="rounded-full bg-raised px-2 py-px text-[11px] text-muted" data-securite-gravite-point={c.gravite}>
+            {libelleGravite(c.gravite)}
+          </span>
           {nouveau ? (
             <span className="rounded-full bg-raised px-2 py-px text-[11px] text-text" data-securite-nouveau="">
               {t('Nouveau')}

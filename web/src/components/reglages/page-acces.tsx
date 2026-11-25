@@ -11,13 +11,15 @@
  *  - quatre niveaux : Client, Lecteur, Membre, Responsable (`acces-par-projet.ts`) ; une personne est cliente OU de
  *    l'équipe, son niveau varie d'un projet à l'autre mais toujours de son côté ;
  *  - un projet ne se retire de la liste que s'il n'a plus aucun accès.
- * Un clic sur une personne ouvre sa FICHE (sous-page : sommaire dans la colonne, flèche de l'en-tête au téléphone).
+ * Un clic sur une personne ouvre sa FICHE dans le volet de droite (sous-page : retour « ‹ Accès » en tête de page sur
+ * ordinateur, flèche de l'en-tête au téléphone ; la colonne de gauche ne change pas).
  *
  * Les droits ne se décident pas ici : toutes les commandes `comptes.*` sont réservées à l'administrateur par le
  * serveur, qui juge aussi le niveau (`comptes.accesProjet`).
  */
 import * as React from 'react';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -104,6 +106,8 @@ interface SecretMontre {
   /** Le message d'invitation vise l'espace client : un compte de l'équipe n'en a pas. */
   client: boolean;
   courriel?: IssueDuCourriel & { adresse?: string };
+  /** Ce qu'est devenue la copie automatique (fiche d'une personne) : faite, ou refusée par le navigateur. */
+  copie?: 'faite' | 'echec';
 }
 
 /**
@@ -387,7 +391,7 @@ export function PageAcces({
     <div className="flex flex-col gap-7" data-page-acces data-projets-acces={projetsDeLaPage.join(',')}>
       {projetsDeLaPage.length ? null : (
         <p className="px-1 text-[13px] leading-relaxed text-muted" data-acces-vide>
-          {t('Aucun projet n’est encore ouvert à quelqu’un. Ajoutez un projet, puis ses accès : un client y reçoit son espace et la version de travail de son site.')}
+          {t('Aucun projet n’est encore ouvert à quelqu’un. Ajoutez un projet, puis ses accès : un client y reçoit son espace et son site en développement.')}
         </p>
       )}
       {projetsDeLaPage.map((id) => {
@@ -894,13 +898,16 @@ function FormulaireDAjout({
 /* La fiche d'une personne                                              */
 /* ------------------------------------------------------------------ */
 
-const PARTIES_DE_LA_FICHE = ['identite', 'projets', 'services', 'gestes'] as const;
-type PartieDeFiche = (typeof PARTIES_DE_LA_FICHE)[number];
-
 /**
- * LA FICHE D'UNE PERSONNE : son identité, ses projets et leur niveau, les services ouverts (équipe seulement), et les
- * gestes — identifiants, mot de passe, suspension, retrait. C'est une SOUS-PAGE : sur ordinateur, son sommaire se
- * pose sous « Accès » dans la colonne ; sur téléphone, la flèche de l'en-tête ramène à la liste.
+ * LA FICHE D'UNE PERSONNE, EN SECTIONS (décision de l'utilisateur du 25/11/2026, maquette #98ddf) — chaque bouton vit
+ * dans la section qu'il concerne, et le pied collé en bas ne porte que le geste sur la personne entière :
+ *  - Identité : nom, courriel, identifiant, puis « Accès actif » en dernière ligne ;
+ *  - Mot de passe, JUSTE DESSOUS : le mot de passe tiré se montre ICI, dans un champ, et part tout seul dans le
+ *    presse-papiers ; puis « Nouveau mot de passe », « Copier l'invitation » (client), « Envoyer les identifiants » ;
+ *  - Projets, puis Services ouverts (équipe seulement) ;
+ *  - pied : « Retirer la personne », seul.
+ * C'est une SOUS-PAGE : elle s'ouvre dans le volet de droite, l'entête de la page devient « ‹ Accès » (ordinateur) et
+ * la flèche de la barre d'en-tête ramène à la liste (téléphone). La colonne de gauche ne change pas.
  */
 function FicheDePersonne({
   compte,
@@ -913,39 +920,21 @@ function FicheDePersonne({
   compte: CompteUtilisateur;
   projetsActifs: Project[];
   secret: SecretMontre | null;
-  onSecret: (secret: SecretMontre | null) => void;
+  onSecret: React.Dispatch<React.SetStateAction<SecretMontre | null>>;
   onChangement: () => void;
   onFermer: () => void;
 }) {
   const cote = coteDuCompte(compte);
   const nom = nomDuCompte(compte);
-  const [active, setActive] = React.useState<PartieDeFiche>('identite');
   const [aRetirer, setARetirer] = React.useState(false);
+  const [tirage, setTirage] = React.useState(false);
   const [invitation, setInvitation] = React.useState<'confirmer' | 'en-cours' | null>(null);
   const [envoi, setEnvoi] = React.useState<'confirmer' | 'en-cours' | null>(null);
   const [droits, setDroits] = React.useState<DroitsDAcces>(() => droitsDuCompte(compte));
   const droitsServeur = JSON.stringify(droitsDuCompte(compte));
   React.useEffect(() => setDroits(droitsDuCompte(compte)), [droitsServeur]);
 
-  const parties = PARTIES_DE_LA_FICHE.filter((p) => p !== 'services' || cote === 'equipe');
-  const titres: Record<PartieDeFiche, string> = {
-    identite: t('Identité'),
-    projets: t('Projets'),
-    services: t('Services ouverts'),
-    gestes: t('Gestes'),
-  };
-  const aller = (cle: string) => {
-    setActive(cle as PartieDeFiche);
-    document.querySelector<HTMLElement>(`[data-partie-fiche="${CSS.escape(cle)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  };
-  useSousPageDeReglages({
-    retour: t('Accès'),
-    onRetour: onFermer,
-    titre: nom,
-    parties: parties.map((p) => ({ cle: p, titre: titres[p] })),
-    active,
-    onAller: aller,
-  });
+  useSousPageDeReglages({ cle: `personne:${compte.id}`, retour: t('Accès'), onRetour: onFermer, titre: nom });
 
   const projetsOuverts = projetsDuCompte(compte)
     .map((id) => projetsActifs.find((p) => p.id === id))
@@ -990,16 +979,43 @@ function FicheDePersonne({
         return data.motDePasse;
       });
 
-  /* L'INVITATION D'UN ACCÈS EXISTANT TIRE UN NOUVEAU MOT DE PASSE : l'ancien n'est gardé qu'en empreinte. La copie
-     part pendant le clic de confirmation (`copierAuPressePapiers`). */
-  const copierInvitation = () => {
-    setInvitation('en-cours');
+  /* Ce que la copie est devenue, posé sur LE mot de passe copié (un autre, tiré entre-temps, n'en hérite pas). */
+  const marquerCopie = (valeur: string, copie: 'faite' | 'echec') =>
+    onSecret((avant) => (avant && avant.valeur === valeur ? { ...avant, copie } : avant));
+
+  /* « NOUVEAU MOT DE PASSE » : il s'affiche dans sa section ET part dans le presse-papiers, sans second geste. La copie
+     part PENDANT le clic, en promesse (`copierAuPressePapiers`) : Safari refuse une copie faite après la requête. Une
+     copie refusée laisse le mot de passe lisible dans son champ, et le dit. */
+  const tirerMotDePasse = () => {
+    setTirage(true);
     const motDePasse = nouveauMotDePasse();
-    void copierAuPressePapiers(motDePasse.then((valeur) => messageDInvitation({ nom, identifiant: compte.identifiant, motDePasse: valeur })))
-      .then(() => client.pushToast('success', t('Invitation copiée, avec un nouveau mot de passe')))
+    void copierAuPressePapiers(motDePasse)
+      .then(async () => {
+        marquerCopie(await motDePasse, 'faite');
+        client.pushToast('success', t('Nouveau mot de passe copié'));
+      })
       .catch((err) =>
         motDePasse.then(
-          () => client.pushToast('error', t('Copie impossible : le nouveau mot de passe est affiché au-dessus.')),
+          (valeur) => {
+            marquerCopie(valeur, 'echec');
+            client.pushToast('error', t('Copie impossible : le mot de passe est affiché dans sa section.'));
+          },
+          () => client.pushToast('error', err?.message ?? t('mot de passe non changé')),
+        ),
+      )
+      .finally(() => setTirage(false));
+  };
+
+  /* L'INVITATION : avec le mot de passe DÉJÀ affiché s'il y en a un (aucun nouveau, aucune confirmation) ; sinon elle en
+     tire un nouveau, après confirmation — l'ancien n'est gardé qu'en empreinte. */
+  const copierInvitation = (affiche: SecretMontre | null) => {
+    setInvitation('en-cours');
+    const motDePasse = affiche ? Promise.resolve(affiche.valeur) : nouveauMotDePasse();
+    void copierAuPressePapiers(motDePasse.then((valeur) => messageDInvitation({ nom, identifiant: compte.identifiant, motDePasse: valeur })))
+      .then(() => client.pushToast('success', affiche ? t('Invitation copiée') : t('Invitation copiée, avec un nouveau mot de passe')))
+      .catch((err) =>
+        motDePasse.then(
+          () => client.pushToast('error', t('Copie impossible : le mot de passe est affiché dans sa section.')),
           () => client.pushToast('error', err?.message ?? t('mot de passe non changé')),
         ),
       )
@@ -1013,26 +1029,26 @@ function FicheDePersonne({
       .finally(() => setEnvoi(null));
   };
 
+  const retirable = projetsDuCompte(compte).length > 0 || compte.actif;
+
   return (
     <div className="flex flex-col gap-7" data-fiche-acces={compte.id}>
-      <div className="flex items-center gap-3 px-1">
+      <div className="flex items-center gap-3 px-1" data-tete-fiche>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface text-[14px] font-medium text-text">
           {initiales(nom)}
         </span>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[16px] font-semibold text-text" data-nom-fiche>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-[18px] font-semibold text-text" data-nom-fiche>
             {nom}
           </span>
-          <span className="text-[12.5px] leading-snug text-faint sm:truncate" data-etat-fiche>
+          <span className="text-[13px] leading-snug text-muted sm:truncate" data-etat-fiche>
             {cote === 'client' ? t('Client') : t('Équipe')} · {etatEnClair(compte)}
           </span>
         </div>
       </div>
 
-      {secret ? <MotDePasseMontre secret={secret} onFermer={() => onSecret(null)} /> : null}
-
       <div data-partie-fiche="identite">
-        <Groupe titre={titres.identite}>
+        <Groupe titre={t('Identité')}>
           <ChampEnregistre
             libelle={t('Nom affiché')}
             valeur={compte.nomAffiche}
@@ -1054,11 +1070,59 @@ function FicheDePersonne({
               {compte.identifiant}
             </code>
           </div>
+          <label className="flex min-h-[36px] items-center gap-3 text-[13.5px] text-text" data-ligne-acces-actif>
+            <span className="min-w-0 flex-1">{t('Accès actif')}</span>
+            <Switch
+              checked={compte.actif}
+              onCheckedChange={(actif) =>
+                void client
+                  .call({ type: 'comptes.suspendre', id: compte.id, suspendu: !actif })
+                  .then(onChangement)
+                  .catch(echec(t('état non changé')))
+              }
+              data-suspendre={compte.id}
+            />
+          </label>
+        </Groupe>
+      </div>
+
+      <div data-partie-fiche="mot-de-passe">
+        <Groupe titre={t('Mot de passe')} liste>
+          <div className="flex flex-col p-1">
+            {secret ? <MotDePasseDeLaFiche secret={secret} onCopie={(copie) => marquerCopie(secret.valeur, copie)} /> : null}
+            <LigneDeGeste
+              icone={<KeyRound className="h-4 w-4" />}
+              libelle={t('Nouveau mot de passe')}
+              detail={t('Affiché ici et copié tout seul. L’ancien ne fonctionnera plus.')}
+              enCours={tirage}
+              onClick={tirerMotDePasse}
+              repere={`reinitialiser-${compte.id}`}
+            />
+            {cote === 'client' ? (
+              <LigneDeGeste
+                icone={<MessageSquareText className="h-4 w-4" />}
+                libelle={t('Copier l’invitation')}
+                detail={secret ? t('Un message prêt à envoyer, avec le mot de passe affiché.') : t('Un message prêt à envoyer, avec un nouveau mot de passe.')}
+                enCours={invitation === 'en-cours'}
+                onClick={() => (secret ? copierInvitation(secret) : setInvitation('confirmer'))}
+                repere={`copier-invitation-${compte.id}`}
+              />
+            ) : null}
+            <LigneDeGeste
+              icone={<Mail className="h-4 w-4" />}
+              libelle={t('Envoyer les identifiants par courriel')}
+              detail={compte.courriel ? t('Un nouveau mot de passe part à {adresse}.', { adresse: compte.courriel }) : t('Ajoutez d’abord une adresse de courriel.')}
+              enCours={envoi === 'en-cours'}
+              desactive={!compte.courriel}
+              onClick={() => setEnvoi('confirmer')}
+              repere={`envoyer-identifiants-${compte.id}`}
+            />
+          </div>
         </Groupe>
       </div>
 
       <div data-partie-fiche="projets">
-        <Groupe titre={titres.projets} liste>
+        <Groupe titre={t('Projets')} liste>
           <div className="flex flex-col p-1" data-projets-fiche={projetsOuverts.map((p) => p.id).join(',')}>
             {projetsOuverts.map((projet) => (
               <div key={projet.id} className="flex items-center gap-3 rounded-xl px-3 py-2" data-projet-fiche={projet.id}>
@@ -1104,7 +1168,7 @@ function FicheDePersonne({
 
       {cote === 'equipe' ? (
         <div data-partie-fiche="services">
-          <Groupe titre={titres.services} description={t('Ce que cette personne peut voir ou modifier hors de ses projets.')} liste>
+          <Groupe titre={t('Services ouverts')} description={t('Ce que cette personne peut voir ou modifier hors de ses projets.')} liste>
             <div className="flex flex-col p-1">
               {SERVICES_OUVRABLES.map((service) => (
                 <div key={service} className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" data-droit-service={service}>
@@ -1125,61 +1189,18 @@ function FicheDePersonne({
         </div>
       ) : null}
 
-      <div data-partie-fiche="gestes">
-        <Groupe titre={titres.gestes} liste>
-          <div className="flex flex-col p-1">
-            <label className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] text-text">
-              <span className="min-w-0 flex-1">{t('Accès actif')}</span>
-              <Switch
-                checked={compte.actif}
-                onCheckedChange={(actif) =>
-                  void client
-                    .call({ type: 'comptes.suspendre', id: compte.id, suspendu: !actif })
-                    .then(onChangement)
-                    .catch(echec(t('état non changé')))
-                }
-                data-suspendre={compte.id}
-              />
-            </label>
-            {cote === 'client' ? (
-              <LigneDeGeste
-                icone={<MessageSquareText className="h-4 w-4" />}
-                libelle={t('Copier l’invitation')}
-                detail={t('Un message prêt à envoyer, avec un nouveau mot de passe.')}
-                enCours={invitation === 'en-cours'}
-                onClick={() => setInvitation('confirmer')}
-                repere={`copier-invitation-${compte.id}`}
-              />
-            ) : null}
-            <LigneDeGeste
-              icone={<Mail className="h-4 w-4" />}
-              libelle={t('Envoyer les identifiants par courriel')}
-              detail={compte.courriel ? t('Un nouveau mot de passe part à {adresse}.', { adresse: compte.courriel }) : t('Ajoutez d’abord une adresse de courriel.')}
-              enCours={envoi === 'en-cours'}
-              desactive={!compte.courriel}
-              onClick={() => setEnvoi('confirmer')}
-              repere={`envoyer-identifiants-${compte.id}`}
-            />
-            <LigneDeGeste
-              icone={<KeyRound className="h-4 w-4" />}
-              libelle={t('Nouveau mot de passe')}
-              detail={t('L’ancien ne fonctionnera plus.')}
-              onClick={() => void nouveauMotDePasse().catch(echec(t('mot de passe non changé')))}
-              repere={`reinitialiser-${compte.id}`}
-            />
-            {projetsDuCompte(compte).length || compte.actif ? (
-              <LigneDeGeste
-                icone={<ShieldOff className="h-4 w-4" />}
-                libelle={t('Retirer la personne')}
-                detail={t('Tous ses accès se ferment. Ses demandes et ses messages restent lisibles.')}
-                danger
-                onClick={() => setARetirer(true)}
-                repere={`retirer-${compte.id}`}
-              />
-            ) : null}
-          </div>
-        </Groupe>
-      </div>
+      {/* LE PIED NE PORTE QUE LE GESTE SUR LA PERSONNE ENTIÈRE : la retirer. Le pied de la liste (« Ajouter un projet »)
+          n'est pas monté pendant ce temps : la fiche remplace la liste. */}
+      {retirable ? (
+        <PiedDePageDeReglages>
+          <DialogFooter pleineLargeur className="bg-transparent px-4 sm:px-6" data-pied-fiche-acces>
+            <Button variant="subtle" className="w-full text-danger" onClick={() => setARetirer(true)} data-retirer-personne={compte.id}>
+              <ShieldOff className="h-4 w-4" />
+              {t('Retirer la personne')}
+            </Button>
+          </DialogFooter>
+        </PiedDePageDeReglages>
+      ) : null}
 
       {aRetirer ? (
         <ConfirmDialog
@@ -1204,7 +1225,7 @@ function FicheDePersonne({
           )}
           confirmLabel={t('Nouveau mot de passe et copier')}
           onClose={() => setInvitation((avant) => (avant === 'confirmer' ? null : avant))}
-          onConfirm={copierInvitation}
+          onConfirm={() => copierInvitation(null)}
         />
       ) : null}
       {envoi === 'confirmer' ? (
@@ -1218,6 +1239,58 @@ function FicheDePersonne({
           onClose={() => setEnvoi((avant) => (avant === 'confirmer' ? null : avant))}
           onConfirm={envoyerIdentifiants}
         />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * LE MOT DE PASSE TIRÉ, DANS SA SECTION : un champ en lecture (texte à chasse fixe, sur le fond creusé des champs), le
+ * bouton de copie qui dit « Copié » une fois fait, et une phrase — copié ou non, montré seulement ici. Le sort du
+ * courriel d'identifiants s'y lit aussi : parti, ou pas parti avec sa cause.
+ */
+function MotDePasseDeLaFiche({ secret, onCopie }: { secret: SecretMontre; onCopie: (copie: 'faite' | 'echec') => void }) {
+  const copier = () =>
+    void copierAuPressePapiers(secret.valeur)
+      .then(() => {
+        onCopie('faite');
+        client.pushToast('success', t('Mot de passe copié'));
+      })
+      .catch((err) => {
+        onCopie('echec');
+        client.pushToast('error', err?.message ?? t('copie impossible'));
+      });
+  return (
+    <div className="flex flex-col gap-2 px-2 pb-2 pt-1.5" data-mot-de-passe-montre={secret.compteId} data-copie={secret.copie ?? 'aucune'}>
+      <div className="flex items-center gap-2">
+        <Input
+          readOnly
+          value={secret.valeur}
+          onFocus={(e) => e.currentTarget.select()}
+          aria-label="Mot de passe"
+          className="min-w-0 flex-1 font-mono"
+          data-valeur-mot-de-passe
+        />
+        <Button variant="contraste" className="shrink-0" onClick={copier} data-copier-mot-de-passe>
+          {secret.copie === 'faite' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          {secret.copie === 'faite' ? t('Copié') : t('Copier')}
+        </Button>
+      </div>
+      <p className={cn('px-0.5 text-[12.5px] leading-snug', secret.copie === 'echec' ? 'text-danger' : 'text-muted')}>
+        {secret.copie === 'faite'
+          ? t('Copié dans le presse-papiers. Il n’est montré qu’ici : transmettez-le maintenant.')
+          : secret.copie === 'echec'
+            ? t('La copie n’a pas pu se faire : copiez-le avec le bouton. Il n’est montré qu’ici.')
+            : t('Il n’est montré qu’ici : transmettez-le maintenant.')}
+      </p>
+      {secret.courriel?.envoye ? (
+        <p className="px-0.5 text-[12.5px] text-muted" data-courriel-identifiants="envoye">
+          {t('Identifiants envoyés par courriel à {adresse}.', { adresse: secret.courriel.adresse ?? '' })}
+        </p>
+      ) : secret.courriel ? (
+        <p className="px-0.5 text-[12.5px] text-danger" data-courriel-identifiants="echec">
+          {t('Le courriel n’est pas parti')} : {secret.courriel.raison}
+        </p>
       ) : null}
     </div>
   );

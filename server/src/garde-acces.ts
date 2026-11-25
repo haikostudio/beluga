@@ -374,7 +374,7 @@ function pageDeConnexion(o: {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#09090b">
-<title>Version de travail réservée</title>
+<title>Site en développement réservé</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -397,14 +397,14 @@ ${o.outils.styleDuChamp}</style>
 </head>
 <body>
 <form method="POST" action="${ROUTE_CONNEXION_GARDE}?ici=1" data-garde-acces>
-  <h1>Version de travail réservée</h1>
-  <p class="sub">${hote ? `<strong>${hote}</strong> est une version de travail. ` : ''}Elle s’ouvre aux personnes connectées : l’équipe, et les clients du projet avec l’accès de leur espace client.</p>
+  <h1>Site en développement réservé</h1>
+  <p class="sub">${hote ? `<strong>${hote}</strong> est un site en développement. ` : ''}Il s’ouvre aux personnes connectées : l’équipe, et les clients du projet avec l’accès de leur espace client.</p>
   ${o.erreur ? `<div class="err" data-garde-erreur>${echapperHtml(o.erreur)}</div>` : ''}
   <input type="hidden" name="vers" value="${echapperHtml(o.vers)}">
   <div><label for="u">Identifiant</label><input id="u" name="username" value="${echapperHtml(o.identifiant)}" autocomplete="username" autocapitalize="off" autocorrect="off" required autofocus></div>
   <div><label for="p">Mot de passe</label>${o.outils.champMotDePasse}</div>
   <button type="submit">Entrer</button>
-  <p class="pied">La version en ligne du site reste ouverte à tous.</p>
+  <p class="pied">Le site final reste ouvert à tous.</p>
 </form>
 ${o.outils.scriptDuChamp}
 </body>

@@ -108,6 +108,9 @@ export const OUTILS_HORS_DE_LA_VOIX: ReadonlySet<string> = new Set([
   'rendre_plan',
   'rendre_reparation',
   'bilan_du_travail',
+  'bilan_securite',
+  'geste_de_production',
+  'historique_du_service',
   'deplacer_vers_projet',
   'relancer_publication',
 ]);

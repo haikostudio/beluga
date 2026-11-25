@@ -20,6 +20,7 @@
  * nouveau point critique ou élevé ; historique de douze mois.
  */
 import { ORDRE_DES_GRAVITES, type ConstatSecurite, type GraviteSecurite, type RapportDeSecurite } from './controle-securite.js';
+import { consigneDeCorrectionSecurite, pointsDesConstats, type AvancementDesCorrections } from './bilan-securite.js';
 
 /** Un audit par semaine. */
 export const RYTHME_DES_AUDITS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -55,6 +56,14 @@ export interface ProjetSuiviSecurite {
   /** Les points À TRAITER par gravité (ni en correction, ni corrigés). */
   aTraiter: Record<GraviteSecurite, number>;
   enCorrection: number;
+  /**
+   * LA NOTE DE SÉCURITÉ SUR 100 du dernier audit réussi (`noteDeSecurite`, `bilan-securite.ts`), comptée sur les points
+   * encore PRÉSENTS (à traiter et en correction) ; `null` sans audit réussi. Absente d'une réponse d'une version
+   * précédente du démon.
+   */
+  note?: number | null;
+  /** Les points encore présents au dernier audit, par gravité (à traiter + en correction). */
+  restants?: Record<GraviteSecurite, number>;
 }
 
 /** Ce qu'une ligne de l'historique montre sans le rapport entier. */
@@ -65,6 +74,8 @@ export interface ResumeDAudit {
   declencheur: DeclencheurDAudit;
   erreur?: string;
   compte?: Record<GraviteSecurite, number>;
+  /** La note de sécurité de cet audit (ses points relevés), s'il a réussi. */
+  note?: number;
 }
 
 /** Un audit et son rapport. */
@@ -92,6 +103,10 @@ export interface VueDAudit {
   nouveaux: string[];
   /** Les titres des cartes de correction liées, pour leur lien. */
   cartes: Record<string, { titre: string; projectId: string }>;
+  /** L'avancement des corrections de tous les points suivis du projet (volet, ligne repliable). */
+  avancement?: AvancementDesCorrections;
+  /** La note de chaque audit réussi des douze mois, du plus ancien au plus récent (la courbe d'évolution). */
+  evolution?: { lance: number; note: number }[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -324,6 +339,8 @@ export function carteDeCorrectionGroupee(
   const titre = `Sécurité : corriger ${n} point${n > 1 ? 's' : ''} de ${nomDuProjet}`;
   const lignes = [
     `Corriger TOUS les points à traiter du dernier audit de sécurité de « ${nomDuProjet} », dans cet ordre : du plus grave au plus léger. Ne passe à un point qu'une fois le précédent corrigé et vérifié.`,
+    '',
+    consigneDeCorrectionSecurite(pointsDesConstats(constats)),
     '',
   ];
   constats.forEach((c, i) => {

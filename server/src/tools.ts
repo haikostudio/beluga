@@ -94,6 +94,8 @@ import {
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
   TYPES_ACCES,
+  estVersionDAcces,
+  libelleDeLaVersion,
   LIBELLE_TYPE_ACCES,
   echeanceArchive,
   champsACompleter,
@@ -350,6 +352,18 @@ function decouperListe(valeur?: string): string[] | undefined {
   return propres.length ? propres : undefined;
 }
 import { creneauPourUneCarte } from './heure-de-lancement.js';
+import { pointsDeLaCarte } from './service-securite.js';
+import { estAgentDeService } from './historique-de-service.js';
+
+/** Une carte de correction de sécurité : elle porte des points d'audit liés. */
+function carteDeCorrectionDeSecurite(cardId: string): boolean {
+  return pointsDeLaCarte(cardId).length > 0;
+}
+
+/** L'agent sert-il un sujet de service (l'outil d'historique ne se sert qu'à lui) ? */
+function agentDeServiceSync(agentId: string): boolean {
+  return estAgentDeService(agentId);
+}
 import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
 import { fabriquerUnApercu, realiser } from './realisation.js';
@@ -1150,6 +1164,61 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'bilan_securite',
+    description:
+      "CARTE DE CORRECTION DE SÉCURITÉ : JUSTE AVANT ta réponse finale, déclare le bilan point par point — une ligne par point d'audit de la carte, avec son empreinte (entre crochets dans la consigne), son titre, sa categorie, son statut (« fait », « a-finir » si une partie reste ou si un geste attend la mise en production — alors \"production\": true —, « pas-fait » seulement après un vrai essai de contournement), son « but » (ce que la correction devait obtenir) et ce qui a été « fait », une phrase brève mais explicite chacun. Un bilan qui oublie des points est renvoyé une fois. L'outil te rend le bloc ```bilan-securite``` à recopier TEL QUEL dans la partie « Ce qui est fait » de ton compte rendu.",
+    inputSchema: {
+      type: 'object',
+      required: ['lignes'],
+      properties: {
+        lignes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['empreinte', 'statut', 'but', 'fait'],
+            properties: {
+              empreinte: { type: 'string', description: 'L’empreinte du point, ex. « entetes:entete-csp »' },
+              titre: { type: 'string', description: 'Le titre du point, en mots courants' },
+              categorie: { type: 'string', description: 'La catégorie (avant les deux-points de l’empreinte)' },
+              statut: { type: 'string', enum: ['fait', 'a-finir', 'pas-fait'] },
+              but: { type: 'string', description: 'Ce que la correction devait obtenir, en une phrase' },
+              fait: { type: 'string', description: 'Ce qui a réellement été fait, en une phrase (ou pourquoi c’est impossible)' },
+              production: { type: 'boolean', description: 'Vrai si un geste préparé attend la mise en production' },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'geste_de_production',
+    description:
+      "CARTE DE CORRECTION DE SÉCURITÉ : ce qui ne se règle QUE sur le site en ligne (serveur de production, hébergeur), tu n'y touches JAMAIS — tu le PRÉPARES (fichier, script vérifié à blanc) puis tu le déclares ici. L'outil l'ENREGISTRE seulement, il n'exécute rien : la mise en production lancée par l'utilisateur jouera la commande, une seule fois, dans le dossier du projet, après son processus. « libelle » : ce que fait le geste, en mots courants (c'est ce que l'utilisateur lit) ; « commande » : la commande shell prête, sans aucune valeur secrète écrite en clair (lis-la d'un fichier ou du coffre côté serveur) ; « delai_s » : son délai ; « empreinte » : le point qu'il règle.",
+    inputSchema: {
+      type: 'object',
+      required: ['libelle', 'commande'],
+      properties: {
+        libelle: { type: 'string' },
+        commande: { type: 'string' },
+        delai_s: { type: 'number', description: 'Délai maximal en secondes (10 à 1800, 120 par défaut)' },
+        empreinte: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'historique_du_service',
+    description:
+      "TON HISTORIQUE DANS CE SERVICE : tes échanges passés avec l'utilisateur — y compris ceux d'avant un « Repartir de zéro », que ton contexte ne porte plus — et les événements de ton sujet (audits, corrections, pannes, sauvegardes, études, exports), datés, du plus ancien au plus récent. Appelle-le quand une question renvoie à ce qui a été dit ou fait avant. « chercher » : des mots à retrouver ; « avant » : une date (ms) pour remonter ; « limite » : nombre d'éléments (50 au plus).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chercher: { type: 'string' },
+        avant: { type: 'number' },
+        limite: { type: 'number' },
+      },
+    },
+  },
+  {
     name: 'proposer_suites',
     description:
       "SUITES POSSIBLES DE TA RÉPONSE : deux ou trois pastilles posées SOUS ton message, que l'utilisateur coche d'un clic pour te les renvoyer. Chacune : un « titre » de quelques mots (60 signes au plus), formulé comme une demande qu'on pourrait t'envoyer, et une « description » d'une phrase (160 signes au plus) qui dit ce qu'elle apporterait. Elles ne s'écrivent PAS dans ton message. Un nouvel appel remplace les précédentes de ce tour.",
@@ -1640,7 +1709,16 @@ export const TOOL_DEFS: ToolDef[] = [
       "renomme celui que « dossier » désigne, ou le DÉPLACE avec « parent » (vide = la racine) — un sous-dossier prend " +
       "toujours le projet de son parent ; « dossier_supprimer » archive le dossier, ses sous-dossiers ET toutes leurs " +
       "fiches ensemble, et « dossier_restaurer » les remet ensemble. Les fiches gardent leur règle : UNE FICHE PAR " +
-      "SECRET, le dossier ne porte jamais un identifiant.",
+      "SECRET, le dossier ne porte jamais un identifiant. " +
+      "LES ACCÈS CLIENTS : le compte administrateur du site que les CLIENTS du projet en cours voient en cliquant sur " +
+      "« Voir mon site » dans leur espace (UN compte par version, partagé par les clients). Pour le noter : " +
+      "« enregistrer » avec « accesClient » = « production » (le site en ligne) ou « dev » (la version de travail) et " +
+      "« champs » = { « adresse » : l'adresse de la PAGE DE CONNEXION de l'administration, « identifiant », " +
+      "« motDePasse » } — ni « nom », ni « type », ni « dossier » : Beluga nomme et range la fiche, et REMPLACE celle " +
+      "de cette version s'il y en a une (jamais deux). Une valeur tue garde celle déjà notée (pour ne changer que le mot " +
+      "de passe, ne donne que « motDePasse »). Cette version n'a pas d'administration ? « accesClient » + " +
+      "« sansAdministration » = true, sans « champs ». Tout agent qui change l'adresse de connexion ou le mot de passe " +
+      "de ce compte met l'accès à jour de la même façon. Le mot de passe ne s'écrit JAMAIS dans la conversation.",
     inputSchema: {
       type: 'object',
       required: ['action'],
@@ -1678,6 +1756,16 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             "Les cases en plus (pour « enregistrer ») : ce qu'aucune case du type ne prévoit, une case nommée par valeur. " +
             'Absent = la fiche garde les siennes ; une liste, même vide, les REMPLACE.',
+        },
+        accesClient: {
+          type: 'string',
+          enum: ['production', 'dev'],
+          description:
+            "Pour « enregistrer » : note l'ACCÈS CLIENT de cette version du site du projet en cours (« production » = site en ligne, « dev » = version de travail) — « champs » = { adresse, identifiant, motDePasse }. Remplace l'accès déjà noté de cette version.",
+        },
+        sansAdministration: {
+          type: 'boolean',
+          description: "Avec « accesClient » : cette version du site n'a PAS d'administration (aucun secret ; la carte qui réclame l'accès ne revient plus).",
         },
         images: {
           type: 'array',
@@ -2309,6 +2397,8 @@ function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
 export const TASK_ONLY_TOOLS = new Set([
   'remember',
   'bilan_du_travail',
+  'bilan_securite',
+  'geste_de_production',
   'relancer_publication',
   'rendre_reparation',
   'backup_recette',
@@ -2357,6 +2447,14 @@ export function outilServiA(nom: string, agentId: string): boolean {
     const agent = store.getAgent(agentId);
     return !!agent && agent.role === 'task' && !!agent.cardId && !!store.getCard(agent.cardId)?.parcours?.lancementAutomatique;
   }
+  /* LA CORRECTION DE SÉCURITÉ : le bilan point par point et les gestes du site en ligne ne se servent qu'à l'agent de
+     TÂCHE d'une carte liée à des points d'audit (`service-securite.ts`). */
+  if (nom === 'bilan_securite' || nom === 'geste_de_production') {
+    const agent = store.getAgent(agentId);
+    return !!agent && agent.role === 'task' && !!agent.cardId && carteDeCorrectionDeSecurite(agent.cardId);
+  }
+  /* L'HISTORIQUE : le seul agent qui sert un sujet de service (Sécurité, Surveillance, Sauvegardes, Marketing, Studio, Agents). */
+  if (nom === 'historique_du_service') return agentDeServiceSync(agentId);
   // Le verdict d'une réparation silencieuse : le seul agent qui la mène (`server/src/reparation-publication.ts`).
   if (nom === 'rendre_reparation') return Boolean(store.getAgent(agentId)?.reparationPublication);
   return true;
@@ -3622,6 +3720,36 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       };
     }
 
+    case 'bilan_securite': {
+      /* LE BILAN D'UNE CORRECTION DE SÉCURITÉ : renvoyé UNE fois s'il oublie des points, puis accepté et complété. */
+      if (!ctx.cardId) return { ok: false, text: 'Aucune carte : aucun bilan à rendre.' };
+      const { noterLeBilan } = await import('./service-securite.js');
+      const issue = noterLeBilan(ctx.cardId, args.lignes);
+      if (!issue.ok) return { ok: false, text: issue.raison };
+      const restes = issue.lignes.filter((l) => l.statut !== 'fait').length;
+      return {
+        ok: true,
+        text: `Bilan noté : ${issue.lignes.length} point(s), ${restes} non entièrement fait(s). Recopie ce bloc TEL QUEL dans la partie « Ce qui est fait » de ton compte rendu :\n\n${issue.bloc}`,
+      };
+    }
+
+    case 'geste_de_production': {
+      /* ENREGISTRÉ, JAMAIS EXÉCUTÉ (MEM-4501) : la mise en production lancée par l'utilisateur le jouera. */
+      if (!ctx.cardId) return { ok: false, text: 'Aucune carte : un geste du site en ligne se prépare dans une carte de correction.' };
+      const { enregistrerLeGeste } = await import('./service-securite.js');
+      const issue = enregistrerLeGeste(ctx.cardId, args);
+      if (!issue.ok) return { ok: false, text: issue.raison };
+      return {
+        ok: true,
+        text: `Geste enregistré (« ${issue.geste.libelle} »), RIEN n'a été exécuté : il sera joué une seule fois à la prochaine mise en production lancée par l'utilisateur. Dans ton bilan, ce point est « a-finir » avec "production": true.`,
+      };
+    }
+
+    case 'historique_du_service': {
+      const { historiquePourLAgent } = await import('./historique-de-service.js');
+      return { ok: true, text: historiquePourLAgent(ctx.agentId, { avant: args.avant, chercher: args.chercher, limite: args.limite }) };
+    }
+
     case 'bilan_du_travail': {
       /* LE BILAN DÉCLARÉ EN MODE AUTO s'écrit sur la carte ; la fin du tour le relit (`apresLeTourDeTache`). */
       const carte = ctx.cardId ? store.getCard(ctx.cardId) : null;
@@ -4676,6 +4804,45 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type] ?? a.type}${portee}${dossierDit}${archive}${aCompleter})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
         return { ok: true, text: lignes.join('\n') + (archives ? '' : await lectureBelugaPass(recherche)) };
+      }
+
+      /*
+       * L'ACCÈS CLIENT D'UNE VERSION (`server/src/acces-clients.ts`) : Beluga nomme, range et remplace la fiche
+       * lui-même — l'agent ne donne que la version et les trois valeurs. Jamais de doublon.
+       */
+      if (action === 'enregistrer' && args.accesClient !== undefined && args.accesClient !== null && String(args.accesClient).trim()) {
+        const version = String(args.accesClient).trim();
+        if (!estVersionDAcces(version)) {
+          return { ok: false, text: "Enregistrement impossible : « accesClient » vaut « production » (le site en ligne) ou « dev » (la version de travail)." };
+        }
+        if (!project) return { ok: false, text: "Enregistrement impossible : aucun projet en cours. L'accès client se note depuis un agent du projet." };
+        const m = await import('./acces-clients.js');
+        const agent = ctx.agentId ? store.getAgent(ctx.agentId) : undefined;
+        const par = agent?.title && !ctx.cardId ? agent.title : `l’agent de ${project.name}`;
+        const nomVersion = libelleDeLaVersion(version);
+        if (args.sansAdministration === true) {
+          const declare = m.declarerSansAdministration({ projectId: project.id, version, par, carteId: ctx.cardId ?? null });
+          if (!declare.ok) return { ok: false, text: `Déclaration impossible : ${declare.raison}` };
+          return { ok: true, text: `Noté : la « ${nomVersion} » de « ${project.name} » n'a pas d'administration. La carte qui réclame cet accès ne reviendra plus pour elle.` };
+        }
+        const champs = (args.champs && typeof args.champs === 'object' ? args.champs : {}) as Record<string, unknown>;
+        const valeur = (cle: string) => (typeof champs[cle] === 'string' ? (champs[cle] as string) : undefined);
+        const note = m.noterAccesClient({
+          projectId: project.id,
+          version,
+          adresse: valeur('adresse'),
+          identifiant: valeur('identifiant'),
+          motDePasse: valeur('motDePasse'),
+          par,
+          carteId: ctx.cardId ?? null,
+        });
+        if (!note.ok) return { ok: false, text: `Enregistrement impossible : ${note.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
+        return {
+          ok: true,
+          text:
+            `Accès client « ${nomVersion} » de « ${project.name} » ${note.cree ? 'noté' : 'mis à jour'} (fiche ${note.ficheId}) : ` +
+            "les clients du projet le voient en ouvrant cette version depuis « Voir mon site ». N'écris pas le mot de passe dans ta réponse.",
+        };
       }
 
       if (action === 'enregistrer') {

@@ -63,6 +63,7 @@ import { planifierLeMenage } from './menage.js';
 import { planifierLeMiroirDesProjets } from './miroir-des-projets.js';
 import { planifierLeRangementDesChemins } from './gestes-de-jarvis.js';
 import { planifierPurgeDesArchives } from './coffre-fort.js';
+import { planifierLesAccesClients } from './acces-clients.js';
 import { planifierPurgeDeLaCorbeilleDesMedias } from './communication.js';
 import { remettreLeCoffreEnOrdreAuDemarrage } from './coffre-structuration.js';
 import { veillerSurLesTitresHumains } from './titres-humains.js';
@@ -80,6 +81,7 @@ import { demarrerMarketing } from './marketing.js';
 import { demarrerLeDirecteur } from './directeur-marketing.js';
 import { demarrerPublicationSociale } from './publication-sociale.js';
 import { demarrerLeSuiviStudio } from './suivi-studio.js';
+import { demarrerLeReleveDesTravaux } from './travaux-des-services.js';
 import { demarrerLeRangementDesFichiers } from './fichiers-ranges.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
 import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
@@ -473,6 +475,8 @@ async function main(): Promise<void> {
   const publicationSocialeTimer = demarrerPublicationSociale();
   /* Les vidéos demandées par un agent : leur bloc de suivi et les miroirs des boutons à prix (`suivi-studio.ts`). */
   demarrerLeSuiviStudio();
+  /* Les travaux de fond des services (études, exports, audits, sauvegardes), relevés pour la colonne de gauche. */
+  demarrerLeReleveDesTravaux();
   /* LES FICHIERS RANGÉS PAR PROJET ET PAR SERVICE : pièces neuves rangées au dépôt, rangement complet toutes les 30 min. */
   demarrerLeRangementDesFichiers();
   /*
@@ -653,6 +657,12 @@ async function main(): Promise<void> {
   const cheminsDeJarvisTimer = planifierLeRangementDesChemins();
   // Les fiches du coffre retirées depuis plus de six mois s'effacent (`server/src/coffre-fort.ts`).
   const archivesTimers = planifierPurgeDesArchives();
+  /*
+   * LES ACCÈS CLIENTS : la carte « Créer les accès administrateur du client » se pose, SANS ÊTRE LANCÉE, dans chaque
+   * projet qui a un client et une version de site sans accès noté — au démarrage (différé), chaque jour, et après un
+   * changement de comptes ou de projet (`server/src/acces-clients.ts`).
+   */
+  const arreterLesAccesClients = planifierLesAccesClients();
   // Les gestes répétés dans Chrome partent à leur échéance, ou au retour de Chrome (`server/src/extension-chrome.ts`).
   void import('./extension-chrome.js').then((m) => m.planifierLesRoutines()).catch(() => {});
   /* L'extension Chrome des Mac se met à jour seule la nuit, par le programme du Mac (20/11/2026). */
@@ -751,6 +761,7 @@ async function main(): Promise<void> {
     clearInterval(cheminsDeJarvisTimer);
     for (const minuteur of memoireTimers) clearTimeout(minuteur);
     for (const minuteur of archivesTimers) clearTimeout(minuteur);
+    arreterLesAccesClients();
     for (const minuteur of corbeilleDesMediasTimers) clearTimeout(minuteur);
     arreterLesTitresHumains();
     arreterLaRelecture();

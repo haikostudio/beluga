@@ -1211,7 +1211,7 @@ export function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string
         {contenuDuPanneau('agent')}
       </div>
     ) : (
-      <ZoneDefilement fond="hsl(var(--surface))" classeEnveloppe="min-h-0 flex-1" data-studio-volet={onglet}>
+      <ZoneDefilement fond="hsl(var(--surface))" classeEnveloppe="min-h-0 flex-1" hautSur={onglet} data-studio-volet={onglet}>
         {contenuDuPanneau(onglet)}
       </ZoneDefilement>
     );
@@ -1238,7 +1238,7 @@ export function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string
           <ArchivesDeLaCreation donnees={donnees} bloque={agentTravaille} />
         </div>
       ) : (
-        <ZoneDefilement fond="hsl(var(--surface))" className="pb-3" data-studio-tiroir={tiroir}>
+        <ZoneDefilement fond="hsl(var(--surface))" className="pb-3" hautSur={tiroir} data-studio-tiroir={tiroir}>
           {tiroir === 'style' ? (
             <div className="flex flex-col gap-2 p-3" data-studio-tiroir-style>
               <ReglagesDeComposition composition={composition} onOperation={operer} />

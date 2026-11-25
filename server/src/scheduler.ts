@@ -1382,6 +1382,18 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
     log.warn(`consigne du résumé client de « ${card.title} » non posée : ${String(err)}`);
   }
 
+  /*
+   * UNE CARTE DE CORRECTION DE SÉCURITÉ (liée à des points d'audit) VA JUSQU'AU BOUT (carte « Sécurité : bilan, écran
+   * et historique », 25/11/2026) : la consigne part dans la DEMANDE du tour, à ces cartes seulement — tous les points,
+   * contournement avant renoncement, gestes du site en ligne préparés sans être joués, bilan point par point.
+   */
+  let consigneDeCorrection = '';
+  try {
+    consigneDeCorrection = (await import('./service-securite.js')).consigneDeCorrectionDeLaCarte(card.id);
+  } catch (err) {
+    log.warn(`consigne de correction de « ${card.title} » non posée : ${String(err)}`);
+  }
+
   /* L'agent qui a cadré apprend qu'il passe en exécution, et ce qui change pour lui. */
   const bascule = agentUnique && !repris ? `${CONSIGNE_DE_BASCULE}\n\n` : '';
   const prompt = `${bascule}${contexteDuCadrage ? `${contexteDuCadrage}\n\n` : ''}${reprise}Réalise cette tâche.
@@ -1391,7 +1403,7 @@ ${card.description || '(pas de description)'}
 
 ${blocDeSyntheseDuBesoin(card.briefing)}Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier} » — une copie de travail à toi seul, créée pour cette carte. Reste dedans : n'en change pas et ne change pas de branche. Beluga Build fusionne ta branche dans la principale et referme ce dossier dès que tu as rendu ; ne le fais pas toi-même.
 ${prepa.annexes?.length ? `\n${consigneDesDepots(branch, prepa.dossier, prepa.annexes)}\n` : ''}
-${consigneChiffrage}${consigneResumeClient ? `${consigneResumeClient}\n\n` : ''}Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
+${consigneChiffrage}${consigneResumeClient ? `${consigneResumeClient}\n\n` : ''}${consigneDeCorrection ? `${consigneDeCorrection}\n\n` : ''}Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 
   /*
    * LE LANCEMENT RÉPOND DÈS QUE LE TOUR EST PARTI, jamais à sa fin.

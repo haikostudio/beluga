@@ -2544,6 +2544,9 @@ async function mettreEnProduction(
   /* LA MÊME RÈGLE QU'AU DÉPLOIEMENT (décision du 2026-10-18) : une étape qui
      tombe est réparée en silence, puis rejouée ; l'encadré seulement à l'abandon. */
   const acces: AccesAuRun = { lire: () => current, ecrire: (run) => (current = run) };
+  /* LES CARTES QUI PARTENT, relevées AVANT la fusion (après, plus rien n'attend) : leurs gestes du site en ligne
+     préparés par une correction de sécurité se jouent après le processus (`service-securite.ts`, `securite_gestes`). */
+  const cartesDuLot = selection?.length ? [...selection] : apportsEnAttenteDeProduction(project.id).map((a) => a.cardId);
 
   /* 1. La branche de travail rejoint la branche de production — avance
         rapide, sinon commit à deux parents, JAMAIS d'envoi forcé (MEM-1275). */
@@ -2602,6 +2605,30 @@ async function mettreEnProduction(
           `${joue.join('\n\n')}\n\nL’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.`,
         );
       }
+    }
+    /*
+     * 3. LES GESTES DU SITE EN LIGNE préparés par les cartes de correction de sécurité qui partent (carte « Sécurité :
+     *    bilan, écran et historique », 25/11/2026) : l'agent les a ENREGISTRÉS sans jamais les jouer (MEM-4501) ; c'est
+     *    cette mise en production, lancée par l'utilisateur, qui les applique — une fois chacun (`applique_le`
+     *    atomique). Un geste qui tombe fait tomber l'étape comme une étape du processus : réparée puis rejouée, et les
+     *    gestes déjà appliqués ne repartent pas.
+     */
+    const { gestesAAppliquer, marquerLeGesteApplique } = await import('./service-securite.js');
+    const gestes = gestesAAppliquer(cartesDuLot);
+    for (const [rang, geste] of gestes.entries()) {
+      if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
+      const entete = `Geste de sécurité ${rang + 1}/${gestes.length} · ${geste.libelle}`;
+      current = progresser(current, 'publish', entete);
+      current = noter(current, 'publish', `$ ${geste.commande}`, 'commande');
+      const sortie = await runCommand(cwd, geste.commande, geste.delaiS * 1000, 4000, signal);
+      joue.push(`${entete} — ${sortie.ok ? `appliqué en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`);
+      if (!sortie.ok) {
+        throw new EchecDEtape(
+          'publish',
+          `${joue.join('\n\n')}\n\nLe geste de sécurité « ${geste.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${geste.delaiS} s` : 'a échoué'} : il reste à appliquer.`,
+        );
+      }
+      marquerLeGesteApplique(geste.id, dernieresLignes(sortie.out, 2000));
     }
     current = setStep(current, 'publish', 'done', joue.join('\n\n'));
   });

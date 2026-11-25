@@ -1450,6 +1450,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * minutes, l'écran relit l'état plutôt que d'attendre.
    */
   z.object({ type: z.literal('backups.etat') }),
+  /** LES TRAVAUX DES SERVICES QUI TOURNENT, ET LES FINIS PAS ENCORE VUS (`shared/src/travaux-des-services.ts`) : la colonne de gauche. */
+  z.object({ type: z.literal('travaux.services.lire') }),
+  /** L'écran du service est ouvert : ces travaux finis sont vus par ce compte, et quittent sa colonne. */
+  z.object({ type: z.literal('travaux.services.vus'), ids: z.array(z.string().max(200)).max(100) }),
   z.object({ type: z.literal('backups.enregistrerSite'), site: z.any() }),
   z.object({ type: z.literal('backups.supprimerSite'), id: z.string() }),
   z.object({ type: z.literal('backups.lancer'), id: z.string().optional() }),
@@ -1562,6 +1566,27 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('securite.robots.lire'), projectId: z.string() }),
   /** LA GARDE DE LA VERSION DE TRAVAIL d'un projet (carte « Accès des IA : prod ou dev ») : adresses couvertes, état. */
   z.object({ type: z.literal('projet.gardeTravail'), projectId: z.string() }),
+  /*
+   * LA RUBRIQUE « ACCÈS CLIENTS » DES RÉGLAGES D'UN PROJET (`server/src/acces-clients.ts`) — réservée à
+   * l'administrateur : aucune n'est nommée dans `droits-commandes.ts`. Lire (mots de passe compris), noter à la main
+   * en secours, déclarer ou annuler « pas d'administration », poser la carte qui crée les accès.
+   */
+  z.object({ type: z.literal('projet.accesClients'), projectId: z.string() }),
+  z.object({
+    type: z.literal('projet.accesClients.noter'),
+    projectId: z.string(),
+    version: z.enum(['production', 'dev']),
+    adresse: z.string().optional(),
+    identifiant: z.string().optional(),
+    motDePasse: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('projet.accesClients.sansAdministration'),
+    projectId: z.string(),
+    version: z.enum(['production', 'dev']),
+    valeur: z.boolean(),
+  }),
+  z.object({ type: z.literal('projet.accesClients.carte'), projectId: z.string() }),
   z.object({
     type: z.literal('securite.robots.regler'),
     projectId: z.string(),
@@ -1569,6 +1594,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   /** « Corriger la sélection » : une carte de correction par projet coché, créée PUIS lancée. */
   z.object({ type: z.literal('securite.corriger'), projets: z.array(z.string()).min(1).max(200) }),
+  /** « Relancer l'analyse » de la sélection : un audit par projet coché (ceux déjà en file ou en cours ne partent pas deux fois). */
+  z.object({ type: z.literal('securite.auditerSelection'), projets: z.array(z.string()).min(1).max(200) }),
+  /**
+   * LE BILAN D'UNE CARTE DE CORRECTION (la liste à cocher de son compte rendu) : les points qu'elle emporte et ses gestes
+   * du site en ligne (libellé et date d'application, JAMAIS la commande).
+   */
+  z.object({ type: z.literal('securite.bilanDeLaCarte'), cardId: z.string() }),
+  /**
+   * L'HISTORIQUE D'UN AGENT DE SERVICE (`server/src/historique-de-service.ts`) : les repères d'événements de son sujet
+   * (audits, corrections, pannes, sauvegardes, études, exports), posés entre ses messages.
+   */
+  z.object({ type: z.literal('agent.historique'), agentId: z.string() }),
   /**
    * LA LIAISON AVEC BELUGA PASS (`server/src/belugapass.ts`) : l'état (jamais une clé), une nouvelle clé de liaison
    * (la seule réponse qui la porte, une fois), délier, ouvrir ou fermer l'accès des agents. Fermées aux collaborateurs.
@@ -2133,6 +2170,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * Aucune ne porte l'auteur : le serveur le réécrit depuis la session.
    */
   z.object({ type: z.literal('espace.etat'), projectId: z.string().optional(), filId: z.string().optional() }),
+  /*
+   * L'ACCÈS ADMINISTRATEUR D'UNE VERSION DU SITE (`server/src/acces-clients.ts`) : l'adresse de connexion,
+   * l'identifiant et le mot de passe, demandés à l'OUVERTURE de la fenêtre seulement — jamais dans `espace.etat`.
+   * Réponse `null` quand rien n'est noté.
+   */
+  z.object({ type: z.literal('espace.accesDuSite'), projectId: z.string(), version: z.enum(['production', 'dev']) }),
   z.object({
     type: z.literal('espace.demande.creer'),
     projectId: z.string(),
@@ -2721,6 +2764,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** L'AUDIT SEO + GEO DU MARKETING A CHANGÉ (contrôle lancé ou fini, test des IA posé) : la page ouverte relit. */
   /** LA LIAISON BELUGA PASS A CHANGÉ (liée, sauvegarde reçue, accès des agents, lecture) : la rubrique ouverte relit. */
   z.object({ type: z.literal('belugapass') }),
+  /** LES TRAVAUX DES SERVICES ONT CHANGÉ : la liste ENTIÈRE, réduite à chaque compte au relais (ce qu'il n'a pas vu). */
+  z.object({ type: z.literal('travaux.services'), travaux: z.array(z.any()) }),
   /** Les marques de l'espace Communication ont changé : l'écran relit sa colonne. */
   z.object({ type: z.literal('communication.marques') }),
   /** Les messages du directeur non lus de CE compte : trié à l'envoi. */

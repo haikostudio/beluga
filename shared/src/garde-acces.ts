@@ -365,9 +365,9 @@ export function constatsDeLaGarde(g: GardeAControler): {
         id: 'travail-protection-coupee',
         categorie: 'robots',
         gravite: 'faible',
-        titre: 'La version de travail est ouverte à tous',
+        titre: 'Le site en développement est ouvert à tous',
         risque: 'Sa protection a été coupée dans les paramètres du projet : n’importe qui, robots et IA compris, peut lire une version pas finie du site.',
-        proposition: 'Rallumer « Version de travail réservée aux personnes connectées » dans paramètres › Déploiement, sauf si l’ouverture est voulue.',
+        proposition: 'Rallumer « Site en développement réservé aux personnes connectées » dans paramètres › Déploiement, sauf si l’ouverture est voulue.',
         ou: g.hotes,
       },
     ];
@@ -378,8 +378,8 @@ export function constatsDeLaGarde(g: GardeAControler): {
       id: 'travail-ouvert-sans-connexion',
       categorie: 'robots',
       gravite: 'moyenne',
-      titre: 'La version de travail s’ouvre sans connexion',
-      risque: 'Elle devrait être réservée aux personnes connectées, mais un visiteur anonyme la lit : robots, IA et curieux voient une version pas finie du site.',
+      titre: 'Le site en développement s’ouvre sans connexion',
+      risque: 'Il devrait être réservé aux personnes connectées, mais un visiteur anonyme le lit : robots, IA et curieux voient une version pas finie du site.',
       proposition: g.gardePosee
         ? 'Vérifier que le relais du serveur a bien reçu la liste des adresses réservées (elle est réécrite au démarrage de Beluga).'
         : 'Ajouter la garde commune au bloc du relais qui sert cette adresse : il ne l’importe pas.',

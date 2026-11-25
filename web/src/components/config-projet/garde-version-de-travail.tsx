@@ -67,7 +67,7 @@ export function GardeDeLaVersionDeTravail({ project }: { project: Project }) {
     <section className="space-y-3 rounded-xl bg-raised px-3.5 py-3" data-garde-travail={protege ? 'oui' : 'non'}>
       <label className="flex cursor-pointer items-start justify-between gap-3">
         <span className="min-w-0">
-          <span className="block text-[13.5px] font-medium text-text">{t('Version de travail réservée aux personnes connectées')}</span>
+          <span className="block text-[13.5px] font-medium text-text">{t('Site en développement réservé aux personnes connectées')}</span>
           <span className="block text-[12.5px] leading-snug text-muted">
             {t('Seuls l’équipe connectée à Beluga et les clients de ce projet, avec l’accès de leur espace client, l’ouvrent. Les robots et les IA n’y entrent pas.')}
           </span>
@@ -76,7 +76,7 @@ export function GardeDeLaVersionDeTravail({ project }: { project: Project }) {
           checked={protege}
           attente={enVol}
           onCheckedChange={(v) => void basculer(v)}
-          aria-label="Version de travail réservée aux personnes connectées"
+          aria-label="Site en développement réservé aux personnes connectées"
           data-interrupteur-garde-travail={protege ? 'oui' : 'non'}
         />
       </label>
@@ -86,7 +86,7 @@ export function GardeDeLaVersionDeTravail({ project }: { project: Project }) {
           <div className="h-4 w-2/3 animate-pulse rounded bg-surface" aria-hidden />
         ) : hotes.length ? (
           <p className="text-muted">
-            <span className="text-faint">{t('Version de travail')} · </span>
+            <span className="text-faint">{t('Site en développement')} · </span>
             <span className="break-all text-text">{hotes.join(', ')}</span>
           </p>
         ) : (
@@ -95,7 +95,7 @@ export function GardeDeLaVersionDeTravail({ project }: { project: Project }) {
           </p>
         )}
         <p className="text-muted" data-garde-en-ligne>
-          <span className="text-faint">{t('Version en ligne')} · </span>
+          <span className="text-faint">{t('Site final')} · </span>
           {project.adresseProduction ? (
             <span className="break-all text-text">{project.adresseProduction}</span>
           ) : (
@@ -105,7 +105,7 @@ export function GardeDeLaVersionDeTravail({ project }: { project: Project }) {
         </p>
         {etat?.coupeePartout ? (
           <p className="text-danger" data-garde-coupee>
-            {t('La protection est coupée pour tout le serveur : aucune version de travail n’est fermée.')}
+            {t('La protection est coupée pour tout le serveur : aucun site en développement n’est fermé.')}
           </p>
         ) : protege && hotes.length && etat && !etat.gardePosee ? (
           <p className="text-danger" data-garde-non-posee>
