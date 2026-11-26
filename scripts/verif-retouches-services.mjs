@@ -123,15 +123,12 @@ async function principal() {
     await page.locator('[data-titre-bandeau]', { hasText: 'Surveillance' }).first().waitFor({ state: 'visible', timeout: 20000 });
     const fil = await page.locator('[data-fil-d-ariane]').first().innerText();
     noter('2. un service aussi, et « Services » a disparu', fil.startsWith('Tableaux de bord') && !fil.includes('Services'), fil.replace(/\n/g, ' / '));
-    /* LES SERVICES VIVENT EN BAS DE LA COLONNE depuis le 14/11/2026 (`services-de-la-colonne.tsx`) : Surveillance et
-       Backup sont sous « Voir plus ». */
-    await page.locator(`${aside}[data-voir-plus-services]`).first().click();
-    await page.locator('[data-menu-des-services]').waitFor({ state: 'visible', timeout: 5000 });
-    const courant = page.locator('[data-menu-des-services] [data-service-de-la-colonne="surveillance"]');
-    const couleur = (loc) => loc.evaluate((e) => getComputedStyle(e).color);
-    noter('2. le service en cours est en violet', (await courant.getAttribute('aria-current')) === 'page' && (await couleur(courant)) !== (await couleur(page.locator('[data-menu-des-services] [data-service-de-la-colonne="backups"]'))));
-    noter('2. les tableaux de bord ne sont pas dans la liste', (await page.locator('[data-menu-des-services] [data-service-de-la-colonne="en-route"]').count()) === 0);
-    await page.locator('[data-menu-des-services] [data-service-de-la-colonne="backups"]').click();
+    /* LES SERVICES VIVENT DANS LE MENU À TROIS POINTS DE LA COLONNE depuis le 26/11/2026 (« Tous les services »). */
+    await page.locator(`${aside}[data-menu-dossier]`).first().click();
+    await page.locator('[data-tous-les-services]').first().click();
+    await page.locator('[data-tous-les-services-panneau]').waitFor({ state: 'visible', timeout: 5000 });
+    noter('2. les tableaux de bord ne sont pas dans la liste', (await page.locator('[data-tous-les-services-panneau] [data-service-du-menu-colonne="en-route"]').count()) === 0);
+    await page.locator('[data-tous-les-services-panneau] [data-service-du-menu-colonne="backups"]').click();
     await page.locator('[data-titre-bandeau]', { hasText: 'Backup' }).first().waitFor({ state: 'visible', timeout: 10000 });
     noter('2. la liste change de service', true);
     await page.locator('[data-fil-d-ariane] button', { hasText: 'Tableaux de bord' }).first().click();

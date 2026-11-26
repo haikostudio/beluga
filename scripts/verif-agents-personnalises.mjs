@@ -73,36 +73,6 @@ async function controlerLeSelecteurDuTitre(page, selecteur, theme, repereDuTitre
   );
 }
 
-/**
- * LA TÊTE RÉDUITE ET LA LARGEUR MOYENNE : titre rapetissé au défilement, le sélecteur reste centré sur lui ; à 1024 px,
- * la recherche garde sa largeur minimale (140 px) et le sélecteur sa place contre le titre.
- */
-async function controlerLaTeteEtLaLargeurMoyenne(page, selecteur, theme) {
-  await capturer(page, `taches-1440-${theme}`);
-  const tete = '[data-tete-de-page-a-grand-titre="accueil-du-projet"]';
-  await page.evaluate((sel) => document.querySelector(sel)?.setAttribute('data-tete-reduite', ''), tete);
-  await page.waitForTimeout(350);
-  const reduite = await page.evaluate((sel) => {
-    const titre = document.querySelector('[data-titre-de-page="accueil-du-projet"]').getBoundingClientRect();
-    const barre = document.querySelector(sel).getBoundingClientRect();
-    return { ecart: Math.round(barre.left - titre.right), centre: Math.abs(barre.top + barre.height / 2 - (titre.top + titre.height / 2)) };
-  }, selecteur);
-  verifier(`(${theme}) tête réduite : le sélecteur reste contre le titre, centré sur lui`, Math.abs(reduite.ecart - 20) <= 2 && reduite.centre <= 2, JSON.stringify(reduite));
-  await capturer(page, `taches-tete-reduite-1440-${theme}`);
-  await page.evaluate((sel) => document.querySelector(sel)?.removeAttribute('data-tete-reduite'), tete);
-  await page.setViewportSize({ width: 1024, height: 800 });
-  await page.waitForTimeout(400);
-  const moyenne = await page.evaluate((sel) => {
-    const titre = document.querySelector('[data-titre-de-page="accueil-du-projet"]').getBoundingClientRect();
-    const barre = document.querySelector(sel).getBoundingClientRect();
-    const recherche = document.querySelector('[data-tete-de-page-a-grand-titre="accueil-du-projet"] [data-recherche-de-la-page]');
-    return { ecart: Math.round(barre.left - titre.right), recherche: recherche ? Math.round(recherche.getBoundingClientRect().width) : null, deborde: document.documentElement.scrollWidth - innerWidth };
-  }, selecteur);
-  verifier(`(${theme}) à 1024 px : sélecteur contre le titre, recherche d’au moins 140 px, rien ne déborde`, Math.abs(moyenne.ecart - 20) <= 2 && (moyenne.recherche === null || moyenne.recherche >= 140) && moyenne.deborde <= 0, JSON.stringify(moyenne));
-  await capturer(page, `taches-1024-${theme}`);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.waitForTimeout(300);
-}
 
 const verifier = (nom, ok, detail = '') => {
   resultats.push(!!ok);
@@ -285,10 +255,11 @@ async function controlerLesTableauxDeBord(page, theme, agentDeLAtelier) {
     await ouvrir(page, 'en-route/agents', '[data-agents-du-projet="tous"] [data-ligne-agent-perso]');
   }
   const lignes = await page.locator('[data-agents-du-projet="tous"] [data-ligne-agent-perso]').count();
-  verifier(`(${theme}) Tableaux de bord : les agents des deux projets (3 lignes)`, lignes === 3, String(lignes));
+  /* LES ÉQUIPES SEMÉES (26/11/2026) s'ajoutent aux agents créés : au moins les trois créés ici. */
+  verifier(`(${theme}) Tableaux de bord : les agents des deux projets (au moins les 3 créés)`, lignes >= 3, String(lignes));
   verifier(
     `(${theme}) Tableaux de bord : la colonne « Projet » nomme Boutique et Atelier`,
-    (await page.locator(`[data-agents-du-projet="tous"] [data-cellule-projet="${PROJET}"]`).count()) === 2 && (await page.locator(`[data-agents-du-projet="tous"] [data-cellule-projet="${AUTRE}"]`).count()) === 1,
+    (await page.locator(`[data-agents-du-projet="tous"] [data-cellule-projet="${PROJET}"]`).count()) >= 2 && (await page.locator(`[data-agents-du-projet="tous"] [data-cellule-projet="${AUTRE}"]`).count()) >= 1,
   );
   const entetes = await page.locator('[data-agents-du-projet="tous"] thead th').allInnerTexts();
   verifier(`(${theme}) Tableaux de bord : en-tête Agent, Projet, Quand il agit, État, Dernière action, Actif`, ['Agent', 'Projet', 'Quand il agit', 'État', 'Dernière action', 'Actif'].every((e) => entetes.some((x) => x.includes(e))) && !entetes.some((x) => x.includes('Ce qu’il fait')), entetes.join(' · '));
@@ -323,7 +294,11 @@ async function controlerLesTableauxDeBord(page, theme, agentDeLAtelier) {
     await page.locator(`[data-tableau-choix-filtre="projet:${AUTRE}"]`).click();
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
-    verifier('Tableaux de bord : le filtre « Projet » ne garde que l’Atelier', (await page.locator('[data-agents-du-projet="tous"] [data-ligne-agent-perso]').count()) === 1 && (await page.locator(`[data-ligne-agent-perso="${agentDeLAtelier}"]`).count()) === 1);
+    /* L'Atelier a aussi son équipe semée (26/11/2026) : le filtre garde ses seules lignes, dont l'agent créé ici. */
+    verifier(
+      'Tableaux de bord : le filtre « Projet » ne garde que l’Atelier',
+      (await page.locator(`[data-agents-du-projet="tous"] [data-cellule-projet="${PROJET}"]`).count()) === 0 && (await page.locator(`[data-ligne-agent-perso="${agentDeLAtelier}"]`).count()) === 1,
+    );
     /* Un clic sur la ligne ouvre l'agent dans son projet. */
     await page.locator(`[data-ligne-agent-perso="${agentDeLAtelier}"]`).click();
     await page.locator('[data-page-agent-perso]').waitFor({ state: 'visible', timeout: 15_000 });
@@ -359,25 +334,27 @@ async function principal() {
       const page = await contexte.newPage();
       const erreurs = [];
       page.on('pageerror', (e) => erreurs.push(String(e).slice(0, 200)));
-      const selecteur = '[data-barre-onglets="accueil-taches-agents"]';
+      /* LA PAGE D'UN PROJET EST CELLE DE SON ÉQUIPE (carte « Beluga piloté par des agents », 26/11/2026) : la barre
+         « Équipe | Tâches » du volet remplace le sélecteur « Tâches | Agents » du grand titre ; l'ancien tableau des
+         agents s'ouvre par « Tableau des agents », dans le menu à trois points. */
+      const selecteur = '[data-barre-onglets="projet-onglets"]';
+      const ouvrirLeTableau = async () => {
+        await ouvrir(page, `projet/${PROJET}`, '[data-gabarit-equipe="projet"]');
+        await page.locator('[data-menu-general]:visible').first().click();
+        await page.locator('[data-option-tableau-des-agents]').first().click();
+        await page.locator('[data-agents-du-projet] [data-ligne-agent-perso]').first().waitFor({ state: 'visible', timeout: 15_000 });
+        await page.waitForTimeout(300);
+      };
 
       if (theme === 'light') {
-        /* 1. « Tâches | Agents » dans la rangée du titre ; « Tâches » montre le tableau des tâches. */
+        /* 1. La page du projet : la discussion de l'équipe, et le volet « Équipe | Tâches ». */
         await ouvrir(page, `projet/${PROJET}`, selecteur);
-        verifier('« Tâches | Agents » est dans la tête du grand titre', (await page.locator(`[data-tete-de-page-a-grand-titre="accueil-du-projet"] ${selecteur}`).count()) === 1);
-        await controlerLeSelecteurDuTitre(page, selecteur, theme);
-        await controlerLaTeteEtLaLargeurMoyenne(page, selecteur, theme);
-        verifier('« Tâches » est choisi et montre le tableau des tâches', (await page.locator(`${selecteur} [data-onglet="taches"][aria-selected="true"]`).count()) === 1 && (await page.locator('[data-tableau-des-taches]').count()) === 1);
+        verifier('la page du projet est celle de son équipe, avec « Équipe | Tâches »', (await page.locator(`${selecteur} [data-onglet]`).count()) === 2 && (await page.locator('[data-table-de-l-equipe]').count()) === 1);
 
-        /* 2. « Agents » : l'adresse, l'état vide, le bouton. */
-        await page.locator(`${selecteur} [data-onglet="agents"]`).click();
-        await page.locator('[data-agents-du-projet]').waitFor({ state: 'visible', timeout: 15_000 });
-        await page.waitForTimeout(300);
-        verifier('« Agents » écrit #projet/<id>/agents', page.url().endsWith(`#projet/${PROJET}/agents`), page.url());
-        verifier('l’état vide dit ce qu’est un agent', await page.locator('[data-agents-vide]').isVisible());
-        const bouton = page.locator('[data-nouvel-agent-perso]').first();
+        /* 2. « Nouvel agent » : en bas du volet, sur toute sa largeur. */
+        const bouton = page.locator('[data-nouvel-agent-de-l-equipe]').first();
         verifier('« Nouvel agent » est le geste principal, en bas de la page', (await bouton.boundingBox())?.y > 700);
-        await capturer(page, `agents-vide-1440-${theme}`);
+        await capturer(page, `agents-equipe-1440-${theme}`);
 
         /* 3. « Nouvel agent » ouvre sa page. */
         await bouton.click();
@@ -390,8 +367,8 @@ async function principal() {
         verifier('« Allumer l’agent » est éteint tant que la fiche est incomplète', await page.locator('[data-agent-perso-allumer]').isDisabled());
         verifier('la conversation a son champ d’écriture', await page.locator('[data-agent-perso-conversation] [data-composer] textarea').first().isVisible());
         verifier('le mot d’accueil invite à dire ce qu’il doit faire', await page.locator('[data-accueil-agent-perso]').isVisible());
-        verifier('le fil d’Ariane dit « Agents / Nouvel agent »', (await page.locator('[data-cran-agents]').count()) >= 1 && (await page.locator(`[data-cran-agent-perso="${premier}"]`).count()) >= 1);
-        const volet = await page.locator('aside[data-agent-perso-volet]').boundingBox();
+        verifier('le fil d’Ariane porte l’agent (visage, prénom, état)', (await page.locator('[data-cran-de-l-agent], [data-cran-agent-perso]').count()) >= 1);
+        const volet = await page.locator('aside[data-volet-equipe="agent"]').boundingBox();
         const conv = await page.locator('[data-agent-perso-conversation]').first().boundingBox();
         verifier('conversation à gauche, configuration à droite', !!volet && !!conv && conv.x < volet.x && volet.x + volet.width >= 1440 - 2, volet ? `${Math.round(volet.x)}+${Math.round(volet.width)}` : '');
         await capturer(page, `agent-nouveau-1440-${theme}`);
@@ -438,17 +415,16 @@ async function principal() {
         verifier('la note de fiche se lit en clair, dans la couleur du texte (pas en jaune)', passage.note && !jaune(passage.couleurNote), passage.couleurNote);
         await capturer(page, `agent-complet-1440-${theme}`);
 
-        /* 5. Le tableau : deux agents, tri, filtre, recherche. */
-        const cran = page.locator('[data-cran-agents]:visible').first();
-        verifier('le cran « Agents » du fil ramène au tableau', (await cran.count()) === 1);
-        await cran.click();
-        await page.locator('[data-agents-du-projet]').waitFor({ state: 'visible', timeout: 15_000 });
+        /* 5. Le tableau (« Tableau des agents », menu à trois points) : tri, filtre, recherche. */
+        await ouvrirLeTableau();
+        verifier('« Tableau des agents » ouvre l’ancien tableau du projet', (await page.locator('[data-agents-du-projet]').count()) === 1);
         await page.locator('[data-nouvel-agent-perso]').first().click();
         await page.locator('[data-page-agent-perso]').waitFor({ state: 'visible', timeout: 30_000 });
         second = decodeURIComponent(page.url().split('/agents/')[1] ?? '');
         await poserUneReponseAValider(premier);
-        await ouvrir(page, `projet/${PROJET}/agents`, '[data-ligne-agent-perso]');
-        verifier('le tableau montre une ligne par agent', (await page.locator('[data-ligne-agent-perso]').count()) === 2);
+        await ouvrirLeTableau();
+        /* Les cinq membres semés de l'équipe, plus les deux agents créés ici. */
+        verifier('le tableau montre une ligne par agent (équipe semée comprise)', (await page.locator('[data-ligne-agent-perso]').count()) === 7);
         const entetes = await page.locator('[data-agents-du-projet] thead th').allInnerTexts();
         verifier('une seule ligne d’en-tête : Agent, Quand il agit, Ce qu’il fait, État, Dernière action, Actif', ['Agent', 'Quand il agit', 'Ce qu’il fait', 'État', 'Dernière action', 'Actif'].every((e) => entetes.some((x) => x.includes(e))), entetes.join(' · '));
         const triAvant = await page.locator('[data-tableau="agents-du-projet"]').getAttribute('data-tableau-tri');
@@ -480,38 +456,32 @@ async function principal() {
         verifier('les six colonnes tiennent dans le cadre à 1440 px', cadre.table <= cadre.cadre + 1, `${cadre.table} / ${cadre.cadre}`);
         await capturer(page, `agents-tableau-1440-${theme}`);
 
-        /* 7. Le choix est retenu pour le projet : rouvrir l'application ailleurs, puis entrer par la colonne, rouvre « Agents ».
-           Une adresse explicite « #projet/<id> », elle, fait foi : les tâches. */
+        /* 7. Entrer par la colonne ouvre la page de l'équipe du projet. */
         await page.goto('about:blank');
         await page.goto(`${BASE}/#tableau-de-bord`, { waitUntil: 'load' });
         const ligneDuProjet = page.locator(`[data-projet-cible="${PROJET}"] a`).first();
         await ligneDuProjet.waitFor({ state: 'visible', timeout: 20_000 });
         await ligneDuProjet.click();
         await page.locator(selecteur).first().waitFor({ state: 'visible', timeout: 15_000 });
-        await page.waitForTimeout(500);
-        verifier('entrer par la colonne rouvre « Agents », le choix retenu pour le projet', (await page.locator(`${selecteur} [data-onglet="agents"][aria-selected="true"]`).count()) === 1);
-        await ouvrir(page, `projet/${PROJET}`, selecteur);
-        verifier('une adresse « #projet/<id> » explicite montre les tâches', (await page.locator(`${selecteur} [data-onglet="taches"][aria-selected="true"]`).count()) === 1);
+        verifier('entrer par la colonne ouvre la page de l’équipe', (await page.locator('[data-gabarit-equipe="projet"]').count()) === 1);
         atelier = await controlerLesTableauxDeBord(page, theme, atelier);
       } else {
         await controlerLesTableauxDeBord(page, theme, atelier);
-        await ouvrir(page, `projet/${PROJET}/agents`, '[data-ligne-agent-perso]');
-        await controlerLeSelecteurDuTitre(page, selecteur, theme);
+        await ouvrirLeTableau();
         await capturer(page, `agents-tableau-1440-${theme}`);
-        await ouvrir(page, `projet/${PROJET}`, selecteur);
-        await controlerLaTeteEtLaLargeurMoyenne(page, selecteur, theme);
       }
       if (theme === 'dark') {
         await ouvrir(page, `projet/${PROJET}/agents/${premier}`, '[data-configuration-agent-perso]');
+
         await capturer(page, `agent-complet-1440-${theme}`);
       }
 
       /* 8. Téléphone. */
       await page.setViewportSize({ width: 390, height: 844 });
-      await ouvrir(page, `projet/${PROJET}/agents`, '[data-ligne-agent-perso]');
+      await ouvrir(page, `projet/${PROJET}`, selecteur);
       await page.waitForTimeout(500);
-      verifier(`téléphone (${theme}) : rien ne déborde sur la liste`, (await debordement(page)) <= 0);
-      await capturer(page, `agents-tableau-390-${theme}`);
+      verifier(`téléphone (${theme}) : rien ne déborde sur la page de l’équipe`, (await debordement(page)) <= 0);
+      await capturer(page, `agents-equipe-390-${theme}`);
       {
         const fonds = await page.evaluate((sel) => {
           const choisi = document.querySelector(`${sel} [aria-selected="true"]`);
@@ -520,17 +490,11 @@ async function principal() {
         const l = luminance(fonds);
         verifier(`téléphone (${theme}) : l’onglet choisi garde l’aplat contrasté`, theme === 'light' ? l >= 0 && l < 0.15 : l > 0.75, fonds);
       }
-      await ouvrir(page, `projet/${PROJET}/agents/${premier}`, '[data-barre-onglets="agent-perso-onglets"]');
-      verifier(`téléphone (${theme}) : la page de l’agent passe en deux onglets`, (await page.locator('[data-barre-onglets="agent-perso-onglets"] [data-onglet]').count()) === 2);
-      {
-        const couleur = await page.evaluate(() => {
-          const choisi = document.querySelector('[data-barre-onglets="agent-perso-onglets"] [aria-selected="true"]');
-          return choisi ? { fond: getComputedStyle(choisi).backgroundColor, variante: choisi.closest('[data-variante-onglets]') !== null } : null;
-        });
-        verifier(`téléphone (${theme}) : les autres barres d’onglets gardent la tenue commune`, !!couleur && !couleur.variante && (theme === 'light' ? luminance(couleur.fond) > 0.5 : luminance(couleur.fond) < 0.5), JSON.stringify(couleur));
-      }
+      await ouvrir(page, `projet/${PROJET}/agents/${premier}`, '[data-barre-onglets="agent-onglets"]');
+      /* « Discussion » puis la fiche (un agent libre sans outil) : deux onglets, la même barre que le projet. */
+      verifier(`téléphone (${theme}) : la page de l’agent passe en deux onglets`, (await page.locator('[data-barre-onglets="agent-onglets"] [data-onglet]').count()) === 2);
       await capturer(page, `agent-conversation-390-${theme}`);
-      await page.locator('[data-barre-onglets="agent-perso-onglets"] [data-onglet="configuration"]').click();
+      await page.locator('[data-barre-onglets="agent-onglets"] [data-onglet="fiche"]').click();
       await page.locator('[data-configuration-agent-perso]').waitFor({ state: 'visible', timeout: 10_000 });
       verifier(`téléphone (${theme}) : la configuration et son pied`, await page.locator('[data-pied-agent-perso]').isVisible());
       verifier(`téléphone (${theme}) : un seul bouton en bas de l’écran`, (await page.locator('[data-pied-agent-perso] button:visible').count()) === 1);
@@ -542,7 +506,7 @@ async function principal() {
       await page.waitForTimeout(400);
       verifier(`téléphone (${theme}) : Tableaux de bord, « Agents » choisi dans la rangée des onglets`, (await page.locator('[data-barre-onglets="tableaux-de-bord"] [data-onglet="agents"][aria-selected="true"]').count()) === 1);
       verifier(`téléphone (${theme}) : Tableaux de bord, une seule rangée d’onglets`, (await page.locator('[data-barre-onglets="tableaux-de-bord-taches-agents"]:visible').count()) === 0);
-      verifier(`téléphone (${theme}) : Tableaux de bord, chaque agent dit son projet`, (await page.locator('[data-agents-du-projet="tous"] [data-projet-de-l-agent]:visible').count()) === 3);
+      verifier(`téléphone (${theme}) : Tableaux de bord, chaque agent dit son projet`, (await page.locator('[data-agents-du-projet="tous"] [data-projet-de-l-agent]:visible').count()) === (await page.locator('[data-agents-du-projet="tous"] [data-ligne-agent-perso]:visible').count()));
       verifier(`téléphone (${theme}) : Tableaux de bord, rien ne déborde`, (await debordement(page)) <= 0);
       await capturer(page, `tableaux-agents-390-${theme}`);
       /* « Nouvel agent » au téléphone : rangé en tête des trois points du haut, il ouvre la liste des projets. */

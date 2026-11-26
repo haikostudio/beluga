@@ -82,7 +82,7 @@ function quand(date: number): string {
 const pluriel = (n: number) => (n > 1 ? t('{v0} tâches', { v0: n }) : t('{v0} tâche', { v0: n }));
 
 /** LES TÂCHES À DÉPLOYER : la même règle que la colonne « À déployer » (pas de média, pas d'étape de suite, pas encore en ligne). */
-function useADeployer(projectId: string): Card[] {
+export function useADeployer(projectId: string): Card[] {
   const state = useApp();
   return React.useMemo(
     () =>
@@ -230,6 +230,66 @@ export function BoutonPublier({ projectId }: { projectId: string }) {
   );
 }
 
+/**
+ * « DÉPLOYER », LE BOUTON NOMMÉ DE LA BARRE D'UN PROJET (carte « Beluga piloté par des agents », 26/11/2026, maquette
+ * #1ff2) : il remplace « Publier » quand le projet a son agent de déploiement. Il dit ce qui attend (« Déployer 2 »),
+ * l'avancement d'une publication qui tourne et le point rouge d'une publication bloquée, comme avant ; un clic OUVRE
+ * L'AGENT DE DÉPLOIEMENT sur son onglet « Mise en ligne » — le même contenu que l'ancien menu, avec son vrai bouton :
+ * rien ne part sans le clic de l'utilisateur. Le moteur d'avant reste monté caché (confirmation de la mise en
+ * production, historique). Sans agent de déploiement (un regroupement, un projet sans équipe) : « Publier » d'avant.
+ */
+export function BoutonDeployer({ projectId, agentDeploiementId, onOuvrir }: { projectId: string; agentDeploiementId: string | null; onOuvrir: () => void }) {
+  const { permis, regroupement } = usePublication(projectId);
+  const aDeployer = useADeployer(projectId);
+  const suivi = useSuiviDePublication(projectId);
+  const mot = motDuBoutonPublier(suivi.vue);
+  const bouton = React.useRef<HTMLButtonElement>(null);
+  /* LA LIGNE DE LA COLONNE (« Déploiement · 45 % ») ET LE MENU GÉNÉRAL demandent « Publier » : c'est l'agent qui s'ouvre. */
+  React.useEffect(() => {
+    if (!agentDeploiementId) return;
+    const ouvrir = (event: Event) => {
+      const vise = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      const visible = !!bouton.current && bouton.current.getClientRects().length > 0;
+      if (!estTelephone() && visible && (!vise || vise === projectId)) onOuvrir();
+    };
+    window.addEventListener(EVENEMENT_OUVRIR_PUBLIER, ouvrir);
+    return () => window.removeEventListener(EVENEMENT_OUVRIR_PUBLIER, ouvrir);
+  }, [projectId, agentDeploiementId, onOuvrir]);
+  if (!permis) return null;
+  if (regroupement || !agentDeploiementId) return <BoutonPublier projectId={projectId} />;
+  const enAttente = aDeployer.length;
+  return (
+    <>
+      <GestesDePublicationDeCarte projectId={projectId} enMenu />
+      <button
+        ref={bouton}
+        type="button"
+        onClick={onOuvrir}
+        className="relative ml-1 flex h-8 shrink-0 items-center gap-2 overflow-hidden rounded-[9px] bg-raised pl-2.5 pr-2.5 text-[13.5px] font-medium text-text transition-colors hover:bg-controle-doux-survol"
+        data-bouton-deployer=""
+        data-bouton-publier=""
+        data-en-attente={enAttente}
+        data-vue-publier={suivi.vue.genre}
+        data-publication-bloquee={suivi.bloquee ? '' : undefined}
+        aria-label="Déployer"
+      >
+        {mot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+        <span className="whitespace-nowrap">{mot ? (suivi.pourcent !== null ? t('{v0} · {v1} %', { v0: t(mot), v1: suivi.pourcent }) : t(mot)) : t('Déployer')}</span>
+        {enAttente && !mot ? (
+          <span className="min-w-[20px] rounded-full bg-important px-1.5 text-center text-[11.5px] font-semibold leading-[20px] text-sur-couleur tabular-nums" data-compte-a-deployer={enAttente}>
+            {enAttente}
+          </span>
+        ) : null}
+        {mot ? (
+          <BarreProgression pourcent={suivi.pourcent} teinte="sur-violet" className="absolute inset-x-0 bottom-0 h-[3px] bg-text/10 [&>span]:opacity-60" data-barre-du-bouton-publier="" />
+        ) : null}
+        {suivi.bloquee ? <span className="absolute right-0.5 top-0.5 h-[9px] w-[9px] rounded-full bg-danger ring-2 ring-bg" data-point-rouge-publier /> : null}
+      </button>
+      <HistoriqueDePublication projectId={projectId} />
+    </>
+  );
+}
+
 /** Le compte affiché sur le geste « Publier » du haut du téléphone. */
 export function useCompteAPublier(projectId: string | null): number {
   const aDeployer = useADeployer(projectId ?? '');
@@ -309,7 +369,7 @@ export function FeuillePublier({ projectId, ouvert, onFermer }: { projectId: str
  * d'étapes d'une publication ou d'une préparation qui tourne (maquette #625e), sinon les deux listes à cocher — avec,
  * au-dessus, l'encadré d'une publication restée bloquée.
  */
-function ContenuPublier({ projectId, onFini }: { projectId: string; onFini: () => void }) {
+export function ContenuPublier({ projectId, onFini }: { projectId: string; onFini: () => void }) {
   const suivi = useSuiviDePublication(projectId, true);
   if (suivi.vue.genre === 'ordinaire') {
     return (

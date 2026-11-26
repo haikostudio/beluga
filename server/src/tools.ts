@@ -2011,6 +2011,23 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'equipe',
+    description:
+      "TON ÉQUIPE (les agents de ton projet et de son groupe). « lister » rend tes collègues : prénom, métier, état. « demander » confie UN travail ou UNE question à un collègue, par son prénom (« a ») avec ta « consigne » : " +
+      "au développement, c'est une tâche du projet (elle part seule s'il est libre avec ses collègues, sinon elle attend un clic) ; à un autre métier, il s'y met seul s'il est libre, et sa réponse paraît dans la discussion de l'équipe et dans ton prochain relais. " +
+      "« tache » (agent de développement SEULEMENT) pose une tâche du projet avec ta « consigne » : elle part seule si tu es libre avec tes collègues, sinon elle attend le clic de l'utilisateur. " +
+      "N'attends pas sa réponse : continue ton travail. Une garde refuse les chaînes trop longues et les allers-retours en boucle. Publier, déployer, mettre en production, envoyer à un client, payer et supprimer ne se demandent JAMAIS ici.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['lister', 'demander', 'tache'] },
+        a: { type: 'string', description: 'Le prénom du collègue (ou son métier : dev, com, marketing, deploiement, production)' },
+        consigne: { type: 'string', description: 'Ce que tu attends de lui, clairement, en une à cinq phrases' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'nommer_la_tache',
     description:
       "LE NOM DE TA TÂCHE, tel qu'il paraît dans la colonne « En cours » et dans le fil d'Ariane : trois à six mots qui disent ce que tu fais en ce moment (« Calendrier de publication de décembre », « Recette de sauvegarde du site »), jamais le seul nom du service. " +
@@ -2463,6 +2480,8 @@ export function outilServiA(nom: string, agentId: string): boolean {
    */
   /* LA FICHE D'UN AGENT PERSONNALISÉ : le seul agent qui la porte (`agents-personnalises.ts`), jamais un autre. */
   if (nom === 'agent_fiche') return estAgentPerso(agentId);
+  /* L'ÉQUIPE (26/11/2026) : tout agent d'équipe — un agent personnalisé —, jamais un autre. */
+  if (nom === 'equipe') return estAgentPerso(agentId);
   /* LE NOM DE LA TÂCHE (26/11/2026) : les agents des services sans fiche (Marketing, Charte, surveillance, sauvegardes,
      sécurité, configuration d'une publication…), jamais un agent de carte ordinaire (`nom-de-la-tache.ts`). */
   if (nom === 'nommer_la_tache') return peutNommerSaTache(agentId);
@@ -4522,6 +4541,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (args.action !== 'ecrire') return { ok: false, text: 'Action : « lire » ou « ecrire » (avec « rubrique » et « valeur »).' };
       const ecrite = perso.ecrireRubriqueDeLAgent(ctx.agentId, String(args.rubrique ?? ''), args.valeur);
       return { ok: ecrite.ok, text: ecrite.texte };
+    }
+
+    case 'equipe': {
+      const { outilEquipe } = await import('./equipe-d-agents.js');
+      return outilEquipe(ctx.agentId, args as Record<string, unknown>);
     }
 
     case 'nommer_la_tache': {

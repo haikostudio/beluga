@@ -255,15 +255,17 @@ try {
     console.log(`  …  erreur de page : ${e.message}`);
   });
 
-  /* ---- L'entrée du menu « Services » (en bas de la colonne depuis le 14/11/2026) ---- */
+  /* ---- L'entrée « Tous les services » du menu à trois points de la colonne (la ligne « Services » a quitté la colonne,
+     carte « Beluga piloté par des agents », 26/11/2026) ---- */
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  const services = page.locator('[data-bouton-services]').first();
+  const services = page.locator('[data-menu-dossier]').first();
   await services.waitFor({ state: 'visible', timeout: 30000 });
   await services.click();
-  await page.locator('[data-menu-des-services]').first().waitFor({ timeout: 8000 });
-  const tuile = page.locator('[data-menu-des-services] [data-service-de-la-colonne="communication2"]');
-  noter('le menu n’a qu’un « Communication », sans « 2 »', (await tuile.count()) === 1 && (await tuile.innerText()).trim().startsWith('Communication') && !(await page.locator('[data-menu-des-services]').first().innerText()).match(/(Communication|Marketing) 2/), await tuile.innerText());
-  noter('le Calendrier n’est plus au menu « Services »', (await page.locator('[data-menu-des-services] [data-service-de-la-colonne="calendrier"]').count()) === 0);
+  await page.locator('[data-tous-les-services]').first().click();
+  await page.locator('[data-tous-les-services-panneau]').first().waitFor({ timeout: 8000 });
+  const tuile = page.locator('[data-tous-les-services-panneau] [data-service-du-menu-colonne="communication2"]');
+  noter('le menu n’a qu’un « Communication », sans « 2 »', (await tuile.count()) === 1 && (await tuile.innerText()).trim().startsWith('Communication') && !(await page.locator('[data-tous-les-services-panneau]').first().innerText()).match(/(Communication|Marketing) 2/), await tuile.innerText());
+  noter('le Calendrier n’est plus au menu des services', (await page.locator('[data-tous-les-services-panneau] [data-service-du-menu-colonne="calendrier"]').count()) === 0);
   await tuile.click();
   /* L'ACCUEIL EST LA LISTE DES PROJETS QUI COMMUNIQUENT (carte « Fil d'Ariane et Communication repensés », 20/11/2026) :
      un projet ouvre ses campagnes, une campagne sa conversation et son suivi. Plus d'onglets Campagnes / Comptes /

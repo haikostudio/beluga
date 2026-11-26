@@ -22,6 +22,7 @@
  */
 import { debutDuJour, decalageFuseau, jourDeSemaineLocal, jourLocal } from './fuseau.js';
 import { REGLE_DE_LA_VALIDATION } from './validation-de-geste.js';
+import type { OutilDAgent, RoleDEquipier } from './equipe-d-agents.js';
 
 /** L'étiquette posée sur la carte d'un agent personnalisé : elle en fait un agent de volet (`agent-de-volet.ts`). */
 export const LABEL_AGENT_PERSO = 'agent-perso';
@@ -247,8 +248,19 @@ export type GesteJamaisPermis = (typeof GESTES_JAMAIS_PERMIS)[number];
  * dans le fil (`shared/src/validation-de-geste.ts`).
  */
 export const GESTES_A_VALIDER: readonly GesteJamaisPermis[] = ['publier', 'envoyer_au_client', 'payer', 'supprimer'];
-/** Ceux-là restent une carte proposée : l'agent n'a ni dépôt ni bouton de publication, et rien ne se lance sans clic. */
+/** Ceux-là ne se font jamais seuls depuis la fiche : l'agent n'a ni dépôt ni bouton de publication. */
 export const GESTES_PAR_CARTE: readonly GesteJamaisPermis[] = ['deployer', 'mettre_en_production', 'lancer_carte', 'modifier_code'];
+/**
+ * DÉPLOYER ET METTRE EN PRODUCTION : LE CLIC DE L'UTILISATEUR, JAMAIS UN AGENT (carte « Beluga piloté par des agents »,
+ * 26/11/2026). L'agent de déploiement prépare et contrôle ; le bouton « Déployer » fait partir la publication existante.
+ */
+export const GESTES_AU_CLIC: readonly GesteJamaisPermis[] = ['deployer', 'mettre_en_production'];
+/**
+ * LE CODE ET LES TÂCHES PASSENT PAR L'ÉQUIPE (décision de l'utilisateur du 26/11/2026, « libres entre eux, réglable agent
+ * par agent ») : un agent les DEMANDE à l'agent de développement de son équipe (outil `equipe`) ; la tâche part seule
+ * si celui-ci est libre avec ses collègues, sinon elle attend un clic dans « Planifié ».
+ */
+export const GESTES_PAR_L_EQUIPE: readonly GesteJamaisPermis[] = ['lancer_carte', 'modifier_code'];
 
 /** Ce que chaque geste veut dire, en mots courants (montré dans le volet, traduit à l'affichage). */
 export const LIBELLE_DU_GESTE: Readonly<Record<GesteJamaisPermis, string>> = {
@@ -298,7 +310,7 @@ export function gesteInterditDans(texte: string): GesteJamaisPermis | null {
 /* ------------------------------------------------------------------ */
 
 /** Ce qui a déclenché une ligne du journal. */
-export type GenreDeLigne = 'creation' | 'allumage' | 'extinction' | 'manuel' | 'horaire' | 'evenement' | 'veille' | 'limite' | 'refus';
+export type GenreDeLigne = 'creation' | 'allumage' | 'extinction' | 'manuel' | 'horaire' | 'evenement' | 'veille' | 'collegue' | 'limite' | 'refus';
 /** Comment le passage s'est terminé. */
 export type IssueDeLigne = 'en_cours' | 'fait' | 'a_valider' | 'panne' | 'pause' | 'ignore' | 'note';
 
@@ -317,7 +329,10 @@ export interface LigneDeJournal {
 
 /** Une ligne qui COMPTE comme un passage (dans la limite et le point du matin). */
 export function estUnPassage(ligne: Pick<LigneDeJournal, 'genre' | 'issue'>): boolean {
-  return (ligne.genre === 'manuel' || ligne.genre === 'horaire' || ligne.genre === 'evenement' || ligne.genre === 'veille') && ligne.issue !== 'ignore';
+  return (
+    (ligne.genre === 'manuel' || ligne.genre === 'horaire' || ligne.genre === 'evenement' || ligne.genre === 'veille' || ligne.genre === 'collegue') &&
+    ligne.issue !== 'ignore'
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -474,6 +489,15 @@ export interface AgentPerso {
   prochainPassage: number | null;
   /** La limite est atteinte pour la période en cours : l'agent est en pause jusqu'à la suivante. */
   enPauseLimite: boolean;
+  /*
+   * L'ÉQUIPE (carte « Beluga piloté par des agents », 26/11/2026) : son métier, son visage, sa couleur, ses outils
+   * (onglets de son volet), et s'il travaille SEUL quand un collègue le sollicite (« libre avec ses collègues »).
+   */
+  role: RoleDEquipier;
+  portrait: string | null;
+  couleur: string;
+  outils: OutilDAgent[];
+  autonome: boolean;
 }
 
 export const ETATS_AFFICHES = ['au_travail', 'a_valider', 'pause_limite', 'en_veille', 'eteint', 'brouillon'] as const;
@@ -582,7 +606,8 @@ export function ficheEnTexte(fiche: FicheDAgent): string {
     `CE QU'IL DEMANDE AVANT D'AGIR :\n${liste(fiche.demandeAccord, '(rien)')}`,
     `CE QU'IL NE FAIT JAMAIS :\n${liste(fiche.jamais, '(rien de plus que les gestes par carte)')}`,
     `GESTES À VALIDER (capture puis « Valider » dans le fil, puis tu le fais TOI-MÊME) : ${GESTES_A_VALIDER.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')}`,
-    `GESTES PAR CARTE (proposés avec board_create_card, jamais toi-même) : ${GESTES_PAR_CARTE.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')} — un projet de Beluga, pas un site tiers`,
+    `GESTES AU CLIC DE L'UTILISATEUR (ni toi, ni une carte) : ${GESTES_AU_CLIC.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')} — un projet de Beluga, pas un site tiers : l'agent de déploiement les prépare, le bouton « Déployer » les fait partir`,
+    `CODE ET TÂCHES (par l'équipe) : ${GESTES_PAR_L_EQUIPE.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')} — demande-les à l'agent de développement avec l'outil « equipe » (« demander ») ; sans agent de développement, propose une carte avec board_create_card`,
     `CE QU'IL EMPORTE : ${emporte}`,
     `SA LIMITE : ${limite}`,
   ].join('\n');
@@ -602,7 +627,8 @@ export const CONSIGNE_DE_L_AGENT_PERSO = [
   '5. NE QUESTIONNE QUE SUR LE FOND, ce que ni tes outils ni ton métier ne tranchent (la cible, l’offre, le ton, un budget) : une question à la fois, ta réponse conseillée en tête. Chaque réponse se termine par l’étape suivante que tu proposes ou par cette question, jamais par « dites-moi si… ».',
   'Une fois la fiche complète, dis-le en une phrase et invite à cliquer « Allumer l’agent ». Tu ne te dis JAMAIS allumé, ni au travail, avant ce clic.',
   REGLE_DE_LA_VALIDATION +
-    ' Les gestes de ta rubrique « demande » passent aussi par cette validation. Une réponse à une demande de la messagerie se PRÉPARE (service messagerie, « préparer une réponse ») : son bouton « Envoyer au client » est déjà sa validation. RESTENT HORS DE TA MAIN, même demandés : modifier le code, lancer une tâche, mettre en ligne ou en production un PROJET DE BELUGA — ils se PROPOSENT en carte avec board_create_card (elle arrive dans « Planifié » ; ne pose jamais de date de départ). Enregistrer un profil, une page ou une fiche sur un site tiers n’est PAS une mise en ligne de projet : c’est un geste à valider, que tu fais toi-même.',
+    ' Les gestes de ta rubrique « demande » passent aussi par cette validation. Une réponse à une demande de la messagerie se PRÉPARE (service messagerie, « préparer une réponse ») : son bouton « Envoyer au client » est déjà sa validation. RESTENT HORS DE TA MAIN, même demandés : mettre en ligne ou en production un PROJET DE BELUGA — c’est le clic « Déployer » de l’utilisateur. LE CODE ET LES TÂCHES PASSENT PAR L’ÉQUIPE : modifier le code ou lancer une tâche se DEMANDE à l’agent de développement (outil « equipe », geste « demander ») ; sans agent de développement, propose une carte avec board_create_card (elle arrive dans « Planifié » ; ne pose jamais de date de départ). Enregistrer un profil, une page ou une fiche sur un site tiers n’est PAS une mise en ligne de projet : c’est un geste à valider, que tu fais toi-même.',
+  'TU FAIS PARTIE D’UNE ÉQUIPE (ton projet, et le groupe de projets s’il y en a un). Outil « equipe » : « lister » rend tes collègues (prénom, métier, état) ; « demander » confie un travail ou une question à UN collègue, par son prénom — il s’y met seul s’il est libre avec ses collègues, et sa réponse paraît dans la discussion de l’équipe et dans ton prochain relais. Demande ce qui relève de son métier, une fois, clairement ; ne relance pas en boucle, et ne redemande pas ce qu’il vient de te répondre.',
   'ACCÈS : ta fiche ne porte que des NOMS de fiches du coffre-fort, jamais une valeur. Lis une valeur avec l’outil coffre_fort au moment où tu en as besoin, et ne la recopie nulle part (ni dans la fiche, ni dans une réponse).',
   'À CHAQUE PASSAGE (déclenché à la main, à heure fixe ou par un événement) : relis ton objectif et ton journal, fais ta mission dans ton cadre, puis dis où en est l’objectif (le chiffre atteint face à la cible) et la prochaine étape que tu proposes. Une décision qui revient à l’utilisateur se pose par « ask_user », À LA FIN du passage, une fois le reste de ta mission fait : elle l’attend dans sa cloche et t’arrête jusqu’à sa réponse. Quand les résultats s’écartent de l’objectif, PROPOSE un plan revu de la même façon, et ne réécris ta fiche qu’après son accord. Termine par UNE phrase de compte rendu qui commence par « Fait : », « À valider : » (une question ou une réponse préparée t’attend) ou « Rien à faire : ». Cette phrase entre au journal.',
 ].join('\n');
@@ -613,7 +639,11 @@ export function contexteDeLAgentPerso(entree: {
   fiche: FicheDAgent;
   actif: boolean;
   journal: readonly LigneDeJournal[];
-  passage?: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string } | null;
+  passage?: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string; de?: string } | null;
+  /** L'ÉQUIPE (26/11/2026) : son métier, ses collègues et les derniers échanges qui le concernent. */
+  role?: string;
+  equipe?: readonly { prenom: string; metier: string; etat: string; libre: boolean }[];
+  echanges?: readonly { de: string; a: string; texte: string; date: number }[];
 }): string {
   const lignes = [...entree.journal]
     .sort((a, b) => b.date - a.date)
@@ -631,6 +661,24 @@ export function contexteDeLAgentPerso(entree: {
     'TON JOURNAL (le plus récent d’abord) :',
     lignes.length ? lignes.join('\n') : '(vide)',
   ];
+  if (entree.role) bloc.splice(4, 0, `TON MÉTIER DANS L’ÉQUIPE : ${entree.role}.`);
+  if (entree.equipe?.length) {
+    bloc.push(
+      '',
+      'TES COLLÈGUES (outil « equipe » pour leur demander quelque chose) :',
+      ...entree.equipe.map((m) => `- ${m.prenom} · ${m.metier} · ${m.etat}${m.libre ? '' : ' · ne travaille pas seul sur la demande d’un collègue'}`),
+    );
+  }
+  if (entree.echanges?.length) {
+    bloc.push(
+      '',
+      'LES DERNIERS ÉCHANGES QUI TE CONCERNENT (le plus récent d’abord) :',
+      ...[...entree.echanges]
+        .sort((a, b) => b.date - a.date)
+        .slice(0, 8)
+        .map((e) => `- ${new Date(e.date).toISOString().slice(0, 16).replace('T', ' ')} · ${e.de} → ${e.a} : ${e.texte.replace(/\s+/g, ' ').slice(0, 400)}`),
+    );
+  }
   if (entree.passage) {
     const quoi =
       entree.passage.genre === 'evenement' && entree.passage.source
@@ -639,7 +687,9 @@ export function contexteDeLAgentPerso(entree: {
           ? 'ton heure fixe'
           : entree.passage.genre === 'veille'
             ? 'ta surveillance'
-            : 'un clic « Lancer maintenant »';
+            : entree.passage.genre === 'collegue'
+              ? `une demande de ton collègue ${entree.passage.de ?? ''}`.trim()
+              : 'un clic « Lancer maintenant »';
     bloc.push('', `CE PASSAGE : déclenché par ${quoi}.`);
     if (entree.passage.details?.trim()) bloc.push(`DÉTAIL : ${entree.passage.details.trim().slice(0, 1500)}`);
   }

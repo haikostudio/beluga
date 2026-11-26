@@ -5931,6 +5931,75 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true };
     }
 
+    /* -------- L'équipe d'agents d'un projet et d'un groupe (`server/src/equipe-d-agents.ts`) -------- */
+
+    case 'equipe.lire': {
+      const projectId = String(cmd.projectId ?? '');
+      if (!store.getProject(projectId)) throw new Error('projet introuvable');
+      const { equipeDuProjet } = await import('./equipe-d-agents.js');
+      return await equipeDuProjet(projectId);
+    }
+
+    case 'equipe.outil': {
+      const projectId = String(cmd.projectId ?? '');
+      if (!store.getProject(projectId)) throw new Error('projet introuvable');
+      const { apercuDeLOutil } = await import('./equipe-d-agents.js');
+      return await apercuDeLOutil(projectId, String(cmd.outil ?? ''), compte);
+    }
+
+    case 'equipe.toutes': {
+      /* LA COLONNE : les équipes des projets que la session voit, en léger, sans semis ni attente. */
+      const { equipesEnLeger } = await import('./equipe-d-agents.js');
+      const projets = store
+        .listProjects(false)
+        .filter((projet) => !projet.marqueSansDepot && peutVoirProjet(compte, projet.id))
+        .map((projet) => projet.id);
+      return { membres: equipesEnLeger(projets) };
+    }
+
+    case 'equipe.ecrire': {
+      const projectId = String(cmd.projectId ?? '');
+      const projet = store.getProject(projectId);
+      if (!projet) throw new Error('projet introuvable');
+      if (projetFigeParLArchive(projet)) throw new Error(TEXTE_PROJET_ARCHIVE);
+      const { ecrireALEquipe, titreDeTache } = await import('./equipe-d-agents.js');
+      /* UN MESSAGE AU DÉVELOPPEMENT OUVRE UNE TÂCHE PAR LE CHEMIN ORDINAIRE : la carte naît en cadrage (comme
+         « Nouvelle tâche »), puis le message part à son cadrage comme s'il avait été tapé dans la carte. */
+      const ouvrirUneTache = async (projetDeLaTache: string, texte: string): Promise<string> => {
+        const cree = (await handleCommand({ type: 'card.create', projectId: projetDeLaTache, title: titreDeTache(texte), description: '', cadrage: true } as ClientEnvelope['cmd'], compte)) as {
+          card: { id: string };
+          agent?: { id: string };
+        };
+        if (cree.agent && process.env.BELUGA_AGENTS_PERSO_SANS_MOTEUR !== '1') {
+          await handleCommand({ type: 'agent.prompt', agentId: cree.agent.id, text: texte } as ClientEnvelope['cmd'], compte).catch((err) =>
+            log.warn('équipe : premier message de la tâche non parti', err),
+          );
+        }
+        return cree.card.id;
+      };
+      return await ecrireALEquipe(projectId, String(cmd.texte ?? ''), String(cmd.cible ?? 'equipe'), ouvrirUneTache);
+    }
+
+    case 'equipe.regler': {
+      const { reglerLeMembre } = await import('./equipe-d-agents.js');
+      return { agent: reglerLeMembre(String(cmd.projectId ?? ''), String(cmd.id ?? ''), cmd.reglage ?? {}) };
+    }
+
+    case 'equipe.nouveau': {
+      const projectId = String(cmd.projectId ?? '');
+      const projet = store.getProject(projectId);
+      if (!projet) throw new Error('projet introuvable');
+      if (projetFigeParLArchive(projet)) throw new Error(TEXTE_PROJET_ARCHIVE);
+      const { nouveauMembre } = await import('./equipe-d-agents.js');
+      return { agent: await nouveauMembre(projectId, cmd.relieA ?? null) };
+    }
+
+    case 'agentsPerso.conversation': {
+      const perso = await import('./agents-personnalises.js');
+      const agentId = await perso.ouvrirLaConversation(String(cmd.projectId ?? ''), String(cmd.id ?? ''));
+      return { agentId, agent: store.getAgent(agentId) };
+    }
+
     case 'securite.lister': {
       const { listerProjetsSuivis } = await import('./service-securite.js');
       return { projets: listerProjetsSuivis() };

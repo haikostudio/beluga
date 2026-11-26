@@ -7,12 +7,13 @@ import {
   etatDuBoutonDeConfiguration,
   gesteDuBoutonDEtape,
   leClicLanceLAgent,
+  MESSAGE_REFAIRE_L_INITIALISATION,
   processusDeLEtape,
   procedureEnPlace,
   type CiblePublication,
   type EtatProcedure,
 } from '@beluga/shared';
-import { Button, Drawer, EnteteDeFeuille } from '@/components/ui';
+import { Button, ConfirmDialog, Drawer, EnteteDeFeuille } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
 import { SilhouetteConversation } from '@/components/silhouettes';
@@ -87,13 +88,19 @@ export function useCheminVersLAgentDeConfiguration(projectId: string, cible: Cib
  *
  * Rien ne part tout seul à la simple visite : sans agent, le tiroir s'ouvre
  * sur une phrase et un second bouton lance le premier tour — SAUF quand le
- * clic est celui du bouton « Initialiser » OU « Reconfigurer » (`lancer`,
- * `leClicLanceLAgent`) : ce clic est le geste, le premier tour part avec
- * l'ouverture, sans second clic (16/10/2026, « Reconfigurer » le 21/10/2026).
- * Le bouton du tiroir reste pour les autres entrées, où l'agent étudie
- * le projet puis pose ses questions (`ask_user`, affichée dans ce fil). Un
- * agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit par la
- * barre, et le serveur y joint ce qu'il doit savoir (`contexteDeConfiguration`).
+ * clic est celui du bouton « Initialiser » (`lancer`, `leClicLanceLAgent`) :
+ * ce clic est le geste, le premier tour part avec l'ouverture, sans second
+ * clic (16/10/2026). Le bouton du tiroir reste pour les autres entrées, où
+ * l'agent étudie le projet puis pose ses questions (`ask_user`, affichée dans
+ * ce fil). Un agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit
+ * par la barre, et le serveur y joint ce qu'il doit savoir.
+ *
+ * « REFAIRE L'INITIALISATION » N'OUVRE PLUS AUCUN TIROIR (décision de l'utilisateur du 26/11/2026, « pourquoi ce
+ * bouton ouvre un drawer ? ») : le clic demande confirmation (`ConfirmDialog`), puis relance l'agent EN SILENCE par
+ * `procedure.tour` AVEC un message (`MESSAGE_REFAIRE_L_INITIALISATION`) — sans message, le serveur ne relance jamais
+ * un agent qui a déjà parlé. Le bouton passe aussitôt « Agent au travail… » ; sa question éventuelle s'ouvre au
+ * centre (`QuestionDeConfiguration`), et « Répondre à l'agent » ouvre toujours sa conversation. Les autres états
+ * (initialiser, travail, question) gardent leur geste : le tiroir.
  */
 export function BoutonAgentDeConfiguration({
   projectId,
@@ -110,13 +117,41 @@ export function BoutonAgentDeConfiguration({
     auTravail,
     question,
   });
+  const [confirmer, setConfirmer] = React.useState(false);
+  const [envoi, setEnvoi] = React.useState(false);
+  const [erreur, setErreur] = React.useState<string | null>(null);
+  /* La relance silencieuse : le bouton dit son attente dès le clic, et ne se double pas. */
+  const relancer = () => {
+    if (envoi) return;
+    setErreur(null);
+    setEnvoi(true);
+    void client
+      .call<{ etat?: EtatProcedure }>({
+        type: 'procedure.tour',
+        projectId,
+        cible,
+        message: MESSAGE_REFAIRE_L_INITIALISATION[cible],
+      })
+      .then((res) => {
+        if (res?.etat) client.majProcedure(projectId, cible, res.etat);
+        if (res?.etat?.raison && !res.etat.enCours) setErreur(res.etat.raison);
+      })
+      .catch((err: unknown) => setErreur(err instanceof Error ? err.message : String(err)))
+      .finally(() => setEnvoi(false));
+  };
+  const attente = etat === 'travail' || envoi;
   return (
+    <>
     <Button
       variant="default"
       size="pied"
-      disabled={!!voile}
+      disabled={!!voile || envoi}
+      aria-busy={envoi || undefined}
       title={voile ?? undefined}
-      onClick={() => ouvrirAgentDeConfiguration(projectId, cible, { lancer: leClicLanceLAgent(etat) })}
+      onClick={() => {
+        if (etat === 'reconfigurer') return setConfirmer(true);
+        ouvrirAgentDeConfiguration(projectId, cible, { lancer: leClicLanceLAgent(etat) });
+      }}
       data-agent-configuration={cible}
       data-ouvrir-agent-configuration={cible}
       data-etat-bouton-agent={etat}
@@ -125,7 +160,7 @@ export function BoutonAgentDeConfiguration({
       data-bouton-agent-plein
       className="shrink-0 justify-center"
     >
-      {etat === 'travail' ? (
+      {attente ? (
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
       ) : (
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
@@ -133,17 +168,38 @@ export function BoutonAgentDeConfiguration({
       <span className="truncate">
         {/* UN SEUL BOUTON, QUI DIT CE QU'IL FAIT (13/11/2026) : « Initialiser le déploiement / la mise en production »,
             puis « Refaire l'initialisation » une fois l'étape prête. */}
-        {etat === 'initialiser'
-          ? cible === 'dev'
-            ? t('Initialiser le déploiement')
-            : t('Initialiser la mise en production')
-          : etat === 'reconfigurer'
-            ? t('Refaire l’initialisation')
-            : t(LIBELLE_BOUTON_DE_CONFIGURATION[etat])}
+        {envoi
+          ? t(LIBELLE_BOUTON_DE_CONFIGURATION.travail)
+          : etat === 'initialiser'
+            ? cible === 'dev'
+              ? t('Initialiser le déploiement')
+              : t('Initialiser la mise en production')
+            : etat === 'reconfigurer'
+              ? t('Refaire l’initialisation')
+              : t(LIBELLE_BOUTON_DE_CONFIGURATION[etat])}
       </span>
     </Button>
+    {erreur ? (
+      <p className="text-[13px] leading-snug text-danger" role="alert" data-erreur-refaire-initialisation={cible}>
+        {erreur}
+      </p>
+    ) : null}
+    <ConfirmDialog
+      open={confirmer}
+      title={t('Refaire l’initialisation ?')}
+      description={
+        cible === 'dev'
+          ? t('L’agent relit le projet, vérifie la marche à suivre du déploiement et refait un essai, sans rien mettre en ligne.')
+          : t('L’agent relit le projet, vérifie la marche à suivre de la mise en production et refait un essai, sans rien envoyer chez le client.')
+      }
+      confirmLabel={t('Relancer')}
+      onConfirm={relancer}
+      onClose={() => setConfirmer(false)}
+    />
+    </>
   );
 }
+
 
 /** Le tiroir de l'agent, monté une fois en haut de l'application. */
 export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAgentDeConfiguration | null }) {

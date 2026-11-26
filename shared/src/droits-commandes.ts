@@ -119,6 +119,10 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'agents.famille': 'aucun',
   'agents.chefsDuProjet': 'projet:projectId',
   'agentsPerso.lire': 'projet:projectId',
+  'equipe.lire': 'projet:projectId',
+  'equipe.outil': 'projet:projectId',
+  // Le démon ne lit que les projets ouverts au compte (`peutVoirProjet`).
+  'equipe.toutes': 'aucun',
   // Le démon ne lit que les projets ouverts au compte (`peutVoirProjet`) : la réponse est déjà sa part.
   'agentsPerso.listerTout': 'aucun',
   'projects.relire': 'projet:ids',
@@ -213,6 +217,12 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'agentsPerso.eteindre': 'projet:projectId',
   'agentsPerso.lancer': 'projet:projectId',
   'agentsPerso.supprimer': 'projet:projectId',
+  /* L'ÉQUIPE (26/11/2026) : écrire à l'équipe, régler un membre, en créer un, ouvrir sa conversation — mêmes droits
+     que les cartes du projet ; le démon revérifie que le membre visé est de ce projet (ou de son groupe). */
+  'equipe.ecrire': 'projet:projectId',
+  'equipe.regler': 'projet:projectId',
+  'equipe.nouveau': 'projet:projectId',
+  'agentsPerso.conversation': 'projet:projectId',
   'card.update': 'carte:id',
   'card.move': 'carte:id',
   'card.delete': 'carte:id',
@@ -333,6 +343,8 @@ export const ROUTES_API_CLIENT: readonly string[] = [
   '/api/download',
   '/api/erreur',
   '/api/usage',
+  // L'espace qui ne se relie pas depuis 30 s le signale ici, par HTTP (`espace-connexion-bloquee.ts`).
+  '/api/espace/blocage',
   '/api/push/subscribe',
   '/api/push/unsubscribe',
 ];

@@ -679,7 +679,7 @@ async function auNavigateur() {
                   if (violet && element.closest(CHOISI)) continue;
                   /* Le point d'alerte de « Voir plus », en bas de la colonne : le point violet de la Messagerie s'y reporte
                      (maquette validée du 14/11/2026, carte « Onglets, services et listes repensés »). */
-                  if (violet && element.closest('[data-voir-plus-services] [data-alerte-navigation]')) continue;
+                  if (violet && element.closest('[data-menu-dossier] [data-alerte-navigation]')) continue;
                   // Le bouton groupé « Tableaux de bord » + services, en tête de la colonne (30/10/2026).
                   if (violet && element.closest('[data-bouton-violet]')) continue;
                   /* Le jaune du cadre d'une question : sa bordure seule (25/10/2026). */

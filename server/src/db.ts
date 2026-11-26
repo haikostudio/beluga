@@ -5799,6 +5799,45 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_ordinateurs_machine ON ordinateurs(compte_id, machine);
     `,
   },
+  {
+    id: 194,
+    name: 'equipes-d-agents',
+    siTable: ['agents_perso'],
+    /*
+     * L'ÉQUIPE D'AGENTS D'UN PROJET ET D'UN GROUPE (carte « Beluga piloté par des agents », 26/11/2026,
+     * `shared/src/equipe-d-agents.ts`). Sur `agents_perso` : le MÉTIER (`role` : dev, com, marketing, deploiement,
+     * production, libre), le PORTRAIT (identifiant de la réserve, ou adresse d'une photo téléversée), la COULEUR
+     * (« #rrggbb », NULL : celle du portrait), les OUTILS choisis d'un agent libre (JSON) et l'interrupteur « libre avec
+     * ses collègues » (`autonome`, 1 par défaut : décision de l'utilisateur). Un agent de GROUPE est un agent dont
+     * `project_id` désigne le projet-regroupement. `agents_echanges` : le JOURNAL DES ÉCHANGES entre agents et avec
+     * l'utilisateur, en ajout seul — il nourrit la discussion d'équipe et les liaisons de la table. `equipes_semis` :
+     * les rôles par défaut RETIRÉS par l'utilisateur (le rattrapage ne les resème pas). Additif.
+     */
+    sql: `
+      ALTER TABLE agents_perso ADD COLUMN role TEXT;
+      ALTER TABLE agents_perso ADD COLUMN portrait TEXT;
+      ALTER TABLE agents_perso ADD COLUMN couleur TEXT;
+      ALTER TABLE agents_perso ADD COLUMN outils TEXT;
+      ALTER TABLE agents_perso ADD COLUMN autonome INTEGER NOT NULL DEFAULT 1;
+      CREATE TABLE IF NOT EXISTS agents_echanges (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        de TEXT NOT NULL,
+        a TEXT NOT NULL,
+        texte TEXT NOT NULL,
+        date INTEGER NOT NULL,
+        card_id TEXT,
+        en_reponse_a TEXT,
+        profondeur INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_agents_echanges_projet ON agents_echanges(project_id, date DESC);
+      CREATE TABLE IF NOT EXISTS equipes_semis (
+        project_id TEXT PRIMARY KEY,
+        retires TEXT NOT NULL DEFAULT '[]',
+        semee_le INTEGER
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

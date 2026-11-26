@@ -27,7 +27,7 @@ const AIR_AU_DESSUS_DE_JARVIS = 12;
  * …ET AU-DESSUS DU PIED D'UN VOLET (carte « Extension, rapport SEO-GEO et menus », 21/11/2026) : le bouton pleine
  * largeur d'un pied de volet (`[data-pied-du-volet]`) passait sous le rond au coin bas droit. Un pied visible qui
  * occupe la colonne du rond, près du bas de l'écran, le fait remonter au-dessus de lui : rien ne recouvre jamais un
- * bouton de pied.
+ * bouton de pied. Le pied « Nouvel artefact » de la page d'un projet (`page-du-projet.tsx`, 26/11/2026) aussi.
  */
 function useBasAuDessusDeJarvis(coin = 16, largeur = 48): number | null {
   const [bas, setBas] = React.useState<number | null>(null);
@@ -43,7 +43,7 @@ function useBasAuDessusDeJarvis(coin = 16, largeur = 48): number | null {
         if (pile && pile.height > 0) haut = Math.min(haut, pile.top);
       }
       const gaucheDuRond = window.innerWidth - coin - largeur;
-      for (const pied of document.querySelectorAll<HTMLElement>('[data-pied-du-volet]')) {
+      for (const pied of document.querySelectorAll<HTMLElement>('[data-pied-du-volet], [data-nouvel-artefact-pied-projet]')) {
         const boite = pied.getBoundingClientRect();
         if (boite.width <= 0 || boite.height <= 0) continue;
         if (boite.right <= gaucheDuRond || boite.bottom < window.innerHeight - 160) continue;

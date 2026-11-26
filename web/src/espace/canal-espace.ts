@@ -9,7 +9,13 @@
  * savoir si le lien répond encore — un battement régulier le vérifie, et c'est
  * lui qui décide de l'état affiché.
  */
-import type { ClientCommand, ServerEvent } from '@beluga/shared';
+import {
+  DELAI_OUVERTURE_DU_CANAL,
+  delaiRestantAvantAbandonDeLOuverture,
+  repliDuCanal,
+  type ClientCommand,
+  type ServerEvent,
+} from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { estEnVeille, surLaVeille } from '@/lib/veille';
 
@@ -30,6 +36,19 @@ class CanalEspace {
   private etatCourant: EtatCanalEspace = 'connexion';
   private surEtat = new Set<(etat: EtatCanalEspace) => void>();
   private ouvert = false;
+  /** Le plafond de la tentative en cours, et la reprise planifiée après une coupure. */
+  private minuteurOuverture: number | null = null;
+  private minuteurReprise: number | null = null;
+  /** Coupures d'affilée depuis la dernière liaison réussie : elles règlent le repli. */
+  private tentatives = 0;
+  /**
+   * DEPUIS QUAND L'ESPACE N'A PLUS SA LIAISON — compté jusqu'à ce que l'identité
+   * (`ready.client`) revienne, pas seulement jusqu'à l'ouverture du socket.
+   * `null` : tout va bien, ou la page dort (une veille n'est pas un blocage).
+   * C'est sur lui que l'écran compte ses 30 s (`espace-connexion-bloquee.ts`).
+   */
+  private sansLiaison: number | null = null;
+  private surLiaison = new Set<() => void>();
 
   ouvrir(): void {
     if (this.ouvert) return;
@@ -40,35 +59,115 @@ class CanalEspace {
     this.connecter();
   }
 
+  /** L'instant depuis lequel l'espace attend sa liaison, ou `null`. */
+  sansLiaisonDepuis(): number | null {
+    return this.sansLiaison;
+  }
+
+  surChangementDeLiaison(abonne: () => void): () => void {
+    this.surLiaison.add(abonne);
+    return () => this.surLiaison.delete(abonne);
+  }
+
+  private poserSansLiaison(instant: number | null): void {
+    if (this.sansLiaison === instant) return;
+    this.sansLiaison = instant;
+    for (const abonne of this.surLiaison) abonne();
+  }
+
+  /**
+   * « RÉESSAYER » : la tentative en cours est abandonnée (elle peut être
+   * suspendue par le navigateur sans jamais échouer), le repli est oublié, et
+   * une connexion neuve part tout de suite. Le compte des 30 s repart de zéro.
+   */
+  reessayer(): void {
+    this.abandonnerLeSocket();
+    this.annulerLesMinuteurs();
+    this.tentatives = 0;
+    this.poserSansLiaison(Date.now());
+    this.poserEtat('connexion');
+    this.connecter();
+  }
+
+  /** Détache les gestionnaires AVANT de fermer : l'ancien `onclose` ne relancera rien. */
+  private abandonnerLeSocket(): void {
+    const socket = this.socket;
+    this.socket = null;
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    try {
+      socket.close(1000);
+    } catch {
+      /* déjà fermé */
+    }
+  }
+
+  private annulerLesMinuteurs(): void {
+    if (this.minuteurOuverture !== null) window.clearTimeout(this.minuteurOuverture);
+    if (this.minuteurReprise !== null) window.clearTimeout(this.minuteurReprise);
+    this.minuteurOuverture = null;
+    this.minuteurReprise = null;
+  }
+
+  /** Après une coupure : la tentative suivante attend un repli croissant et plafonné. */
+  private planifierLaReprise(): void {
+    if (!this.ouvert || estEnVeille() || this.minuteurReprise !== null) return;
+    const delai = repliDuCanal(this.tentatives);
+    this.tentatives += 1;
+    this.minuteurReprise = window.setTimeout(() => {
+      this.minuteurReprise = null;
+      this.connecter();
+    }, delai);
+  }
+
   /** La veille (`lib/veille.ts`) : une fermeture VOULUE, jamais dite « coupée ». */
   private dormir(): void {
     if (this.minuteur !== null) window.clearInterval(this.minuteur);
     this.minuteur = null;
-    const socket = this.socket;
-    this.socket = null;
-    if (socket) {
-      socket.onopen = null;
-      socket.onclose = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      try {
-        socket.close(1000);
-      } catch {
-        /* déjà fermé */
-      }
-    }
+    this.annulerLesMinuteurs();
+    this.abandonnerLeSocket();
+    this.tentatives = 0;
     this.poserEtat('connexion');
+    this.poserSansLiaison(null);
   }
 
   private connecter(): void {
     if (estEnVeille()) return;
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) return;
+    if (this.sansLiaison === null) this.poserSansLiaison(Date.now());
     const protocole = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocole}//${location.host}/ws`);
     this.socket = socket;
     this.poserEtat('connexion');
 
+    /*
+     * UNE OUVERTURE QUI NE S'ACHÈVE PAS EST ABANDONNÉE. Le battement ne
+     * regarde qu'un canal OUVERT : une tentative suspendue par le navigateur
+     * (réseau, antivirus, connexion précédente restée pendue) laissait l'écran
+     * sur « Connexion à votre espace… » sans fin. Passé le plafond, elle est
+     * détachée, fermée, et une neuve part après le repli.
+     */
+    const ouverteA = Date.now();
+    const surveiller = (delai: number) => {
+      this.minuteurOuverture = window.setTimeout(() => {
+        this.minuteurOuverture = null;
+        if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+        const reste = delaiRestantAvantAbandonDeLOuverture(ouverteA, Date.now());
+        if (reste > 0) return surveiller(reste);
+        this.abandonnerLeSocket();
+        this.poserEtat('coupe');
+        this.planifierLaReprise();
+      }, delai);
+    };
+    surveiller(DELAI_OUVERTURE_DU_CANAL);
+
     socket.onopen = () => {
+      if (this.minuteurOuverture !== null) window.clearTimeout(this.minuteurOuverture);
+      this.minuteurOuverture = null;
+      this.tentatives = 0;
       this.dernierSigne = Date.now();
       this.poserEtat('en-ligne');
       this.envoyer({ type: 'hello', protocol: 1 });
@@ -90,11 +189,18 @@ class CanalEspace {
         }
         return;
       }
+      // L'IDENTITÉ EST REVENUE : la liaison est complète, le compte des 30 s s'arrête.
+      if (event.type === 'ready.client') this.poserSansLiaison(null);
       for (const ecouteur of this.ecouteurs) ecouteur(event);
     };
     socket.onclose = () => {
+      if (this.socket !== socket) return;
+      if (this.minuteurOuverture !== null) window.clearTimeout(this.minuteurOuverture);
+      this.minuteurOuverture = null;
+      this.socket = null;
       this.poserEtat('coupe');
-      if (this.ouvert) window.setTimeout(() => this.connecter(), 1500);
+      if (this.sansLiaison === null) this.poserSansLiaison(Date.now());
+      this.planifierLaReprise();
     };
     socket.onerror = () => socket.close();
 

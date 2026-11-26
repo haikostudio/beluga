@@ -49,12 +49,17 @@ import {
   type LigneDeJournal,
   type PointDuMatin,
   type SourceDEvenement,
+  couleurDeLAgent,
+  outilsDeLAgent,
+  roleDEquipierLu,
+  type RoleDEquipier,
 } from '@beluga/shared';
 import { bus } from './bus.js';
 import { reglageDeConversation } from './puissance-des-agents.js';
 import { getDb } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
+import { contexteDEquipe } from './equipe-d-agents.js';
 
 /* ------------------------------------------------------------------ */
 /* Lignes de base                                                      */
@@ -71,6 +76,12 @@ interface LigneAgent {
   mis_a_jour_le: number;
   allume_le: number | null;
   dernier_horaire: number | null;
+  /* L'ÉQUIPE (migration 194) : métier, portrait, couleur, outils choisis (JSON), « libre avec ses collègues ». */
+  role?: string | null;
+  portrait?: string | null;
+  couleur?: string | null;
+  outils?: string | null;
+  autonome?: number | null;
 }
 
 interface LigneJournal {
@@ -104,6 +115,15 @@ function ligneDeJournal(l: LigneJournal): LigneDeJournal {
     issue: l.issue as IssueDeLigne,
     ...(l.jetons !== null && l.jetons !== undefined ? { jetons: l.jetons } : {}),
   };
+}
+
+function outilsDeLaLigne(l: LigneAgent): string[] {
+  try {
+    const v = l.outils ? JSON.parse(l.outils) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 function ligneAgent(id: string): LigneAgent | null {
@@ -168,6 +188,27 @@ export function attentesDeLAgent(agentId: string | null): number {
   return propositions + questions;
 }
 
+/**
+ * CE QUE L'AGENT VOUS DEMANDE, EN UNE LIGNE (l'activité de la table de l'équipe, 26/11/2026) : la plus récente question
+ * ouverte de sa conversation, ou le titre de sa dernière carte proposée non tranchée ; `null` s'il n'attend rien.
+ */
+export function premiereAttenteDeLAgent(agentId: string | null): string | null {
+  if (!agentId) return null;
+  const db = getDb();
+  for (const l of db.prepare("SELECT json_extract(data, '$.questions') AS q FROM messages WHERE agent_id = ? AND a_questions = 1 ORDER BY created_at DESC LIMIT 10").all(agentId) as { q: string | null }[]) {
+    try {
+      const ouverte = ((l.q ? JSON.parse(l.q) : []) as { question?: string; answer?: unknown; cancelled?: boolean }[]).find((x) => !x.answer && !x.cancelled);
+      if (ouverte?.question) return ouverte.question.replace(/\s+/g, ' ').trim().slice(0, 80);
+    } catch {
+      /* message illisible : ignoré */
+    }
+  }
+  const proposee = db
+    .prepare(`SELECT json_extract(p.data, '$.title') AS titre FROM proposals p JOIN messages m ON m.id = p.message_id WHERE m.agent_id = ? AND p.decision = 'pending' ORDER BY p.rowid DESC LIMIT 1`)
+    .get(agentId) as { titre: string | null } | undefined;
+  return proposee?.titre ? String(proposee.titre).slice(0, 80) : null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Lecture                                                             */
 /* ------------------------------------------------------------------ */
@@ -183,7 +224,7 @@ function agentDeLigne(l: LigneAgent, maintenant = Date.now()): AgentPerso {
   const fiche = ficheDeLigne(l);
   const journal = journalDeLAgent(l.id, 60);
   const derniere = journal.find((j) => j.issue !== 'en_cours') ?? null;
-  const passages = journal.filter((j) => j.genre === 'manuel' || j.genre === 'horaire' || j.genre === 'evenement' || j.genre === 'veille');
+  const passages = journal.filter((j) => j.genre === 'manuel' || j.genre === 'horaire' || j.genre === 'evenement' || j.genre === 'veille' || j.genre === 'collegue');
   return {
     id: l.id,
     projectId: l.project_id,
@@ -202,7 +243,17 @@ function agentDeLigne(l: LigneAgent, maintenant = Date.now()): AgentPerso {
     derniereAction: derniere ? { date: derniere.date, resume: derniere.resume, issue: derniere.issue } : null,
     prochainPassage: l.actif === 1 && ficheComplete(fiche) ? prochainPassageHoraire(fiche.declencheurs, maintenant) : null,
     enPauseLimite: ficheComplete(fiche) && limiteAtteinte(journalDeLaPeriode(l.id, fiche, maintenant), fiche.limite, maintenant),
+    role: roleDEquipierLu(l.role),
+    portrait: l.portrait ?? null,
+    couleur: couleurDeLAgent(l.couleur, l.portrait),
+    outils: outilsDeLAgent(roleDEquipierLu(l.role), outilsDeLaLigne(l)),
+    autonome: l.autonome !== 0,
   };
+}
+
+/** La ligne brute d'un agent (pour le module de l'équipe, qui règle ses colonnes à lui). */
+export function ligneBruteDeLAgent(id: string): LigneAgent | null {
+  return ligneAgent(id);
 }
 
 /** Le journal de la période de la limite (assez pour la compter, jamais tout l'historique). */
@@ -283,19 +334,39 @@ export function estAgentPerso(agentId: string | null | undefined): boolean {
  * UN NOUVEL AGENT : sa ligne « Nouvel agent » (brouillon) et sa conversation, sa carte d'abord, rangée aussitôt —
  * aucun tour ne part. L'agent ouvre l'échange quand l'utilisateur lui écrit (la page le lui propose).
  */
-export async function creerAgent(projectId: string, maintenant = Date.now()): Promise<AgentPerso> {
+export async function creerAgent(
+  projectId: string,
+  maintenant = Date.now(),
+  /*
+   * UN MEMBRE D'ÉQUIPE (26/11/2026) : son métier, son portrait, sa fiche déjà remplie. Un membre SEMÉ par l'équipe
+   * par défaut naît sans conversation (`sansConversation`) : elle s'ouvre à sa première visite — sinon trente projets
+   * poseraient d'un coup cent cinquante cartes rangées.
+   */
+  membre: { role?: RoleDEquipier; portrait?: string | null; couleur?: string | null; fiche?: FicheDAgent; sansConversation?: boolean; note?: string } = {},
+): Promise<AgentPerso> {
   const projet = store.getProject(projectId);
   if (!projet) throw new Error('projet introuvable');
   if (projet.archived) throw new Error('un projet archivé ne reçoit pas de nouvel agent');
   const id = store.newId();
   getDb()
-    .prepare('INSERT INTO agents_perso (id, project_id, agent_id, card_id, fiche, actif, cree_le, mis_a_jour_le) VALUES (?, ?, NULL, NULL, ?, 0, ?, ?)')
-    .run(id, projectId, JSON.stringify(ficheVide()), maintenant, maintenant);
+    .prepare(
+      'INSERT INTO agents_perso (id, project_id, agent_id, card_id, fiche, actif, cree_le, mis_a_jour_le, role, portrait, couleur, autonome) VALUES (?, ?, NULL, NULL, ?, 0, ?, ?, ?, ?, ?, 1)',
+    )
+    .run(id, projectId, JSON.stringify(membre.fiche ?? ficheVide()), maintenant, maintenant, membre.role ?? 'libre', membre.portrait ?? null, membre.couleur ?? null);
   const l = ligneAgent(id)!;
-  noter(l, { genre: 'creation', resume: 'Agent créé : sa fiche se remplit dans la conversation.', issue: 'note', date: maintenant });
-  await assurerLaConversation(id);
+  noter(l, { genre: 'creation', resume: membre.note ?? 'Agent créé : sa fiche se remplit dans la conversation.', issue: 'note', date: maintenant });
+  if (!membre.sansConversation) await assurerLaConversation(id);
   diffuser(projectId);
   return lireAgent(projectId, id);
+}
+
+/** LA CONVERSATION D'UN AGENT, ouverte à sa première visite (un membre semé n'en a pas encore). Rend son agent. */
+export async function ouvrirLaConversation(projectId: string, id: string): Promise<string> {
+  const l = ligneAgent(id);
+  if (!l || l.project_id !== projectId) throw new Error('agent introuvable dans ce projet');
+  const agentId = await assurerLaConversation(id);
+  diffuser(projectId);
+  return agentId;
 }
 
 /** La conversation de l'agent : créée une fois, comme celle de l'agent de sécurité (MEM-7506). */
@@ -318,7 +389,7 @@ async function assurerLaConversation(id: string): Promise<string> {
   const { card, agentId } = ouvrirCarteDAgent({
     projectId: l.project_id,
     titre: nom,
-    description: `Un agent personnalisé de « ${projet.name} » (onglet « Agents ») : sa fiche se remplit dans sa conversation, il travaille seul une fois allumé.`,
+    description: `Un agent de l’équipe de « ${projet.name} » : sa fiche dit sa mission, il travaille seul une fois allumé ou quand un collègue le sollicite.`,
     labels: [LABEL_AGENT_PERSO],
     role: 'task',
     run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
@@ -414,6 +485,13 @@ export async function supprimer(projectId: string, id: string): Promise<void> {
     db.prepare('DELETE FROM agents_perso_journal WHERE agent_perso_id = ?').run(id);
     db.prepare('DELETE FROM agents_perso WHERE id = ?').run(id);
   })();
+  /* UN MEMBRE PAR DÉFAUT RETIRÉ NE REVIENT PAS au rattrapage suivant (`equipe-d-agents.ts`). */
+  try {
+    const { noterLeRoleRetire } = await import('./equipe-d-agents.js');
+    noterLeRoleRetire(projectId, roleDEquipierLu(l.role));
+  } catch (err) {
+    log.warn('équipe : rôle retiré non noté', err);
+  }
   enSuite.delete(id);
   enAttenteDeQuota.delete(id);
   diffuser(projectId);
@@ -424,7 +502,7 @@ export async function supprimer(projectId: string, id: string): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 /** Le passage en cours de chaque agent, lu par le contexte du tour. */
-const passageDuTour = new Map<string, { genre: GenreDeLigne; source?: SourceDEvenement; details?: string }>();
+const passageDuTour = new Map<string, { genre: GenreDeLigne; source?: SourceDEvenement; details?: string; de?: string }>();
 
 /**
  * LE RELAIS DE L'AGENT, redit à CHAQUE message (le contexte du tour, jamais une bulle) : consigne, fiche, journal
@@ -434,12 +512,19 @@ export function contexteDeLAgentPersoDuTour(agentId: string): string | undefined
   const l = agentPersoDeLAgent(agentId);
   if (!l) return undefined;
   const projet = store.getProject(l.project_id);
+  let equipe: ReturnType<typeof contexteDEquipe> = {};
+  try {
+    equipe = contexteDEquipe(l.id);
+  } catch (err) {
+    log.warn('équipe : contexte du tour illisible', err);
+  }
   return contexteDeLAgentPerso({
     projet: projet?.name ?? l.project_id,
     fiche: ficheDeLigne(l),
     actif: l.actif === 1,
     journal: journalDeLAgent(l.id, 8),
     passage: passageDuTour.get(l.id) ?? null,
+    ...equipe,
   });
 }
 
@@ -456,7 +541,7 @@ type Envoi = (
   options: {
     context: string;
     /** Le déclencheur du passage : la réponse le porte, et le fil l'écrit en jaune (26/11/2026). */
-    passage?: { genre: 'manuel' | 'horaire' | 'evenement' | 'veille'; source?: string };
+    passage?: { genre: 'manuel' | 'horaire' | 'evenement' | 'veille' | 'collegue'; source?: string };
     onComplete: (texte: string, ok: boolean, mesure: { usage?: { inputTokens?: number; outputTokens?: number } }, fin?: { arretDemande?: boolean }) => void;
   },
 ) => Promise<void>;
@@ -491,7 +576,8 @@ export function remplacerLEnvoi(autre: Envoi | null, compte: ChoixDuCompte | nul
   if (compte) compteDisponible = compte;
 }
 
-function phraseDuPassage(genre: GenreDeLigne, source?: SourceDEvenement): string {
+function phraseDuPassage(genre: GenreDeLigne, source?: SourceDEvenement, de?: string, details?: string): string {
+  if (genre === 'collegue') return `Demande de ton collègue ${de ?? ''} : ${(details ?? '').trim()}`.trim();
   if (genre === 'evenement' && source) return `Passage : ${LIBELLE_DE_SOURCE[source].toLowerCase()}.`;
   if (genre === 'horaire') return 'Passage à heure fixe.';
   if (genre === 'veille') return 'Passage : ta surveillance s’est levée.';
@@ -504,20 +590,26 @@ function phraseDuPassage(genre: GenreDeLigne, source?: SourceDEvenement): string
  */
 export async function passer(
   id: string,
-  declencheur: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string },
+  declencheur: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string; de?: string; onFini?: (texte: string, ok: boolean) => void },
   maintenant = Date.now(),
 ): Promise<IssueDuDeclenchement> {
   const l = ligneAgent(id);
   if (!l) return 'ecarte';
   const fiche = ficheDeLigne(l);
   if (!ficheComplete(fiche)) return 'incomplet';
-  if (declencheur.genre !== 'manuel' && l.actif !== 1) return 'eteint';
+  /* LA DEMANDE D'UN COLLÈGUE (26/11/2026) : l'agent « libre avec ses collègues » s'y met même éteint — éteint ne coupe
+     que ses passages AUTOMATIQUES (heure fixe, événement, surveillance). */
+  if (declencheur.genre === 'collegue') {
+    if (l.autonome === 0) return 'eteint';
+  } else if (declencheur.genre !== 'manuel' && l.actif !== 1) return 'eteint';
   const courant = enPassage.get(id);
   if (courant || enAttenteDeQuota.has(id)) {
     // PENDANT UNE SUITE, rien ne s'accumule plus : un agent ne se relance pas en chaîne.
     if (courant?.suite) return 'ecarte';
     // Un second clic « Lancer maintenant » rejoint le passage qui tourne ou attend : il n'en commande pas un autre.
     if (declencheur.genre === 'manuel') return 'fusionne';
+    // UN COLLÈGUE NE SE FAIT PAS ATTENDRE EN FILE : l'agent est occupé, il le lui dit (outil `equipe`).
+    if (declencheur.genre === 'collegue') return 'ecarte';
     const suite = enSuite.get(id) ?? { genre: declencheur.genre, ...(declencheur.source ? { source: declencheur.source } : {}), details: [] };
     if (declencheur.details) suite.details.push(declencheur.details);
     enSuite.set(id, suite);
@@ -529,7 +621,7 @@ export async function passer(
 async function lancerLePassage(
   l: LigneAgent,
   fiche: FicheDAgent,
-  declencheur: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string },
+  declencheur: { genre: GenreDeLigne; source?: SourceDEvenement; details?: string; de?: string; onFini?: (texte: string, ok: boolean) => void },
   suite: boolean,
   maintenant: number,
   ligneDejaPosee?: string,
@@ -580,6 +672,11 @@ async function lancerLePassage(
     const issueFinale: IssueDeLigne = issue === 'panne' ? 'panne' : attentesDeLAgent(agentId) > 0 ? 'a_valider' : issue;
     finirLaLigne(ligneId, resume, issueFinale, jetons);
     diffuser(l.project_id);
+    try {
+      declencheur.onFini?.(texte, ok);
+    } catch (err) {
+      log.warn(`agent personnalisé ${l.id} : suite du passage impossible`, err);
+    }
     // LES ÉVÉNEMENTS FUSIONNÉS : un seul passage de suite (jamais après une suite).
     const enAttente = enSuite.get(l.id);
     enSuite.delete(l.id);
@@ -593,11 +690,17 @@ async function lancerLePassage(
     }
   };
   try {
-    await envoi(agentId, `${phraseDuPassage(declencheur.genre, declencheur.source)} Fais ta mission dans ton cadre, dis où en est ton objectif et la prochaine étape que tu proposes, puis termine par ta phrase de compte rendu.`, {
+    const consigne =
+      declencheur.genre === 'collegue'
+        ? `${phraseDuPassage('collegue', undefined, declencheur.de, declencheur.details)}\n\nRéponds-lui dans ton métier : fais ce qu'il te demande si c'est dans ton cadre, sinon dis-lui pourquoi. Ta réponse lui revient telle quelle : sois bref et concret, puis termine par ta phrase de compte rendu.`
+        : `${phraseDuPassage(declencheur.genre, declencheur.source)} Fais ta mission dans ton cadre, dis où en est ton objectif et la prochaine étape que tu proposes, puis termine par ta phrase de compte rendu.`;
+    await envoi(agentId, consigne, {
       context: contexteDeLAgentPersoDuTour(agentId) ?? '',
       ...(declencheur.genre === 'manuel' || declencheur.genre === 'horaire' || declencheur.genre === 'evenement' || declencheur.genre === 'veille'
         ? { passage: { genre: declencheur.genre, ...(declencheur.source ? { source: declencheur.source } : {}) } }
-        : {}),
+        : declencheur.genre === 'collegue'
+          ? { passage: { genre: 'collegue' as const, ...(declencheur.de ? { source: declencheur.de } : {}) } }
+          : {}),
       onComplete: (texte, ok, mesure, fin) => {
         const usage = mesure?.usage;
         terminer(texte, ok && !fin?.arretDemande, usage ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) : undefined, fin?.arretDemande);

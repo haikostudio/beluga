@@ -1,5 +1,6 @@
 import { demarrerSecurite } from './service-securite.js';
 import { demarrerLesAgentsPerso } from './agents-personnalises.js';
+import { demarrerLesEquipes } from './equipe-d-agents.js';
 import { menageQuotidienDesJournaux } from './menage-des-journaux.js';
 import { demarrerLesVeilles } from './veille-de-carte.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
@@ -57,6 +58,7 @@ import { planifierLaVeilleDesCompetences } from './veille-competences.js';
 import { convertirLesDepotsAnnexes, rafraichirLesMeres, veillerSurLesMeres } from './regroupements.js';
 import { planifierLesCourriels } from './courriels-clients.js';
 import { planifierMenageDesCompetences } from './menage-competences.js';
+import { planifierLeconsDesPremiersJets } from './lecons-des-premiers-jets.js';
 import { planifierRangementDesInstructions } from './instructions-en-attente.js';
 import { planifierLaMemoireDeNuit } from './memoire-de-nuit.js';
 import { planifierLeMenage } from './menage.js';
@@ -446,6 +448,8 @@ async function main(): Promise<void> {
    * (`server/src/agents-personnalises.ts`). Rien ne part pour un agent éteint.
    */
   const agentsPersoTimer = demarrerLesAgentsPerso();
+  /* LES ÉQUIPES D'AGENTS (26/11/2026) : chaque projet vivant reçoit les membres par défaut qui lui manquent. */
+  demarrerLesEquipes();
   void import('./belugapass.js').then((m) => m.nettoyerLesLectures()).catch(() => {});
   /*
    * LES SOLDES DES SERVICES D'IA (OpenRouter, kie.ai, HeyGen, Agentik…) : une tournée de 30 min, à part du
@@ -605,6 +609,12 @@ async function main(): Promise<void> {
    */
   const menageDesCompetencesTimer = planifierMenageDesCompetences();
   /*
+   * LES LEÇONS DES PREMIERS JETS : vers 6 h, APRÈS le ménage des compétences, un agent d'analyse relit les cartes qui
+   * reprennent un premier jet (tous projets) et complète la compétence commune ; une carte de résumé paraît le matin
+   * dans Beluga Build. Sans reprise depuis la veille, rien ne part et rien ne coûte.
+   */
+  const leconsDesPremiersJetsTimer = planifierLeconsDesPremiersJets();
+  /*
    * LE COMPACTAGE DE LA BASE : vers 4 h, entre l'auto-amélioration et le
    * ménage des compétences. Les pages libérées par les purges (messages, cartes
    * effacées, migrations) ne sont jamais rendues au disque par les VACUUM
@@ -753,6 +763,7 @@ async function main(): Promise<void> {
     if (decrochagesTimer) clearInterval(decrochagesTimer);
     clearInterval(recapitulatifTimer);
     clearInterval(menageDesCompetencesTimer);
+    clearInterval(leconsDesPremiersJetsTimer);
     clearInterval(compactageTimer);
     clearInterval(instructionsTimer);
     clearInterval(menageTimer);

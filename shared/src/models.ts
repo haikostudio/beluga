@@ -2396,7 +2396,8 @@ export const Message = z.object({
    */
   passageAutomatique: z
     .object({
-      genre: z.enum(['manuel', 'horaire', 'evenement', 'veille']),
+      /* « collegue » (26/11/2026) : la demande d'un collègue de l'équipe ; `source` porte alors son prénom. */
+      genre: z.enum(['manuel', 'horaire', 'evenement', 'veille', 'collegue']),
       source: z.string().optional(),
     })
     .optional(),

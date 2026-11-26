@@ -34,6 +34,8 @@ import {
   FournirLeRegistreDuCoin,
   FournirLeRegistreDuMenuDuHaut,
   creerLeRegistreDuMenuDuHaut,
+  EnLignesDeMenu,
+  useContenuDuMenuDuHaut,
   FournirLaSuiteDuFil,
   CLASSE_CIBLE_DES_GESTES,
   FournirLeLieu,
@@ -56,7 +58,8 @@ import {
   type BarreDuProjet,
 } from '@/components/barre-du-projet';
 import { naviguerVers } from '@/components/ui/lien-interne';
-import { BoutonPublier, BoutonPublierDuHaut, EVENEMENT_OUVRIR_PUBLIER, FeuillePublier, useCompteAPublier } from '@/components/menu-publier';
+import { BoutonPublierDuHaut, EVENEMENT_OUVRIR_PUBLIER, FeuillePublier, useCompteAPublier } from '@/components/menu-publier';
+import { BoutonDeployerDuProjet } from '@/components/equipe/bouton-deployer-du-projet';
 import { ouvrirLePublierDuProjet } from '@/components/mises-en-ligne';
 import { FournirLeChoixDeLaPortee, FournirLeFiltreCentral, FournirLeProjetDuService } from '@/components/projet-du-service';
 import { CLES_SERVICES_DU_MENU, FilDesPagesDeService, FiltreDuProjetDeLaPage, TOUS_LES_PROJETS, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
@@ -1744,7 +1747,7 @@ export function App() {
   const serviceDuFond = vueDuFond !== 'projet' && CLES_DES_SERVICES.some((x) => x.cle === vueDuFond) ? vueDuFond : null;
   /* L'ONGLET « AGENTS » DE L'ACCUEIL (24/11/2026) écrit lui aussi sa suite dans la barre : « projet / Agents / agent ». */
   const suiteDeLAccueilDesAgents =
-    !!projetDesOnglets && !telephone && !serviceDuFond && !carteAffichee && vueDuFond === 'projet' && accueilAgents?.projectId === projetDesOnglets.id;
+    !!projetDesOnglets && !telephone && !serviceDuFond && !carteAffichee && vueDuFond === 'projet';
   const suiteDansLaBarreDuProjet = !!projetDesOnglets && !telephone && (!!serviceDuFond || suiteDeLAccueilDesAgents) && !carteAffichee;
   const cibleDeLaSuite = suiteDansLaBarreDuProjet ? cibleDeLaBarreDuProjet : cibleDuFilDeZone;
   const [texteDeLaSuite, setTexteDeLaSuite] = React.useState<string | null>(null);
@@ -1982,7 +1985,8 @@ export function App() {
                 {/* LE BOUTON AUX QUATRE CARRÉS N'EXISTE PLUS (14/11/2026) : les services s'ouvrent par « Services », dans
                     la colonne de gauche. */}
                 <div ref={setCibleDesGestesDuProjet} className="flex shrink-0 items-center gap-1.5 empty:hidden" data-gestes-de-page="barre-du-projet" />
-                <BoutonPublier projectId={projetDesOnglets.id} />
+                {/* « DÉPLOYER » NOMMÉ, AVEC SON COMPTE (26/11/2026) : il ouvre l'agent de déploiement du projet. */}
+                <BoutonDeployerDuProjet projectId={projetDesOnglets.id} />
               </>
             ),
             nom: projetDesOnglets.name,
@@ -2108,6 +2112,18 @@ export function App() {
      repoussait la page de 48 px. */
   const gestesDansLaBarreDuProjet = !telephone && (vueDuFond === 'projet' || suiteDansLaBarreDuProjet) && !carteAffichee && !!projetDesOnglets && !!cibleDesGestesDuProjet;
   const cibleDesGestesDeLaZone = gestesDansLaBarreDuProjet ? cibleDesGestesDuProjet : cibleDesGestes;
+  /*
+   * UN SEUL MENU À TROIS POINTS DANS LA BARRE D'UN PROJET (décision de l'utilisateur du 26/11/2026 : « deux boutons avec
+   * trois points verticaux, ça n'a aucun sens »). Sur la page d'un projet ou d'un agent, les options de la page
+   * (`OptionsDePage`) se déclarent dans ce registre au lieu de poser leur propre « ⋮ », et le menu général du projet
+   * (`data-menu-general`) les montre en tête.
+   */
+  const registreDuProjet = React.useMemo(() => creerLeRegistreDuMenuDuHaut(), []);
+  const unSeulMenuDuProjet = gestesDansLaBarreDuProjet && vueDuFond === 'projet';
+  const coinDeLaPage = React.useMemo(
+    () => (unSeulMenuDuProjet ? { registre: registreDuProjet, cible: cibleDesGestesDuProjet } : coinDeLaZone),
+    [unSeulMenuDuProjet, registreDuProjet, cibleDesGestesDuProjet, coinDeLaZone],
+  );
   const valeursDeLaZone = React.useMemo<ValeursDeLaZone>(
     () => ({
       suite: suiteDuFil,
@@ -2583,11 +2599,11 @@ export function App() {
                   {hautDuProjetTelephone && projetDesOnglets ? <BoutonPublierDuHaut projectId={projetDesOnglets.id} /> : null}
                   </>
                 ) : vueDuFond === 'projet' && activeProject ? (
-                  <MenuGeneral
+                  <MenuGeneralAvecLesOptions
+                    registre={unSeulMenuDuProjet ? registreDuProjet : null}
                     onOpenDashboard={ouvrirTableauDeBord}
                     onOuvrirFichiers={ouvrirFichiersOuPieces}
                     onOuvrirVue={ouvrirVue}
-                    declencheur={<BoutonOptionsDuProjet />}
                   />
                 ) : undefined
               }
@@ -2618,7 +2634,7 @@ export function App() {
             {telephone && (voixVisible || state.monRole === 'admin') ? <div data-place-de-la-voix aria-hidden className="h-0 shrink-0" /> : null}
             </div>
             <FournirLaCibleDesGestes value={cibleDesGestes}>
-            <FournirLeRegistreDuCoin value={coinDeLaZone}>
+            <FournirLeRegistreDuCoin value={coinDeLaPage}>
             <FournirLeRegistreDuMenuDuHaut value={registreDuMenuDuHaut}>
             <CibleDuBasDePage.Provider value={basDePage}>
             {/* LA BANDE DE LA ZONE (13/11/2026) : le seul coin haut droit, qui reçoit les gestes et les options de la
@@ -2703,6 +2719,7 @@ export function App() {
                         : null
                     }
                     onAgents={(choix) => choisirLAccueil(activeProject.id, choix)}
+                    onCree={(id) => (carteRobotIdRef.current = id)}
                   />
                 </Filet>
               ) : !state.pret && !state.copieLocale ? (
@@ -2983,5 +3000,34 @@ export function App() {
       </FournirLeLieu>
       </EnteteDePageParDefaut.Provider>
     </TooltipProvider>
+  );
+}
+
+/**
+ * LE MENU GÉNÉRAL DU PROJET ET LES OPTIONS DE LA PAGE, DANS UN SEUL « ⋮ » (26/11/2026). Le registre se lit ICI, dans un
+ * enfant : lu par l'application, chaque déclaration de la page redessinait toute l'application, donc la page, qui se
+ * redéclarait — une boucle sans fin.
+ */
+function MenuGeneralAvecLesOptions({
+  registre,
+  ...props
+}: { registre: ReturnType<typeof creerLeRegistreDuMenuDuHaut> | null } & Omit<React.ComponentProps<typeof MenuGeneral>, 'declencheur' | 'enTete'>) {
+  const vide = React.useMemo(() => creerLeRegistreDuMenuDuHaut(), []);
+  const options = useContenuDuMenuDuHaut(registre ?? vide);
+  const lignes = registre ? [...options.entries()].filter(([, e]) => e.genre === 'options') : [];
+  return (
+    <MenuGeneral
+      {...props}
+      declencheur={<BoutonOptionsDuProjet />}
+      enTete={
+        lignes.length ? (
+          <EnLignesDeMenu>
+            {lignes.map(([cle, entree]) => (
+              <React.Fragment key={cle}>{entree.noeud}</React.Fragment>
+            ))}
+          </EnLignesDeMenu>
+        ) : undefined
+      }
+    />
   );
 }

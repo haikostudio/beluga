@@ -1,12 +1,15 @@
 /*
- * LA PAGE D'UN AGENT PERSONNALISÉ (carte « Agents personnalisés dans les projets », 24/11/2026, maquette #4c46).
+ * LA PAGE D'UN AGENT DE L'ÉQUIPE (carte « Beluga piloté par des agents », 26/11/2026, maquettes #383ee et #b7167 ;
+ * d'abord page d'un agent personnalisé, 24/11/2026).
  *
- * Construite comme la page d'un projet du service Sécurité (`securite.tsx`) : la CONVERSATION de l'agent à gauche
- * (largeur bornée à 820 px), la poignée, puis à droite le VOLET COMMUN du plan (`volet-comme-un-plan.tsx` : même fond,
- * même fenêtre, même largeur retenue) qui porte « Configuration de l'agent » — ses huit rubriques, « À définir dans la
- * conversation » en gris tant qu'elles ne le sont pas, le compteur « n sur 8 », puis son journal. Le pied du volet,
- * collé en bas : « Allumer l'agent » (éteint tant que la fiche est incomplète), « Mettre en pause », « Lancer
- * maintenant ». Sur téléphone, deux onglets : Conversation et Configuration, tous deux montés.
+ * La forme commune (`equipe/gabarit-discussion-volet.tsx`) : la CONVERSATION de l'agent à gauche — avec « Nouvelle
+ * tâche » au-dessus du champ —, puis le VOLET à droite dont les onglets sont SES OUTILS (développement : Tâches,
+ * Aperçu ; communication : Calendrier, Réseaux, Studio ; marketing : Dossier, Référencement, Statistiques ;
+ * déploiement : Mise en ligne ; production : État du site, Sauvegardes, Sécurité ; agent libre : ceux qu'on lui
+ * choisit) et, en dernier, sa FICHE : visage, prénom, métier, « libre avec ses collègues », puis ses huit rubriques et
+ * son journal, avec « Allumer l'agent » / « Mettre en pause » en pied. Dans le fil d'Ariane : son visage, son prénom,
+ * son métier et son état (`CranDeLAgent`). « Lancer maintenant » et « Retirer l'agent » vivent dans le menu à trois
+ * points.
  *
  * La fiche se remplit pendant la conversation : l'agent écrit chaque point accepté (outil `agent_fiche`), le démon
  * annonce `agentsPerso`, le volet relit. Rien ne part au moteur à l'ouverture : l'agent répond quand on lui écrit.
@@ -14,8 +17,16 @@
 import * as React from 'react';
 import {
   GESTES_A_VALIDER,
-  GESTES_PAR_CARTE,
+  GESTES_AU_CLIC,
+  GESTES_PAR_L_EQUIPE,
+  OUTILS_D_AGENT,
+  PORTRAITS,
+  ROLES_D_EQUIPIER,
   RUBRIQUES_DE_LA_FICHE,
+  type Card,
+  type EtatDuMembre,
+  type OutilDAgent,
+  type RoleDEquipier,
   completionDeLaFiche,
   etatAffiche,
   ficheComplete,
@@ -25,14 +36,17 @@ import {
   type LigneDeJournal,
   type RubriqueDeFiche,
 } from '@beluga/shared';
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
-import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
-import { Loader2, Pause, Play, Power, Trash2 } from '@/components/ui/icones';
-import { CranDuFil, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label, ListeDeroulante, Switch } from '@/components/ui';
+import { Loader2, Pause, Play, Plus, Power, Trash2 } from '@/components/ui/icones';
+import { CranDuFil, OptionDePage, OptionsDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 import { SilhouetteConversation, SilhouetteRubrique } from '@/components/silhouettes';
 import { Chat } from '@/components/chat';
-import { ResizeHandle, useResizable } from '@/components/resizer';
-import { CLASSE_FENETRE_DU_VOLET, CLASSE_VOLET_DU_PLAN, CLE_DE_LARGEUR_DU_PLAN, PanneauDuVolet, bornesDuVoletDuPlan, usePlaceDeLaRangee } from '@/components/volet-comme-un-plan';
+import { GabaritDiscussionEtVolet, CLASSE_BOUTON_DU_PIED } from '@/components/equipe/gabarit-discussion-volet';
+import { ContenuDeLOutil, PiedDeLOutil, libelleDeLOutil } from '@/components/equipe/outils-de-l-agent';
+import { EtatEnForme, PortraitDAgent } from '@/components/equipe/portrait-d-agent';
+import { useEquipe } from '@/components/equipe/use-equipe';
+import { creerCarteAgent } from '@/components/tiroir-nouvel-agent';
+import { usePref } from '@/lib/prefs';
 import { BadgeDEtat, libelleDuGeste, nomDeLAgent, quandIlAgit, quandLisible, titreDeRubrique } from '@/components/agents-du-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -157,7 +171,10 @@ function ConfigurationDeLAgent({ agent, journal }: { agent: AgentPerso; journal:
                     {t('Toujours soumis à votre validation, capture à l’appui : {v0}.', { v0: GESTES_A_VALIDER.map(libelleDuGeste).join(', ') })}
                   </p>
                   <p className="mt-0.5 text-[12.5px] text-faint" data-gestes-par-carte="">
-                    {t('Toujours proposé en tâche : {v0}.', { v0: GESTES_PAR_CARTE.map(libelleDuGeste).join(', ') })}
+                    {t('Toujours à votre clic : {v0}.', { v0: GESTES_AU_CLIC.map(libelleDuGeste).join(', ') })}
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] text-faint" data-gestes-par-l-equipe="">
+                    {t('Par l’agent de développement de l’équipe : {v0}.', { v0: GESTES_PAR_L_EQUIPE.map(libelleDuGeste).join(', ') })}
                   </p>
                 </>
               ) : null}
@@ -224,7 +241,7 @@ function PiedDeLAgent({ agent, telephone = false }: { agent: AgentPerso; telepho
   return (
     /* UN BOUTON PAR LIGNE, CHACUN SUR TOUTE LA LARGEUR (26/11/2026) : « Allumer » ou « Mettre en pause », puis
        « Lancer maintenant » dessous — à toutes les largeurs, jamais côte à côte. */
-    <div className="flex flex-col gap-2 px-5 pb-4 pt-2" data-pied-agent-perso="">
+    <div className="flex flex-col gap-2" data-pied-agent-perso="">
       {agent.actif ? (
         <Button variant="subtle" className="w-full" disabled={!!geste} onClick={() => void jouer('eteindre')} data-agent-perso-eteindre="" data-en-route={geste === 'eteindre' ? '' : undefined}>
           {geste === 'eteindre' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
@@ -310,102 +327,287 @@ function AccueilDuBrouillon() {
   );
 }
 
-export function PageDeLAgent({ projectId, agentPersoId, onRetour }: { projectId: string; agentPersoId: string; onRetour: () => void }) {
+/* ------------------------------------------------------------------ */
+/* La page d'un agent de l'équipe                                      */
+/* ------------------------------------------------------------------ */
+
+/** Le métier d'un agent, en clair. */
+export function libelleDuRole(role: RoleDEquipier): string {
+  switch (role) {
+    case 'dev':
+      return t('Développement');
+    case 'com':
+      return t('Communication');
+    case 'marketing':
+      return t('Marketing');
+    case 'deploiement':
+      return t('Déploiement');
+    case 'production':
+      return t('Production');
+    default:
+      return t('Agent');
+  }
+}
+
+/**
+ * LE CRAN DE L'AGENT DANS LE FIL D'ARIANE (décision de l'utilisateur du 26/11/2026) : son visage, son prénom, son
+ * métier, puis son ÉTAT — « Vous attend · … » en couleur d'accent avec son point, « Au travail · … » avec l'anneau, ou
+ * « Au repos ». Jamais un titre de page de plus.
+ */
+export function CranDeLAgent({ membre }: { membre: { portrait: string | null; couleur: string; fiche: { nom: string }; role: RoleDEquipier; etat: EtatDuMembre; activite: string | null } }) {
+  return (
+    <>
+      <SeparateurDuFil />
+      <span className="flex min-w-0 items-center gap-2" data-cran-de-l-agent={membre.etat}>
+        <PortraitDAgent portrait={membre.portrait} couleur={membre.couleur} nom={membre.fiche.nom} taille={22} />
+        <span className="shrink-0 font-medium text-text" data-nom-du-cran-agent="">
+          {membre.fiche.nom}
+        </span>
+        <span className="hidden shrink-0 text-muted md:inline">· {libelleDuRole(membre.role)}</span>
+        {membre.etat === 'vous-attend' ? (
+          <span className="ml-2 flex min-w-0 items-center gap-1.5 text-important" data-etat-du-cran="vous-attend">
+            <span aria-hidden className="block h-2 w-2 shrink-0 rounded-full bg-important" />
+            <span className="min-w-0 truncate">{membre.activite ? t('Vous attend · {v0}', { v0: membre.activite }) : t('Vous attend')}</span>
+          </span>
+        ) : membre.etat === 'au-travail' ? (
+          <span className="ml-2 flex min-w-0 items-center gap-1.5 text-muted" data-etat-du-cran="au-travail">
+            <EtatEnForme etat="au-travail" />
+            <span className="min-w-0 truncate">{membre.activite ? t('Au travail · {v0}', { v0: membre.activite }) : t('Au travail')}</span>
+          </span>
+        ) : (
+          <span className="ml-2 shrink-0 text-faint" data-etat-du-cran="repos">
+            {t('Au repos')}
+          </span>
+        )}
+      </span>
+    </>
+  );
+}
+
+/** LES RÉGLAGES DE L'AGENT, en tête de sa fiche : visage, prénom, métier, outils d'un agent libre, liberté avec ses collègues. */
+function ReglagesDuMembre({ agent, pris }: { agent: AgentPerso; pris: ReadonlySet<string> }) {
+  const [envoi, setEnvoi] = React.useState<string | null>(null);
+  const [nom, setNom] = React.useState(agent.fiche.nom);
+  React.useEffect(() => setNom(agent.fiche.nom), [agent.fiche.nom]);
+  const regler = async (cle: string, reglage: Record<string, unknown>) => {
+    setEnvoi(cle);
+    try {
+      await client.call({ type: 'equipe.regler', projectId: agent.projectId, id: agent.id, reglage }, 30000);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Le réglage n’a pas pu s’enregistrer'));
+    } finally {
+      setEnvoi(null);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-4" data-reglages-du-membre={agent.id}>
+      <div className="flex flex-col gap-1.5">
+        <Label>{t('Prénom')}</Label>
+        <Input
+          value={nom}
+          maxLength={60}
+          onChange={(e) => setNom(e.target.value)}
+          onBlur={() => nom.trim() && nom.trim() !== agent.fiche.nom && void regler('nom', { nom: nom.trim() })}
+          onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
+          data-prenom-du-membre=""
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>{t('Métier')}</Label>
+        <ListeDeroulante
+          valeur={agent.role}
+          titre={t('Métier')}
+          repere="metier-du-membre"
+          onChoisir={(role) => void regler('role', { role })}
+          options={ROLES_D_EQUIPIER.map((r) => ({ valeur: r, libelle: libelleDuRole(r) }))}
+        />
+      </div>
+      {agent.role === 'libre' ? (
+        <div className="flex flex-col gap-1.5">
+          <Label>{t('Ses outils')}</Label>
+          <ListeDeroulante
+            valeur=""
+            valeurs={agent.outils}
+            titre={t('Ses outils')}
+            placeholder={t('Aucun outil')}
+            repere="outils-du-membre"
+            onChoisir={(o) => void regler('outils', { outils: agent.outils.includes(o as OutilDAgent) ? agent.outils.filter((x) => x !== o) : [...agent.outils, o] })}
+            options={OUTILS_D_AGENT.map((o) => ({ valeur: o, libelle: libelleDeLOutil(o) }))}
+          />
+        </div>
+      ) : null}
+      <div className="flex items-start gap-3 rounded-xl bg-surface px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13.5px] font-medium text-text">{t('Libre avec ses collègues')}</p>
+          <p className="mt-0.5 text-[12.5px] text-muted">
+            {agent.role === 'dev'
+              ? t('Une tâche demandée par un collègue part seule ; sinon elle attend votre clic dans « Planifié ».')
+              : t('Il travaille seul quand un collègue le sollicite ; sinon la demande vous attend.')}
+          </p>
+        </div>
+        <Switch checked={agent.autonome} onCheckedChange={(v) => void regler('autonome', { autonome: v })} disabled={envoi === 'autonome'} data-libre-avec-ses-collegues={agent.autonome ? '1' : '0'} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label>{t('Son visage')}</Label>
+        <div className="flex flex-wrap gap-1.5" data-choix-du-portrait="">
+          {PORTRAITS.map((p) => {
+            const choisi = agent.portrait === p.id;
+            const occupe = pris.has(p.id) && !choisi;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                disabled={occupe || envoi === 'portrait'}
+                onClick={() => void regler('portrait', { portrait: p.id, couleur: null })}
+                className={cn('rounded-full outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-teinte', occupe && 'opacity-25')}
+                title={occupe ? t('Déjà le visage d’un autre agent de l’équipe') : undefined}
+                aria-pressed={choisi}
+                data-portrait-a-choisir={p.id}
+              >
+                <PortraitDAgent portrait={p.id} couleur={p.couleur} nom={agent.fiche.nom} taille={34} cerne={choisi} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type OngletDeLAgent = OutilDAgent | 'fiche';
+
+export function PageDeLAgent({
+  projectId,
+  agentPersoId,
+  onRetour,
+  onOuvrirCarte,
+  onCree,
+}: {
+  projectId: string;
+  agentPersoId: string;
+  onRetour: () => void;
+  onOuvrirCarte: (card: Card) => void;
+  onCree?: (cardId: string) => void;
+}) {
   const state = useApp();
   const telephone = useTelephone();
   const { agent: perso, journal, panne } = useAgentPerso(projectId, agentPersoId);
-  const [onglet, setOnglet] = React.useState<'conversation' | 'configuration'>('conversation');
+  const { equipe } = useEquipe(projectId);
   const [retrait, setRetrait] = React.useState(false);
-  const [placeDeLaRangee, setRangee] = usePlaceDeLaRangee();
-  const { width, start, reset } = useResizable(CLE_DE_LARGEUR_DU_PLAN, bornesDuVoletDuPlan(placeDeLaRangee));
+  const [creation, setCreation] = React.useState(false);
   const agent: Agent | null = perso?.agentId ? (state.agents[perso.agentId] ?? null) : null;
   const brouillon = !!perso && !ficheComplete(perso.fiche);
+  const membres = React.useMemo(() => [...(equipe?.agents ?? []), ...(equipe?.groupe?.agents ?? [])], [equipe]);
+  const membre = membres.find((m) => m.id === agentPersoId) ?? null;
+  /* LA CONVERSATION D'UN MEMBRE SEMÉ s'ouvre à sa première visite (il n'en avait pas : il ne coûtait rien). */
+  const ouverture = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!perso || perso.agentId || ouverture.current === perso.id) return;
+    ouverture.current = perso.id;
+    client.call({ type: 'agentsPerso.conversation', projectId, id: perso.id }, 30000).catch((err: any) => client.pushToast('error', err?.message ?? t('La conversation n’a pas pu s’ouvrir')));
+  }, [perso?.id, perso?.agentId, projectId]);
+  const outils: OutilDAgent[] = perso?.outils ?? [];
+  const cles: OngletDeLAgent[] = [...outils, 'fiche'];
+  const [retenu, setRetenu] = usePref<string>(`agent.onglet.${agentPersoId}`, '');
+  const onglet: OngletDeLAgent = (cles as string[]).includes(retenu) ? (retenu as OngletDeLAgent) : (cles[0] ?? 'fiche');
+  const pris = React.useMemo(() => new Set(membres.filter((m) => m.projectId === perso?.projectId && m.id !== agentPersoId).map((m) => m.portrait).filter((p): p is string => !!p)), [membres, perso?.projectId, agentPersoId]);
+
+  const nouvelleTache = async () => {
+    if (creation) return;
+    setCreation(true);
+    try {
+      await creerCarteAgent(projectId, (id) => onCree?.(id));
+    } finally {
+      setCreation(false);
+    }
+  };
 
   const conversation = agent ? (
     <Chat
       agent={agent}
       projectId={projectId}
-      libelleDuChamp={brouillon ? t('Dites à l’agent ce qu’il doit faire…') : t('Écrire à l’agent…')}
+      libelleDuChamp={brouillon ? t('Dites à l’agent ce qu’il doit faire…') : t('Écrire à {v0}…', { v0: perso?.fiche.nom ?? '' })}
       enTeteDuFil={brouillon ? <AccueilDuBrouillon /> : undefined}
+      auDessusDuChamp={
+        <div className="flex px-1 pb-1.5">
+          <button
+            type="button"
+            onClick={() => void nouvelleTache()}
+            disabled={creation}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[13px] text-muted transition-colors hover:bg-raised hover:text-text"
+            data-nouvelle-tache-de-l-agent={agentPersoId}
+          >
+            {creation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            {t('Nouvelle tâche')}
+          </button>
+        </div>
+      }
     />
   ) : (
     <div className="px-4 pt-3">{panne ? <p className="text-[13px] text-danger">{panne}</p> : <SilhouetteConversation bulles={2} />}</div>
   );
-  const configuration = perso ? <ConfigurationDeLAgent agent={perso} journal={journal} /> : <SilhouetteRubrique />;
+
+  const contenu =
+    !perso ? (
+      <SilhouetteRubrique />
+    ) : onglet === 'fiche' ? (
+      <div className="flex flex-col gap-6 pb-4">
+        <ReglagesDuMembre agent={perso} pris={pris} />
+        <ConfigurationDeLAgent agent={perso} journal={journal} />
+      </div>
+    ) : (
+      <ContenuDeLOutil outil={onglet} projectId={projectId} membres={membres} onOuvrirCarte={onOuvrirCarte} onFermerLApercu={() => setRetenu(outils.find((o) => o !== 'apercu') ?? 'fiche')} />
+    );
+  const pied = !perso ? null : onglet === 'fiche' ? (
+    <PiedDeLAgent agent={perso} telephone={telephone} />
+  ) : onglet === 'taches' ? (
+    <button type="button" onClick={() => void nouvelleTache()} disabled={creation} className={CLASSE_BOUTON_DU_PIED} data-nouvelle-tache-du-volet={agentPersoId}>
+      {creation ? <Loader2 className="animate-spin" /> : <Plus />}
+      <span className="min-w-0 truncate">{t('Nouvelle tâche')}</span>
+    </button>
+  ) : (
+    <PiedDeLOutil outil={onglet} projectId={projectId} />
+  );
 
   return (
     <>
       <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-agent-perso-retour': '' } }}>
-        <CranDuFil onClick={onRetour} dernier={false} data-cran-agents="">
-          {t('Agents')}
-        </CranDuFil>
-        <CranDuFil data-cran-agent-perso={agentPersoId}>{nomDeLAgent(perso)}</CranDuFil>
+        {membre ? (
+          <CranDeLAgent membre={membre} />
+        ) : (
+          <CranDuFil data-cran-agent-perso={agentPersoId}>{nomDeLAgent(perso)}</CranDuFil>
+        )}
       </SuiteDuFil>
       {perso ? (
         <OptionsDePage enMenu>
-          {telephone ? (
-            <OptionDePage
-              icone={<Play className="h-4 w-4" />}
-              onClick={() => void lancerMaintenant(perso)}
-              disabled={lancementImpossible(perso) !== null}
-              title={lancementImpossible(perso) ?? undefined}
-              data-option-lancer-agent-perso=""
-            >
-              {t('Lancer maintenant')}
-            </OptionDePage>
-          ) : null}
+          <OptionDePage
+            icone={<Play className="h-4 w-4" />}
+            onClick={() => void lancerMaintenant(perso)}
+            disabled={lancementImpossible(perso) !== null}
+            title={lancementImpossible(perso) ?? undefined}
+            data-option-lancer-agent-perso=""
+          >
+            {t('Lancer maintenant')}
+          </OptionDePage>
           <OptionDePage icone={<Trash2 className="h-4 w-4" />} onClick={() => setRetrait(true)} data-option-retirer-agent-perso="">
             {t('Retirer l’agent')}
           </OptionDePage>
         </OptionsDePage>
       ) : null}
       {retrait && perso ? <ConfirmationDuRetrait agent={perso} onFermer={() => setRetrait(false)} onRetire={onRetour} /> : null}
-      {telephone ? (
-        <div className="flex min-h-0 flex-1 flex-col" data-page-agent-perso={agentPersoId}>
-          <div className="shrink-0 px-4 pb-2 pt-1">
-            <BarreDOnglets
-              repere="agent-perso-onglets"
-              pleineLargeur
-              valeur={onglet}
-              onChange={setOnglet}
-              onglets={[
-                { cle: 'conversation', libelle: t('Conversation') },
-                { cle: 'configuration', libelle: t('Configuration'), nombre: perso ? completionDeLaFiche(perso.fiche).remplies : null },
-              ]}
-            />
-          </div>
-          {/* Les deux restent montés : le champ garde ce qu'on y a écrit en passant d'un onglet à l'autre. */}
-          <div className={cn('min-h-0 flex-1 flex-col', onglet === 'conversation' ? 'flex' : 'hidden')} data-agent-perso-conversation={agent?.id ?? 'chargement'}>
-            {conversation}
-          </div>
-          <div className={cn('min-h-0 flex-1 flex-col', onglet === 'configuration' ? 'flex' : 'hidden')}>
-            <ZoneDefilement className="px-4 pb-2" classeEnveloppe="min-h-0 flex-1" data-agent-perso-volet="">
-              {configuration}
-            </ZoneDefilement>
-            {perso ? <PiedDeLAgent agent={perso} telephone /> : null}
-          </div>
-        </div>
-      ) : (
-        <div ref={setRangee} className="flex min-h-0 min-w-0 flex-1" data-page-agent-perso={agentPersoId} data-plein-cadre>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-agent-perso-conversation={agent?.id ?? 'chargement'}>
-            <div className="mx-auto flex min-h-0 w-full max-w-[820px] flex-1 flex-col [--fond-du-pied:transparent] [--retrait-du-fil:1rem]">{conversation}</div>
-          </div>
-          <ResizeHandle onPointerDown={(e) => start(e, 'right')} onDoubleClick={reset} className="z-30" data-document-poignee="agent-perso" />
-          <aside className={cn('min-h-0', CLASSE_VOLET_DU_PLAN)} style={{ width }} aria-label="Configuration de l’agent" data-agent-perso-volet="">
-            <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', CLASSE_FENETRE_DU_VOLET)}>
-              <PanneauDuVolet
-                titre={t('Configuration de l’agent')}
-                libelleFermer={t('Revenir aux agents')}
-                onFermer={onRetour}
-                reperesCroix={{ 'data-croix-du-volet': 'agent-perso' }}
-                pied={perso ? <PiedDeLAgent agent={perso} /> : null}
-              >
-                {configuration}
-              </PanneauDuVolet>
-            </div>
-          </aside>
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col" data-page-agent-perso={agentPersoId} data-role-de-l-agent={perso?.role ?? ''}>
+        <GabaritDiscussionEtVolet<OngletDeLAgent>
+          repere="agent"
+          libelleDuVolet={perso?.fiche.nom ?? 'Agent'}
+          discussion={<div className="flex min-h-0 flex-1 flex-col" data-agent-perso-conversation={agent?.id ?? 'chargement'}>{conversation}</div>}
+          onglets={cles.map((c) => ({ cle: c, libelle: libelleDeLOutil(c) }))}
+          valeur={onglet}
+          onChange={(c) => setRetenu(c)}
+          contenu={<div className="flex min-h-0 flex-1 flex-col" data-agent-perso-volet="" data-onglet-de-l-agent={onglet}>{contenu}</div>}
+          defile={onglet !== 'apercu'}
+          pied={pied}
+        />
+      </div>
     </>
   );
 }

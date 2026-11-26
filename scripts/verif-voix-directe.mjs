@@ -131,16 +131,17 @@ try {
   });
 
   /* ---------- 1. L'en-tête suit le projet de l'artefact créé ---------- */
-  console.log('1. Nouvel artefact › Programmation › un autre projet');
+  /* « NOUVEL ARTEFACT » A QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026) : depuis Boutique, on
+     passe au projet Facturo et on y crée la tâche par « Nouvelle tâche » (onglet « Tâches » de sa page). */
+  console.log('1. Depuis un projet, « Nouvelle tâche » dans un autre projet');
   {
     const page = await nouvellePage(navigateur);
     await page.goto(`${BASE}/#projet/p-boutique`, { waitUntil: 'load' });
-    await page.locator('[data-ligne-nouvel-agent]').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await page.locator('[data-gabarit-equipe="projet"]').first().waitFor({ state: 'visible', timeout: 20_000 });
     await page.waitForTimeout(1500);
-    await page.locator('[data-ligne-nouvel-agent]').first().click();
-    await page.locator('[data-type-d-agent="programmation"]').hover();
-    await page.locator('[data-type-d-agent="programmation"]').click();
-    await page.locator('[data-projet-a-viser="p-facturo"][data-pour-le-type="programmation"]').click();
+    await page.goto(`${BASE}/#projet/p-facturo`, { waitUntil: 'load' });
+    await page.locator('[data-barre-onglets="projet-onglets"] [data-onglet="taches"]').first().click();
+    await page.locator('[data-nouvelle-tache-de-l-equipe]').first().click();
     await page.waitForTimeout(3500);
     /* Le fil d'Ariane VU : le texte de la barre du haut de la zone, lu au point où il s'affiche. */
     const fil = await page.evaluate(() => {

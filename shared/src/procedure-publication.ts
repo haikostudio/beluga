@@ -97,6 +97,17 @@ export function leClicLanceLAgent(etat: EtatDuBoutonDeConfiguration): boolean {
 }
 
 /**
+ * CE QUE « REFAIRE L'INITIALISATION » DIT À L'AGENT DE CONFIGURATION (26/11/2026) : le bouton de la rubrique demande
+ * confirmation puis relance l'agent EN SILENCE par `procedure.tour` avec ce message — sans message, le serveur ne
+ * relance jamais un agent qui a déjà parlé (`tourDeProcedure`). Texte pour l'agent, jamais affiché.
+ */
+export const MESSAGE_REFAIRE_L_INITIALISATION: Record<'dev' | 'production', string> = {
+  dev: 'Refais l’initialisation du déploiement : relis le projet tel qu’il est aujourd’hui, vérifie que la marche à suivre est toujours juste, corrige-la si besoin, refais un essai sans rien mettre en ligne, puis rends le processus complet.',
+  production:
+    'Refais l’initialisation de la mise en production : relis le projet tel qu’il est aujourd’hui, vérifie que la marche à suivre jusque chez le client est toujours juste, corrige-la si besoin, refais un essai sans rien y envoyer, puis rends le processus complet.',
+};
+
+/**
  * L'AGENT DE CONFIGURATION RETENU EST-IL TOMBÉ ? (25/11/2026, décision de l'utilisateur après iMiel)
  *
  * Son tour s'est coupé — statut `failed`, ou dernier message porteur d'une erreur — sans qu'il travaille encore,

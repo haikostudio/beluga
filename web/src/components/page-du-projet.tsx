@@ -17,16 +17,19 @@ import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte
 import { SilhouetteRubrique } from '@/components/silhouettes';
 import { FournirLeProjetDuService } from '@/components/projet-du-service';
 import { Button, CLASSE_LARGEUR_DE_CONTENU, CLASSE_MARGES_DE_PAGE } from '@/components/ui';
-import { Archive, ArchiveRestore } from '@/components/ui/icones';
+import { Archive, ArchiveRestore, BarChart3, Bot, Loader2, Plus } from '@/components/ui/icones';
+import { CLASSE_BOUTON_PLEINE_LARGEUR } from '@/components/menu-du-bas';
+import { creerCarteAgent } from '@/components/tiroir-nouvel-agent';
 import { ouvrirLArchivage } from '@/lib/archivage-projet';
 import { TableauDesTaches } from '@/components/tableau-des-taches';
+import { PageDeLEquipe } from '@/components/equipe/page-de-l-equipe';
 import { AgentsDuProjet } from '@/components/agents-du-projet';
+import { ZoneDefilement } from '@/components/ui';
 import { PageDeLAgent } from '@/components/page-de-l-agent';
 import { PageDuSousAgent } from '@/components/sous-agents';
-import { CLASSE_COLONNE_DE_SERVICE, PageAGrandTitre, RubriquesDePage } from '@/components/fenetre-de-service';
-import { CranDuFil, SuiteDuFil } from '@/components/entete-de-zone';
-import { BarreDOnglets } from '@/components/ui/barre-d-onglets';
-import { ZoneDefilement } from '@/components/ui';
+import { CLASSE_COLONNE_DE_SERVICE } from '@/components/fenetre-de-service';
+import { CranDuFil, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
+import { naviguerVers } from '@/components/ui/lien-interne';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
@@ -43,15 +46,24 @@ export function PageDuProjet({
   onOuvrir,
   agents = null,
   onAgents,
+  onCree,
 }: {
   projectId: string;
   onOuvrir: (card: Card) => void;
+  /** Une carte vient de naître par le pied « Nouvel artefact » (l'appelant la suit, comme après le « + » de la colonne). */
+  onCree?: (cardId: string) => void;
   /** L'ONGLET « AGENTS » (carte « Agents personnalisés dans les projets », 24/11/2026), lu et écrit dans l'adresse. */
   agents?: AccueilDesAgents;
   onAgents?: (agents: AccueilDesAgents) => void;
 }) {
   const telephone = useTelephone();
   const state = useApp();
+  /* « Chiffres et coûts » et « Tableau des agents » : l'ancien accueil du projet et l'ancien onglet « Agents » (point
+     du matin, tableau, chefs de communication et leur interrupteur), ouverts depuis le menu à trois points. */
+  const [vueAnnexe, setVueAnnexe] = React.useState<'chiffres' | 'tableau' | null>(null);
+  const chiffres = vueAnnexe === 'chiffres';
+  const setChiffres = (oui: boolean) => setVueAnnexe(oui ? 'chiffres' : null);
+  React.useEffect(() => setVueAnnexe(null), [projectId]);
   const projet = state.projects.find((p) => p.id === projectId) ?? null;
   const projetDuResume = React.useMemo(() => (projet ? { id: projet.id, name: projet.name, path: projet.path } : null), [projet?.id, projet?.name, projet?.path]);
   const ouvrirParId = React.useCallback(
@@ -69,67 +81,66 @@ export function PageDuProjet({
    */
   const telephoneSansTableau = telephone;
   let facturation: React.ReactNode = null;
-  /*
-   * « TÂCHES | AGENTS » (24/11/2026, maquette #1df7) : un sélecteur dans la rangée du grand titre — JAMAIS un onglet
-   * d'en-tête (la barre d'onglets du projet n'a plus d'onglet « Tâches » depuis le 13/11/2026). Le choix est retenu par
-   * projet ; l'agent ouvert est une page à lui (conversation à gauche, configuration à droite).
-   */
-  const selecteur = onAgents ? (
-    <BarreDOnglets
-      repere="accueil-taches-agents"
-      variante="accueil"
-      pleineLargeur={telephone}
-      valeur={agents ? 'agents' : 'taches'}
-      onChange={(v) => onAgents(v === 'agents' ? {} : null)}
-      onglets={[
-        { cle: 'taches', libelle: t('Tâches') },
-        { cle: 'agents', libelle: t('Agents') },
-      ]}
-    />
-  ) : null;
-  if (agents && onAgents) {
-    /* LA CONVERSATION D'UN AGENT SANS FICHE — un chef de Communication, un sous-agent (24/11/2026) : sa page, avec la
-       rangée d'onglets de sa famille sous le fil d'Ariane. */
-    if (agents.agentId) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
-          <PageDuSousAgent projectId={projectId} agentId={agents.agentId} onRetour={() => onAgents({})} />
-        </div>
-      );
-    }
-    if (agents.agentPersoId) {
-      return (
-        <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
-          <PageDeLAgent projectId={projectId} agentPersoId={agents.agentPersoId} onRetour={() => onAgents({})} />
-        </div>
-      );
-    }
-    const liste = <AgentsDuProjet projectId={projectId} onOuvrir={(id) => onAgents({ agentPersoId: id })} onOuvrirUnChef={(id) => onAgents({ agentId: id })} />;
+  /* LA CONVERSATION D'UN AGENT SANS FICHE — un chef de Communication, un sous-agent (24/11/2026) : sa page, avec la
+     rangée d'onglets de sa famille sous le fil d'Ariane. */
+  if (agents?.agentId && onAgents) {
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
-        {projet ? <BandeauDuProjetArchive projet={projet} /> : null}
-        <SuiteDuFil onRacine={() => onAgents(null)}>
-          <CranDuFil data-cran-agents="">{t('Agents')}</CranDuFil>
+        <PageDuSousAgent projectId={projectId} agentId={agents.agentId} onRetour={() => onAgents(null)} />
+      </div>
+    );
+  }
+  /* LA PAGE D'UN AGENT DE L'ÉQUIPE (26/11/2026) : sa discussion à gauche, ses outils à droite. */
+  if (agents?.agentPersoId && onAgents) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId}>
+        <PageDeLAgent projectId={projectId} agentPersoId={agents.agentPersoId} onRetour={() => onAgents(null)} onOuvrirCarte={onOuvrir} onCree={onCree} />
+      </div>
+    );
+  }
+  /*
+   * L'ÉQUIPE DU PROJET (carte « Beluga piloté par des agents », 26/11/2026) : la page d'un projet est désormais la
+   * discussion de son équipe et le volet « Équipe | Tâches ». L'ancien accueil — chiffres, activité, coûts — reste à
+   * portée par le menu à trois points (« Chiffres et coûts ») : rien de ce qu'il montrait ne se perd.
+   */
+  if (vueAnnexe === 'tableau' && onAgents) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId} data-accueil-du-projet="tableau-des-agents">
+        <SuiteDuFil onRacine={() => setVueAnnexe(null)} retour={{ action: () => setVueAnnexe(null), reperes: { 'data-tableau-des-agents-retour': '' } }}>
+          <CranDuFil data-cran-tableau-des-agents="">{t('Tableau des agents')}</CranDuFil>
         </SuiteDuFil>
-        <div className="flex min-h-0 flex-1 flex-col" data-accueil-du-projet="agents">
-          {telephone ? (
-            <ZoneDefilement className="px-4 pb-6 pt-2" data-fil="agents-du-projet">
-              <div className="flex flex-col gap-4">
-                {selecteur}
-                {liste}
-              </div>
-            </ZoneDefilement>
-          ) : (
-            <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="sm:pb-20" data-fil="agents-du-projet">
-              <div className={CLASSE_COLONNE_DE_SERVICE} data-colonne-de-l-accueil>
-                <PageAGrandTitre titre={projet?.name ?? ''} repere="accueil-du-projet">
-                  <RubriquesDePage>{selecteur}</RubriquesDePage>
-                  {liste}
-                </PageAGrandTitre>
-              </div>
-            </ZoneDefilement>
-          )}
-        </div>
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-4 pb-10 pt-2 sm:px-0" data-fil="agents-du-projet">
+          <div className={CLASSE_COLONNE_DE_SERVICE}>
+            <AgentsDuProjet projectId={projectId} onOuvrir={(id) => onAgents({ agentPersoId: id })} onOuvrirUnChef={(id) => onAgents({ agentId: id })} />
+          </div>
+        </ZoneDefilement>
+      </div>
+    );
+  }
+  if (!chiffres) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-page-du-projet={projectId} data-accueil-du-projet="equipe">
+        {telephone ? <GestesDePublicationDeCarte projectId={projectId} enMenu /> : null}
+        <OptionsDePage enMenu>
+          <OptionDePage icone={<BarChart3 className="h-4 w-4" />} onClick={() => setChiffres(true)} data-option-chiffres-du-projet="">
+            {t('Chiffres et coûts')}
+          </OptionDePage>
+          {onAgents ? (
+            <OptionDePage icone={<Bot className="h-4 w-4" />} onClick={() => setVueAnnexe('tableau')} data-option-tableau-des-agents="">
+              {t('Tableau des agents')}
+            </OptionDePage>
+          ) : null}
+        </OptionsDePage>
+        {projet ? <BandeauDuProjetArchive projet={projet} /> : null}
+        <PageDeLEquipe
+          projectId={projectId}
+          onOuvrirCarte={onOuvrir}
+          onOuvrirAgent={(id, projetDeLAgent) => {
+            if (projetDeLAgent === projectId) onAgents?.({ agentPersoId: id });
+            else naviguerVers(`projet/${encodeURIComponent(projetDeLAgent)}/agents/${encodeURIComponent(id)}`);
+          }}
+          onCree={onCree}
+        />
       </div>
     );
   }
@@ -139,6 +150,9 @@ export function PageDuProjet({
           téléphone, les deux gestes restent dans le menu à trois points. */}
       {telephone ? <GestesDePublicationDeCarte projectId={projectId} enMenu /> : null}
       {projet ? <BandeauDuProjetArchive projet={projet} /> : null}
+      <SuiteDuFil onRacine={() => setChiffres(false)} retour={{ action: () => setChiffres(false), reperes: { 'data-chiffres-retour': '' } }}>
+        <CranDuFil data-cran-chiffres="">{t('Chiffres et coûts')}</CranDuFil>
+      </SuiteDuFil>
       <div className="flex min-h-0 flex-1 flex-col" data-accueil-du-projet="page">
         <FournirLeProjetDuService value={projetDuResume}>
           <React.Suspense fallback={<div className={cn('mx-auto w-full pt-6', CLASSE_LARGEUR_DE_CONTENU, CLASSE_MARGES_DE_PAGE)}><SilhouetteRubrique /></div>}>
@@ -146,20 +160,52 @@ export function PageDuProjet({
                 filtre des tâches montent sur sa ligne, à droite, avec la période — plus de petit titre « Tâches ». */}
             <Dashboard
               titre={projet?.name}
-              avant={
-                telephoneSansTableau ? (
-                  selecteur
-                ) : (
-                  <>
-                    {selecteur ? <RubriquesDePage>{selecteur}</RubriquesDePage> : null}
-                    <TableauDesTaches projectId={projectId} onOuvrir={onOuvrir} titre={null} />
-                  </>
-                )
-              }
+              avant={telephoneSansTableau ? null : <TableauDesTaches projectId={projectId} onOuvrir={onOuvrir} titre={null} />}
               apres={facturation ? <div className="pt-6" data-facturation-de-l-accueil>{facturation}</div> : null}
             />
           </React.Suspense>
         </FournirLeProjetDuService>
+      </div>
+      {projet && !telephone ? <PiedNouvelArtefact projet={projet} onCree={onCree} /> : null}
+    </div>
+  );
+}
+
+/**
+ * « NOUVEL ARTEFACT » EN PIED DE LA PAGE D'UN PROJET (décision de l'utilisateur du 26/11/2026, capture #0b58 : « en bas
+ * des tableaux de bord des projets, je veux le bouton Nouvel artefact »). ORDINATEUR SEULEMENT : le téléphone a déjà le
+ * « + » du menu du bas et le pied de la feuille des tâches (`feuille-des-taches.tsx`, même bouton). Hors de la zone qui
+ * défile, centré sur la colonne de la page, pleine largeur, gris (`bg-controle-doux`) ; le clic fait naître une carte
+ * de cadrage dans CE projet et l'ouvre (`creerCarteAgent`), une seule à la fois. Absent d'un projet archivé ou en
+ * cours de transfert : rien ne s'y lance.
+ */
+function PiedNouvelArtefact({ projet, onCree }: { projet: Project; onCree?: (cardId: string) => void }) {
+  const transfert = useApp().archivages[projet.id];
+  const [creation, setCreation] = React.useState(false);
+  if (projet.archived || (transfert && !transfert.fini)) return null;
+  const creer = async () => {
+    if (creation) return;
+    setCreation(true);
+    try {
+      await creerCarteAgent(projet.id, (id) => onCree?.(id));
+    } finally {
+      setCreation(false);
+    }
+  };
+  return (
+    <div className="shrink-0 pb-4 pt-2" data-pied-de-page-projet={projet.id}>
+      <div className={CLASSE_COLONNE_DE_SERVICE}>
+        <button
+          type="button"
+          onClick={() => void creer()}
+          disabled={creation}
+          aria-busy={creation || undefined}
+          className={cn(CLASSE_BOUTON_PLEINE_LARGEUR, 'bg-controle-doux text-text hover:bg-controle-doux-survol')}
+          data-nouvel-artefact-pied-projet={projet.id}
+        >
+          {creation ? <Loader2 className="animate-spin" /> : <Plus />}
+          <span className="min-w-0 truncate">{t('Nouvelle tâche')}</span>
+        </button>
       </div>
     </div>
   );

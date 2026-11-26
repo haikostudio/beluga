@@ -88,6 +88,7 @@ export type MotifNotification =
   | 'espace-archivage'
   | 'espace-avancement'
   | 'espace-en-ligne'
+  | 'espace-connexion-bloquee'
   /* --- La plaquette client : le client l'a ouverte, ou y a laissé une remarque */
   | 'plaquette-ouverte'
   | 'plaquette-remarque';
@@ -263,6 +264,13 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
    * BAS — celui-là se lit en orange dans le volet des quotas et par le point au pied de la colonne.
    */
   'service-ia-a-sec': { famille: 'systeme', genre: 'erreur', sujet: 'service-ia-a-sec', icone: 'erreur' },
+  /*
+   * UN CLIENT DONT L'ESPACE NE SE RELIE PAS depuis 30 s (carte « Accès client FishFlow bloqué », 26/11/2026) : il
+   * est bloqué, et lui seul le voit — c'est une erreur au sens de cette règle, jamais un genre de plus. Signalée par
+   * HTTP (`server/src/espace-blocage.ts`), une seule fois par compte et par heure. Elle vise les ADMINISTRATEURS,
+   * jamais le client.
+   */
+  'espace-connexion-bloquee': { famille: 'systeme', genre: 'erreur', sujet: 'espace-connexion-bloquee', icone: 'erreur' },
 
   /* --- CE QUI N'ALERTE PLUS ------------------------------------------- */
   /*

@@ -309,9 +309,10 @@ async function main() {
   const ancienBouton = page.locator('[data-nouvelle-carte="planned"]:visible').first();
   if (await ancienBouton.count()) await ancienBouton.click();
   else {
-    await page.locator('[data-ligne-nouvel-agent]').first().click();
-    await page.locator('[data-type-d-agent="programmation"]').first().click();
-    await page.locator(`[data-projet-a-viser="${PROJET_ID}"][data-pour-le-type="programmation"]`).first().click();
+    /* « Nouvelle tâche » de la page du projet (« Nouvel artefact » a quitté la colonne le 26/11/2026). */
+    await page.goto(`${BASE}/#projet/${PROJET_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.locator('[data-barre-onglets="projet-onglets"] [data-onglet="taches"]').first().click();
+    await page.locator('[data-nouvelle-tache-de-l-equipe]').first().click();
   }
   await page.waitForTimeout(3000);
   await envoyer(DEMANDE);

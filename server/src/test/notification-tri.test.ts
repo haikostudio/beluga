@@ -72,6 +72,8 @@ test('chaque motif qui alerte entre dans l’un des trois genres, nommément', (
     // Chrome fermé une heure avant un post qui passe par lui : le post ne partira pas (`connexion-des-reseaux.ts`).
     'chrome-ferme',
     'compte-sature',
+    // Un client dont l'espace ne se relie pas depuis 30 s : il est bloqué (`server/src/espace-blocage.ts`).
+    'espace-connexion-bloquee',
     'geste-lent',
     'jeton-claude-bloque',
     'publication-echec',

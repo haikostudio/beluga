@@ -422,7 +422,7 @@ async function principal() {
     });
     const [r, g, b] = (tete.fond1.match(/\d+/g) ?? []).map(Number);
     noter('6. « Tableaux de bord » et les services : un bouton groupé violet, sans écart', tete.ecart <= 2 && tete.memeHaut && tete.fond1 === tete.fond2 && b > g && r > g && tete.rayon === '0px', JSON.stringify(tete));
-    noter('6. « Nouvel agent » reste dessous', (await page.locator(`${aside}[data-ligne-nouvel-agent]`).count()) === 1);
+    noter('6. « Nouvel agent » reste dessous', (await page.locator(`${aside}[data-bouton-tableaux-de-bord]`).count()) === 1);
     const barre = '[data-entete-de-zone] ';
     noter('6. la barre du haut n’a plus de bouton des services', (await page.locator(`${barre}[data-navigation-compacte]`).count()) === 0);
     await page.locator(`${aside}[data-navigation-compacte]`).click();
@@ -867,7 +867,7 @@ async function principal() {
     await mobile.waitForTimeout(500);
     const hautDuMenu = await mobile.locator('[data-feuille-du-bas]').last().evaluate((el) => el.getBoundingClientRect().top);
     noter('9. le menu s’arrête 20 px sous le haut de la vue, comme toute feuille', Math.abs(hautDuMenu - 20) <= 1, `${hautDuMenu} px`);
-    noter('9. il porte le bouton groupé et « Nouvel agent »', (await menu.locator('[data-tete-de-colonne] [data-ligne-tableau-de-bord]').count()) === 1 && (await menu.locator('[data-tete-de-colonne] [data-navigation-compacte]').count()) === 1 && (await menu.locator('[data-ligne-nouvel-agent]').count()) === 1);
+    noter('9. il porte le bouton groupé et « Nouvel agent »', (await menu.locator('[data-tete-de-colonne] [data-ligne-tableau-de-bord]').count()) === 1 && (await menu.locator('[data-tete-de-colonne] [data-navigation-compacte]').count()) === 1 && (await menu.locator('[data-bouton-tableaux-de-bord]').count()) === 1);
     await mobile.screenshot({ path: `${RACINE}/data/verification/liste-des-agents-menu-seul.png` });
     /* CE QUI EST OUVERT RESTE OUVERT (01/11/2026) : « Beta », ouvert sur l'ordinateur au point 6, l'est déjà ici. */
     const betaDejaOuvert = (await menu.locator('[data-deplier-taches="p-beta"]').getAttribute('aria-expanded')) === 'true';

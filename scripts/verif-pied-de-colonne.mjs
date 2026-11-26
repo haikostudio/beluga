@@ -272,7 +272,7 @@ async function main() {
   /* La ligne « Tableaux de bord » a quitté la colonne (12/10/2026) : on y va par
      le fil d'Ariane, le menu du titre ou la grille des services. La colonne
      s'ouvre sur « Nouvel agent », puis sur l'intitulé « Projets ». */
-  const nouvelAgent = await boite(page, `${ASIDE} [data-ligne-nouvel-agent]`);
+  const nouvelAgent = await boite(page, `${ASIDE} [data-bouton-tableaux-de-bord]`);
   // L'intitulé « Projets » de la liste n'a pas de repère à lui : on le prend
   // par son texte. `data-titre-projets` désigne désormais la TÊTE de la colonne
   // (le nom de l'application), qui est au-dessus de tout.

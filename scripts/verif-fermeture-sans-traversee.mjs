@@ -53,8 +53,11 @@ function retirer(empreinte) {
 
 const PANNEAU = '[data-radix-popper-content-wrapper] [role="menu"]';
 const BOUTON_QUOTAS = '[data-pied-colonne] button[data-essai="badge-quota"]:visible';
-const LIGNE_NOUVEL_AGENT = '[data-ligne-nouvel-agent]:visible';
-const FENETRE_NOUVEL_AGENT = '[data-tiroir-nouvel-agent], [data-recherche-nouvel-agent]';
+/* « NOUVEL ARTEFACT » A QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026) : la ligne visée sous le
+   volet est « Tableaux de bord », dont le clic MÈNE à `#en-route` — un clic qui traverserait le volet se verrait donc
+   dans l'adresse. L'essai part d'une autre page (le Coffre-fort). */
+const LIGNE_NOUVEL_AGENT = '[data-bouton-tableaux-de-bord]:visible';
+const traverse = (page) => page.evaluate(() => (location.hash.startsWith('#en-route') ? 1 : 0));
 
 async function main() {
   const { token, empreinte } = jeton();
@@ -102,7 +105,7 @@ async function main() {
   async function etat() {
     return {
       menu: await page.locator(PANNEAU).count(),
-      fenetre: await page.locator(FENETRE_NOUVEL_AGENT).count(),
+      fenetre: await traverse(page),
       colonne: await page.locator(LIGNE_NOUVEL_AGENT).isVisible().catch(() => false),
     };
   }
@@ -119,7 +122,7 @@ async function main() {
     };
   }
 
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(`${BASE}/#coffre`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(5000);
   // Un tiroir de carte restauré d'une session précédente couvrirait l'écran.
   for (let i = 0; i < 3 && (await page.locator('[role="dialog"]').count()) > 0; i++) {
@@ -130,19 +133,19 @@ async function main() {
   // La colonne des projets, par le bouton en haut à gauche.
   await page.locator('button[aria-label="Projets"]').first().tap();
   await page.waitForTimeout(800);
-  noter('la colonne des projets s\'ouvre avec sa ligne « Nouvel agent »', await page.locator(LIGNE_NOUVEL_AGENT).isVisible().catch(() => false));
+  noter('la colonne des projets s\'ouvre avec sa ligne « Tableaux de bord »', await page.locator(LIGNE_NOUVEL_AGENT).isVisible().catch(() => false));
 
   // 1. Toucher LONG sur la zone sombre, à l'endroit de « Nouvel agent ».
   const ouvert = await ouvrirLesQuotas();
   noter('le volet des quotas s\'ouvre depuis la colonne', ouvert);
   let point = await pointDeLaLigne();
-  noter('la ligne « Nouvel agent » reste visible au-dessus du volet', !!point?.libre);
+  noter('la ligne « Tableaux de bord » reste visible au-dessus du volet', !!point?.libre);
   if (point) {
     await toucherLong(point.x, point.y, 450);
     await page.waitForTimeout(900);
     const e = await etat();
     noter('toucher long : le volet des quotas est fermé', e.menu === 0);
-    noter('toucher long : « Dans quel projet ? » ne s\'ouvre pas', e.fenetre === 0);
+    noter('toucher long : « Tableaux de bord » ne s\'ouvre pas', e.fenetre === 0);
     noter('toucher long : la colonne des projets reste ouverte', e.colonne);
   }
 
@@ -178,13 +181,10 @@ async function main() {
     noter('poignée tirée : volet fermé, colonne ouverte, rien d\'autre', e.menu === 0 && e.fenetre === 0 && e.colonne);
   }
 
-  // 5. Un vrai clic sur « Nouvel agent », ensuite, fait ce qu'il doit faire.
+  // 5. Un vrai clic sur « Tableaux de bord », ensuite, fait ce qu'il doit faire.
   await page.locator(LIGNE_NOUVEL_AGENT).tap();
   await page.waitForTimeout(900);
-  noter(
-    'un clic ordinaire sur « Nouvel agent » ouvre bien « Dans quel projet ? »',
-    (await page.locator(FENETRE_NOUVEL_AGENT).count()) > 0,
-  );
+  noter('un clic ordinaire sur « Tableaux de bord » y mène bien', (await traverse(page)) > 0);
 
   noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
 

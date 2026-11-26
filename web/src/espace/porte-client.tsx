@@ -34,6 +34,7 @@ import { PileDeMessages, usePileDeMessages } from '@/components/messages-passage
 import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
 import { BoutonTheme, type EtatDeTheme } from './bouton-theme';
 import { canalEspace } from './canal-espace';
+import { BandeauConnexionBloquee, EcranConnexionBloquee, useConnexionBloquee, useSignalementDeBlocage } from './connexion-bloquee';
 import { phraseDeNotification } from './cloche-espace';
 import { EspaceClient, useEtatDuCanal, type MoiDansLEspace } from './espace-client';
 
@@ -62,6 +63,13 @@ export function PorteClient() {
   const pile = usePileDeMessages<{ notification?: NotificationEspace }>();
   const ajouterUnMessage = pile.ajouter;
   const etat = useEtatDuCanal();
+  /*
+   * 30 S SANS LIAISON : L'ÉCRAN LE DIT (`connexion-bloquee.tsx`). Avant la
+   * première identité, l'écran plein ; après, le bandeau prend les deux gestes.
+   * L'équipe est prévenue une fois par affichage.
+   */
+  const bloquee = useConnexionBloquee();
+  useSignalementDeBlocage(bloquee, moi ? 'session' : 'connexion');
 
   /*
    * OÙ ALLER, DEMANDÉ DU DEHORS : un toast cliqué, une notification poussée
@@ -246,6 +254,8 @@ export function PorteClient() {
     if (moi) void abonnerAuxNotifications();
   }, [moi]);
 
+  if (!moi && bloquee) return <EcranConnexionBloquee />;
+
   if (!moi) {
     return (
       <div className="grid h-dvh place-items-center bg-bg text-muted" data-porte-client="connexion">
@@ -270,7 +280,9 @@ export function PorteClient() {
       style={{ paddingTop: 'var(--zone-sure-haut, 0px)' }}
       data-porte-client="ouverte"
     >
-      {etat !== 'en-ligne' ? (
+      {bloquee ? (
+        <BandeauConnexionBloquee />
+      ) : etat !== 'en-ligne' ? (
         <div className="bg-warning/15 px-3 py-1 text-center text-xs text-warning" data-bandeau-canal>
           {t('Connexion interrompue — reprise en cours.')}
         </div>

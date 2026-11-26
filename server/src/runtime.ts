@@ -10,6 +10,7 @@ import {
   attendreAuPlus,
   dureeEnMots,
   COMPETENCES_ECARTEES_D_UNE_CREATION,
+  avecLesCompetencesImposees,
   VARIABLE_DE_CREATION_DE_MEDIA,
   Agent,
   AgentRole,
@@ -1601,6 +1602,15 @@ export async function reprendreLesFilesEnAttente(): Promise<void> {
   }
 }
 
+/** Un agent d'équipe (agent personnalisé) : ses outils d'édition sont fermés comme ceux d'un chef. */
+async function estUnAgentDEquipe(agentId: string): Promise<boolean> {
+  try {
+    return (await import('./agents-personnalises.js')).estAgentPerso(agentId);
+  } catch {
+    return false;
+  }
+}
+
 /** Les outils natifs d'édition fermés aux chefs de Communication : ils lisent, ils proposent une carte, ils n'écrivent pas. */
 export const OUTILS_D_EDITION_FERMES_AUX_CHEFS = ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'] as const;
 
@@ -2096,10 +2106,12 @@ async function preparerLeTour(
     const ecarteesDeLaCarte = card?.parcours?.realisationSouhaitee ? COMPETENCES_ECARTEES_D_UNE_CREATION : undefined;
     // UNE CARTE reçoit les fiches les plus proches de son travail PAR LE SENS, maison et
     // bibliothèques mêlées (carte dd481232) ; sans mesure, la liste par thème d'avant.
-    const competencesProches =
+    const prochesParLeSens =
       card && partsDAccueil(niveau).competences
         ? await competencesProchesDuTravail(travailDeLaCarte, { projet: project.name, projectId: project.id, ecartees: ecarteesDeLaCarte })
         : undefined;
+    // Une VITRINE ou un PREMIER JET reçoit d'office les leçons des premiers jets (et les modèles de vitrine), en tête.
+    const competencesProches = prochesParLeSens ? avecLesCompetencesImposees(prochesParLeSens, travailDeLaCarte) : undefined;
     const { sansMemoire, socle } = briefingSepare(
       project.path,
       project.name,
@@ -3379,7 +3391,14 @@ async function startTurn(
     allowedTools: bride ? [...cadrageAllowList(), ...(rea ? [`mcp__${SERVEUR_MCP_REA}`] : [])] : undefined,
     /* UN CHEF DE COMMUNICATION NE MODIFIE JAMAIS LE CODE (24/11/2026) : ses outils d'édition sont fermés, il propose une
        carte (`JAMAIS_DE_CODE_POUR_UN_CHEF`, `shared/src/chefs-de-communication.ts`). Ses outils de lecture restent. */
-    disallowedTools: bride ? cadrageDenyList() : agent.service?.id === SERVICE_DU_DIRECTEUR ? [...OUTILS_D_EDITION_FERMES_AUX_CHEFS] : undefined,
+    /* …NI UN AGENT D'ÉQUIPE (carte « Beluga piloté par des agents », 26/11/2026) : le code passe par l'agent de
+       développement, dans une tâche du projet (outil `equipe`) — un agent personnalisé, déploiement et production
+       compris, lit et prépare, il n'écrit pas dans le dépôt. */
+    disallowedTools: bride
+      ? cadrageDenyList()
+      : agent.service?.id === SERVICE_DU_DIRECTEUR || (await estUnAgentDEquipe(agent.id))
+        ? [...OUTILS_D_EDITION_FERMES_AUX_CHEFS]
+        : undefined,
     env,
   };
 

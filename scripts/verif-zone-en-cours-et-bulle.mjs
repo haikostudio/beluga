@@ -139,14 +139,17 @@ try {
   const place = await page.evaluate(() => {
     const r = (s) => document.querySelector(`aside[data-zone="gauche"] ${s}`)?.getBoundingClientRect();
     const premier = Math.min(...[...document.querySelectorAll('aside[data-zone="gauche"] [data-projet-cible], aside[data-zone="gauche"] [data-groupe-projets]')].map((el) => el.getBoundingClientRect().top));
-    return { nouvelAgent: r('[data-ligne-nouvel-agent]')?.bottom, haut: r('[data-taches-en-cours-colonne]')?.top, bas: r('[data-taches-en-cours-colonne]')?.bottom, premier };
+    /* « NOUVEL ARTEFACT » A QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026) : la zone « Au travail »
+       se pose sous la tête (« Tableaux de bord »). */
+    return { tete: r('[data-tete-de-colonne]')?.bottom, haut: r('[data-taches-en-cours-colonne]')?.top, bas: r('[data-taches-en-cours-colonne]')?.bottom, premier };
   });
-  noter('1. elle se pose entre « Nouvel agent » et les projets', place.haut >= place.nouvelAgent && place.bas <= place.premier, JSON.stringify(place));
+  noter('1. elle se pose entre la tête de la colonne et les projets', place.haut >= place.tete && place.bas <= place.premier, JSON.stringify(place));
   const gras = await page.locator(`${zone}[data-agent-en-cours="c-deployee"] [data-titre-agent]`).evaluate((el) => ({ poids: getComputedStyle(el).fontWeight, opacite: getComputedStyle(el.closest('[data-agent-en-cours]')).opacity }));
   noter('1. la déployée pas encore ouverte est en gras, sans pâlir', Number(gras.poids) >= 600 && gras.opacite === '1', JSON.stringify(gras));
   /* Depuis le 14/11/2026, la pastille du projet EST l'icône de la ligne, l'état à son coin. */
-  const pastilles = await page.locator(`${zone}[data-agent-en-cours] [data-icone-agent-projet] [data-rond-d-etat]`).count();
-  noter('1. chaque ligne porte l’icône de son projet, l’état à son coin', pastilles === 5, String(pastilles));
+  /* « AU TRAVAIL » (26/11/2026) : le visage de l'agent qui porte la tâche, ou — son équipe pas encore lue — l'icône du projet. */
+  const pastilles = await page.locator(`${zone}[data-agent-en-cours] :is([data-icone-agent-projet] [data-rond-d-etat], [data-portrait-d-agent])`).count();
+  noter('1. chaque ligne porte le visage de son agent (ou l’icône de son projet)', pastilles === ids.length && ids.length > 0, `${pastilles} / ${ids.length}`);
   if (CAPTURES) await page.screenshot({ path: path.join(CAPTURES, 'zone-en-cours.png') });
 
   /* 1 bis. Le clic dans la zone ouvre l'agent, même d'un autre projet ; le nom d'un projet ouvre sa dernière active */
@@ -163,9 +166,10 @@ try {
     await page.waitForTimeout(1500);
     const retour = await page.evaluate(() => ({ hash: location.hash, cartes: [...document.querySelectorAll('[data-page-carte]')].map((el) => el.getAttribute('data-page-carte')) }));
     noter('1 bis. …et de nouveau vers un troisième projet', retour.hash.includes('/tache/c-a-deployer') && retour.cartes.includes('c-a-deployer'), JSON.stringify(retour));
+    /* LE NOM D'UN PROJET OUVRE LA PAGE DE SON ÉQUIPE (26/11/2026) : la discussion et le volet « Équipe | Tâches ». */
     await page.locator(`${aside}[data-drag-id="p-trois"] :is(a, button)`).first().click();
-    const active = await carteAffichee('c-vieille');
-    noter('1 bis. le nom d’un projet ouvre sa dernière tâche ACTIVE, pas l’archivée retenue ni plus récente', active && (await page.locator('[data-page-carte="c-rangee"]').count()) === 0);
+    const equipe = await page.locator('[data-gabarit-equipe="projet"]').waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
+    noter('1 bis. le nom d’un projet ouvre la page de son équipe, jamais l’archivée retenue', equipe && (await page.locator('[data-page-carte="c-rangee"]').count()) === 0);
     await page.locator(`${aside}[data-drag-id="p-quatre"] :is(a, button)`).first().click();
     const accueil = await page.locator('[data-accueil-du-projet]').waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
     await page.waitForTimeout(800);

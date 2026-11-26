@@ -1554,6 +1554,30 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('agentsPerso.eteindre'), projectId: z.string(), id: z.string() }),
   z.object({ type: z.literal('agentsPerso.lancer'), projectId: z.string(), id: z.string() }),
   z.object({ type: z.literal('agentsPerso.supprimer'), projectId: z.string(), id: z.string() }),
+  /* L'ÉQUIPE D'AGENTS (carte « Beluga piloté par des agents », 26/11/2026, `server/src/equipe-d-agents.ts`) : l'équipe
+     d'un projet (et de son groupe) avec la discussion, les équipes en léger pour la colonne, un message de l'utilisateur
+     à l'équipe (« equipe » : toute l'équipe, sinon un agent), le réglage d'un membre, un nouveau membre (relié à un
+     autre par le « + » de la table), et la conversation d'un membre semé ouverte à sa première visite. */
+  z.object({ type: z.literal('equipe.lire'), projectId: z.string() }),
+  z.object({ type: z.literal('equipe.toutes') }),
+  /** L'aperçu court d'un outil du volet d'un agent (calendrier, comptes, état du site, sauvegardes, audits). */
+  z.object({ type: z.literal('equipe.outil'), projectId: z.string(), outil: z.string() }),
+  z.object({ type: z.literal('equipe.ecrire'), projectId: z.string(), texte: z.string().min(1).max(8000), cible: z.string() }),
+  z.object({
+    type: z.literal('equipe.regler'),
+    projectId: z.string(),
+    id: z.string(),
+    reglage: z.object({
+      portrait: z.string().nullable().optional(),
+      couleur: z.string().nullable().optional(),
+      role: z.string().optional(),
+      outils: z.array(z.string()).max(20).optional(),
+      autonome: z.boolean().optional(),
+      nom: z.string().max(60).optional(),
+    }),
+  }),
+  z.object({ type: z.literal('equipe.nouveau'), projectId: z.string(), relieA: z.string().nullish() }),
+  z.object({ type: z.literal('agentsPerso.conversation'), projectId: z.string(), id: z.string() }),
   z.object({ type: z.literal('securite.lister') }),
   z.object({ type: z.literal('securite.ajouter'), projectId: z.string() }),
   z.object({ type: z.literal('securite.retirer'), projectId: z.string() }),

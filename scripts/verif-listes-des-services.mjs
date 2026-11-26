@@ -97,14 +97,13 @@ try {
     await page.evaluate((s) => document.documentElement.classList.toggle('dark', s), sombre);
     await page.waitForTimeout(1500);
     for (const service of SERVICES) {
-      /* Un service épinglé s'ouvre d'un clic ; les autres par la ligne « Services » du bas de la colonne. */
-      const enBas = page.locator(`[data-services-du-bas] [data-service-du-bas="${service}"]`).first();
-      if (await enBas.count()) {
-        await enBas.click();
-      } else {
-        await page.locator('[data-bouton-services]').first().click();
-        await page.waitForSelector('[data-menu-des-services]', { timeout: 5000 });
-        const entree = page.locator(`[data-menu-des-services] [data-service-de-la-colonne="${service}"]`).first();
+      /* « Tous les services », dans le menu à trois points de la colonne (la ligne « Services » a quitté la colonne,
+         carte « Beluga piloté par des agents », 26/11/2026). */
+      {
+        await page.locator('[data-menu-dossier]').first().click();
+        await page.locator('[data-tous-les-services]').first().click();
+        await page.waitForSelector('[data-tous-les-services-panneau]', { timeout: 5000 });
+        const entree = page.locator(`[data-tous-les-services-panneau] [data-service-du-menu-colonne="${service}"]`).first();
         if (!(await entree.count())) {
           info(`${suffixe} ${service} : absent du menu (ce compte ne l'a pas)`);
           await page.keyboard.press('Escape');

@@ -103,6 +103,7 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
+  OmbreDeTete,
   ZoneDefilement,
   FormulaireEnColonnes,
   LigneFormulaire,
@@ -112,9 +113,10 @@ import { BranchesDArbre } from '@/components/branches-d-arbre';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
 import { ouvrirLesFichiers } from '@/lib/ouvrir-les-fichiers';
 import { useServicesOuverts } from '@/components/services';
-import { MenuNouvelAgent, type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
-import { ServicesDuBasDeLaColonne } from '@/components/services-de-la-colonne';
-import { FlecheDesTaches, TachesDuProjet, TachesTrouvees, useTachesParProjet } from '@/components/taches-du-projet';
+import { type CibleDeCreation, type TypeDAgent } from '@/components/menus-de-la-colonne';
+import { ServicesDuMenuDeLaColonne, useUneAlerteDeService } from '@/components/services-de-la-colonne';
+import { FlecheDesTaches, TachesTrouvees, useTachesParProjet } from '@/components/taches-du-projet';
+import { AgentsDuProjetDansLaColonne } from '@/components/equipe/agents-dans-la-colonne';
 import { TachesEnCours } from '@/components/taches-en-cours';
 import { QuotaBadge } from '@/components/quota-badge';
 import { CLE_COLONNE_REDUITE, useMoteurActif } from '@/components/quota-bar';
@@ -800,14 +802,9 @@ export function Sidebar({
       const trouvees = cartesDuFiltre(id);
       return trouvees.length ? <TachesTrouvees projectId={id} cartes={trouvees} carteOuverte={carteOuverte} onOuvrir={ouvrir} /> : null;
     }
-    return projetsDeplies.includes(id) ? (
-      <TachesDuProjet
-        projectId={id}
-        taches={tachesParProjet ? (tachesParProjet.get(id) ?? []) : null}
-        carteOuverte={carteOuverte}
-        onOuvrir={ouvrir}
-      />
-    ) : null;
+    /* SOUS UN PROJET DÉPLIÉ, SES AGENTS (carte « Beluga piloté par des agents », 26/11/2026) : les tâches vivent dans
+       l'onglet « Tâches » du projet ; ce qui tourne reste en tête de la colonne (« Au travail »). */
+    return projetsDeplies.includes(id) ? <AgentsDuProjetDansLaColonne projectId={id} onChoisi={onChoose} /> : null;
   };
   /* Pendant une recherche, ce qui est déplié est dicté par les résultats : pas de flèche. */
   const flecheDeTaches = (id: string) =>
@@ -903,15 +900,8 @@ export function Sidebar({
           taches: undefined,
         })}
         {filtre ? blocDeTaches(project.id) : ouvert && !bandeSeule ? (
-          <TachesDuProjet
-            projectId={project.id}
-            taches={tachesParProjet ? (tachesParProjet.get(project.id) ?? []) : null}
-            carteOuverte={carteOuverte}
-            onOuvrir={(card) => {
-              onOuvrirCarte?.(card);
-              onChoose?.();
-            }}
-          />
+          /* LE GROUPE DÉPLIÉ MONTRE SES AGENTS À LUI (26/11/2026), puis ses projets. */
+          <AgentsDuProjetDansLaColonne projectId={project.id} onChoisi={onChoose} />
         ) : null}
         {ouvert ? (
           <div
@@ -1001,6 +991,7 @@ export function Sidebar({
   /* LES SERVICES COMMUNS À TOUS LES PROJETS, dans le menu à trois points : Coffre-fort et Mémoire. */
   const servicesOuverts = useServicesOuverts();
   const servicesCommuns = servicesOuverts.filter((s) => s.cle === 'coffre' || s.cle === 'memoire');
+  const alerteDeService = useUneAlerteDeService();
   /* PLUS DE VUES « TOUS LES PROJETS » ICI (décision du 13/11/2026 au soir) : Résumé, Statistiques, Messagerie, Backup,
      Surveillance et Tâches récurrentes n'ont de sens que dans un projet. Ils s'ouvrent par le menu des outils du
      projet (`MenuDesOutils` sur ordinateur, « Outils » sur téléphone). */
@@ -1216,13 +1207,16 @@ export function Sidebar({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted data-[state=open]:bg-raised data-[state=open]:text-text"
+                    className="relative h-[38px] sm:h-8 w-[38px] sm:w-8 text-muted data-[state=open]:bg-raised data-[state=open]:text-text"
                     aria-label="Menu"
                     title={t('Menu')}
                     data-menu-dossier
                     data-trois-points-colonne
                   >
                     <EllipsisVertical className="h-4 w-4" />
+                    {/* L'ALERTE D'UN SERVICE (message à traiter, site en panne) : le point qu'elle portait sur la ligne
+                        « Services », retirée le 26/11/2026. */}
+                    {alerteDeService && state.monRole === 'admin' ? <span className={cn(CLASSE_POINT_DE_BOUTON, 'bg-teinte')} data-alerte-navigation aria-hidden /> : null}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="sm:w-[232px]" data-menu-dossier-panneau>
@@ -1263,8 +1257,21 @@ export function Sidebar({
                       </DropdownMenuItem>
                     </>
                   ) : null}
-                  {/* COFFRE-FORT ET MÉMOIRE ONT QUITTÉ CE MENU (carte « Services homogènes et centrés », 14/11/2026) : ils
-                      sont dans la liste de la ligne « Services », en bas de la colonne. */}
+                  {/* COFFRE-FORT, MÉMOIRE, MESSAGERIE ET TOUS LES SERVICES REVIENNENT ICI (26/11/2026) : la ligne « Services » a
+                      quitté la colonne. Administrateur seul, comme elle. */}
+                  {onOuvrirServiceCentral && state.monRole === 'admin' ? (
+                    <ServicesDuMenuDeLaColonne
+                      communs={servicesCommuns}
+                      onOuvrir={(cle) => {
+                        onOuvrirServiceCentral(cle);
+                        onChoose?.();
+                      }}
+                      onOuvrirCommun={(cle) => {
+                        onOuvrirVue?.(cle as VueCentrale);
+                        onChoose?.();
+                      }}
+                    />
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
               {/* LA LOUPE DE LA COLONNE REVIENT (décision du 14/11/2026), entre les trois points et le repli : elle
@@ -1388,7 +1395,8 @@ export function Sidebar({
             /* LA TÊTE (13/11/2026, maquette #76ac validée) : « Tableaux de bord » en VIOLET en tête — un vrai lien vers la
                vue de tous les projets —, puis « Nouvel artefact », sans fond (15/11/2026). Le menu ⋮ ne porte plus « Tableaux de
                bord ». Colonne réduite : leurs icônes. */
-            <div className="mb-1.5 flex flex-col gap-1.5" data-tete-de-colonne>
+            <>
+            <div className="flex flex-col gap-1.5" data-tete-de-colonne>
               {state.monRole === 'admin' ? (
                 <LienInterne
                   adresse={construireFragment({ vue: 'en-route' })}
@@ -1411,49 +1419,13 @@ export function Sidebar({
                   <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Tableaux de bord')}</span>
                 </LienInterne>
               ) : null}
-              {/* « SERVICES » JUSTE SOUS « TABLEAUX DE BORD », AU-DESSUS DE « NOUVEL ARTEFACT » (décision de l'utilisateur
-                  du 15/11/2026) : sa liste s'ouvre VERS LE BAS, et les services épinglés se rangent juste sous lui.
-                  PENDANT UNE RECHERCHE, LA COLONNE NE MONTRE QUE LES RÉSULTATS (14/11/2026, capture #85295) : la ligne
-                  et ses épingles s'effacent, et reviennent quand le champ est vidé ou refermé. */}
-              {onOuvrirServiceCentral && state.monRole === 'admin' && !serviceVisible && !filtre ? (
-                <ServicesDuBasDeLaColonne
-                  bandeSeule={bandeSeule}
-                  enTete
-                  actif={serviceCentralActif ?? (vue === 'coffre' || vue === 'memoire' ? vue : null)}
-                  onOuvrir={(cle) => {
-                    onOuvrirServiceCentral(cle);
-                    onChoose?.();
-                  }}
-                  communs={servicesCommuns}
-                  onOuvrirCommun={(cle) => {
-                    onOuvrirVue?.(cle as VueCentrale);
-                    onChoose?.();
-                  }}
-                />
-              ) : null}
-              {/* « NOUVEL AGENT » DEMANDE LE TYPE, PUIS LE PROJET (14/11/2026). */}
-              {onCreerAgent ? (
-                <MenuNouvelAgent bandeSeule={bandeSeule} onOuvert={onChoose} onCreer={onCreerAgent} />
-              ) : (
-                <button
-                  type="button"
-                  data-ligne-nouvel-agent
-                  title={bandeSeule ? t('Nouvel artefact') : undefined}
-                  onClick={() => {
-                    onNouvelAgent();
-                    onChoose?.();
-                  }}
-                  className={cn(
-                    'flex h-[43px] sm:h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium text-text transition-colors hover:bg-raised data-[state=open]:bg-raised',
-                    bandeSeule ? 'justify-center px-0' : 'px-2.5',
-                  )}
-                >
-                  <SquarePen className="h-4 w-4 shrink-0" />
-                  <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Nouvel artefact')}</span>
-                </button>
-              )}
-              {/* « SERVICES » A QUITTÉ LA TÊTE (14/11/2026) : les services vivent en bas de la colonne, au-dessus du pied. */}
+              {/* « SERVICES » A QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026) : les services métier
+                  s'ouvrent par l'agent qui en a la charge ; tous restent dans le menu à trois points de la tête. */}
             </div>
+            {/* « NOUVEL ARTEFACT » A QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026) : une tâche naît
+                en écrivant à l'équipe ou par « Nouvelle tâche » (page du projet, page d'un agent) ; une création, une
+                campagne, une charte… naissent dans leur service, ouvert par l'agent ou par le menu à trois points. */}
+            </>
           ) : null}
 
           {/* « FICHIERS » (carte « Fichiers rangés et captures pleine page », 05/11/2026) : en haut de la colonne, la

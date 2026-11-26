@@ -117,12 +117,14 @@ async function principal() {
     const bande = await page.evaluate(() => {
       const aside = document.querySelector('aside[data-colonne-projets="reduite"]');
       const centre = (r) => r.left + r.width / 2;
-      const icones = [...aside.querySelectorAll('[data-bouton-services] svg, [data-service-epingle] svg, [data-bouton-tableaux-de-bord] svg, [data-tete-de-colonne] button svg')]
+      /* « SERVICES » A QUITTÉ LA COLONNE (26/11/2026) : la bande porte « Tableaux de bord » et la tête. */
+      const icones = [...aside.querySelectorAll('[data-bouton-tableaux-de-bord] svg, [data-tete-de-colonne] button svg')]
         .map((e) => e.getBoundingClientRect())
         .filter((r) => r.width > 0);
       const temoin = aside.querySelector('[data-deplier-colonne] [data-temoin-serveur]')?.getBoundingClientRect();
-      const services = aside.querySelector('[data-bouton-services] svg')?.getBoundingClientRect();
-      const pointServices = aside.querySelector('[data-bouton-services] [data-alerte-navigation]')?.getBoundingClientRect();
+      const services = aside.querySelector('[data-bouton-tableaux-de-bord] svg')?.getBoundingClientRect();
+      /* Le point d'alerte d'un service vit désormais sur les trois points de la tête (hors de la bande repliée). */
+      const pointServices = document.querySelector('[data-menu-dossier] [data-alerte-navigation]')?.getBoundingClientRect();
       return {
         centres: icones.map(centre),
         temoin: temoin ? centre(temoin) : null,
@@ -132,8 +134,7 @@ async function principal() {
     });
     const etendue = Math.max(...bande.centres) - Math.min(...bande.centres);
     noter('3. bande : les icônes sont sur le même axe', bande.centres.length >= 2 && etendue <= 1, `${bande.centres.length} icônes, écart ${etendue.toFixed(2)} px`);
-    noter('3. bande : « Services » est centrée comme les autres', bande.services != null && Math.abs(bande.services - bande.centres[0]) <= 1, String(bande.services));
-    noter('3. bande : son point d’alerte est posé sur le coin de l’icône', !!bande.point && bande.point.droite > 0 && bande.point.droite <= 6 && bande.point.haut >= 0, JSON.stringify(bande.point));
+    noter('3. bande : « Tableaux de bord » est centré comme les autres', bande.services != null && Math.abs(bande.services - bande.centres[0]) <= 1, String(bande.services));
     noter('3. bande : la tête est le témoin, centré sur le même axe', bande.temoin != null && Math.abs(bande.temoin - bande.centres[0]) <= 1.5, String(bande.temoin));
     await capturerDansLesDeuxThemes(page, '1440-bande');
     /* Au clavier, le témoin cède la place au bouton qui déplie. */

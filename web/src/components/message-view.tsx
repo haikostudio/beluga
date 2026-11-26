@@ -596,6 +596,8 @@ function declencheurDuPassage(passage: NonNullable<Message['passageAutomatique']
       return t('à l’heure prévue');
     case 'veille':
       return t('surveillance levée');
+    case 'collegue':
+      return passage.source ? t('demande de {v0}', { v0: passage.source }) : t('demande d’un collègue');
     default:
       switch (passage.source) {
         case 'messagerie.demande':

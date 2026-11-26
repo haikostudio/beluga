@@ -2518,6 +2518,19 @@ svg.lucide[stroke-width='2'] {
   background-color: hsl(142 64% 36% / 0.55);
 }
 
+/* « NOUVEL ARTEFACT » RESTE COLLÉ EN HAUT DE LA COLONNE DE GAUCHE (26/11/2026) — `data-nouvel-artefact-colle`, posé par
+   sidebar.tsx avec `data-tete-collante` (que la zone lit pour éteindre son voile du haut). Collé aussi sur téléphone, fond
+   de la colonne (`--fond-zone-defilement`), jamais rapetissé ; son ombre ne paraît qu'une fois décollé (`data-decolle`). */
+[data-nouvel-artefact-colle] {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--fond-zone-defilement, hsl(var(--bg)));
+}
+[data-nouvel-artefact-colle][data-decolle] [data-ombre-de-tete] {
+  opacity: 1;
+}
+
 /* LA TÊTE D'UNE PAGE RESTE EN HAUT ET SON TITRE RAPETISSE (17/11/2026, capture #def0f) — `data-tete-collante`, posée par
    `PageDeService` et `PageAGrandTitre` (fenetre-de-service.tsx), réduite par `useTeteReduite` dès que la zone a défilé.
    Fond = celui du conteneur (`--fond-zone-defilement`, jamais une couleur fixe), au-dessus des voiles (z-10). Réduite,

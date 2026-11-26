@@ -140,7 +140,7 @@ async function principal() {
     noter('1. plus de libellé « Projets » ni de rangée d’ajout', (await page.locator(`${aside}.group\\/section`).count()) === 0 && !(await page.locator(`${aside}[data-drop-root]`).innerText()).split('\n').includes('Projets'));
     const tete = await page.evaluate(() => {
       const b = (s) => document.querySelector(`aside[data-zone="gauche"] ${s}`).getBoundingClientRect();
-      return { fichiers: b('[data-rangee-de-boutons] [data-ligne-fichiers]').right, dossier: b('[data-menu-dossier]').left, repli: b('[data-replier-colonne="depliee"]').left, nouvelAgent: b('[data-ligne-nouvel-agent]').bottom, enCours: document.querySelector('aside[data-zone="gauche"] [data-taches-en-cours-colonne]')?.getBoundingClientRect().bottom ?? null, liste: Math.min(...[...document.querySelectorAll('aside[data-zone="gauche"] [data-drop-root] [data-projet-cible], aside[data-zone="gauche"] [data-drop-root] [data-groupe-projets]')].map((el) => el.getBoundingClientRect().top)) };
+      return { fichiers: b('[data-rangee-de-boutons] [data-ligne-fichiers]').right, dossier: b('[data-menu-dossier]').left, repli: b('[data-replier-colonne="depliee"]').left, nouvelAgent: b('[data-bouton-tableaux-de-bord]').bottom, enCours: document.querySelector('aside[data-zone="gauche"] [data-taches-en-cours-colonne]')?.getBoundingClientRect().bottom ?? null, liste: Math.min(...[...document.querySelectorAll('aside[data-zone="gauche"] [data-drop-root] [data-projet-cible], aside[data-zone="gauche"] [data-drop-root] [data-groupe-projets]')].map((el) => el.getBoundingClientRect().top)) };
     });
     /* Depuis le 06/11/2026 : la loupe a disparu (recherche centrale, ⌘F), « Fichiers » est une icône de la tête. */
     noter('1. dans l’ordre : fichiers, dossier, repli ; plus de loupe', tete.fichiers <= tete.dossier && tete.dossier < tete.repli && (await page.locator(`${aside}[data-chercher-projet]`).count()) === 0, JSON.stringify(tete));
@@ -181,26 +181,14 @@ async function principal() {
     noter('2. la colonne reste à l’identique', JSON.stringify(apres) === JSON.stringify(avant), `${apres.length} lignes`);
     noter('2. la recherche n’a rien écrit dans les préférences', prefs() === prefsAvant);
 
-    /* --- 3. Le flux --- */
-    const blocLong = `${aside}[data-taches-du-projet="p-long"] `;
+    /* --- 3. Le flux : LES TÂCHES ONT QUITTÉ LA COLONNE (carte « Beluga piloté par des agents », 26/11/2026). Un projet
+       déplié montre ses AGENTS ; ses tâches vivent dans l'onglet « Tâches » de sa page. --- */
     await page.locator(`${aside}[data-deplier-taches="p-long"]`).click();
-    await page.locator(`${blocLong}[data-agent-en-liste]`).nth(5).waitFor({ state: 'visible', timeout: 8000 });
-    const flux = await page.locator(`${blocLong}[data-agent-en-liste]`).evaluateAll((els) => els.map((el) => el.getAttribute('data-agent-en-liste')));
-    /* DEPUIS LE 01/11/2026 (capture #ca0c), les ACTIVES montent au-dessus du trait, toutes gardées, à leur rang de
-       date ; sous le trait, les rangées des cinq premières par date. Les paires sont actives, les impaires rangées. */
-    noter(
-      '3. les actives d’abord (celle qui attend comprise), puis les rangées des cinq premières',
-      flux.join(',') === 'c-long-00,c-long-02,c-long-04,c-long-06,c-long-08,c-long-10,c-question,c-long-01,c-long-03',
-      flux.join(','),
-    );
-    noter('3. aucun « Voir les archives »', (await page.locator(`${aside}[data-voir-archives], ${aside}[data-archives-de-plus]`).count()) === 0);
-    await page.locator(`${blocLong}[data-voir-plus]`).click();
-    await page.locator(`${blocLong}[data-agent-en-liste]`).nth(10).waitFor({ state: 'visible', timeout: 8000 });
-    /* Dix par date : les rangées 01 à 09 sous le trait, avec les sept actives au-dessus. */
-    noter('3. « Voir plus » en ajoute cinq', (await page.locator(`${blocLong}[data-agent-en-liste]`).count()) === 12, String(await page.locator(`${blocLong}[data-agent-en-liste]`).count()));
-    await page.locator(`${blocLong}[data-voir-plus]`).click();
-    await page.waitForTimeout(800);
-    noter('3. tout est lu : plus de « Voir plus »', (await page.locator(`${blocLong}[data-voir-plus]`).count()) === 0 && (await page.locator(`${blocLong}[data-agent-en-liste]`).count()) === 13, String(await page.locator(`${blocLong}[data-agent-en-liste]`).count()));
+    const agentsSousLeProjet = await page
+      .locator(`${aside}[data-agents-du-projet-colonne="p-long"]`)
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true, () => false);
+    noter('3. un projet déplié montre ses agents, plus ses tâches', agentsSousLeProjet && (await page.locator(`${aside}[data-taches-du-projet="p-long"] [data-agent-en-liste]`).count()) === 0);
     const vus = await page.evaluate(() => window.__vus);
     noter('3. aucune silhouette dans la colonne, à aucun moment', vus.silhouette === 0, JSON.stringify(vus));
     noter('3. un indicateur a dit le chargement', vus.indicateur > 0, JSON.stringify(vus));
@@ -319,7 +307,7 @@ async function principal() {
     await page.waitForTimeout(700);
     /* « Tableaux de bord » a quitté la colonne (carte « Lecteur de charte : commentaires et barre ») : restent
        « Nouvel agent » (violet) et l'icône des fichiers. */
-    const boutons = await page.evaluate(() => ['[data-ligne-nouvel-agent]', '[data-ligne-fichiers]'].map((s) => {
+    const boutons = await page.evaluate(() => ['[data-bouton-tableaux-de-bord]', '[data-ligne-fichiers]'].map((s) => {
       const r = document.querySelector(`aside[data-zone="gauche"] ${s}`).getBoundingClientRect();
       return { l: Math.round(r.width), h: Math.round(r.height), centre: Math.round(r.left + r.width / 2), rayon: getComputedStyle(document.querySelector(`aside[data-zone="gauche"] ${s}`)).borderTopLeftRadius };
     }));
@@ -335,7 +323,7 @@ async function principal() {
     });
     noter('7. le point est entier, dans son bouton', !!point && point.dansLaZone && point.dansLeBouton, JSON.stringify(point));
     noter('7. « Tableaux de bord » n’est plus dans la colonne', (await page.locator(`${aside}[data-ligne-tableau-de-bord]`).count()) === 0);
-    noter('7. « Nouvel agent » est violet', (await page.locator(`${aside}[data-ligne-nouvel-agent][data-bouton-violet]`).count()) === 1);
+    noter('7. « Nouvel agent » est violet', (await page.locator(`${aside}[data-bouton-tableaux-de-bord][data-bouton-violet]`).count()) === 1);
     await page.screenshot({ path: path.join(CAPTURES, 'colonne-repliee.png'), clip: { x: 0, y: 0, width: 200, height: 500 } });
     await contexte.close();
 

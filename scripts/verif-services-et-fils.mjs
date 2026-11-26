@@ -162,10 +162,12 @@ try {
     for (const [mot, cle] of [['communication', 'communication2'], ['charte', 'plaquettes'], ['backups', 'backups']]) {
       await page.goto(`${BASE}/#projet/p-alpha`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(2500);
-      await page.locator('[data-bouton-services]').first().click();
+      /* « Tous les services », dans le menu à trois points de la colonne (26/11/2026). */
+      await page.locator('[data-menu-dossier]').first().click();
+      await page.locator('[data-tous-les-services]').first().click();
       await page.waitForTimeout(500);
-      if (cle === 'communication2') noter('(b) menu « Services » : plus de Calendrier', (await page.locator('[data-service-de-la-colonne="calendrier"]').count()) === 0);
-      await page.locator(`[data-service-de-la-colonne="${cle}"]`).first().click({ force: true });
+      if (cle === 'communication2') noter('(b) menu des services : plus de Calendrier', (await page.locator('[data-service-du-menu-colonne="calendrier"]').count()) === 0);
+      await page.locator(`[data-service-du-menu-colonne="${cle}"]`).first().click({ force: true });
       await page.waitForTimeout(3000);
       const h = await hash(page);
       noter(`(b) menu → ${mot} : « #${mot} », tous les projets`, h === `#${mot}`, h);

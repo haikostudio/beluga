@@ -60,6 +60,8 @@ const ICONES = {
   'site-indisponible': 'erreur',
   // Un service d'IA à sec : la prochaine génération échouera, donc une erreur.
   'service-ia-a-sec': 'erreur',
+  // Un client dont l'espace ne se relie pas : il est bloqué, donc une erreur.
+  'espace-connexion-bloquee': 'erreur',
   'compte-sature': 'quota',
   'amorcage-impossible': 'quota',
   'jeton-claude-bloque': 'quota',

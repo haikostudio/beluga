@@ -54,6 +54,8 @@ import {
   porteDeLHote,
   redirectionDeLaPorte,
   routeApiAutorisee,
+  ROUTE_SIGNALEMENT_DE_BLOCAGE,
+  signalementDeBlocageValide,
   peutVoirProjet,
   estCollaborateur,
   REFUS_HORS_PORTEE,
@@ -1774,6 +1776,25 @@ export function createHttpServer(): http.Server {
        * formé est refusé en le disant, jamais rangé à moitié. C'est le serveur
        * qui date l'erreur : l'horloge d'un téléphone peut être fausse.
        */
+      /*
+       * L'ESPACE CLIENT QUI NE SE RELIE PAS (`server/src/espace-blocage.ts`) : la page le signale après 30 s, par
+       * HTTP puisque le canal est mort. Réservé au rôle client, corps borné à 4 Ko et jugé par une règle pure ; une
+       * alerte aux administrateurs au plus par compte et par heure.
+       */
+      if (route === ROUTE_SIGNALEMENT_DE_BLOCAGE && req.method === 'POST') {
+        if (compte.role !== 'client') return json(res, 403, { error: REFUS_HORS_PORTEE });
+        let brut: unknown = null;
+        try {
+          brut = JSON.parse((await readBody(req, 4 * 1024)).toString('utf8') || 'null');
+        } catch {
+          return json(res, 400, { ok: false });
+        }
+        const signalement = signalementDeBlocageValide(brut);
+        if (!signalement) return json(res, 400, { ok: false });
+        const { signalerUnBlocageDEspace } = await import('./espace-blocage.js');
+        return json(res, 200, { ok: true, alerte: signalerUnBlocageDEspace(compte, signalement) });
+      }
+
       if (route === '/api/erreur' && req.method === 'POST') {
         const texte = (await readBody(req, 64 * 1024)).toString('utf8');
         let brut: unknown;

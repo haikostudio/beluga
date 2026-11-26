@@ -99,6 +99,7 @@ import { MenuCarte } from '@/components/card-menu';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { SilhouetteAgents } from '@/components/silhouettes';
 import { LigneDeMiseEnLigne, useMisesEnLigneParDate } from '@/components/mises-en-ligne';
+import { PortraitDAgent } from '@/components/equipe/portrait-d-agent';
 import { client } from '@/lib/client';
 import { useMinute } from '@/lib/horloge';
 import { t } from '@/lib/langue';
@@ -304,7 +305,14 @@ export function LigneAgent({
   zoneEnCours = false,
   rangee = false,
   tactile = false,
+  porteur,
 }: {
+  /**
+   * L'AGENT QUI PORTE LA TÂCHE (zone « Au travail », carte « Beluga piloté par des agents », 26/11/2026) : son visage
+   * remplace l'icône de la ligne, et une seconde ligne dit « Max · Projet » — « Max vous attend · Projet » en couleur
+   * d'accent quand la tâche attend une réponse.
+   */
+  porteur?: { portrait: string | null; couleur: string; nom: string } | null;
   /**
    * LA LIGNE DE LA COLONNE, AU DOIGT (volet « Tâches » du téléphone, décision de l'utilisateur du 16/11/2026 #3836) : la
    * même ligne que sous un projet de la colonne — icône d'état, titre, heure à droite —, haute de 44 px, sans bulle.
@@ -428,7 +436,9 @@ export function LigneAgent({
         'group-data-[bande]/colonne:justify-center group-data-[bande]/colonne:px-0',
       )}
     >
-      {compacte ? (
+      {compacte && porteur ? (
+        <PortraitDAgent portrait={porteur.portrait} couleur={porteur.couleur} nom={porteur.nom} taille={28} attend={etat === 'a-vous'} fond="hsl(var(--fond-zone))" />
+      ) : compacte ? (
         projetDeLaLigne ? (
           <IconeDeLAgent etat={etat} projet={projetDeLaLigne} petite />
         ) : (
@@ -461,6 +471,16 @@ export function LigneAgent({
             </span>
           ) : null}
         </span>
+        {compacte && porteur ? (
+          <span className="mt-0.5 block truncate text-[12px]" data-porteur-de-la-tache={porteur.nom}>
+            {etat === 'a-vous' ? (
+              <span className="text-important">{t('{v0} vous attend', { v0: porteur.nom })}</span>
+            ) : (
+              <span className="text-faint">{porteur.nom}</span>
+            )}
+            {projetDeLaLigne ? <span className="text-faint"> · {projetDeLaLigne.name}</span> : null}
+          </span>
+        ) : null}
         {compacte ? null : (
           <span className="mt-0.5 block truncate font-mono text-[10.5px] text-faint" data-branche-agent>
             {avecProjet && projet ? `${projet.name} · ${branche}` : branche}

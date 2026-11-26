@@ -786,7 +786,7 @@ async function parcoursDeLaBande(navigateur, gabarit, images) {
     if (tactile) {
       await page.keyboard.press('Escape').catch(() => {});
       await page.locator('button[aria-label="Projets"]:visible').first().tap();
-      await page.locator('[data-ligne-nouvel-agent]:visible').first().waitFor({ state: 'visible', timeout: 15000 });
+      await page.locator('[data-bouton-tableaux-de-bord]:visible').first().waitFor({ state: 'visible', timeout: 15000 });
       await page.waitForTimeout(700); // le panneau finit de glisser
       const nombreTel = await page.locator('[data-ligne-tableaux-de-bord]').count();
       noter(`${gabarit} : la colonne du téléphone n'a plus de ligne « Tableaux de bord »`, nombreTel === 0, String(nombreTel));

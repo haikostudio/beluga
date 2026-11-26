@@ -21,6 +21,7 @@ import { ArbreDesSousAgents } from '@/components/sous-agents';
 import { LignesDesTravauxDeService, useLignesDesServices } from '@/components/travaux-des-services';
 import { LigneDeMiseEnLigne, useMisesEnLigneParDate } from '@/components/mises-en-ligne';
 import { LigneEtFilles, useCartesAvecAgentActif, useLignesDAgents } from '@/components/liste-des-agents';
+import { useEquipesDeLaColonne } from '@/components/equipe/use-equipe';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { usePref, writePref } from '@/lib/prefs';
@@ -60,7 +61,19 @@ function useCartesEnCours(): Card[] {
 export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (card: Card) => void; carteOuverte?: string | null }) {
   const state = useApp();
   const cartes = useCartesEnCours();
-  const lignes = useLignesDAgents(cartes);
+  const lignesParDate = useLignesDAgents(cartes);
+  /* « AU TRAVAIL » (carte « Beluga piloté par des agents », 26/11/2026) : ce qui VOUS ATTEND passe en tête, puis le
+     reste par date ; chaque tâche porte le visage de l'agent qui la mène — le développement de son projet. */
+  const lignes = React.useMemo(
+    () => [...lignesParDate].sort((a, b) => Number(b.etat === 'a-vous') - Number(a.etat === 'a-vous')),
+    [lignesParDate],
+  );
+  const equipes = useEquipesDeLaColonne();
+  const devParProjet = React.useMemo(() => {
+    const m = new Map<string, { portrait: string | null; couleur: string; nom: string }>();
+    for (const a of equipes ?? []) if (a.role === 'dev' && !m.has(a.projectId)) m.set(a.projectId, { portrait: a.portrait, couleur: a.couleur, nom: a.nom });
+    return m;
+  }, [equipes]);
   const [repliee] = usePref<boolean>(CLE_TACHES_EN_COURS_REPLIEES, false);
   const [menuPour, setMenuPour] = React.useState<string | null>(null);
   const projets = React.useMemo(() => new Map(state.projects.map((p) => [p.id, p])), [state.projects]);
@@ -102,7 +115,7 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
         data-tete-taches-en-cours
         className="flex h-[34px] w-full min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-left text-[12px] text-faint transition-colors hover:text-text sm:h-7"
       >
-        <span className="min-w-0 truncate font-medium">{t('En cours')}</span>
+        <span className="min-w-0 truncate font-medium">{t('Au travail')}</span>
         <span className="shrink-0 tabular-nums" data-nombre-taches-en-cours={total}>
           {total}
         </span>
@@ -136,6 +149,7 @@ export function TachesEnCours({ onOuvrir, carteOuverte = null }: { onOuvrir: (ca
                   zoneEnCours
                   avecProjet
                   projet={projets.get(ligne.carte.projectId)}
+                  porteur={devParProjet.get(ligne.carte.projectId) ?? null}
                   /* L'AGENT OUVERT SE VOIT AUSSI ICI (demande du 01/11/2026, capture #10c2) : son fond léger. */
                   ouverte={carteOuverte === ligne.carte.id}
                   menuOuvert={menuPour === ligne.carte.id}

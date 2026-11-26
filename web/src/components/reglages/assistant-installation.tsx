@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronUp, Copy, Download, Folder, Loader2, LoaderCircle, RefreshCw, Wrench, X } from '@/components/ui/icones';
+import { ArrowRight, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Folder, Loader2, LoaderCircle, RefreshCw, Wrench, X } from '@/components/ui/icones';
 import {
   VERSION_EXTENSION_CHROME,
   autorisationsDonnees,
@@ -336,22 +336,32 @@ export function ParcoursDeConnexion({
   const ouverte: Cle | null = choix && choix.sous === parDefaut ? choix.cle : parDefaut;
   const basculer = (e: Cle) => setChoix({ cle: ouverte === e ? null : e, sous: parDefaut });
 
+  /* Le code à taper vient de paraître en tête du volet (téléchargement fini, Connect lancé) : la zone y défile aussi. */
+  const codeEnTete = ouverte === 'installation' && !relie && !secoursOuvert && (installe || !!telechargeLe || !!code);
   /* LE VOLET OUVERT RESTE SOUS LES YEUX : à chaque volet qui s'ouvre, la zone défile jusqu'à lui (puis jusqu'à
      « … est prêt » à la fin) — sans quoi Chrome et Safari avançaient sous le bas de la fenêtre. */
   const racine = React.useRef<HTMLDivElement>(null);
   const premierRendu = React.useRef(true);
   React.useEffect(() => {
+    /* Au premier rendu, la zone ne bouge pas — sauf pour amener le code à taper sous les yeux (les réglages rouverts par
+       le lancement de Beluga Connect tombent directement sur lui). */
     if (premierRendu.current) {
       premierRendu.current = false;
-      return;
+      if (!codeEnTete) return;
     }
     /* Après la pose du contenu du volet (sa hauteur finale), pas avant. */
     const minuteur = window.setTimeout(() => {
+      /* Le volet Installation qui attend le code : c'est LE CODE qu'on amène sous les yeux, pas le bas du volet. */
+      const code = toutFait ? null : racine.current?.querySelector<HTMLElement>('[data-etape-connexion][data-ouverte] [data-tete-etape]');
+      if (code) {
+        code.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
       const cible = racine.current?.querySelector<HTMLElement>(toutFait ? '[data-assistant-tout-pret]' : '[data-etape-connexion][data-ouverte]');
       cible?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 200);
     return () => window.clearTimeout(minuteur);
-  }, [ouverte, toutFait]);
+  }, [ouverte, toutFait, codeEnTete]);
 
   const nomVise = cible?.nom ?? (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : t('Cet ordinateur'));
   const titreDe = (e: Cle): string => {
@@ -475,27 +485,21 @@ export function ParcoursDeConnexion({
             />
           );
         }
-        /* Téléchargé : les consignes tant que Beluga Connect ne s'est pas lancé, puis LE CODE À TAPER dans sa fenêtre. */
+        /* Téléchargé : LE CODE À TAPER est passé EN TÊTE du volet (carte « Parcours peu fluide », 26/11/2026 : il
+           tombait sous l'illustration, sous le bas de la fenêtre) ; les consignes d'installation se replient ici,
+           ouvertes tant que Beluga Connect ne s'est pas montré. */
         return (
-          <div className="flex flex-col gap-4">
-            {!installe ? (
-              <EtapeInstaller
-                systeme={systemeAppareil}
-                code={code}
-                telecharge
-                envoi={envoi}
-                programmeAncien={false}
-                sansRelance
-                onTelecharger={() => void departe('retelecharger')}
-              />
-            ) : null}
-            <CodeATaper
-              systeme={systeme}
-              ordinateurVise={cible?.id ?? null}
+          <RevoirLInstallation ouvertParDefaut={!installe}>
+            <EtapeInstaller
+              systeme={systemeAppareil ?? systeme}
+              code={code}
+              telecharge
               envoi={envoi}
-              onRetelecharger={systemeAppareil ? () => void departe('retelecharger') : undefined}
+              programmeAncien={false}
+              sansRelance
+              onTelecharger={() => void departe('retelecharger')}
             />
-          </div>
+          </RevoirLInstallation>
         );
       }
       case 'mac':
@@ -521,6 +525,21 @@ export function ParcoursDeConnexion({
         return <EtapeAutreNavigateur ordinateur={cible} marque={e} />;
     }
   };
+
+  /* LE CODE EN TÊTE DU VOLET « INSTALLATION » : dès que Beluga Connect est téléchargé (ou s'est montré), le geste
+     attendu passe avant les lignes et les consignes — jamais sous le pli de la fenêtre. */
+  const ancienRelais = programmeEnLigne(programme) && !programme?.connect;
+  const montreLeCode = !relie && !secoursOuvert && !ancienRelais && (installe || !!telechargeLe || !!code);
+  const teteDe = (e: Cle): React.ReactNode =>
+    e === 'installation' && montreLeCode ? (
+      <CodeATaper
+        systeme={systeme}
+        ordinateurVise={cible?.id ?? null}
+        envoi={envoi}
+        lance={installe}
+        onRetelecharger={systemeAppareil ? () => void departe('retelecharger') : undefined}
+      />
+    ) : null;
 
   /* LE BANDEAU DE TÊTE, COMME CELUI DE L'APPLICATION : le nom de l'ordinateur, puis le pire état. */
   const tousLesPoints = Object.fromEntries(etapes.map((e) => [e, pointsDe(e)])) as Record<string, Point[]>;
@@ -568,6 +587,7 @@ export function ParcoursDeConnexion({
               valeur: pt.valeur ?? valeurDUneLigne(pt.etat),
             }))}
             repereLigne="data-ligne-etat"
+            tete={montrerExplication ? teteDe(e) : null}
           >
             {montrerExplication ? explicationDe(e) : null}
           </Volet>
@@ -664,6 +684,7 @@ function Volet({
   lignes,
   repereLigne,
   attributs,
+  tete,
   children,
 }: {
   titre: string;
@@ -675,6 +696,8 @@ function Volet({
   lignes: LigneDeVolet[];
   repereLigne: string;
   attributs: Record<string, string | undefined>;
+  /** Ce qui passe AVANT les lignes : le geste attendu de la personne (le code à taper), jamais sous le pli. */
+  tete?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   /* toArray écarte déjà null, undefined et les booléens : il ne reste que ce qui s'affiche. */
@@ -697,6 +720,11 @@ function Volet({
       </button>
       {ouverte ? (
         <div className="flex flex-col rounded-b-xl bg-raised pb-3 pt-1.5" data-panneau-du-volet>
+          {tete ? (
+            <div className={cn('flex min-w-0 flex-col gap-3 pb-4 pt-2', RETRAIT_SOUS_LES_LIBELLES)} data-tete-etape>
+              {tete}
+            </div>
+          ) : null}
           <div className="flex flex-col" data-points-etape>
             {lignes.map((l) => (
               <div key={l.cle} className={cn(GRILLE_DES_VOLETS, 'min-h-8')} {...{ [repereLigne]: l.cle }} data-etat={l.etat}>
@@ -841,6 +869,30 @@ function GlisserDansApplications() {
   );
 }
 
+/**
+ * « PAS DE FENÊTRE BELUGA CONNECT ? REVOIR COMMENT L'INSTALLER » (maquette #b66b) : les consignes d'installation sous le
+ * code à taper, repliées une fois Beluga Connect lancé — ouvertes tant qu'il ne s'est pas montré.
+ */
+function RevoirLInstallation({ ouvertParDefaut, children }: { ouvertParDefaut: boolean; children: React.ReactNode }) {
+  const [choix, setChoix] = React.useState<boolean | null>(null);
+  const ouvert = choix ?? ouvertParDefaut;
+  return (
+    <div className="flex flex-col gap-3" data-revoir-installation={ouvert ? 'ouvert' : 'replie'}>
+      <button
+        type="button"
+        className="flex w-fit items-center gap-1.5 text-left text-[13px] text-muted hover:text-text"
+        onClick={() => setChoix(!ouvert)}
+        aria-expanded={ouvert}
+        data-basculer-installation
+      >
+        {ouvert ? <ChevronDown className="size-3.5 shrink-0" aria-hidden /> : <ChevronRight className="size-3.5 shrink-0" aria-hidden />}
+        {t('Pas de fenêtre {v0} ? Revoir comment l’installer', { v0: CONNECT })}
+      </button>
+      {ouvert ? children : null}
+    </div>
+  );
+}
+
 function EtapeInstaller({
   systeme,
   code,
@@ -896,7 +948,7 @@ function EtapeInstaller({
   if (systeme === 'linux') {
     return (
       <>
-        <p className="text-[13.5px] leading-relaxed text-text">{t('Collez cette commande dans un terminal : {v0} s’installe, puis vous demande le code ci-dessous.', { v0: CONNECT })}</p>
+        <p className="text-[13.5px] leading-relaxed text-text">{t('Collez cette commande dans un terminal : {v0} s’installe, puis vous demande le code ci-dessus.', { v0: CONNECT })}</p>
         {code ? (
           <code className="block select-all break-all rounded-lg bg-surface px-3 py-2.5 font-mono text-[12.5px] text-text" data-commande-linux>
             {commandeLinux(code.code)}
@@ -920,13 +972,13 @@ function EtapeInstaller({
           etapes={[
             t('Ouvrez le fichier « Beluga-Connect.exe » que vous venez de télécharger.'),
             t('Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis « Exécuter quand même ».'),
-            t('{v0} se range de lui-même, puis vous demande le code ci-dessous.', { v0: CONNECT }),
+            t('{v0} se range de lui-même, puis vous demande le code ci-dessus.', { v0: CONNECT }),
           ]}
         />
       ) : (
         <>
           <p className="text-[13.5px] leading-relaxed text-text" data-etapes-installation="mac">
-            {t('Ouvrez le fichier téléchargé, glissez {v0} dans Applications, puis lancez-le : il vous demande le code ci-dessous.', { v0: CONNECT })}
+            {t('Ouvrez le fichier téléchargé, glissez {v0} dans Applications, puis lancez-le : il vous demande le code ci-dessus.', { v0: CONNECT })}
             <br />
             <span className="text-muted">{t('Vous pouvez fermer cette fenêtre : elle se rouvre ici dès que {v0} démarre.', { v0: CONNECT })}</span>
           </p>
@@ -993,11 +1045,14 @@ function CodeATaper({
   systeme,
   ordinateurVise,
   envoi,
+  lance = true,
   onRetelecharger,
 }: {
   systeme: SystemeDOrdinateur | null;
   ordinateurVise: string | null;
   envoi: boolean;
+  /** Beluga Connect s'est-il déjà montré ? Non (pas encore lancé, ou Mac délié qui ne s'annonce pas) : « dès qu'elle s'ouvre ». */
+  lance?: boolean;
   onRetelecharger?: () => void;
 }) {
   const [code, setCode] = React.useState<{ code: string; expireLe: number } | null>(null);
@@ -1030,15 +1085,22 @@ function CodeATaper({
     };
   }, [code, demander]);
   const minutes = code ? Math.max(1, Math.ceil((code.expireLe - Date.now()) / 60_000)) : 10;
-  const ou = systeme === 'linux' ? t('Tapez ce code dans le terminal ou la fenêtre de {v0} :', { v0: CONNECT }) : t('Tapez ce code dans la fenêtre de {v0} :', { v0: CONNECT });
+  const ou = !lance
+    ? t('Tapez ce code dans la fenêtre de {v0} dès qu’elle s’ouvre :', { v0: CONNECT })
+    : systeme === 'linux'
+      ? t('Tapez ce code dans le terminal ou la fenêtre de {v0} :', { v0: CONNECT })
+      : t('Tapez ce code dans la fenêtre de {v0} :', { v0: CONNECT });
   return (
     <div className="flex flex-col gap-3" data-code-a-taper={code?.code ?? ''}>
-      <p className="text-[13.5px] leading-relaxed text-text">{ou}</p>
+      <p className="text-[15px] font-medium leading-relaxed text-text">{ou}</p>
       <div className="flex w-fit gap-1.5" data-cases-du-code-a-taper aria-label={code ? code.code : undefined}>
         {Array.from({ length: 6 }, (_, i) => (
           <span
             key={i}
-            className={cn('flex h-12 w-10 items-center justify-center rounded-lg bg-surface font-mono text-[22px] font-semibold text-text', i === 3 && 'ml-2')}
+            className={cn(
+              'flex h-14 w-10 items-center justify-center rounded-lg bg-surface font-mono text-[24px] font-semibold text-text sm:h-16 sm:w-[52px] sm:rounded-[10px] sm:text-[30px]',
+              i === 3 && 'ml-2',
+            )}
           >
             {code ? code.code[i] : <span className="h-5 w-4 animate-pulse rounded bg-raised" data-silhouette />}
           </span>

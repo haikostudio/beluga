@@ -229,7 +229,9 @@ test('chaque passage reçoit un relais complet : consigne, fiche, journal récen
   assert.match(texte, /TU ES UN AGENT PERSONNALISÉ/);
   assert.match(texte, /NOM : Veilleur des demandes/);
   assert.match(texte, /GESTES À VALIDER \(capture puis « Valider » dans le fil, puis tu le fais TOI-MÊME\) : publier quoi que ce soit/);
-  assert.match(texte, /GESTES PAR CARTE .*lancer une tâche, modifier le code/);
+  // L'ÉQUIPE (26/11/2026) : déployer reste au clic de l'utilisateur ; le code et les tâches passent par l'agent de développement.
+  assert.match(texte, /GESTES AU CLIC DE L'UTILISATEUR \(ni toi, ni une carte\) : mettre en ligne, mettre en production/);
+  assert.match(texte, /CODE ET TÂCHES \(par l'équipe\) : lancer une tâche, modifier le code — demande-les à l'agent de développement/);
   assert.doesNotMatch(texte, /GESTES VERROUILLÉS/);
   assert.match(texte, /ligne /);
   assert.match(texte, /À chaque nouvelle demande client/);
@@ -290,7 +292,9 @@ test('la consigne de l’agent : le nom d’abord, l’enquête avant toute ques
   assert.match(c, /n’est PAS une mise en ligne de projet/);
   assert.doesNotMatch(c, /JAMAIS rien toi-même — même si on te le demande/);
   // Le cadre d'avant tient : accès par nom, compte rendu marqué.
-  assert.match(c, /RESTENT HORS DE TA MAIN, même demandés : modifier le code, lancer une tâche/);
+  assert.match(c, /RESTENT HORS DE TA MAIN, même demandés : mettre en ligne ou en production un PROJET DE BELUGA/);
+  assert.match(c, /LE CODE ET LES TÂCHES PASSENT PAR L’ÉQUIPE/);
+  assert.match(c, /TU FAIS PARTIE D’UNE ÉQUIPE/);
   assert.match(c, /« Fait : », « À valider : »/);
 });
 
