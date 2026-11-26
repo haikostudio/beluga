@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { client } from '@/lib/client';
 import { useRelectureDesOrdinateurs } from '@/lib/relecture-des-ordinateurs';
 import { t } from '@/lib/langue';
-import { ordinateurPret, ParcoursDeConnexion, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
+import { ordinateurPret, ParcoursDeConnexion, systemeDeCetAppareil, useNavigateurCourant, type DepartDuParcours } from './assistant-installation';
 
 const CLE_DE_LA_MARQUE = 'beluga.connexion-en-cours';
 /** Une installation commencée il y a plus de deux heures n'ouvre plus rien. */
@@ -97,6 +97,19 @@ export function SuiviDeConnect() {
     setOuverte(null);
   };
   const depart = React.useMemo<DepartDuParcours>(() => ({ n: 0, mode: 'attendre' }), []);
+
+  /* BELUGA CONNECT S'EST LANCÉ (26/11/2026) : sur l'ordinateur du même système, les réglages se rouvrent sur
+     Réglages › Ordinateurs, où le parcours reprend à l'étape du code à taper dans l'application. Un téléphone ne
+     s'ouvre pas. Déjà sous les yeux : la page passe d'elle-même à l'étape. */
+  React.useEffect(
+    () =>
+      client.onConnectLance((lancement) => {
+        if (systemeDeCetAppareil() !== lancement.systeme) return;
+        if (document.querySelector('[data-page-ordinateurs]')) return;
+        window.dispatchEvent(new CustomEvent('beluga:ouvrir-reglages', { detail: { page: 'extension' } }));
+      }),
+    [],
+  );
 
   /* LES AUTRES TRAVAUX : un message d'information au début et à la fin, jamais au premier chargement. */
   const precedents = React.useRef<Map<string, string> | null>(null);

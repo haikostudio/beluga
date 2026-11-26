@@ -1047,7 +1047,7 @@ export const MIGRATIONS: {
     // aucune ne se lisait à côté des autres. Personne ne pouvait donc répondre à
     // « pourquoi cette tâche a-t-elle pris cinquante minutes ? ».
     //
-    // `memoire_consultation` : UNE LIGNE PAR OUVERTURE de `project_memory`,
+    // `memoire_consultation` : UNE LIGNE PAR OUVERTURE de la mémoire,
     // TOUTES les ouvertures, y compris celles où le tri n'a rien changé —
     // c'est justement le rendement du tri qu'on veut suivre. Elle ne remplace
     // pas `memoire_economie`, qui garde son mois d'historique et ses règles à
@@ -1402,12 +1402,11 @@ export const MIGRATIONS: {
     // Ce qui avait été servi à un agent ne vivait que dans une clé de méta PAR
     // AGENT, effacée à chaque session neuve : impossible de dire, après coup,
     // ce que la carte avait ouvert pendant sa compréhension ou son travail.
-    // Cette table le garde pour toute la vie de la carte : la clé du morceau,
+    // Cette table le gardait pour toute la vie de la carte : la clé du morceau,
     // son sujet, sa branche, sa portée, son poids, l'ÉTAPE du parcours et le
-    // tour. `project_memory` la lit avant de répondre (un morceau encore en
-    // contexte est rappelé avec son étape, jamais renvoyé) et chaque point du
-    // flux y lit ce que la mémoire lui a apporté. Les règles vivent dans
-    // `shared/src/carnet-memoire.ts`.
+    // tour. Plus rien n'y écrit : elle reste LUE pour l'historique des cartes
+    // d'avant (`carnetDeLaCarte`, `server/src/store.ts`) ; le carnet vivant
+    // vient du relevé des lectures de la base de connaissances.
     sql: `
       CREATE TABLE IF NOT EXISTS memoire_carnet (
         id TEXT PRIMARY KEY,
@@ -5782,6 +5781,22 @@ export const MIGRATIONS: {
         sortie TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_securite_gestes_carte ON securite_gestes(card_id);
+    `,
+  },
+  {
+    id: 193,
+    name: 'machine-des-ordinateurs',
+    siTable: ['ordinateurs'],
+    /*
+     * UNE SEULE FICHE PAR ORDINATEUR (carte « Agents des services et Beluga Connect », 26/11/2026) : Beluga Connect
+     * envoie, à sa liaison, l'empreinte d'un identifiant stable de la machine (Mac : IOPlatformUUID ; Windows :
+     * MachineGuid ; Linux : /etc/machine-id). Le démon la ré-empreinte AVEC le compte (`empreinteDeMachine`, jamais la
+     * valeur reçue) : la même machine reliée de nouveau au même compte reprend sa fiche au lieu d'en créer une seconde,
+     * et rien ne rapproche deux comptes. NULL : une fiche d'avant, ou un Beluga Connect qui ne l'envoie pas. Additif.
+     */
+    sql: `
+      ALTER TABLE ordinateurs ADD COLUMN machine TEXT;
+      CREATE INDEX IF NOT EXISTS idx_ordinateurs_machine ON ordinateurs(compte_id, machine);
     `,
   },
 ];

@@ -92,7 +92,7 @@ function extraitLisibleDuResultat(texte: string): string {
 /**
  * SECOND PASSAGE, CIBLÉ SUR LES DIRECTIVES.
  *
- * `project_memory` rend souvent d'abord les faits, puis les RÈGLES et les
+ * Une lecture de mémoire rend souvent d'abord les faits, puis les RÈGLES et les
  * CONTRÔLES du sujet. Le premier extrait lisible s'arrêtait aux faits : toute
  * la suite était bien conservée mais invisible. On reparcourt donc le résultat
  * exact, sans génération, en privilégiant ces sections nommées. Les anciennes

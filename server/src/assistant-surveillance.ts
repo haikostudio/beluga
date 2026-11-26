@@ -24,6 +24,7 @@ import {
   titreDeLAssistantSurveillance,
 } from '@beluga/shared';
 import * as store from './store.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent } from './carte-d-agent-demon.js';
@@ -51,7 +52,7 @@ export async function lancerAssistantDeSurveillance(entree: { demande: string; i
 
   const catalogue = await catalogueMoteurs();
   const claude = catalogue.find((moteur) => moteur.id === 'claude');
-  const reglages = claude ? reglagesDuNiveau(claude, 'standard') : { model: undefined, thinking: 'none' };
+  const reglages = reglageDeConversation(claude);
 
   const titre = titreDeLAssistantSurveillance(site?.nom ?? null, demande);
   const { card, agentId } = ouvrirCarteDAgent({
@@ -62,7 +63,7 @@ export async function lancerAssistantDeSurveillance(entree: { demande: string; i
       : `L’agent de surveillance prépare un nouveau contrôle : ${demande.slice(0, 300)}`,
     labels: [LABEL_SURVEILLANCE],
     role: 'task',
-    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any },
+    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
   });
 
   if (site) marquerAssistantSurveillance(site.id, { agentId, projectId: projet.id, cardId: card.id });

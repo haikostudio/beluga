@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CONSIGNE_DE_L_AGENT_PERSO,
   GESTES_JAMAIS_PERMIS,
+  GESTES_A_VALIDER,
+  GESTES_PAR_CARTE,
   LABEL_AGENT_PERSO,
   NOM_D_UN_NOUVEL_AGENT,
   completionDeLaFiche,
@@ -115,7 +118,16 @@ test('les gestes verrouillés sont refusés dans « ce qu’il fait seul », mê
   }
   const refus = ecrireRubrique(ficheVide(), 'seul', ['Lire la demande', 'Envoyer la réponse au client sans attendre']);
   assert.equal(refus.ok, false);
-  if (!refus.ok) assert.match(refus.raison, /REFUSÉ/);
+  if (!refus.ok) {
+    assert.match(refus.raison, /REFUSÉ/);
+    // Un geste important n'est plus « jamais lui-même » : il va dans « demande » et se fait après « Valider ».
+    assert.match(refus.raison, /tu le feras toi-même après le « Valider »/);
+  }
+  const code = ecrireRubrique(ficheVide(), 'seul', ['Corriger le code du formulaire']);
+  assert.equal(code.ok, false);
+  if (!code.ok) assert.match(code.raison, /se propose en carte/);
+  // Deux familles qui couvrent tous les gestes, sans recouvrement.
+  assert.deepEqual([...GESTES_A_VALIDER, ...GESTES_PAR_CARTE].sort(), [...GESTES_JAMAIS_PERMIS].sort());
 });
 
 test('un accès se nomme par sa fiche du coffre, jamais par sa valeur', () => {
@@ -216,7 +228,9 @@ test('chaque passage reçoit un relais complet : consigne, fiche, journal récen
   });
   assert.match(texte, /TU ES UN AGENT PERSONNALISÉ/);
   assert.match(texte, /NOM : Veilleur des demandes/);
-  assert.match(texte, /GESTES VERROUILLÉS/);
+  assert.match(texte, /GESTES À VALIDER \(capture puis « Valider » dans le fil, puis tu le fais TOI-MÊME\) : publier quoi que ce soit/);
+  assert.match(texte, /GESTES PAR CARTE .*lancer une tâche, modifier le code/);
+  assert.doesNotMatch(texte, /GESTES VERROUILLÉS/);
   assert.match(texte, /ligne /);
   assert.match(texte, /À chaque nouvelle demande client/);
   assert.match(texte, /le formulaire ne marche plus/);
@@ -249,4 +263,40 @@ test('l’onglet « Agents » et la page d’un agent ont leur adresse', () => {
   // Passer des tâches aux agents est un détail d'affichage ; ouvrir un agent est une destination.
   assert.equal(memeEcran({ vue: 'projet', projectId: 'p1' }, { vue: 'projet', projectId: 'p1', agents: true }), true);
   assert.equal(memeEcran({ vue: 'projet', projectId: 'p1', agents: true }, { vue: 'projet', projectId: 'p1', agents: true, agentPersoId: 'x9' }), false);
+});
+
+test('la consigne de l’agent : le nom d’abord, l’enquête avant toute question, un diagnostic, un objectif chiffré et un plan', () => {
+  const c = CONSIGNE_DE_L_AGENT_PERSO;
+  // Décision du 26/11/2026 : le nom vient EN PREMIER, posé par l'agent sans question.
+  const nom = c.indexOf('TON NOM D’ABORD');
+  const enquete = c.indexOf('ENQUÊTE SEUL avant toute question');
+  const plan = c.indexOf('DIAGNOSTIC ET UN PLAN');
+  assert.ok(nom > 0 && enquete > nom && plan > enquete, 'nom, puis enquête, puis diagnostic et plan');
+  assert.match(c, /sans question : écris la rubrique « nom » avec agent_fiche/);
+  assert.match(c, /OBJECTIF CHIFFRÉ avec son échéance/);
+  assert.match(c, /Je valide ce plan \(recommandé\)/);
+  assert.match(c, /NE QUESTIONNE QUE SUR LE FOND/);
+  assert.match(c, /jamais par « dites-moi si… »/);
+  // L'ancien questionnaire, une rubrique après l'autre, n'existe plus.
+  assert.doesNotMatch(c, /Pour chaque rubrique, PROPOSE/);
+  // Proactif entre deux conversations : l'avancée de l'objectif, la suite proposée, le plan revu avec accord.
+  assert.match(c, /où en est l’objectif/);
+  assert.match(c, /ne réécris ta fiche qu’après son accord/);
+  // L'AGENT FAIT LES GESTES LUI-MÊME (26/11/2026, capture #6b90) : plus jamais « il te reste deux clics ».
+  assert.match(c, /TU FAIS LES GESTES TOI-MÊME/);
+  assert.match(c, /ne demande JAMAIS à l’utilisateur de cliquer à ta place/);
+  assert.match(c, /ask_user avec « validation »/);
+  assert.match(c, /À « Valider », fais le geste TOI-MÊME/);
+  assert.match(c, /n’est PAS une mise en ligne de projet/);
+  assert.doesNotMatch(c, /JAMAIS rien toi-même — même si on te le demande/);
+  // Le cadre d'avant tient : accès par nom, compte rendu marqué.
+  assert.match(c, /RESTENT HORS DE TA MAIN, même demandés : modifier le code, lancer une tâche/);
+  assert.match(c, /« Fait : », « À valider : »/);
+});
+
+test('la mission porte l’objectif et le plan : quelques lignes, plus une seule phrase', () => {
+  const longue = 'Objectif : 4 demandes de devis par mois d’ici fin janvier. '.repeat(15);
+  const r = ecrireRubrique(ficheVide(), 'mission', longue);
+  assert.ok(r.ok);
+  if (r.ok) assert.ok(r.fiche.mission.length > 600 && r.fiche.mission.length <= 1200);
 });

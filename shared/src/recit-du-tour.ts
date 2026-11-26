@@ -2,6 +2,7 @@ import { EntreeJournal, JALON_TOUR_LANCE, genreDAction } from './journal-carte.j
 import { JALON_TOUR_SUSPENDU } from './issue-de-tour.js';
 import { libelleDOutil, libelleLisible, nomSansPont } from './noms-outils.js';
 import { VueDEntree, vueDeLEntree } from './contenu-journal.js';
+import { estUneNoteDeFiche } from './agents-personnalises.js';
 
 /**
  * CE QUE L'AGENT A FAIT, RACONTÉ EN BLOCS — PAS EN TRACES.
@@ -79,6 +80,8 @@ export interface QuestionRacontee {
   choix: 'single' | 'multiple' | 'text';
   /** La réponse retenue, quand elle est venue. */
   reponse?: string;
+  /** Les captures d'une validation de geste, montrées sous la question. */
+  captures?: string[];
 }
 
 /** Un bloc raconté : ce qui s'affiche dans un carton du passage. */
@@ -404,6 +407,7 @@ export function recitDeLEntree(entree: EntreeJournal): RecitDEntree {
           options: vue.options.map((option) => option.label).filter(Boolean),
           choix: vue.choix,
           ...(vue.reponse ? { reponse: vue.reponse } : {}),
+          ...(vue.captures?.length ? { captures: vue.captures } : {}),
         },
       });
     case 'web':
@@ -441,6 +445,9 @@ export function recitDeLEntree(entree: EntreeJournal): RecitDEntree {
   if (genre === 'plan') return avecLOutil({ genre: 'tache' });
   if (genre === 'memoire') return avecLOutil({ genre: 'memoire', sujet: court(entree.libelle, 60) });
   const nom = libelleLisible(entree);
+  /* UNE NOTE DE FICHE (« Nom noté : … ») SE LIT TELLE QUELLE, en clair dans le fil, et ne se fond jamais avec la
+     suivante : c'est ce que l'utilisateur vient y lire (26/11/2026). */
+  if (outil === 'agent_fiche' && estUneNoteDeFiche(nom)) return avecLOutil({ genre: 'outil', variante: nom!, ditParLAgent: nom! });
   const champ = vue.sorte === 'outil' || vue.sorte === 'champs' ? vue.champs[0] : undefined;
   const sujet = champ && !champ.long ? court(champ.valeur, 90) : undefined;
   return avecLOutil({

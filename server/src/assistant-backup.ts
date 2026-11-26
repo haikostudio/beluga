@@ -40,6 +40,7 @@ import {
   titreDeLaRelecture,
 } from '@beluga/shared';
 import * as store from './store.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { echecsDuSite, listerPoints, lireSite, marquerRelecture } from './backups.js';
@@ -74,12 +75,11 @@ function projetDAccueil(projectId?: string | null): { id: string; name: string; 
  * le palier léger n'y suffit pas. Le catalogue est celui du serveur, pas une
  * liste écrite en dur : un modèle renommé ne casse rien.
  */
-async function reglagesDeLAgent(): Promise<{ engine: 'claude'; model?: string; thinking: string }> {
+async function reglagesDeLAgent(): Promise<{ engine: 'claude'; model?: string; thinking: string; niveau?: 'approfondi' }> {
   const catalogue = await catalogueMoteurs();
   const claude = catalogue.find((moteur) => moteur.id === 'claude');
-  if (!claude) return { engine: 'claude', model: undefined, thinking: 'none' };
-  const reglages = reglagesDuNiveau(claude, 'standard');
-  return { engine: 'claude', model: reglages.model, thinking: reglages.thinking };
+  // LA CONVERSATION AU PALIER « APPROFONDI » (décision du 26/11/2026) ; ses tours silencieux repartent au standard.
+  return { engine: 'claude', ...reglageDeConversation(claude) };
 }
 
 /**
@@ -111,7 +111,7 @@ export async function lancerAssistantDeBackup(entree: {
     labels: [LABEL_BACKUP],
     role: 'task',
     titreAgent: titreDeLAssistantBackup(description),
-    run: { engine: reglages.engine, model: reglages.model, thinking: reglages.thinking as any },
+    run: { engine: reglages.engine, model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
   });
 
   const demande = demandeDeConfiguration({
@@ -166,7 +166,7 @@ export async function lancerRelectureDeBackup(siteId: string): Promise<DepartDAs
     labels: [LABEL_BACKUP],
     role: 'task',
     titreAgent: reparer ? titreDeLaRelecture(site.nom) : titreDeLAnalyse(site.nom),
-    run: { engine: reglages.engine, model: reglages.model, thinking: reglages.thinking as any },
+    run: { engine: reglages.engine, model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
   });
 
   // La conversation ET SA CARTE sont retenues SUR LA FICHE : la fenêtre les

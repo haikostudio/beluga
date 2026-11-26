@@ -45,6 +45,16 @@ export interface TravailSuivi extends TravailDeService {
 /** Un travail fini et jamais vu ne reste pas plus d'une semaine (filet, comme les cartes déployées non ouvertes). */
 export const DUREE_MAX_D_UN_TRAVAIL_FINI = 7 * 24 * 3600_000;
 
+/**
+ * LA LISTE SANS LE RÉCURRENT. La colonne ne montre que le ponctuel (décision de l'utilisateur, 25/11/2026) : un
+ * travail jugé récurrent (`estRecurrent`, lu à sa source — ex. une sauvegarde de la tournée automatique) sort.
+ * `null` quand rien ne sort, pour ne rien réécrire ni diffuser.
+ */
+export function sansLesTravauxRecurrents(suivis: readonly TravailSuivi[], estRecurrent: (travail: TravailSuivi) => boolean): TravailSuivi[] | null {
+  const suite = suivis.filter((t) => !estRecurrent(t));
+  return suite.length === suivis.length ? null : suite;
+}
+
 /** Ce qu'un travail qui ne tourne plus est devenu, lu à sa source. */
 export type IssueDuTravail = 'termine' | 'tombe';
 

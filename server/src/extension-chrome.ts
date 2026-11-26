@@ -400,9 +400,12 @@ function sitesDuCompte(compteId: string): SiteDuChrome[] {
 export async function etatDeLExtension(compte: Pick<CompteUtilisateur, 'id'>): Promise<EtatDeLExtension> {
   const { ordinateursDuCompte } = await import('./ordinateurs.js');
   const { paquetSafari } = await import('./extension-safari.js');
+  const { parcoursDuCompte } = await import('./relais-mac.js');
   const safari = paquetSafari();
   return {
     version: VERSION_EXTENSION_CHROME,
+    /* LE PARCOURS « AJOUTER CET ORDINATEUR » EN COURS (26/11/2026) : la page le reprend à son étape. */
+    parcours: parcoursDuCompte(compte.id),
     chromes: chromesDuCompte(compte.id),
     ordinateurs: await ordinateursDuCompte(compte.id),
     safari: { disponible: !!safari, version: safari?.version ?? null },

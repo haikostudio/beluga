@@ -43,7 +43,7 @@ export type PhaseJournal = z.infer<typeof PhaseJournal>;
  * TROIS NATURES D'ENTRÉE, PAS UNE DE PLUS.
  *
  * `requete` : un appel d'outil réellement exécuté — outil du démon passé par le
- * pont (`project_memory`, `coffre_fort`, `ask_user`…) comme outil propre au
+ * pont (`memoire`, `coffre_fort`, `ask_user`…) comme outil propre au
  * moteur (lecture de fichier, commande, modification). Elle se déplie : outil,
  * paramètres, résultat, durée.
  * `point` : un point de travail — une ligne de la liste de tâches que l'agent

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { detailDEtape, modeleBanni, PLAFOND_DETAIL_D_ETAPE, plafondDuDetailDEtape, modelePermis, TodoItem } from '@beluga/shared';
+import { detailDEtape, modeleBanni, PLAFOND_DETAIL_D_ETAPE, plafondDuDetailDEtape, modelePermis, sortieDErreurUtile, TodoItem } from '@beluga/shared';
 import { log } from '../logger.js';
 import { AIDES_FERMEES, aidesDeLecture } from './aides-claude.js';
 import {
@@ -150,8 +150,8 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
    * Le compte claude.ai d'un utilisateur branche ses CONNECTEURS dans chaque
    * session lancée en ligne de commande : un dossier de dessin, un agenda, un
    * hébergeur — et une MÉMOIRE. Ce n'est ni voulu ni utile ici : la mémoire
-   * d'un projet vit par sujet dans `docs/memoire/` et se lit avec
-   * `project_memory`. Un connecteur de mémoire, lui, est commun à tous les
+   * d'un projet vit dans la base de connaissances et se lit avec l'outil
+   * `memoire`. Un connecteur de mémoire, lui, est commun à tous les
    * projets, il n'est alimenté par personne, et le modèle l'appelle À LA PLACE
    * de l'outil du démon — quand il ne fait pas tomber le tour parce que ce
    * connecteur n'est même pas autorisé (« claude.ai Memoire » demande une
@@ -353,14 +353,17 @@ export const claudeAdapter: EngineAdapter = {
       cloturer: (code, depassement) => {
         if (buffer.trim()) handleLine(buffer);
         const ok = code === 0 && !depassement;
+        /* Les avertissements anodins de la ligne de commande (dossier jamais « approuvé ») ne sont jamais la
+           raison d'un échec : sans eux, la vraie raison — ou le code de sortie — se lit à l'écran. */
+        const utile = sortieDErreurUtile(stderr);
         const message = depassement
           ? "Le moteur ne rendait pas la main : il a été arrêté pour ne pas bloquer l'agent."
-          : stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
+          : utile.split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
         if (!ok) options.onEvent({ kind: 'error', error: message });
         options.onEvent({ kind: 'done', exitCode: code ?? -1 });
         return {
           ok,
-          error: ok ? undefined : depassement ? message : stderr.trim().slice(-500),
+          error: ok ? undefined : depassement ? message : utile.slice(-500) || message,
           jamaisDemarre: !ok && !aParle,
         };
       },

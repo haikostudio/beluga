@@ -11,6 +11,7 @@ import {
   MIN_SIGNES_DESCRIPTION,
   composerDescription,
   contientRepereConcret,
+  descriptionAJuger,
   jugerDescription,
   partiesTrouvees,
   renvoieAuFil,
@@ -161,6 +162,26 @@ test('un texte d’intro se pose en tête, avant le Constat, sans intertitre', (
   assert.match(texte, /^Ce carnet de règles grossissait/, 'l’intro ouvre la description');
   assert.doesNotMatch(texte.split('\n\n')[0], /\*\*/, 'l’intro ne porte pas son propre intertitre');
   assert.match(texte, /\*\*Constat\*\* : /, 'le Constat technique suit, inchangé');
+});
+
+const INTRO = 'La colonne du tableau arrête de sauter : on compte ses cartes une bonne fois.';
+
+test('une intro seule ne mange pas la description libre : elle la précède', () => {
+  const texte = descriptionAJuger({ intro: INTRO, constat: '  ' }, BONNE_DESCRIPTION);
+  assert.equal(texte, `${INTRO}\n\n${BONNE_DESCRIPTION}`);
+  const verdict = jugerDescription(texte, 'complete');
+  assert.equal(verdict.ok, true, `refusée à tort : ${verdict.manques.join(', ')}`);
+});
+
+test('une intro sans aucun autre texte reste refusée en exigence complète', () => {
+  const texte = descriptionAJuger({ intro: INTRO });
+  assert.equal(texte, INTRO);
+  assert.equal(jugerDescription(texte, 'complete').ok, false);
+});
+
+test('un seul champ séparé suffit à écarter le texte libre', () => {
+  const parties = { intro: INTRO, attendu: 'la colonne cesse de clignoter' };
+  assert.equal(descriptionAJuger(parties, BONNE_DESCRIPTION), composerDescription(parties));
 });
 
 /* ------------------------------------------------------------------ */
@@ -426,4 +447,33 @@ test('board_create_card : l’assistant global passe en exigence courte, un agen
     niveau: 'standard',
   });
   assert.equal(sansDescription.ok, false);
+});
+
+for (const outil of ['board_create_card', 'propose_task']) {
+  test(`${outil} : intro et description libre complète sont acceptées ensemble`, async () => {
+    const projet = projetDEssai();
+    const ordinaire = agentDEssai(projet.id, false);
+    const resultat = await callTool({ projectId: projet.id, role: 'task', agentId: ordinaire.id } as any, outil, {
+      title: 'Stabiliser la colonne « À déployer »',
+      intro: INTRO,
+      description: BONNE_DESCRIPTION,
+      contexte: SYNTHESE,
+      niveau: 'standard',
+    });
+    assert.equal(resultat.ok, true, resultat.text);
+    assert.equal(resultat.proposal?.description, `${INTRO}\n\n${BONNE_DESCRIPTION}`);
+  });
+}
+
+test('board_create_card : une intro seule ne prive pas l’assistant global de sa synthèse', async () => {
+  const projet = projetDEssai();
+  const assistant = agentDEssai(projet.id, true);
+  const resultat = await callTool({ projectId: projet.id, role: 'task', agentId: assistant.id } as any, 'board_create_card', {
+    title: 'Lancer Jarvis depuis l’icône voix',
+    intro: INTRO,
+    niveau: 'standard',
+    contexte: SYNTHESE,
+  });
+  assert.equal(resultat.ok, true, resultat.text);
+  assert.equal(resultat.proposal?.description, `${INTRO}\n\n${SYNTHESE}`);
 });

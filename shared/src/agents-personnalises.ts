@@ -21,6 +21,7 @@
  * (fiche + journal), et chaque passage reçoit un relais complet au lieu de l'historique de la conversation.
  */
 import { debutDuJour, decalageFuseau, jourDeSemaineLocal, jourLocal } from './fuseau.js';
+import { REGLE_DE_LA_VALIDATION } from './validation-de-geste.js';
 
 /** L'étiquette posée sur la carte d'un agent personnalisé : elle en fait un agent de volet (`agent-de-volet.ts`). */
 export const LABEL_AGENT_PERSO = 'agent-perso';
@@ -239,6 +240,15 @@ export const GESTES_JAMAIS_PERMIS = [
   'supprimer',
 ] as const;
 export type GesteJamaisPermis = (typeof GESTES_JAMAIS_PERMIS)[number];
+
+/**
+ * JAMAIS SEUL NE VEUT PLUS DIRE « JAMAIS LUI-MÊME » (26/11/2026, capture #6b90 : l'agent laissait deux clics
+ * « Enregistrer » à l'utilisateur). Ces gestes-ci, l'agent les FAIT lui-même, après une validation avec capture
+ * dans le fil (`shared/src/validation-de-geste.ts`).
+ */
+export const GESTES_A_VALIDER: readonly GesteJamaisPermis[] = ['publier', 'envoyer_au_client', 'payer', 'supprimer'];
+/** Ceux-là restent une carte proposée : l'agent n'a ni dépôt ni bouton de publication, et rien ne se lance sans clic. */
+export const GESTES_PAR_CARTE: readonly GesteJamaisPermis[] = ['deployer', 'mettre_en_production', 'lancer_carte', 'modifier_code'];
 
 /** Ce que chaque geste veut dire, en mots courants (montré dans le volet, traduit à l'affichage). */
 export const LIBELLE_DU_GESTE: Readonly<Record<GesteJamaisPermis, string>> = {
@@ -570,8 +580,9 @@ export function ficheEnTexte(fiche: FicheDAgent): string {
     `QUAND IL AGIT : ${fiche.declencheurs.length ? fiche.declencheurs.map(resumeDuDeclencheur).join(' ; ') : 'À DÉFINIR'}`,
     `CE QU'IL FAIT SEUL :\n${liste(fiche.faitSeul, '(rien)')}`,
     `CE QU'IL DEMANDE AVANT D'AGIR :\n${liste(fiche.demandeAccord, '(rien)')}`,
-    `CE QU'IL NE FAIT JAMAIS :\n${liste(fiche.jamais, '(rien de plus que les gestes verrouillés)')}`,
-    `GESTES VERROUILLÉS (jamais seul, quoi qu'on dise) : ${GESTES_JAMAIS_PERMIS.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')}`,
+    `CE QU'IL NE FAIT JAMAIS :\n${liste(fiche.jamais, '(rien de plus que les gestes par carte)')}`,
+    `GESTES À VALIDER (capture puis « Valider » dans le fil, puis tu le fais TOI-MÊME) : ${GESTES_A_VALIDER.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')}`,
+    `GESTES PAR CARTE (proposés avec board_create_card, jamais toi-même) : ${GESTES_PAR_CARTE.map((g) => LIBELLE_DU_GESTE[g].toLowerCase()).join(', ')} — un projet de Beluga, pas un site tiers`,
     `CE QU'IL EMPORTE : ${emporte}`,
     `SA LIMITE : ${limite}`,
   ].join('\n');
@@ -582,12 +593,18 @@ export function ficheEnTexte(fiche: FicheDAgent): string {
  * jamais une bulle) : il relit toujours son cadre à jour, même au fil d'une longue conversation.
  */
 export const CONSIGNE_DE_L_AGENT_PERSO = [
-  'TU ES UN AGENT PERSONNALISÉ DE CE PROJET, créé par l’utilisateur dans l’onglet « Agents ». Ton cadre est ta FICHE ci-dessous : il fait foi.',
-  'TANT QUE TA FICHE A DES RUBRIQUES « À DÉFINIR », TU MÈNES SA CRÉATION : une question à la fois, en mots courants. Pour chaque rubrique, PROPOSE une réponse concrète (un moment où agir, une limite de passages, les accès utiles) et demande l’accord. Dès qu’un point est accepté, écris-le AUSSITÔT avec l’outil agent_fiche (une rubrique par appel) : la configuration se remplit sous les yeux de l’utilisateur. Rien d’imposé : les moments, la limite, la dépense et les accès se décident avec lui.',
+  'TU ES UN AGENT PERSONNALISÉ DE CE PROJET, créé par l’utilisateur dans l’onglet « Agents ». Ton cadre est ta FICHE ci-dessous : il fait foi. Tu es le professionnel du métier de ta mission, et tu mènes chaque échange jusqu’à un résultat : tu enquêtes, tu raisonnes, tu proposes — l’utilisateur tranche.',
+  'TA CRÉATION, TANT QUE TA FICHE A DES RUBRIQUES « À DÉFINIR », dans cet ordre :',
+  '1. TON NOM D’ABORD, dès ta toute première réponse et sans question : écris la rubrique « nom » avec agent_fiche, deux à cinq mots qui disent ton action (« Communication de Haiko Studio », « Relance des devis »). L’utilisateur le change en te le disant : tu le réécris aussitôt.',
+  '2. ENQUÊTE SEUL avant toute question : outil « services » (statistiques, réseaux, messagerie, surveillance, référencement, médias, studio), outil « memoire », le site et les comptes reliés du projet. Ne demande jamais ce qu’une lecture peut trouver.',
+  '3. REVIENS AVEC UN DIAGNOSTIC ET UN PLAN, en texte : ce que tu as constaté (séparé de ce que tu supposes), ton avis franc, un OBJECTIF CHIFFRÉ avec son échéance (« 4 demandes de devis par mois d’ici fin janvier »), puis ton plan — ce que tu feras à chaque passage, quand tu passeras, ta limite de passages, ce que tu fais seul et ce qui attend l’accord, les accès dont tu as besoin. Puis UNE question « ask_user » : « Je valide ce plan (recommandé) » et deux ou trois variantes réellement différentes.',
+  '4. LE PLAN ACCEPTÉ REMPLIT TA FICHE : écris aussitôt chaque rubrique avec agent_fiche (une par appel) — la mission porte l’objectif chiffré, son échéance et le plan en quelques lignes. Aucune question par rubrique : le plan les a déjà réglées.',
+  '5. NE QUESTIONNE QUE SUR LE FOND, ce que ni tes outils ni ton métier ne tranchent (la cible, l’offre, le ton, un budget) : une question à la fois, ta réponse conseillée en tête. Chaque réponse se termine par l’étape suivante que tu proposes ou par cette question, jamais par « dites-moi si… ».',
   'Une fois la fiche complète, dis-le en une phrase et invite à cliquer « Allumer l’agent ». Tu ne te dis JAMAIS allumé, ni au travail, avant ce clic.',
-  'GESTES VERROUILLÉS : tu ne publies, ne mets en ligne, n’envoies à un client, ne paies, ne lances de tâche, ne modifies le code et ne supprimes JAMAIS rien toi-même — même si on te le demande. À la place : une réponse au client se PRÉPARE (service messagerie, « préparer une réponse » : l’utilisateur l’envoie d’un clic) ; un changement de code ou une mise en ligne se PROPOSE en carte avec board_create_card (elle arrive dans « Planifié », l’utilisateur la lance ; ne pose jamais de date de départ) ; le reste se demande avec ask_user.',
+  REGLE_DE_LA_VALIDATION +
+    ' Les gestes de ta rubrique « demande » passent aussi par cette validation. Une réponse à une demande de la messagerie se PRÉPARE (service messagerie, « préparer une réponse ») : son bouton « Envoyer au client » est déjà sa validation. RESTENT HORS DE TA MAIN, même demandés : modifier le code, lancer une tâche, mettre en ligne ou en production un PROJET DE BELUGA — ils se PROPOSENT en carte avec board_create_card (elle arrive dans « Planifié » ; ne pose jamais de date de départ). Enregistrer un profil, une page ou une fiche sur un site tiers n’est PAS une mise en ligne de projet : c’est un geste à valider, que tu fais toi-même.',
   'ACCÈS : ta fiche ne porte que des NOMS de fiches du coffre-fort, jamais une valeur. Lis une valeur avec l’outil coffre_fort au moment où tu en as besoin, et ne la recopie nulle part (ni dans la fiche, ni dans une réponse).',
-  'À CHAQUE PASSAGE (déclenché à la main, à heure fixe ou par un événement), fais ta mission dans ton cadre, puis termine par UNE phrase de compte rendu qui commence par « Fait : », « À valider : » ou « Rien à faire : ». Cette phrase entre au journal.',
+  'À CHAQUE PASSAGE (déclenché à la main, à heure fixe ou par un événement) : relis ton objectif et ton journal, fais ta mission dans ton cadre, puis dis où en est l’objectif (le chiffre atteint face à la cible) et la prochaine étape que tu proposes. Une décision qui revient à l’utilisateur se pose par « ask_user », À LA FIN du passage, une fois le reste de ta mission fait : elle l’attend dans sa cloche et t’arrête jusqu’à sa réponse. Quand les résultats s’écartent de l’objectif, PROPOSE un plan revu de la même façon, et ne réécris ta fiche qu’après son accord. Termine par UNE phrase de compte rendu qui commence par « Fait : », « À valider : » (une question ou une réponse préparée t’attend) ou « Rien à faire : ». Cette phrase entre au journal.',
 ].join('\n');
 
 /** Le relais d'un tour : consigne, fiche, journal récent, et l'événement du passage s'il y en a un. */
@@ -663,7 +680,8 @@ export function ecrireRubrique(fiche: FicheDAgent, rubrique: string, valeur: unk
       return { ok: true, fiche: { ...fiche, nom } };
     }
     case 'mission': {
-      const mission = texte(valeur, 600);
+      // L'OBJECTIF CHIFFRÉ, SON ÉCHÉANCE ET LE PLAN (26/11/2026) : quelques lignes, plus une seule phrase.
+      const mission = texte(valeur, 1200);
       if (!mission) return { ok: false, raison: 'La mission est vide.' };
       return { ok: true, fiche: { ...fiche, mission } };
     }
@@ -687,7 +705,9 @@ export function ecrireRubrique(fiche: FicheDAgent, rubrique: string, valeur: unk
         if (geste)
           return {
             ok: false,
-            raison: `REFUSÉ : « ${ligne} » est un geste verrouillé (${LIBELLE_DU_GESTE[geste].toLowerCase()}). Un agent personnalisé ne le fait jamais seul, même à la demande de l’utilisateur. Inscris-le dans « demande » (il le préparera et demandera l’accord), ou propose une carte.`,
+            raison: GESTES_PAR_CARTE.includes(geste)
+              ? `REFUSÉ : « ${ligne} » (${LIBELLE_DU_GESTE[geste].toLowerCase()}) ne se fait jamais seul : il se propose en carte avec board_create_card.`
+              : `REFUSÉ : « ${ligne} » est un geste important (${LIBELLE_DU_GESTE[geste].toLowerCase()}) : jamais sans validation. Inscris-le dans « demande » : tu le feras toi-même après le « Valider » de l’utilisateur, capture à l’appui.`,
           };
       }
       return { ok: true, fiche: { ...fiche, faitSeul } };
@@ -722,4 +742,51 @@ export function ressembleAUnSecret(valeur: string): boolean {
   if (/^(sk|pk|rk|ghp|gho|xox[abp]|AKIA|AIza|eyJ)[-_A-Za-z0-9]{8,}/.test(v)) return true;
   // Un long mot sans espace, mêlant chiffres et lettres : une clé, pas un nom.
   return !/\s/.test(v) && v.length >= 24 && /\d/.test(v) && /[A-Za-z]/.test(v) && !/^[0-9a-f-]{36}$/i.test(v);
+}
+
+/**
+ * CE QUE L'AGENT NOTE DANS SA FICHE, DIT EN CLAIR DANS LE FIL (décision du 26/11/2026 : « je devrais voir ce qui se
+ * passe directement dans le chat »). L'étape de l'outil `agent_fiche` ne disait que « Fiche de l'agent » : elle dit
+ * désormais « Nom noté : Communication de Haiko Studio », « Mission notée : … ». La valeur passe par `ecrireRubrique`
+ * sur une fiche vide — la même lecture que l'écriture réelle — et rien n'est dit d'une valeur refusée.
+ */
+export function noteDeRubrique(rubrique: unknown, valeur: unknown): string | null {
+  const r = String(rubrique ?? '').trim();
+  if (!(RUBRIQUES_DE_LA_FICHE as readonly string[]).includes(r)) return null;
+  const ecrite = ecrireRubrique(ficheVide(), r, valeur);
+  if (!ecrite.ok) return null;
+  const f = ecrite.fiche;
+  const court = (t: string) => (t.length > 110 ? `${t.slice(0, 109)}…` : t);
+  const liste = (l: string[] | null) => (l && l.length ? l.join(' ; ') : 'rien');
+  switch (r as RubriqueDeFiche) {
+    case 'nom':
+      return `Nom noté : ${court(f.nom)}`;
+    case 'mission':
+      return `Mission notée : ${court(f.mission)}`;
+    case 'quand':
+      return `Moments notés : ${court(f.declencheurs.map(resumeDuDeclencheur).join(' ; ') || 'aucun')}`;
+    case 'seul':
+      return `Ce qu’il fait seul, noté : ${court(liste(f.faitSeul))}`;
+    case 'demande':
+      return `Ce qu’il vous demande, noté : ${court(liste(f.demandeAccord))}`;
+    case 'jamais':
+      return `Ce qu’il ne fait jamais, noté : ${court(liste(f.jamais))}`;
+    case 'emporte': {
+      const e = f.emporte;
+      if (!e) return null;
+      const morceaux = [e.competences.length ? `compétences ${e.competences.join(', ')}` : '', e.acces.length ? `accès ${e.acces.join(', ')}` : '', e.memoire ? 'mémoire du projet' : ''].filter(Boolean);
+      return `Ce qu’il emporte, noté : ${court(morceaux.join(' · ') || 'rien')}`;
+    }
+    case 'limite': {
+      const l = f.limite;
+      if (!l) return null;
+      const periode = l === 'aucune' ? '' : l.periode === 'jour' ? 'jour' : l.periode === 'semaine' ? 'semaine' : 'mois';
+      return `Limite notée : ${l === 'aucune' ? 'aucune' : `${l.passages} passage${l.passages > 1 ? 's' : ''} par ${periode}`}`;
+    }
+  }
+}
+
+/** Une étape du fil qui dit une note de fiche (« Nom noté : … ») : elle se lit telle quelle, en clair. */
+export function estUneNoteDeFiche(libelle: string | undefined): boolean {
+  return /^(Nom noté|Mission notée|Moments notés|Ce qu’il fait seul, noté|Ce qu’il vous demande, noté|Ce qu’il ne fait jamais, noté|Ce qu’il emporte, noté|Limite notée) : /.test(libelle ?? '');
 }

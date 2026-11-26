@@ -676,6 +676,7 @@ class Client {
   private extensionHandlers = new Set<() => void>();
   private demandeDeLiaisonHandlers = new Set<(demande: { jeton: string; nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void>();
   private codeAttenduHandlers = new Set<(attente: { nom: string; systeme: 'mac' | 'windows' | 'linux'; expireLe: number }) => void>();
+  private connectLanceHandlers = new Set<(lancement: { nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void>();
   /** Les images du navigateur des sources : remises au seul volet ouvert, jamais rangées dans l'état général. */
   /*
    * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
@@ -909,6 +910,12 @@ class Client {
   onCodeAttendu(handler: (attente: { nom: string; systeme: 'mac' | 'windows' | 'linux'; expireLe: number }) => void): () => void {
     this.codeAttenduHandlers.add(handler);
     return () => this.codeAttenduHandlers.delete(handler);
+  }
+
+  /** Beluga Connect s'est lancé (26/11/2026) : les réglages se rouvrent sur l'étape du code à taper dans l'application. */
+  onConnectLance(handler: (lancement: { nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void): () => void {
+    this.connectLanceHandlers.add(handler);
+    return () => this.connectLanceHandlers.delete(handler);
   }
 
   onDemandeDeLiaison(handler: (demande: { jeton: string; nom: string; systeme: 'mac' | 'windows' | 'linux' }) => void): () => void {
@@ -2355,6 +2362,9 @@ class Client {
         break;
       case 'relaisMac.codeAttendu':
         for (const handler of this.codeAttenduHandlers) handler({ nom: event.nom, systeme: event.systeme, expireLe: event.expireLe });
+        break;
+      case 'relaisMac.connectLance':
+        for (const handler of this.connectLanceHandlers) handler({ nom: event.nom, systeme: event.systeme });
         break;
       case 'plaquettes.change':
         for (const handler of this.plaquettesHandlers) handler(event);

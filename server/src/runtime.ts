@@ -125,6 +125,7 @@ import {
   CONSIGNE_DE_VULGARISATION,
   CONSIGNE_DES_DATES,
   CONSIGNE_DE_CONSEILLER,
+  consigneDeMenerSelonLeMotif,
   CONSIGNE_ASSISTANT_GLOBAL,
   RAPPEL_DE_VULGARISATION,
   consigneDeLangue,
@@ -238,6 +239,7 @@ import { jalonAvantLeTour } from './studio.js';
 import { listerSites } from './surveillance.js';
 import { productionsPourLAgent, productionsProtegees } from './productions-protegees.js';
 import { estAgentAttitre } from './agent-attitre.js';
+import { appliquerLaPuissanceDuTour } from './puissance-des-agents.js';
 import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte, toursDExecution } from './journal-carte.js';
 import { repererLesCaptures } from './captures-auto.js';
 import { attendreLesLectures, conserverLesFichiersCites, conserverUnFichier } from './fichiers-conserves.js';
@@ -976,6 +978,9 @@ export function createAgent(input: {
       engine: input.run?.engine ?? project?.defaultEngine ?? 'claude',
       model: input.run?.model,
       thinking: input.run?.thinking ?? 'none',
+      /* LE PALIER RETENU (« approfondi » pour la conversation d'un agent des services) : sans lui, la règle de la
+         puissance du tour prendrait ce réglage pour un choix fait à la main (`shared/src/puissance-des-agents.ts`). */
+      ...(input.run?.niveau ? { niveau: input.run.niveau } : {}),
     },
     status: 'idle',
     createdAt: store.now(),
@@ -1035,6 +1040,14 @@ export interface PromptOptions {
   chiffrage?: boolean;
   /** Ne pas enregistrer le message utilisateur (relances internes). */
   silent?: boolean;
+  /**
+   * LE RÉGLAGE DE CE TOUR SEULEMENT, même moteur : le passage seul d'un agent des services part au palier
+   * « standard » sans toucher son réglage enregistré (`server/src/puissance-des-agents.ts`). Ni la consigne système
+   * ni le fil ne changent : sous Claude, le fil se reprend avec un autre modèle (`cleDeSession`).
+   */
+  runDuTour?: { model?: string; thinking?: string };
+  /** CE TOUR EST UN PASSAGE AUTOMATIQUE d'un agent personnalisé : sa réponse le porte (`Message.passageAutomatique`). */
+  passageAutomatique?: Message['passageAutomatique'];
   /**
    * Pourquoi cet agent est appelé, quand ce n'est pas pour une carte. Un motif
    * de DÉPANNAGE (conflit de fusion, contrôles tombés, construction cassée)
@@ -1377,6 +1390,25 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
 const posterTraitementEnAttente = new Map<string, NonNullable<PromptOptions['onComplete']>>();
 
 /**
+ * …ET SON CONTEXTE DE TOUR. Le passage d'un agent personnalisé arrivé pendant une conversation retombait en file sans
+ * son relais (fiche, journal, déclencheur) ni son gabarit : il repartait comme un message nu. Gardés ici sous le nom de
+ * l'élément empilé, comme le post-traitement, ils lui sont rendus au dépilage.
+ */
+const contexteEnAttente = new Map<string, Pick<PromptOptions, 'context' | 'template' | 'passageAutomatique'>>();
+
+/** Le réglage de chaque tour en préparation, par jeton de préparation (`PromptOptions.runDuTour`). */
+const reglagesDuTour = new Map<number, NonNullable<PromptOptions['runDuTour']>>();
+
+/** La marque « passage automatique » de chaque tour en préparation, par jeton (`PromptOptions.passageAutomatique`). */
+const passagesDuTour = new Map<number, NonNullable<PromptOptions['passageAutomatique']>>();
+
+/** L'agent tel qu'il part pour CE tour : son réglage enregistré, recouvert du réglage du tour s'il y en a un. */
+function avecLeReglageDuTour(agent: Agent, reglage: PromptOptions['runDuTour'] | undefined): Agent {
+  if (!reglage || (!reglage.model && !reglage.thinking)) return agent;
+  return { ...agent, run: { ...agent.run, ...(reglage.model ? { model: reglage.model } : {}), ...(reglage.thinking ? { thinking: reglage.thinking as Agent['run']['thinking'] } : {}) } };
+}
+
+/**
  * LA FILE REPREND SON COURS — UN SEUL ENDROIT DÉCIDE.
  *
  * Elle était dépilée en deux endroits, et il en manquait un troisième : une
@@ -1408,9 +1440,11 @@ function enchainerLaFile(agentId: string): void {
   enchainementEnVol.add(agentId);
   const onComplete = posterTraitementEnAttente.get(next.id);
   posterTraitementEnAttente.delete(next.id);
+  const contexte = contexteEnAttente.get(next.id);
+  contexteEnAttente.delete(next.id);
   setTimeout(() => {
     try {
-      envoyerLaDemandeDepilee(agentId, next, onComplete);
+      envoyerLaDemandeDepilee(agentId, next, onComplete, contexte);
     } finally {
       enchainementEnVol.delete(agentId);
       /* Refusée, introuvable ou partie en panne, la demande n'a ouvert aucun
@@ -1428,6 +1462,7 @@ function envoyerLaDemandeDepilee(
   agentId: string,
   next: NonNullable<ReturnType<typeof store.dequeuePrompt>>,
   onComplete: PromptOptions['onComplete'],
+  contexte?: Pick<PromptOptions, 'context' | 'template' | 'passageAutomatique'>,
 ): void {
   /* Une demande déjà écrite (retombée en file faute de quota) repart avec sa
      bulle : le tour la reprend, il n'en crée pas une seconde. Et elle repart
@@ -1441,6 +1476,9 @@ function envoyerLaDemandeDepilee(
     compteImpose: next.compteImpose,
     poursuite: next.poursuite || undefined,
     repriseDe: next.repriseDe,
+    ...(contexte?.context ? { context: contexte.context } : {}),
+    ...(contexte?.template ? { template: contexte.template } : {}),
+    ...(contexte?.passageAutomatique ? { passageAutomatique: contexte.passageAutomatique } : {}),
     onComplete,
   }).catch((err) => log.error('enchaînement de file impossible', err));
 }
@@ -1572,7 +1610,7 @@ export const OUTILS_D_EDITION_FERMES_AUX_CHEFS = ['Edit', 'Write', 'NotebookEdit
  * donc aucun chemin ne peut y échapper.
  */
 export async function sendPrompt(agentId: string, text: string, options: PromptOptions = {}): Promise<void> {
-  const agent = store.getAgent(agentId);
+  let agent = store.getAgent(agentId);
   if (!agent) throw new Error('agent introuvable');
   /*
    * L'AGENT DE « RÉSOUDRE LE PROBLÈME » GARDE SON MOTIF À CHAQUE TOUR : une
@@ -1680,8 +1718,21 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
      */
     options.apresLaDemande?.();
     if (options.onComplete) posterTraitementEnAttente.set(queued.id, options.onComplete);
+    if (options.context || options.template || options.passageAutomatique)
+      contexteEnAttente.set(queued.id, { context: options.context, template: options.template, passageAutomatique: options.passageAutomatique });
     bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
     return;
+  }
+
+  /*
+   * LA PUISSANCE DU TOUR D'UN AGENT DES SERVICES (décision du 26/11/2026) : un message de l'utilisateur part au palier
+   * « approfondi », enregistré sur l'agent ; un passage seul (demande silencieuse) au palier « standard », pour ce
+   * tour seulement. Un modèle choisi à la main n'est jamais touché (DEC-213), Fable jamais pris.
+   */
+  if (!options.runDuTour) {
+    const puissance = appliquerLaPuissanceDuTour(agent, !options.silent);
+    agent = puissance.agent;
+    if (puissance.duTour) options = { ...options, runDuTour: puissance.duTour };
   }
 
   /*
@@ -1709,9 +1760,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     ...(options.messageDejaEcrit ? { demandeId: options.messageDejaEcrit } : {}),
   });
   let attendUnQuota = false;
+  if (options.runDuTour) reglagesDuTour.set(preparation, options.runDuTour);
+  if (options.passageAutomatique) passagesDuTour.set(preparation, options.passageAutomatique);
   try {
     attendUnQuota = await preparerLeTour(agent, text, options, preparation);
   } finally {
+    reglagesDuTour.delete(preparation);
+    passagesDuTour.delete(preparation);
     /*
      * CE TOUR EST-IL ENCORE LE MIEN ?
      *
@@ -1969,7 +2024,8 @@ async function preparerLeTour(
    * lui apprend rien et coûte des jetons à chaque tour. Sur les tours suivants,
    * on n'envoie donc que les faits AJOUTÉS depuis.
    */
-  const cleSession = cleDeSession(agent.run.engine, agent.run.model, account.id);
+  const modeleDuTour = options.runDuTour?.model ?? agent.run.model;
+  const cleSession = cleDeSession(agent.run.engine, modeleDuTour, account.id);
   const nouvelleSession = !store.getSessionId(agent.id, cleSession);
   // Une session neuve repart sans passé : la prochaine panne, s'il y en a une,
   // a de nouveau le droit de se dire.
@@ -1981,7 +2037,7 @@ async function preparerLeTour(
    * c'est la SUITE d'un travail — l'agent doit repartir avec ce qu'il savait.
    */
   const filDuCompteDavant = nouvelleSession
-    ? store.filSurUnAutreCompte(agent.id, partMoteurDeLaCle(agent.run.engine, agent.run.model), cleSession)
+    ? store.filSurUnAutreCompte(agent.id, partMoteurDeLaCle(agent.run.engine, modeleDuTour), cleSession)
     : null;
   /*
    * Le NIVEAU d'accueil ne dit pas QUAND on accueille (ça, c'est
@@ -2721,8 +2777,8 @@ function additionnerUsage(
 /**
  * L'agent de cadrage a-t-il déjà ouvert la mémoire du projet ? C'est ce qui
  * décide s'il reçoit ses outils de terrain (lecture, shell, recherche d'outil)
- * — voir `cadrageAllowList`. La trace est celle des ouvertures réelles de
- * `project_memory`, y compris celles qui n'ont rien rendu : ce qui compte est
+ * — voir `cadrageAllowList`. La trace est celle des ouvertures réelles de la
+ * mémoire (outil `memoire`), y compris celles qui n'ont rien rendu : ce qui compte est
  * d'être allé voir, pas d'avoir trouvé.
  */
 function analyseDuCadrageFaite(agentId: string): boolean {
@@ -2797,7 +2853,9 @@ async function startTurn(
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
-  const agent = versionActuelleDuModele(store.getAgent(agentBefore.id) ?? agentBefore);
+  const agentEnregistre = versionActuelleDuModele(store.getAgent(agentBefore.id) ?? agentBefore);
+  /* Le passage seul d'un agent des services part avec le réglage de SON tour ; l'agent garde le sien en base. */
+  const agent = avecLeReglageDuTour(agentEnregistre, reglagesDuTour.get(tour.preparation));
   const project = store.getProject(agent.projectId)!;
   const adapter = adapterFor(agent.run.engine);
   const jeton = tour.preparation;
@@ -2933,6 +2991,7 @@ async function startTurn(
    */
   const todosRepris = tour.poursuite ? tachesReprises(agent.id) : [];
 
+  const passageAutomatique = passagesDuTour.get(tour.preparation);
   const assistantMessage = Message.parse({
     id: store.newId(),
     agentId: agent.id,
@@ -2941,6 +3000,7 @@ async function startTurn(
     steps: memoryStep ? [memoryStep] : [],
     todos: todosRepris,
     streaming: true,
+    ...(passageAutomatique ? { passageAutomatique } : {}),
     createdAt: store.now(),
   });
   store.saveMessage(assistantMessage);
@@ -3255,6 +3315,8 @@ async function startTurn(
   // qui reprend — l'effacer ferait clignoter la carte à « aucune étape » alors
   // que sept sur dix sont faites.
   setStatus(agent, 'running', {
+    // Le réglage ENREGISTRÉ, jamais celui du tour : un passage seul ne réécrit pas le modèle de l'agent.
+    run: agentEnregistre.run,
     startedAt: Date.now(),
     account: account.id,
     todos: todosRepris.length
@@ -6954,9 +7016,12 @@ export function rolePrompt(
  * gardent leur accueil court.
  */
 function postureDeLAccueil(niveau: NiveauDAccueil, motif?: MotifDAppel): string {
-  if (niveau === 'minimal') return '';
-  if (motif === 'configuration-backup' || motif === 'configuration-surveillance' || motif === 'depannage-manuel') return '';
-  return `${CONSIGNE_DE_CONSEILLER}\n`;
+  /* LES AGENTS DES SERVICES MÈNENT L'ÉCHANGE (26/11/2026) : Marketing, Communication et ses chefs en entier, les
+     assistants de surveillance et de sauvegarde en version courte — même sous un accueil minimal. */
+  const mener = consigneDeMenerSelonLeMotif(motif);
+  if (motif === 'configuration-backup' || motif === 'configuration-surveillance' || motif === 'depannage-manuel') return mener ? `${mener}\n` : '';
+  if (niveau === 'minimal') return mener ? `${mener}\n` : '';
+  return `${CONSIGNE_DE_CONSEILLER}\n${mener ? `${mener}\n` : ''}`;
 }
 
 

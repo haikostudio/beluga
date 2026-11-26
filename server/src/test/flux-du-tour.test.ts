@@ -128,3 +128,17 @@ test('une image seule reste une capture, et des actions après la dernière imag
   const groupe = paquetsDuFlux(fluxDesEntrees([lire('a.ts'), joindre('a.png'), commande('ls'), note('Fini.')]));
   assert.deepEqual(groupe.map((e) => e.sorte), ['actions', 'capture', 'actions', 'note']);
 });
+
+test('une note de fiche d’agent personnalisé se lit en clair, jamais repliée en « Outil « Fiche de l’agent » »', () => {
+  const fiche = entree({ outil: 'mcp__beluga__agent_fiche', libelle: 'Nom noté : Veilleur des demandes', resultat: 'Rubrique « nom » écrite.' });
+  const flux = fluxDesEntrees([lire('a.ts'), fiche, lire('b.ts')]);
+  assert.deepEqual(
+    flux.map((e) => e.sorte),
+    ['actions', 'note', 'actions'],
+  );
+  const laNote = flux[1] as Extract<(typeof flux)[number], { sorte: 'note' }>;
+  assert.equal(laNote.entree.resultat, 'Nom noté : Veilleur des demandes', 'le texte lu est le libellé de la note, pas la réponse brute de l’outil');
+  // Un autre appel de l'outil (lecture de la fiche) reste une action ordinaire.
+  const lecture = entree({ outil: 'mcp__beluga__agent_fiche', libelle: 'agent_fiche', resultat: '{}' });
+  assert.equal(fluxDesEntrees([lecture])[0]?.sorte, 'actions');
+});

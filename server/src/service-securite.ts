@@ -67,6 +67,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDb } from './db.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { bus } from './bus.js';
 import { ROOT } from './config.js';
 import { log } from './logger.js';
@@ -1081,7 +1082,7 @@ export async function assurerLAgent(projectId: string): Promise<string> {
   ]);
   const catalogue = await catalogueMoteurs();
   const claude = catalogue.find((moteur) => moteur.id === 'claude');
-  const reglages = claude ? reglagesDuNiveau(claude, 'standard') : { model: undefined, thinking: 'none' };
+  const reglages = reglageDeConversation(claude);
   // Relu après l'attente du catalogue : deux appels rapprochés ne font qu'un agent.
   const relue = ligneProjet(projectId);
   if (!relue) throw new Error('projet non suivi');
@@ -1092,7 +1093,7 @@ export async function assurerLAgent(projectId: string): Promise<string> {
     description: `L’agent de sécurité de « ${projet.name} » : il lit l’audit de chaque semaine, mène une étude approfondie sur demande et prépare la carte de correction.`,
     labels: [LABEL_SECURITE],
     role: 'task',
-    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any },
+    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
   });
   rangerCarteDAgent(card.id, agentId, 'archived', null);
   getDb().prepare('UPDATE securite_projets SET agent_id = ?, card_id = ? WHERE project_id = ?').run(agentId, card.id, projectId);

@@ -238,7 +238,7 @@ const PROJET_ID = 'p-essai-tiroir';
 const RUN_ID = 'run-essai-1';
 const AUTRE_RUN = 'run-essai-2';
 /* L'agent de dépannage appelé sur le conflit — SANS cardId, comme le vrai
-   (`docs/regles/publication.md`) : ce n'est jamais l'agent d'une carte. */
+   (sujet « publication » de la mémoire) : ce n'est jamais l'agent d'une carte. */
 const AGENT_DEPANNAGE = 'a-essai-depannage';
 /* Une heure FIXE, jamais sur « maintenant ». */
 const DEPLOYE_LE = new Date(2026, 7, 17, 14, 32, 5).getTime();

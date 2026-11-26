@@ -30,6 +30,8 @@ export function ValidationAvecCout({
   onRefuser,
   ligne,
   note,
+  contenu,
+  libelleEnVol,
   bloque = false,
 }: {
   titre: string;
@@ -41,6 +43,13 @@ export function ValidationAvecCout({
   ligne?: React.ReactNode;
   /** Une ligne discrète de plus (« Conseillé à la place de Kling 3.0 : … »). */
   note?: string | null;
+  /**
+   * CE QU'ON VALIDE, MONTRÉ AVANT LES BOUTONS (26/11/2026) : les captures de la donnée d'un geste que l'agent fera
+   * lui-même (`AgentQuestion.validation`). Absent : l'encart reste un titre, une ligne et deux boutons.
+   */
+  contenu?: React.ReactNode;
+  /** Le texte du bouton pendant l'envoi ; défaut : « Génération lancée… », le cas d'une dépense. */
+  libelleEnVol?: string;
   /** Le bouton qui valide est retenu (un changement de modèle est en route). */
   bloque?: boolean;
   /** Le coût déjà écrit (« 0,09 $ », « prix non publié »), posé dans le bouton. Vide : « Valider » seul. */
@@ -86,6 +95,7 @@ export function ValidationAvecCout({
           {note}
         </p>
       ) : null}
+      {contenu ? <div className="mt-2 min-w-0">{contenu}</div> : null}
       {onValider || onRefuser ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {onValider ? (
@@ -99,7 +109,7 @@ export function ValidationAvecCout({
               className="gap-1 bg-accent text-accent-fg hover:opacity-90"
             >
               {enVol === 'valider' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              {enVol === 'valider' ? t('Génération lancée…') : cout ? t('Générer · {prix}', { prix: cout }) : t('Valider')}
+              {enVol === 'valider' ? (libelleEnVol ?? t('Génération lancée…')) : cout ? t('Générer · {prix}', { prix: cout }) : t('Valider')}
             </Button>
           ) : null}
           {onRefuser ? (

@@ -57,6 +57,35 @@ export function ligneDOrdinateur(compteId: string, id: string | null | undefined
   );
 }
 
+/**
+ * L'EMPREINTE D'UNE MACHINE POUR UN COMPTE (26/11/2026) : ce que Beluga Connect envoie (déjà une empreinte) n'est
+ * jamais rangé tel quel — il est ré-empreint avec le compte, pour qu'une même machine ne se reconnaisse que DANS ce
+ * compte. Rend `null` pour une valeur absente ou illisible.
+ */
+export function empreinteDeMachine(compteId: string, machine: unknown): string | null {
+  const brut = typeof machine === 'string' ? machine.trim() : '';
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(brut)) return null;
+  return crypto.createHash('sha256').update(`${compteId}:${brut}`).digest('hex');
+}
+
+/** La fiche ACTIVE de cette machine dans ce compte, s'il en a une (une fiche supprimée ne se reprend jamais). */
+export function ordinateurDeLaMachine(compteId: string, machine: unknown): LigneOrdinateur | null {
+  const empreinte = empreinteDeMachine(compteId, machine);
+  if (!empreinte) return null;
+  return (
+    (getDb()
+      .prepare('SELECT id, compte_id, nom, cree_le, droits, navigateurs FROM ordinateurs WHERE compte_id = ? AND machine = ? AND revoque_le IS NULL ORDER BY cree_le LIMIT 1')
+      .get(compteId, empreinte) as LigneOrdinateur | undefined) ?? null
+  );
+}
+
+/** Retient la machine d'une fiche (sa liaison par Beluga Connect). */
+export function noterLaMachine(compteId: string, id: string, machine: unknown): void {
+  const empreinte = empreinteDeMachine(compteId, machine);
+  if (!empreinte) return;
+  getDb().prepare('UPDATE ordinateurs SET machine = ? WHERE id = ? AND compte_id = ? AND revoque_le IS NULL').run(empreinte, id, compteId);
+}
+
 /** Un ordinateur neuf, au nom donné. Refusé au-delà de `ORDINATEURS_MAX` par compte. */
 export function creerUnOrdinateur(compteId: string, nom: unknown, maintenant = Date.now()): { id: string; nom: string } {
   if (lignesDuCompte(compteId).length >= ORDINATEURS_MAX) throw new Error(`Déjà ${ORDINATEURS_MAX} ordinateurs : déliez-en un dans Réglages → Extension.`);

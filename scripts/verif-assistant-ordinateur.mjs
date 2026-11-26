@@ -71,6 +71,10 @@ const etatAvec = (ordinateurs) => ({ version: VERSION_ATTENDUE, chromes: [], ord
 
 const SCENARIOS = {
   vide: () => etatAvec([ancien]),
+  /* LE PARCOURS TENU PAR LE DÉMON (carte « Agents des services et Beluga Connect », 26/11/2026) : téléchargé il y a
+     deux minutes, puis Beluga Connect lancé (il s'est annoncé) — la page le reprend sans rien retélécharger. */
+  parcoursTelecharge: () => ({ ...etatAvec([ancien]), parcours: { debut: MAINTENANT - 120_000, systeme: 'mac', telechargeLe: MAINTENANT - 110_000 } }),
+  parcoursLance: () => ({ ...etatAvec([ancien]), parcours: { debut: MAINTENANT - 120_000, systeme: 'mac', telechargeLe: MAINTENANT - 110_000, connectVuLe: Date.now() } }),
   macRelie: () => etatAvec([ancien, relie('Chris - MacBook Pro', programme({ autorisations: { accessibilite: true, ecran: false } }), [], null)]),
   /* L'ÉTAPE « NAVIGATEURS » : autorisations données, cinq navigateurs trouvés, rien encore choisi. */
   macChoix: () => etatAvec([ancien, relie('Chris - MacBook Pro', programme({ autorisations: { accessibilite: true, ecran: true }, installes: DETECTES }), [], null)]),
@@ -204,6 +208,13 @@ function reponseDEssai(cmd, scene) {
     case 'relaisMac.code':
       scene.codes += 1;
       return { code: '731205', expireLe: Date.now() + 10 * 60_000 };
+    /* Le code à taper dans Beluga Connect (26/11/2026) et la fin du parcours. */
+    case 'relaisMac.codeATaper':
+      scene.codesATaper += 1;
+      return { code: cmd.renouveler ? '905174' : '482913', expireLe: Date.now() + 10 * 60_000 };
+    case 'relaisMac.parcours':
+      scene.parcoursFermes += cmd.geste === 'fermer' ? 1 : 0;
+      return { parcours: null };
     /* Le code de secours attendu (Beluga Connect non reconnu à coup sûr), et sa saisie dans l'onglet. */
     case 'relaisMac.liaison.enAttente':
       return { demandes: [], codeAttendu: scene.codeAttendu ? { nom: 'Mac', systeme: 'mac', expireLe: Date.now() + 10 * 60_000 } : null };
@@ -258,7 +269,7 @@ async function ouvrir(largeur, theme, systeme) {
   page.on('pageerror', (e) => erreurs.push(String(e?.message ?? e)));
   const telechargements = [];
   page.on('download', (d) => telechargements.push(d.url()));
-  const scene = { etat: 'vide', bande: 'aucune', codes: 0, secours: 0, codeAttendu: false, parCode: null, safari: 0, navigateurs: null };
+  const scene = { etat: 'vide', bande: 'aucune', codes: 0, secours: 0, codeAttendu: false, parCode: null, safari: 0, navigateurs: null, codesATaper: 0, parcoursFermes: 0 };
   let pousser = null;
   await page.routeWebSocket(/\/ws(\?|$)/, (ws) => {
     const serveur = ws.connectToServer();
@@ -373,6 +384,58 @@ try {
         await orange.waitFor({ timeout: 10_000 }).catch(() => undefined);
         noter(`${T} orange seulement quand Chrome doit redémarrer`, (await orange.count()) === 1 && /Chris - MacBook Pro/.test((await orange.textContent()) ?? ''));
         await page.screenshot({ path: nom('bande-orange'), clip: { x: 0, y: 0, width: largeur, height: 140 } });
+        await ctx.close();
+      }
+
+      // --- LE PARCOURS NE SE PERD PLUS (26/11/2026) : repris à son étape, jamais retéléchargé, code à taper --------
+      {
+        const { ctx, page, erreurs, telechargements, scene, changer, aller, pousserEvenement, nom } = await ouvrir(largeur, theme, 'mac');
+        scene.etat = 'parcoursTelecharge';
+        await aller('#reglages/extension');
+        await page.locator('[data-page-parcours]').waitFor({ timeout: 60_000 }).catch(() => undefined);
+        await page.locator('[data-cases-du-code-a-taper]').waitFor({ timeout: 10_000 }).catch(() => undefined);
+        await page.waitForTimeout(600);
+        const chiffres = await page.locator('[data-cases-du-code-a-taper] > span').allTextContents().catch(() => []);
+        noter(
+          `${T} parcours repris à l'ouverture des réglages : « Ajouter ce Mac » à l'étape Installation, six cases du code à taper, rien retéléchargé`,
+          (await page.locator('[data-page-parcours]').count()) === 1 &&
+            (await page.locator('[data-etape-connexion="installation"][data-ouverte]').count()) === 1 &&
+            (await page.locator('[data-etape-connexion="installation"] [data-ligne-etat="telecharge"][data-etat="fait"]').count()) === 1 &&
+            (await page.locator('[data-etape-connexion="installation"] [data-ligne-etat="code"][data-etat="en-cours"]').count()) === 1 &&
+            chiffres.join('') === '482913' &&
+            (await page.locator('[data-nouveau-code]').count()) === 1 &&
+            (await page.locator('[data-retelecharger]').count()) === 1 &&
+            telechargements.length === 0 &&
+            scene.codes === 0,
+          `${chiffres.join('')} ${telechargements.join(' ')} codes=${scene.codes}`,
+        );
+        await page.locator('[data-etape-connexion="installation"]').scrollIntoViewIfNeeded().catch(() => undefined);
+        await page.screenshot({ path: nom('parcours-repris'), fullPage: true });
+        /* « Vos ordinateurs », puis « Lier » : le parcours reprend, sans nouveau téléchargement. */
+        await page.locator('[data-tete-sous-page] [data-retour-sous-page]:visible, [data-retour-ordinateurs]:visible').first().click().catch(() => undefined);
+        await page.waitForTimeout(500);
+        await page.locator('[data-lier-cet-ordinateur]').click().catch(() => undefined);
+        await page.locator('[data-page-parcours]').waitFor({ timeout: 10_000 }).catch(() => undefined);
+        await page.waitForTimeout(1200);
+        noter(`${T} « Lier » reprend le parcours sans relancer le téléchargement`, (await page.locator('[data-page-parcours]').count()) === 1 && telechargements.length === 0 && scene.codes === 0, `${telechargements.join(' ')} codes=${scene.codes}`);
+        /* Beluga Connect s'annonce : « Beluga Connect lancé » se coche, le code reste à taper. */
+        scene.etat = 'parcoursLance';
+        pousserEvenement({ type: 'relaisMac.connectLance', pour: 'admin-premier', nom: 'MacBook', systeme: 'mac' });
+        pousserEvenement({ type: 'extension.change' });
+        await page.waitForTimeout(1200);
+        noter(
+          `${T} Beluga Connect lancé : la ligne se coche, les consignes s'effacent, le code reste à taper`,
+          (await page.locator('[data-etape-connexion="installation"] [data-ligne-etat="lance"][data-etat="fait"]').count()) === 1 &&
+            (await page.locator('[data-etapes-installation="mac"]').count()) === 0 &&
+            (await page.locator('[data-cases-du-code-a-taper]').count()) === 1,
+        );
+        await page.locator('[data-nouveau-code]').click().catch(() => undefined);
+        await page.waitForTimeout(800);
+        const neufs = await page.locator('[data-cases-du-code-a-taper] > span').allTextContents().catch(() => []);
+        noter(`${T} « Nouveau code » en donne un autre`, neufs.join('') === '905174', neufs.join(''));
+        await page.locator('[data-etape-connexion="installation"]').scrollIntoViewIfNeeded().catch(() => undefined);
+        await page.screenshot({ path: nom('mac-code-a-taper'), fullPage: true });
+        noter(`${T} parcours repris : aucune erreur de page`, erreurs.length === 0, erreurs.join(' | '));
         await ctx.close();
       }
 

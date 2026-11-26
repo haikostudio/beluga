@@ -3001,6 +3001,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
         choix={bloc.question.choix}
         options={bloc.question.options.map((label, rang) => ({ id: `o${rang}`, label }))}
         reponse={bloc.question.reponse}
+        captures={bloc.question.captures}
       />
     </div>
   ) : null;

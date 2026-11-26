@@ -40,6 +40,7 @@ import {
   estReseauSocial,
 } from '@beluga/shared';
 import * as store from './store.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
@@ -64,6 +65,12 @@ async function reglages() {
   return claude ? reglagesDuNiveau(claude, 'standard') : { model: undefined, thinking: 'none' };
 }
 
+/** La conversation d'un agent Marketing : palier « approfondi » (décision du 26/11/2026) ; ses tours seuls repartent au standard. */
+async function reglagesDeConversation() {
+  const catalogue = await catalogueMoteurs();
+  return reglageDeConversation(catalogue.find((moteur) => moteur.id === 'claude'));
+}
+
 export async function lancerAgentMarketing(entree: { projectId: string; demande: string }): Promise<DepartMarketing> {
   const demande = String(entree.demande ?? '').trim();
   const refus = raisonDemandeMarketingRefusee(demande);
@@ -81,14 +88,14 @@ export async function lancerAgentMarketing(entree: { projectId: string; demande:
     return { agentId: existant.id, projectId: projet.id, cardId: espace.cardId };
   }
 
-  const r = await reglages();
+  const r = await reglagesDeConversation();
   const { card, agentId } = ouvrirCarteDAgent({
     projectId: projet.id,
     titre: titreDeLAgentMarketing(projet.name),
     description: `L’agent marketing attitré de « ${projet.name} » : il comprend le produit, règle l’atelier marketing et rédige les contenus à valider. Première demande : ${demande.slice(0, 300)}`,
     labels: [LABEL_MARKETING],
     role: 'task',
-    run: { engine: 'claude', model: r.model, thinking: r.thinking as any },
+    run: { engine: 'claude', model: r.model, thinking: r.thinking as any, ...(r.niveau ? { niveau: r.niveau } : {}) },
   });
   marquerAgentMarketing(projet.id, agentId, card.id);
 

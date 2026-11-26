@@ -656,6 +656,8 @@ async function auNavigateur() {
                 if (element.closest('[data-temoin-serveur]')) continue;
                 /* La bannière orange d'une extension Chrome en retard (décision du 20/11/2026). */
                 if (element.closest('[data-bande-du-haut]')) continue;
+                /* Le passage automatique d'un agent personnalisé, écrit en jaune (décision du 26/11/2026). */
+                if (element.closest('[data-passage-automatique]')) continue;
                 const boite = element.getBoundingClientRect();
                 if (!boite.width || !boite.height) continue;
                 const style = getComputedStyle(element);

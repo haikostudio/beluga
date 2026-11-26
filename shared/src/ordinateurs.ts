@@ -160,12 +160,10 @@ export function etapesDeSafari(
 ): { cle: 'installee' | 'activee' | 'reliee'; etat: EtatDUneEtapeDeSafari }[] {
   if (safariRelie) return (['installee', 'activee', 'reliee'] as const).map((cle) => ({ cle, etat: 'fait' as const }));
   if (apresChrome) return (['installee', 'activee', 'reliee'] as const).map((cle) => ({ cle, etat: 'a-venir' as const }));
-  /* Chrome prêt, rien encore de Beluga Connect : l'installation est la prochaine chose qui se fait. */
-  if (!p) return [
-    { cle: 'installee', etat: 'en-cours' },
-    { cle: 'activee', etat: 'a-venir' },
-    { cle: 'reliee', etat: 'a-venir' },
-  ];
+  /* RIEN DE COMMENCÉ N'EST DIT « EN COURS » (26/11/2026) : sans préparation, l'application affichait « Extension
+     installée : en cours » alors que rien ne tournait, et Beluga autre chose. Les trois lignes sont « à venir » tant
+     que Beluga Connect n'a pas commencé — la même chose des deux côtés. */
+  if (!p) return (['installee', 'activee', 'reliee'] as const).map((cle) => ({ cle, etat: 'a-venir' as const }));
   const echec = p.etat === 'echec';
   const installee: EtatDUneEtapeDeSafari = p.installee ? 'fait' : echec ? 'echec' : 'en-cours';
   const activee: EtatDUneEtapeDeSafari = p.activee ? 'fait' : !p.installee ? 'a-venir' : echec ? 'echec' : 'en-cours';

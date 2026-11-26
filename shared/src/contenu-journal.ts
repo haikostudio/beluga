@@ -1,6 +1,7 @@
 import { estUneConsigneAuMoteur } from './attente-question.js';
 import { EntreeJournal, GenreAction, genreDAction } from './journal-carte.js';
 import { MemoireLue, RefMemoire, lireLaMemoire } from './memoire-lue.js';
+import { MAX_CAPTURES_DE_VALIDATION, optionsDeValidation } from './validation-de-geste.js';
 
 /**
  * CE QU'UNE ENTRÉE DU JOURNAL VEUT DIRE — EN DONNÉES, PAS EN JSON.
@@ -66,6 +67,8 @@ export type VueDEntree =
       choix: 'single' | 'multiple' | 'text';
       options: OptionDeLEntree[];
       reponse?: string;
+      /** Une validation de geste (26/11/2026) : les captures de la donnée validée, gardées sous la question. */
+      captures?: string[];
     }
   /** Une commande lancée, et ce qu'elle a écrit. */
   | { sorte: 'commande'; commande: string; intention?: string; sortie: string }
@@ -396,19 +399,30 @@ export function vueDeLEntree(entree: EntreeJournal): VueDEntree {
     case 'question': {
       const question = texteDuChamp(params, ['question']);
       if (question) {
-        const options = optionsLues(params?.options);
+        /* UNE VALIDATION DE GESTE (26/11/2026) : ses deux issues sont posées par le démon, pas par l'agent — la
+           trace les reprend pour que « Valider » se lise comme le choix retenu ; la phrase du geste éclaire la
+           question, et ses captures restent dessous. */
+        const validation = params?.validation && typeof params.validation === 'object' ? (params.validation as Record<string, unknown>) : null;
+        const geste = validation && typeof validation.geste === 'string' ? validation.geste.trim() : '';
+        const options = geste ? optionsDeValidation().map(({ id, label }) => ({ id, label })) : optionsLues(params?.options);
         const reponse = reponseALaQuestion(resultat);
         /* CE QUI ÉCLAIRE LA QUESTION VOYAGE AVEC ELLE : la trace du parcours
            montre ce que l'utilisateur avait sous les yeux pour répondre, pas
            seulement la phrase interrogative. */
-        const description = texteDuChamp(params, ['description']);
+        const description = texteDuChamp(params, ['description']) || geste;
+        const captures = geste
+          ? [validation!.capture, ...(Array.isArray(validation!.captures) ? validation!.captures : [])]
+              .filter((c): c is string => typeof c === 'string' && !!c.trim())
+              .slice(0, MAX_CAPTURES_DE_VALIDATION)
+          : [];
         return {
           sorte: 'question',
           question,
           ...(description ? { description } : {}),
-          choix: choixLu(params?.kind, options),
+          choix: geste ? 'single' : choixLu(params?.kind, options),
           options,
           ...(reponse ? { reponse } : {}),
+          ...(captures.length ? { captures } : {}),
         };
       }
       break;

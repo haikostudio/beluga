@@ -13,7 +13,8 @@
  */
 import * as React from 'react';
 import {
-  GESTES_JAMAIS_PERMIS,
+  GESTES_A_VALIDER,
+  GESTES_PAR_CARTE,
   RUBRIQUES_DE_LA_FICHE,
   completionDeLaFiche,
   etatAffiche,
@@ -89,7 +90,7 @@ function valeurDeRubrique(agent: AgentPerso, rubrique: RubriqueDeFiche): React.R
     case 'demande':
       return liste(f.demandeAccord ?? [], t('Rien à vous demander'));
     case 'jamais':
-      return liste(f.jamais ?? [], t('Rien de plus que les gestes verrouillés'));
+      return liste(f.jamais ?? [], t('Rien de plus que ce qui est toujours proposé en tâche'));
     case 'emporte': {
       const e = f.emporte!;
       return (
@@ -150,9 +151,15 @@ function ConfigurationDeLAgent({ agent, journal }: { agent: AgentPerso; journal:
                 {valeur === null ? t('À définir dans la conversation') : valeur}
               </div>
               {rubrique === 'jamais' ? (
-                <p className="mt-1 text-[12.5px] text-faint" data-gestes-verrouilles="">
-                  {t('Toujours verrouillé : {v0}.', { v0: GESTES_JAMAIS_PERMIS.map(libelleDuGeste).join(', ') })}
-                </p>
+                <>
+                  {/* L'AGENT FAIT CES GESTES LUI-MÊME, APRÈS VOTRE « VALIDER » (26/11/2026) : plus aucun clic à faire à sa place. */}
+                  <p className="mt-1 text-[12.5px] text-faint" data-gestes-verrouilles="" data-gestes-a-valider="">
+                    {t('Toujours soumis à votre validation, capture à l’appui : {v0}.', { v0: GESTES_A_VALIDER.map(libelleDuGeste).join(', ') })}
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] text-faint" data-gestes-par-carte="">
+                    {t('Toujours proposé en tâche : {v0}.', { v0: GESTES_PAR_CARTE.map(libelleDuGeste).join(', ') })}
+                  </p>
+                </>
               ) : null}
             </li>
           );
@@ -197,7 +204,7 @@ async function lancerMaintenant(agent: AgentPerso): Promise<void> {
 }
 
 /**
- * LE PIED DU VOLET : allumer ou mettre en pause, et lancer à la main, à la même hauteur. Sur téléphone, UN SEUL bouton
+ * LE PIED DU VOLET : allumer ou mettre en pause, puis lancer à la main, l'un sous l'autre en pleine largeur. Sur téléphone, UN SEUL bouton
  * en bas de l'écran (charte) : « Lancer maintenant » passe dans le menu à trois points.
  */
 function PiedDeLAgent({ agent, telephone = false }: { agent: AgentPerso; telephone?: boolean }) {
@@ -215,16 +222,18 @@ function PiedDeLAgent({ agent, telephone = false }: { agent: AgentPerso; telepho
     }
   };
   return (
-    <div className="flex flex-col gap-2 px-5 pb-4 pt-2 sm:flex-row" data-pied-agent-perso="">
+    /* UN BOUTON PAR LIGNE, CHACUN SUR TOUTE LA LARGEUR (26/11/2026) : « Allumer » ou « Mettre en pause », puis
+       « Lancer maintenant » dessous — à toutes les largeurs, jamais côte à côte. */
+    <div className="flex flex-col gap-2 px-5 pb-4 pt-2" data-pied-agent-perso="">
       {agent.actif ? (
-        <Button variant="subtle" className="sm:flex-1" disabled={!!geste} onClick={() => void jouer('eteindre')} data-agent-perso-eteindre="" data-en-route={geste === 'eteindre' ? '' : undefined}>
+        <Button variant="subtle" className="w-full" disabled={!!geste} onClick={() => void jouer('eteindre')} data-agent-perso-eteindre="" data-en-route={geste === 'eteindre' ? '' : undefined}>
           {geste === 'eteindre' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pause className="h-4 w-4" />}
           {t('Mettre en pause')}
         </Button>
       ) : (
         <Button
           variant="default"
-          className="sm:flex-1"
+          className="w-full"
           disabled={!complete || !!geste}
           title={complete ? undefined : t('Terminez sa fiche dans la conversation pour l’allumer')}
           onClick={() => void jouer('allumer')}
@@ -238,7 +247,7 @@ function PiedDeLAgent({ agent, telephone = false }: { agent: AgentPerso; telepho
       {telephone ? null : (
       <Button
         variant="subtle"
-        className="sm:flex-1"
+        className="w-full"
         disabled={!complete || !!geste || agent.enPassage || agent.attendUnCompte}
         title={complete ? undefined : t('Terminez sa fiche dans la conversation pour le lancer')}
         onClick={() => void jouer('lancer')}

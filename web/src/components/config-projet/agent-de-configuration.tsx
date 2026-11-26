@@ -220,13 +220,15 @@ function ConversationDeConfiguration({
   }, [projectId, cible]);
 
   /* LE CLIC SUR « INITIALISER » EST LE GESTE : il ouvre le tiroir ET lance le premier tour, une seule fois.
-     Un agent déjà là ne se relance jamais seul, et un échec laisse « Réessayer » à l'utilisateur. */
+     Un échec laisse « Réessayer » à l'utilisateur. Le serveur JUGE l'agent déjà retenu (25/11/2026) : vivant (au
+     travail, sur sa question, ou procédure écrite), il n'est jamais relancé et sa conversation s'affiche ; TOMBÉ
+     (tour coupé), un agent neuf repart à sa place, et le tiroir suit le nouvel agent retenu sur le projet. */
   const dejaLance = React.useRef(false);
   React.useEffect(() => {
-    if (!lancerDesLOuverture || dejaLance.current || agentId || etat?.enCours) return;
+    if (!lancerDesLOuverture || dejaLance.current || etat?.enCours) return;
     dejaLance.current = true;
     demarrer();
-  }, [lancerDesLOuverture, agentId, etat?.enCours, demarrer]);
+  }, [lancerDesLOuverture, etat?.enCours, demarrer]);
 
   const raison = erreur ?? (etat && !etat.enCours ? etat.raison : undefined);
   const aucunMessage = agent ? (state.messages[agent.id]?.length ?? 0) === 0 : true;

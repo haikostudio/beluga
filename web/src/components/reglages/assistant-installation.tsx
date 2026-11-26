@@ -26,6 +26,7 @@ import {
   navigateurPret,
   navigateursNommes,
   type MarqueDeNavigateur,
+  lierTelecharge,
 } from '@beluga/shared';
 import { EtapeNavigateurs, marqueDeCetAppareil } from './choix-des-navigateurs';
 import { Button, Input } from '@/components/ui';
@@ -153,8 +154,9 @@ export interface DepartDuParcours {
   /** Change à chaque clic sur « Lier » : un nouveau départ. */
   n: number;
   /** `telecharger` : le clic de la page ; `relier` : arrivée depuis un ancien Beluga Connect (`?connecter=1`) — le
-   *  parcours s'affiche, sans rien ouvrir (la liaison part de l'application) ; `attendre` : rien à lancer. */
-  mode: 'telecharger' | 'relier' | 'attendre';
+   *  parcours s'affiche, sans rien ouvrir (la liaison part de l'application) ; `attendre` : rien à lancer ;
+   *  `reprendre` (26/11/2026) : le parcours tenu par le démon reprend à son étape, SANS retélécharger. */
+  mode: 'telecharger' | 'relier' | 'attendre' | 'reprendre';
 }
 
 /**
@@ -188,14 +190,20 @@ export function ParcoursDeConnexion({
 }) {
   const systemeAppareil = React.useMemo(systemeDeCetAppareil, []);
   const navigateurId = useNavigateurCourant();
+  /* LE PARCOURS TENU PAR LE DÉMON (26/11/2026) : téléchargé, Beluga Connect lancé, relié — relu à chaque ouverture. */
+  const parcours = etat.parcours ?? null;
   const [code, setCode] = React.useState<{ code: string; emisLe: number; expireLe: number } | null>(null);
-  const [telechargeLe, setTelechargeLe] = React.useState<number | null>(null);
-  const [cibleId, setCibleId] = React.useState<string | null>(ordinateurVise ?? null);
+  const [telechargeLe, setTelechargeLe] = React.useState<number | null>(parcours?.telechargeLe ?? null);
+  const [cibleId, setCibleId] = React.useState<string | null>(ordinateurVise ?? parcours?.ordinateurId ?? null);
   const [envoi, setEnvoi] = React.useState(false);
+  React.useEffect(() => {
+    if (parcours?.telechargeLe && !telechargeLe) setTelechargeLe(parcours.telechargeLe);
+    if (parcours?.ordinateurId && !cibleId) setCibleId(parcours.ordinateurId);
+  }, [parcours?.telechargeLe, parcours?.ordinateurId, telechargeLe, cibleId]);
 
   const ordinateurs = etat.ordinateurs;
   /* Reconnu (navigateur courant, ou liaison faite avec le code du parcours), puis retenu tant que le parcours vit. */
-  const reconnu = ordinateurReconnu(ordinateurs, { navigateurId, codeEmisLe: code?.emisLe ?? null });
+  const reconnu = ordinateurReconnu(ordinateurs, { navigateurId, codeEmisLe: code?.emisLe ?? parcours?.debut ?? null });
   React.useEffect(() => {
     if (reconnu && reconnu.id !== cibleId) setCibleId(reconnu.id);
   }, [reconnu, cibleId]);
@@ -206,7 +214,8 @@ export function ParcoursDeConnexion({
   const nav = chromeDe(cible);
 
   const emettre = React.useCallback(async (ordinateurId: string | null) => {
-    const r = await client.call<{ code: string; expireLe: number }>({ type: 'relaisMac.code', ordinateurId: ordinateurId ?? undefined });
+    /* Le système ouvre le parcours tenu par le démon et note le téléchargement : « Lier » ne le refera plus. */
+    const r = await client.call<{ code: string; expireLe: number }>({ type: 'relaisMac.code', ordinateurId: ordinateurId ?? undefined, systeme: systemeAppareil ?? undefined });
     const neuf = { ...r, emisLe: Date.now() };
     setCode(neuf);
     /* CE navigateur est celui de l'ordinateur qu'on installe : la fenêtre de connexion pourra s'y ouvrir seule. */
@@ -217,14 +226,20 @@ export function ParcoursDeConnexion({
   /* LE DÉPART : au clic, un code (pour l'ordinateur reconnu, sinon un nouveau), puis le bon fichier pour CE système.
      Un ordinateur déjà relié dont Beluga Connect répond ne retélécharge rien : le parcours se coche tel quel. */
   const departe = React.useCallback(
-    async (mode: DepartDuParcours['mode']) => {
+    async (mode: DepartDuParcours['mode'] | 'retelecharger') => {
       const deja = ordinateurReconnu(ordinateurs, { navigateurId });
       if (deja && programmeEnLigne(deja.programme)) {
         setCibleId(deja.id);
         setTelechargeLe(Date.now());
         return;
       }
-      if (!systemeAppareil || mode === 'attendre' || mode === 'relier') return;
+      if (!systemeAppareil || mode === 'attendre' || mode === 'relier' || mode === 'reprendre') return;
+      /* « LIER » NE RETÉLÉCHARGE PLUS (26/11/2026) : un parcours vivant déjà téléchargé reprend à son étape. Seul le lien
+         « Retélécharger Beluga Connect » télécharge de nouveau. */
+      if (mode === 'telecharger' && !lierTelecharge(parcours, Date.now())) {
+        setTelechargeLe(parcours?.telechargeLe ?? Date.now());
+        return;
+      }
       setEnvoi(true);
       try {
         const c = await emettre(deja?.id ?? null);
@@ -238,7 +253,7 @@ export function ParcoursDeConnexion({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ordinateurs, navigateurId, systemeAppareil, emettre],
+    [ordinateurs, navigateurId, systemeAppareil, emettre, parcours],
   );
   /* Un départ ne se joue qu'UNE fois (le mode strict de React rejoue les effets : sinon deux codes, deux fichiers). */
   const departJoue = React.useRef<number | null>(null);
@@ -249,7 +264,11 @@ export function ParcoursDeConnexion({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [depart.n]);
 
-  const relie = programmeEnLigne(programme) && !!programme?.connect;
+  /* RELIÉ, MÊME HORS LIGNE (26/11/2026) : un Mac relié dont Beluga Connect ne répond plus un moment ne renvoie plus le
+     parcours à « Installation · étape 1 » (capture #d6dd8) ; « Ce Mac » dit qu'il est hors ligne. Seul l'ancien
+     « Beluga Relais » en marche (sans Beluga Connect) n'est pas « relié ». */
+  const relie = !!programme && programme.etat !== 'absent' && !(programmeEnLigne(programme) && !programme.connect);
+  const enLigne = programmeEnLigne(programme);
 
   /* LE CODE DE SECOURS (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : Beluga Connect n'a pas été
      reconnu à coup sûr et affiche six chiffres ; le démon prévient l'onglet (`relaisMac.codeAttendu`), qui ouvre le
@@ -269,8 +288,8 @@ export function ParcoursDeConnexion({
   }, [depart.n]);
   const secoursOuvert = !!codeAttendu && codeAttendu.expireLe > Date.now() && !relie;
 
-  /* Installé = Beluga Connect s'est présenté à Beluga (relié), ou il affiche son code de secours (il est lancé). */
-  const installe = !!programme || relie || secoursOuvert;
+  /* Installé = Beluga Connect s'est présenté à Beluga (relié), s'est annoncé au lancement, ou affiche son code de secours. */
+  const installe = !!programme || relie || secoursOuvert || !!parcours?.connectVuLe;
 
   /* Le code expire avant la liaison : sous Linux seulement, la commande change avec lui. Sur Mac et Windows, le code
      est déjà DANS le fichier téléchargé : en émettre un neuf le tuerait (un seul code vivant par compte). */
@@ -349,12 +368,21 @@ export function ParcoursDeConnexion({
       case 'installation': {
         const telecharge = !!telechargeLe || !!code || installe;
         const lance: Point = { cle: 'lance', texte: installe ? t('{v0} lancé', { v0: CONNECT }) : t('Lancer {v0}', { v0: CONNECT }), etat: installe ? 'fait' : telecharge ? 'en-cours' : 'a-venir' };
+        /* LE CODE SE TAPE DANS BELUGA CONNECT (26/11/2026) ; un Beluga Connect d'avant affiche encore un code de secours,
+           à taper ici. */
         const relieA: Point[] = secoursOuvert
           ? [
               { cle: 'code', texte: t('Code de {v0}', { v0: CONNECT }), etat: 'en-cours', valeur: t('À vous') },
               { cle: 'relie', texte: t('Relié à votre compte'), etat: 'a-venir' },
             ]
-          : [{ cle: 'relie', texte: t('Relié à votre compte'), etat: relie ? 'fait' : programme ? 'en-cours' : 'a-venir' }];
+          : [
+              {
+                cle: 'code',
+                texte: t('Code tapé dans {v0}', { v0: CONNECT }),
+                etat: relie ? 'fait' : telecharge ? 'en-cours' : 'a-venir',
+                ...(relie || !telecharge ? {} : { valeur: t('À vous') }),
+              },
+            ];
         if (systemeAppareil === 'linux' || systeme === 'linux') {
           return [{ cle: 'telecharge', texte: t('Commande copiée'), etat: telecharge ? 'fait' : 'en-cours' }, { ...lance, texte: t('{v0} lancé', { v0: CONNECT }) }, ...relieA];
         }
@@ -370,7 +398,7 @@ export function ParcoursDeConnexion({
         const a = programme?.autorisations ?? null;
         const ouvert = courante === 'mac';
         return [
-          { cle: 'connect', texte: CONNECT, etat: relie ? 'fait' : 'a-venir', valeur: relie ? t('Relié') : '—' },
+          { cle: 'connect', texte: CONNECT, etat: relie ? (enLigne ? 'fait' : 'echec') : 'a-venir', valeur: relie ? (enLigne ? t('Relié') : t('Hors ligne')) : '—' },
           { cle: 'accessibilite', texte: t('Souris et clavier'), etat: a?.accessibilite ? 'fait' : ouvert ? 'en-cours' : 'a-venir', valeur: a?.accessibilite ? t('Accordée') : ouvert ? t('À vous') : undefined },
           { cle: 'ecran', texte: t('Voir l’écran'), etat: a?.ecran ? 'fait' : ouvert && a?.accessibilite ? 'en-cours' : 'a-venir', valeur: a?.ecran ? t('Accordée') : ouvert && a?.accessibilite ? t('À vous') : undefined },
         ];
@@ -423,33 +451,53 @@ export function ParcoursDeConnexion({
     if (faite[e]) return { texte: e === 'installation' ? t('Terminée') : t('{n} sur {total}', { n: points.length, total: points.length }), ton: 'doux' };
     if (enEchec[e]) return { texte: t('À réparer'), ton: 'echec' };
     if (e !== courante) return { texte: e === 'safari' && choixNav?.includes('chrome') && !faite.chrome ? t('Après Chrome') : t('À venir'), ton: 'doux' };
-    const aVous = (e === 'installation' && (!installe || secoursOuvert)) || e === 'mac' || e === 'navigateurs';
+    const aVous = e === 'installation' || e === 'mac' || e === 'navigateurs';
     return { texte: aVous ? t('À vous') : t('En cours'), ton: 'attend' };
   };
 
   /* L'explication du volet en cours (ou en panne), sous ses lignes. */
   const explicationDe = (e: Cle): React.ReactNode => {
     switch (e) {
-      case 'installation':
-        if (!installe || (programmeEnLigne(programme) && !programme?.connect)) {
+      case 'installation': {
+        if (secoursOuvert) return <ChampDuCodeDeSecours ordinateurVise={cible?.id ?? null} onRelie={() => setCodeAttendu(null)} />;
+        const ancien = programmeEnLigne(programme) && !programme?.connect;
+        const telecharge = !!telechargeLe || !!code;
+        /* Avant le téléchargement (ou un ancien « Beluga Relais ») : le bouton et les consignes. */
+        if (ancien || (!installe && !telecharge)) {
           return (
             <EtapeInstaller
               systeme={systemeAppareil}
               code={code}
-              telecharge={!!telechargeLe}
+              telecharge={telecharge}
               envoi={envoi}
-              programmeAncien={programmeEnLigne(programme) && !programme?.connect}
-              onTelecharger={() => void departe('telecharger')}
+              programmeAncien={ancien}
+              onTelecharger={() => void departe('retelecharger')}
             />
           );
         }
-        return secoursOuvert ? (
-          <ChampDuCodeDeSecours ordinateurVise={cible?.id ?? null} onRelie={() => setCodeAttendu(null)} />
-        ) : (
-          <p className="text-[13.5px] leading-relaxed text-text" data-aucune-page>
-            {t('« {nom} » est reconnu : la liaison se fait toute seule. Rien à cliquer.', { nom: nomVise })}
-          </p>
+        /* Téléchargé : les consignes tant que Beluga Connect ne s'est pas lancé, puis LE CODE À TAPER dans sa fenêtre. */
+        return (
+          <div className="flex flex-col gap-4">
+            {!installe ? (
+              <EtapeInstaller
+                systeme={systemeAppareil}
+                code={code}
+                telecharge
+                envoi={envoi}
+                programmeAncien={false}
+                sansRelance
+                onTelecharger={() => void departe('retelecharger')}
+              />
+            ) : null}
+            <CodeATaper
+              systeme={systeme}
+              ordinateurVise={cible?.id ?? null}
+              envoi={envoi}
+              onRetelecharger={systemeAppareil ? () => void departe('retelecharger') : undefined}
+            />
+          </div>
         );
+      }
       case 'mac':
         return <EtapeAutorisations ordinateur={cible} />;
       case 'chrome':
@@ -800,6 +848,7 @@ function EtapeInstaller({
   envoi,
   programmeAncien,
   onTelecharger,
+  sansRelance = false,
 }: {
   systeme: SystemeDOrdinateur | null;
   code: { code: string } | null;
@@ -807,6 +856,8 @@ function EtapeInstaller({
   envoi: boolean;
   programmeAncien: boolean;
   onTelecharger: () => void;
+  /** Le lien « Retélécharger » vit sous le code à taper : il n'est pas redit ici. */
+  sansRelance?: boolean;
 }) {
   /* RIEN N'ARRIVE AU BOUT D'UNE MINUTE : la page dit quoi faire, au lieu d'attendre en silence (21/11/2026). */
   const [longue, setLongue] = React.useState(false);
@@ -845,7 +896,7 @@ function EtapeInstaller({
   if (systeme === 'linux') {
     return (
       <>
-        <p className="text-[13.5px] leading-relaxed text-text">{t('Collez cette commande dans un terminal : {v0} s’installe et se relie tout seul.', { v0: CONNECT })}</p>
+        <p className="text-[13.5px] leading-relaxed text-text">{t('Collez cette commande dans un terminal : {v0} s’installe, puis vous demande le code ci-dessous.', { v0: CONNECT })}</p>
         {code ? (
           <code className="block select-all break-all rounded-lg bg-surface px-3 py-2.5 font-mono text-[12.5px] text-text" data-commande-linux>
             {commandeLinux(code.code)}
@@ -857,7 +908,7 @@ function EtapeInstaller({
           <Copy className="h-3.5 w-3.5" />
           {t('Copier la commande')}
         </Button>
-        <EnAttente>{t('En attente de {v0} sur cet ordinateur…', { v0: CONNECT })}</EnAttente>
+        {sansRelance ? null : <EnAttente>{t('En attente de {v0} sur cet ordinateur…', { v0: CONNECT })}</EnAttente>}
       </>
     );
   }
@@ -869,23 +920,23 @@ function EtapeInstaller({
           etapes={[
             t('Ouvrez le fichier « Beluga-Connect.exe » que vous venez de télécharger.'),
             t('Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis « Exécuter quand même ».'),
-            t('{v0} se range de lui-même et se relie à Beluga.', { v0: CONNECT }),
+            t('{v0} se range de lui-même, puis vous demande le code ci-dessous.', { v0: CONNECT }),
           ]}
         />
       ) : (
         <>
           <p className="text-[13.5px] leading-relaxed text-text" data-etapes-installation="mac">
-            {t('Ouvrez le fichier téléchargé, glissez {v0} dans Applications, puis lancez-le.', { v0: CONNECT })}
+            {t('Ouvrez le fichier téléchargé, glissez {v0} dans Applications, puis lancez-le : il vous demande le code ci-dessous.', { v0: CONNECT })}
             <br />
-            <span className="text-muted">{t('Cet onglet reste ouvert : la suite s’affiche ici toute seule.')}</span>
+            <span className="text-muted">{t('Vous pouvez fermer cette fenêtre : elle se rouvre ici dès que {v0} démarre.', { v0: CONNECT })}</span>
           </p>
           <GlisserDansApplications />
         </>
       )}
-      <div className="flex justify-start">{relancer}</div>
+      {sansRelance ? null : <div className="flex justify-start">{relancer}</div>}
       {longue && systeme === 'mac' ? (
         <p className="text-[13px] leading-relaxed text-muted" data-aide-liaison>
-          {t('Rien ne vient ? Ouvrez {v0} depuis le dossier Applications, ou choisissez « Relier à Beluga » dans son menu, en haut de l’écran.', { v0: CONNECT })}
+          {t('Rien ne vient ? Ouvrez {v0} depuis le dossier Applications, ou choisissez « Taper le code » dans sa fenêtre.', { v0: CONNECT })}
         </p>
       ) : null}
     </>
@@ -933,6 +984,96 @@ function EtapeAutorisations({ ordinateur }: { ordinateur: Ordinateur | null }) {
  * l'affiche en grand dans sa fenêtre quand il n'a pas pu être reconnu à coup sûr (carte « Beluga Connect : liaison sans
  * fenêtre », 22/11/2026). Un seul champ réel sous les six cases : le collage et le clavier du téléphone marchent.
  */
+/**
+ * LE CODE À TAPER DANS BELUGA CONNECT (décision de l'utilisateur, 26/11/2026 : « toujours un code à taper dans Beluga
+ * Connect », Mac, Windows et Linux ; maquette #6050) : six chiffres en six cases, valables dix minutes, « Nouveau code »
+ * pour en avoir un autre. Le même code se réaffiche en rouvrant les réglages ; échu, il se renouvelle seul.
+ */
+function CodeATaper({
+  systeme,
+  ordinateurVise,
+  envoi,
+  onRetelecharger,
+}: {
+  systeme: SystemeDOrdinateur | null;
+  ordinateurVise: string | null;
+  envoi: boolean;
+  onRetelecharger?: () => void;
+}) {
+  const [code, setCode] = React.useState<{ code: string; expireLe: number } | null>(null);
+  const [renouvellement, setRenouvellement] = React.useState(false);
+  const [, battre] = React.useReducer((n: number) => n + 1, 0);
+  const demander = React.useCallback(
+    async (renouveler: boolean) => {
+      if (renouveler) setRenouvellement(true);
+      try {
+        setCode(await client.call<{ code: string; expireLe: number }>({ type: 'relaisMac.codeATaper', renouveler, ordinateurId: ordinateurVise ?? undefined }));
+      } catch (err: any) {
+        client.pushToast('error', err?.message ?? t('Le geste n’a pas abouti.'));
+      } finally {
+        setRenouvellement(false);
+      }
+    },
+    [ordinateurVise],
+  );
+  React.useEffect(() => {
+    void demander(false);
+  }, [demander]);
+  /* Échu : un code neuf, sans clic ; et le temps restant se relit toutes les trente secondes. */
+  React.useEffect(() => {
+    if (!code) return;
+    const echeance = window.setTimeout(() => void demander(true), Math.max(1_000, code.expireLe - Date.now() + 500));
+    const pouls = window.setInterval(battre, 30_000);
+    return () => {
+      window.clearTimeout(echeance);
+      window.clearInterval(pouls);
+    };
+  }, [code, demander]);
+  const minutes = code ? Math.max(1, Math.ceil((code.expireLe - Date.now()) / 60_000)) : 10;
+  const ou = systeme === 'linux' ? t('Tapez ce code dans le terminal ou la fenêtre de {v0} :', { v0: CONNECT }) : t('Tapez ce code dans la fenêtre de {v0} :', { v0: CONNECT });
+  return (
+    <div className="flex flex-col gap-3" data-code-a-taper={code?.code ?? ''}>
+      <p className="text-[13.5px] leading-relaxed text-text">{ou}</p>
+      <div className="flex w-fit gap-1.5" data-cases-du-code-a-taper aria-label={code ? code.code : undefined}>
+        {Array.from({ length: 6 }, (_, i) => (
+          <span
+            key={i}
+            className={cn('flex h-12 w-10 items-center justify-center rounded-lg bg-surface font-mono text-[22px] font-semibold text-text', i === 3 && 'ml-2')}
+          >
+            {code ? code.code[i] : <span className="h-5 w-4 animate-pulse rounded bg-raised" data-silhouette />}
+          </span>
+        ))}
+      </div>
+      <p className="text-[12.5px] text-muted">
+        {minutes > 1 ? t('Valable encore {n} minutes', { n: minutes }) : t('Valable encore une minute')}
+        {' · '}
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-text"
+          style={{ color: ORANGE }}
+          onClick={() => void demander(true)}
+          disabled={renouvellement}
+          data-nouveau-code
+        >
+          {renouvellement ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : null}
+          {t('Nouveau code')}
+        </button>
+      </p>
+      {onRetelecharger ? (
+        <button
+          type="button"
+          onClick={onRetelecharger}
+          disabled={envoi}
+          className="w-fit text-[13px] text-muted underline underline-offset-2 hover:text-text"
+          data-retelecharger
+        >
+          {systeme === 'linux' ? t('Recopier la commande') : t('Retélécharger {v0}', { v0: CONNECT })}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ChampDuCodeDeSecours({ ordinateurVise, onRelie }: { ordinateurVise: string | null; onRelie: () => void }) {
   const [valeur, setValeur] = React.useState('');
   const [envoi, setEnvoi] = React.useState(false);

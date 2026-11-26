@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 /*
- * BELUGA CONNECT SE RELIE TOUT SEUL (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : par le code du
- * téléchargement, sinon par le même réseau quand UN SEUL compte vient de cliquer « Lier », sinon un code de secours
- * affiché par Beluga Connect et tapé dans l'onglet — jamais un compte deviné, jamais un clic « Relier ».
+ * BELUGA CONNECT NE SE RELIE PLUS TOUT SEUL (décision du 26/11/2026, « toujours un code à taper ») : un Beluga Connect
+ * d'avant (≤ 1.6) qui demande une liaison reçoit un code de secours, affiché par lui et tapé dans l'onglet ; la version
+ * 1.7 tape le code affiché dans les réglages (`liaison-par-code-tape.test.ts`). Jamais un compte deviné.
  */
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'beluga-liaison-toute-seule-'));
 process.env.BELUGA_DATA = bacASable;
@@ -18,28 +18,18 @@ const relais = await import('../relais-mac.js');
 const ecrans = await import('../ecrans-ouverts.js');
 getDb();
 
-test('même réseau, un seul compte qui vient de cliquer « Lier » : relié à ce compte, sans code', async () => {
+test('plus aucune liaison toute seule : même réseau, un seul compte qui vient de cliquer « Lier » → code de secours (26/11/2026)', () => {
   relais.emettreUnCodeDuRelais('compte-maison', Date.now(), null, '::ffff:81.1.1.1');
   const d = relais.demanderUneLiaison({ nom: 'Mac de la maison' }, '81.1.1.1');
-  assert.ok(d.ok && d.etat === 'reliee');
-  if (!d.ok || !d.identifiant) return;
-  assert.ok(d.identifiant.startsWith('compte-maison.'), 'la clé appartient au compte du réseau');
-  /* Le « Lier » est servi : un second ordinateur du même réseau ne s'y raccroche pas. */
-  const second = relais.demanderUneLiaison({ nom: 'Autre Mac' }, '81.1.1.1');
-  assert.ok(second.ok && second.etat === 'code');
+  assert.ok(d.ok && d.etat === 'code' && /^[0-9]{6}$/.test(d.codeDeSecours ?? ''));
+  if (d.ok) assert.equal(d.identifiant, undefined, 'aucune clé rendue sans code tapé');
 });
 
-test('même réseau, DEUX comptes qui viennent de cliquer « Lier » : on ne devine pas, code de secours', () => {
+test('même réseau, DEUX comptes qui viennent de cliquer « Lier » : code de secours', () => {
   relais.emettreUnCodeDuRelais('compte-bureau-a', Date.now(), null, '82.2.2.2');
   relais.emettreUnCodeDuRelais('compte-bureau-b', Date.now(), null, '82.2.2.2');
   const d = relais.demanderUneLiaison({ nom: 'Mac du bureau' }, '82.2.2.2');
   assert.ok(d.ok && d.etat === 'code' && /^[0-9]{6}$/.test(d.codeDeSecours ?? ''));
-});
-
-test('un « Lier » de plus de dix minutes ne relie plus par le réseau', () => {
-  relais.emettreUnCodeDuRelais('compte-lent', Date.now() - relais.APPARIEMENT_PAR_RESEAU_MS - 1_000, null, '83.3.3.3');
-  const d = relais.demanderUneLiaison({ nom: 'Mac' }, '83.3.3.3');
-  assert.ok(d.ok && d.etat === 'code');
 });
 
 test('le code de secours tapé dans l’onglet relie au compte connecté, et Beluga Connect reçoit sa clé', async () => {

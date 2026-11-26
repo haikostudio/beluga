@@ -529,16 +529,21 @@ async function confirmerLeGesteLourd(
   } catch {
     /* sans image, la question se pose quand même */
   }
-  const q = question(phrase.question, phrase.description, [
-    { label: REPONSE_FAIRE_LE_GESTE, description: 'Le geste part maintenant.' },
-    { label: REPONSE_NE_PAS_FAIRE_LE_GESTE, description: 'Rien ne part.' },
-  ]);
-  const piece = capture ? store.getAttachment(capture) : null;
+  /* L'ENCART DE VALIDATION COMMUN (26/11/2026) : la page capturée en grand dans la bulle, « Valider » / « Refuser »
+     — qui répondent par ces deux libellés. La capture vit dans l'encart : elle n'est plus jointe une seconde fois au
+     message. Et une validation n'est jamais tranchée par Auto (`CHAMPS_HORS_AUTO`). */
+  const q = AgentQuestion.parse({
+    ...question(phrase.question, '', [
+      { label: REPONSE_FAIRE_LE_GESTE, description: 'Le geste part maintenant.' },
+      { label: REPONSE_NE_PAS_FAIRE_LE_GESTE, description: 'Rien ne part.' },
+    ]),
+    description: undefined,
+    validation: { geste: phrase.description, captures: capture ? [capture] : [] },
+  });
   return {
     ok: true,
     text: `Confirmation demandée (${intention}) : attends la réponse.`,
     question: q,
-    ...(piece ? { attachment: piece } : {}),
     suite: async (reponse) => {
       if (!reponse.trim().startsWith(REPONSE_FAIRE_LE_GESTE)) return `La personne ne veut pas : ${intention} NON fait. Ne réessaie pas sans qu'elle le demande.`;
       try {

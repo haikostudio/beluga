@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Square,
   X,
+  Zap,
 } from '@/components/ui/icones';
 import {
   Attachment,
@@ -380,7 +381,15 @@ export function MessageView({
           au-dessus de la réponse et du déroulé. */}
       {message.sentContext ? <LienPromptEnvoye contexte={message.sentContext} /> : null}
       {message.sentContext && !filAgentMasque ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
-      <div className={cn('group', CLASSE_LARGEUR_DE_LA_REPONSE)} data-reponse-agent>
+      <div
+        className={cn('group', CLASSE_LARGEUR_DE_LA_REPONSE, message.passageAutomatique && 'texte-de-passage')}
+        data-reponse-agent
+        data-passage-automatique={message.passageAutomatique ? message.passageAutomatique.genre : undefined}
+      >
+        {/* UN PASSAGE AUTOMATIQUE SE LIT EN JAUNE (décision du 26/11/2026) : ce que l'agent personnalisé a fait de
+            lui-même — « Lancer maintenant », heure prévue, événement, veille — sous sa tête ; tout ce qui vient de la
+            conversation reste dans la couleur du texte. */}
+        {message.passageAutomatique ? <TeteDuPassage passage={message.passageAutomatique} /> : null}
         {/* LE TRAVAIL DU TOUR SE LIT COMME SUR UNE CARTE (demande du 19/10/2026) :
             liste de tâches en sous-points, actions racontées, questions et
             réponses en mots de la discussion, temps total (`TravailDUnTourSansCarte`).
@@ -567,6 +576,46 @@ async function htmlDeLaCopie(texte: string, images: Attachment[]): Promise<strin
  * champ, comme si on venait de les ajouter. Elles partent par leur identifiant,
  * pas par leur contenu — rien n'est renvoyé au serveur.
  */
+/** LA TÊTE D'UN PASSAGE AUTOMATIQUE : un éclair, « Passage automatique », puis son déclencheur. */
+function TeteDuPassage({ passage }: { passage: NonNullable<Message['passageAutomatique']> }) {
+  return (
+    <div className="mb-1.5 flex items-center gap-1.5 text-[13.5px] font-semibold" data-tete-du-passage="">
+      <Zap className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 truncate">
+        {t('Passage automatique')} · {declencheurDuPassage(passage)}
+      </span>
+    </div>
+  );
+}
+
+function declencheurDuPassage(passage: NonNullable<Message['passageAutomatique']>): string {
+  switch (passage.genre) {
+    case 'manuel':
+      return t('lancé à la main');
+    case 'horaire':
+      return t('à l’heure prévue');
+    case 'veille':
+      return t('surveillance levée');
+    default:
+      switch (passage.source) {
+        case 'messagerie.demande':
+          return t('nouvelle demande client');
+        case 'surveillance.panne':
+          return t('le site est tombé');
+        case 'publication.terminee':
+          return t('mise en ligne terminée');
+        case 'referencement.audit':
+          return t('audit de référencement');
+        case 'backup.echec':
+          return t('sauvegarde échouée');
+        case 'securite.alerte':
+          return t('alerte de sécurité');
+        default:
+          return t('événement d’un service');
+      }
+  }
+}
+
 function BoutonCopier({
   texte: texteBrut,
   libelle = 'Copier',
@@ -747,6 +796,8 @@ export function QuestionCard({
         {question.answerAttachments?.length ? (
           <PiecesJointes ids={question.answerAttachments} projectId={projectId} />
         ) : null}
+        {/* UN GESTE VALIDÉ GARDE SES CAPTURES : on revoit ce qui a été accepté (ou refusé). */}
+        {question.validation?.captures?.length ? <PiecesJointes ids={question.validation.captures} projectId={projectId} /> : null}
       </div>
     );
   }

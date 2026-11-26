@@ -1,7 +1,7 @@
 /**
  * LE PONT D'OUTILS DU PROJET : a-t-il vraiment servi ?
  *
- * Les outils du projet (`project_memory`, `remember`, gestes de tableau) sont
+ * Les outils du projet (`memoire`, `remember`, gestes de tableau) sont
  * servis au moteur par un petit programme, le « pont ». Rien ne prouvait qu'il
  * démarrait : un tour pouvait se dérouler entier SANS aucun outil, et le
  * compte rendu affirmait quand même avoir lu la mémoire. Un silence, jamais une
@@ -23,7 +23,7 @@ export type PassageDuPont = {
    *
    * Les deux champs au-dessus disent que les outils étaient à PORTÉE ; celui-ci
    * dit qu'ils ont SERVI. C'est la seule preuve qu'un tour a vraiment eu ses
-   * moyens : une réponse écrite sans jamais avoir pu appeler `project_memory`,
+   * moyens : une réponse écrite sans jamais avoir pu appeler `memoire`,
    * `remember` ni le moindre geste de tableau n'est pas un travail livré, c'est
    * un travail fait à l'aveugle (`tourARejouerFauteDOutils`).
    */
@@ -278,7 +278,7 @@ export function appelDuPontRecevable(appel: AppelDuPont): EtatDuPont {
  * d'autres serveurs. Quand l'un d'eux propose lui aussi une mémoire, le modèle
  * l'appelle À LA PLACE de celle du projet et croit avoir lu la mémoire : c'est
  * exactement ce qui se voyait dans les tours du 4 août (`chercher_memoire`
- * appelé, `project_memory` jamais). On les éteint le temps d'un tour d'agent.
+ * appelé, l'outil de mémoire du projet jamais). On les éteint le temps d'un tour d'agent.
  *
  * Les trois écritures TOML d'un même serveur sont reconnues :
  * `[mcp_servers.nom]`, `[mcp_servers.nom.tools.x]` et `mcp_servers.nom = { … }`.

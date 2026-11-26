@@ -3,40 +3,27 @@
  * disque ni à la base : il décide des sujets qui existent et les rend
  * comparables. Il est donc lisible et testable seul.
  *
- * UNE SEULE TAXONOMIE. Les faits (`docs/memoire/`), les règles (`docs/regles/`)
- * et les contrôles (`docs/verifications.md`) d'un projet se rangent sous LES
- * MÊMES sujets, ceux de `SUJETS_MEMOIRE` — neuf sujets aujourd'hui.
+ * La mémoire d'un projet est une base de connaissances (outil `memoire`). Les
+ * sujets de `SUJETS_MEMOIRE` sont toujours connus du rangement de nuit des
+ * instructions, en plus de ceux que portent déjà les unités du projet.
  *
- * Les anciens noms de sujets de faits ne disparaissent pas : la table
- * `ANCIENS_SUJETS` les ramène à leur sujet réel, au rangement de nuit des
- * instructions — un projet qui a encore `docs/memoire/tableau.md` sur le
- * disque est rangé sous `cartes`.
+ * Les anciens noms de sujets ne disparaissent pas : la table `ANCIENS_SUJETS`
+ * ramène à son sujet réel une règle déposée sous l'un d'eux.
  */
 
 /** Un sujet de classement, avec les mots qui le désignent. */
 export interface SujetMemoire {
   id: string;
   libelle: string;
-  /**
-   * Les mots qui font tomber un fait ou une demande dans ce sujet. Ils servent
-   * à ranger un fait écrit sans sujet (`sujetDuFait`), à retrouver les sujets
-   * utiles à une reprise (`sujetsUtiles`) et les sujets que touchent des
-   * mots-clés (`sujetsPourRequete`, `regles.ts`).
-   */
+  /** Les mots qui désignent ce sujet. */
   mots: string[];
-  /**
-   * Le titre de la section de ce sujet dans `docs/verifications.md`. Absent
-   * pour un sujet qui n'a pas de contrôles à lui (« divers »).
-   */
+  /** Le titre long des contrôles de ce sujet. Absent pour « divers ». */
   controles?: string;
 }
 
 /**
- * Les sujets sont volontairement peu nombreux : au-delà d'une dizaine, la carte
- * redevient une liste à plat. L'ORDRE COMPTE pour ranger un fait sans sujet :
- * le premier sujet dont un mot apparaît l'emporte, les plus spécifiques sont
- * donc placés avant — « methode » n'a que ses mots propres (mémoire, briefing,
- * codex…), jamais « outil » ou « moteur », qui ramèneraient tout à lui.
+ * Les sujets sont volontairement peu nombreux : au-delà d'une dizaine, le
+ * classement redevient une liste à plat.
  */
 export const SUJETS_MEMOIRE: SujetMemoire[] = [
   {
@@ -133,11 +120,10 @@ export const SUJETS_MEMOIRE: SujetMemoire[] = [
 
 /**
  * LES ANCIENS NOMS DE SUJETS, ramenés à leur sujet réel. La mémoire des projets
- * a été rangée pendant un mois sous des sujets de faits qui n'avaient pas de
- * fichier de règles à eux (conversation, tableau, mobile, memoire, cadrage,
- * general) ; leurs invariants, eux, vivaient déjà dans un autre fichier. Sans
- * cette table, un projet qui a encore `docs/memoire/tableau.md` sur le disque
- * serait rangé au mauvais endroit.
+ * a été rangée pendant un mois sous des sujets (conversation, tableau, mobile,
+ * memoire, cadrage, general) dont les invariants vivaient sous un autre. Sans
+ * cette table, une règle déposée sous l'un de ces noms serait rangée au mauvais
+ * endroit.
  *
  * Elle s'applique au rangement de nuit des instructions
  * (`shared/src/instructions-en-attente.ts`).

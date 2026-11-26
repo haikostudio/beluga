@@ -196,6 +196,43 @@ async function poserUneReponseAValider(agentPersoId) {
   );
 }
 
+/**
+ * CE QUE FAIT L'AGENT SE LIT DANS SA CONVERSATION (carte « Agents des services et Beluga Connect », 26/11/2026) : une
+ * note de fiche en clair (« Nom noté : … », dans la couleur du texte), puis un passage fait seul (« Lancer maintenant »),
+ * écrit EN JAUNE sous sa tête « Passage automatique · … ».
+ */
+async function poserNoteEtPassage(agentPersoId) {
+  process.env.BELUGA_DATA = DATA;
+  const store = await import(path.join(RACINE, 'server/dist/store.js'));
+  const { Message } = await import(path.join(RACINE, 'shared/dist/index.js'));
+  const db = base();
+  const { agent_id: agentId } = db.prepare('SELECT agent_id FROM agents_perso WHERE id = ?').get(agentPersoId);
+  db.close();
+  const t0 = Date.now() - 5 * 60_000;
+  store.saveMessage(
+    Message.parse({
+      id: crypto.randomUUID(),
+      agentId,
+      role: 'assistant',
+      content: 'J’ai noté mon nom ; je regarde maintenant vos demandes de la semaine.',
+      steps: [
+        { id: crypto.randomUUID(), label: 'Nom noté : Veilleur des demandes', detail: 'Nom noté : Veilleur des demandes', state: 'done', outil: 'mcp__beluga__agent_fiche', startedAt: t0, endedAt: t0 + 1_000 },
+      ],
+      createdAt: t0,
+    }),
+  );
+  store.saveMessage(
+    Message.parse({
+      id: crypto.randomUUID(),
+      agentId,
+      role: 'assistant',
+      content: 'Fait : 2 demandes lues, une réponse préparée pour Marie. Objectif : 3 demandes traitées sur 4 cette semaine. Prochaine étape proposée : relancer le devis de lundi.',
+      passageAutomatique: { genre: 'manuel' },
+      createdAt: t0 + 60_000,
+    }),
+  );
+}
+
 async function capturer(page, nom) {
   if (!CAPTURES) return;
   await page.mouse.move(5, 5);
@@ -373,6 +410,32 @@ async function principal() {
         const journalTexte = await page.locator('[data-journal-agent-perso]').innerText();
         verifier('« Lancer maintenant » sans compte attend un compte, sans moteur', journalTexte.includes('En attente d’un compte avec du quota'), journalTexte.split('\n').slice(0, 3).join(' | '));
         verifier('les gestes verrouillés sont rappelés sous « Ce qu’il ne fait jamais »', (await page.locator('[data-gestes-verrouilles]').innerText()).includes('envoyer un message à un client'));
+        /* LES DEUX BOUTONS DU PIED, L'UN SOUS L'AUTRE, CHACUN SUR TOUTE LA LARGEUR (26/11/2026). */
+        const pied = await page.locator('[data-pied-agent-perso]').boundingBox();
+        const boutons = await page.locator('[data-pied-agent-perso] button:visible').evaluateAll((l) => l.map((b) => { const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }));
+        verifier(
+          'pied du volet : « Mettre en pause » puis « Lancer maintenant », l’un sous l’autre, pleine largeur',
+          !!pied && boutons.length === 2 && boutons[1].y >= boutons[0].y + boutons[0].h - 1 && boutons.every((b) => Math.abs(b.w - boutons[0].w) < 2 && b.w >= pied.width - 2 * 20 - 2),
+          JSON.stringify(boutons.map((b) => [Math.round(b.y), Math.round(b.w)])) + ` pied ${Math.round(pied?.width ?? 0)}`,
+        );
+        await poserNoteEtPassage(premier);
+        await ouvrir(page, `projet/${PROJET}/agents/${premier}`, '[data-passage-automatique]');
+        const passage = await page.evaluate(() => {
+          const bloc = document.querySelector('[data-passage-automatique]');
+          const tete = bloc?.querySelector('[data-tete-du-passage]');
+          const texte = [...(bloc?.querySelectorAll('p, li') ?? [])].find((e) => /Fait : 2 demandes/.test(e.textContent ?? ''));
+          const note = [...document.querySelectorAll('[data-reponse-agent]:not([data-passage-automatique]) *')].find((e) => e.children.length === 0 && /Nom noté : Veilleur des demandes/.test(e.textContent ?? ''));
+          const rgb = (el) => (el ? getComputedStyle(el).color : '');
+          return { tete: tete?.textContent ?? '', couleurTete: rgb(tete), couleurTexte: rgb(texte), couleurNote: rgb(note), note: !!note };
+        });
+        /* Chrome rend une couleur mêlée en « color(srgb r g b) » (0 à 1), sinon en « rgb(r, g, b) » (0 à 255). */
+        const jaune = (css) => {
+          const srgb = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(css || '');
+          const m = srgb ? srgb.slice(1).map((x) => Number(x) * 255) : (/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(css || '') ?? []).slice(1).map(Number);
+          return m.length === 3 && m[0] > m[2] + 60 && m[1] > m[2] + 40;
+        };
+        verifier('le passage fait seul se lit en jaune, sous « Passage automatique · lancé à la main »', /Passage automatique · lancé à la main/.test(passage.tete) && jaune(passage.couleurTete) && jaune(passage.couleurTexte), `${passage.tete} ${passage.couleurTete} ${passage.couleurTexte}`);
+        verifier('la note de fiche se lit en clair, dans la couleur du texte (pas en jaune)', passage.note && !jaune(passage.couleurNote), passage.couleurNote);
         await capturer(page, `agent-complet-1440-${theme}`);
 
         /* 5. Le tableau : deux agents, tri, filtre, recherche. */

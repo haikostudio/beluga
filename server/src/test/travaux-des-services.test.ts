@@ -13,6 +13,7 @@ import {
   ecranDuTravail,
   lignesDesServices,
   marquerLesTravauxVus,
+  sansLesTravauxRecurrents,
   signatureDesTravaux,
   suivreLesTravaux,
   travauxDuCompte,
@@ -88,4 +89,14 @@ test('un agent qui répond et le travail du même écran font une seule ligne', 
   const fini = { ...video, etat: 'termine' as const, fin: 99_999 };
   const ordre = lignesDesServices([], [fini, etude], adresse).map((l) => l.id);
   assert.deepEqual(ordre, [etude.id, fini.id]);
+});
+
+test('le récurrent sort de la liste, et rien ne se réécrit quand il n’y en a pas', () => {
+  const sauvegarde: TravailDeService = { id: 'backups:s1', service: 'backups', projectId: 'p1', nature: 'sauvegarde', adresse: 'backups/s1', etat: 'termine', debut: 3000, fin: 4000 };
+  const suivis = [etude, video, sauvegarde];
+  assert.deepEqual(
+    sansLesTravauxRecurrents(suivis, (t) => t.id === 'backups:s1')?.map((t) => t.id),
+    ['marketing:m1', 'studio:e1'],
+  );
+  assert.equal(sansLesTravauxRecurrents(suivis, () => false), null);
 });

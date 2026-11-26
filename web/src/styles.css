@@ -2234,6 +2234,20 @@ html.en-veille *::after {
 .cadre-de-question {
   border: 1px solid hsl(var(--cadre-question));
 }
+/* UN PASSAGE AUTOMATIQUE D'UN AGENT PERSONNALISÉ SE LIT EN JAUNE (décision de l'utilisateur, 26/11/2026 : « les actions
+   faites par l'agent automatiquement, faudra les mettre en jaune ; ce qui était écrit durant mes conversations, en
+   blanc »). Le jaune est celui du cadre des questions (`--cadre-question`, déclaré en clair et en sombre) ; en clair, il
+   est foncé pour rester lisible sur fond blanc. Les boutons et les questions gardent leurs couleurs. Seul porteur :
+   `[data-passage-automatique]` (`message-view.tsx`), accepté par `scripts/verif-themes.mjs`. */
+.texte-de-passage,
+.texte-de-passage :not(button, button *, .cadre-de-question, .cadre-de-question *) {
+  color: hsl(var(--cadre-question));
+}
+html:not(.dark) .texte-de-passage,
+html:not(.dark) .texte-de-passage :not(button, button *, .cadre-de-question, .cadre-de-question *) {
+  color: color-mix(in srgb, hsl(var(--cadre-question)) 55%, black);
+}
+
 /* Le même trait sans prendre de place : une ligne de liste ne bouge pas quand
    elle l'allume. Rentré d'un pixel, il n'est pas rogné par la zone qui défile. */
 .contour-de-question {

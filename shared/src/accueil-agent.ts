@@ -150,9 +150,8 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
    * n'a pas de branche — mais discuter un besoin SANS RIEN SAVOIR du projet
    * produit un cadrage hors sol : on redit ce qui existe déjà, on propose ce
    * qui a été refusé, on ignore la règle qui interdit justement ce qu'on
-   * propose. La CARTE de l'arbre de mémoire lui est donc donnée (quelques
-   * lignes, une seule fois par session), et l'outil `project_memory` — qu'il
-   * avait déjà — lui sert à descendre sur le sujet de la demande.
+   * propose. L'ACCUEIL de la base de connaissances lui est donc donné, et
+   * l'outil `memoire` lui sert à descendre sur le sujet de la demande.
    */
   if (input.role === 'cadrage') return 'cadrage';
   if (input.role !== 'deploy') return 'complet';

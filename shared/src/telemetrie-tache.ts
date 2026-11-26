@@ -30,7 +30,7 @@ export type IssueDeTache = 'terminee' | 'interrompue' | 'echec';
 
 /** Ce que les ouvertures de mémoire d'une tâche ont coûté et rapporté. */
 export interface MesureDeMemoire {
-  /** Combien de fois `project_memory` a été appelé pendant la tâche. */
+  /** Combien de fois la mémoire (outil `memoire`) a été ouverte pendant la tâche. */
   ouvertures: number;
   /** Le temps cumulé passé dans ces ouvertures, en millisecondes. */
   millisecondes: number;
@@ -281,7 +281,7 @@ export function resumeDeTendance(mesures: MesureDeTache[]): ResumeDeTendance {
 /**
  * UN SUJET DE MÉMOIRE EST UN NOM, JAMAIS UNE PHRASE.
  *
- * `project_memory` accepte n'importe quoi : un sujet (« cartes »), une branche,
+ * Une demande de mémoire peut être n'importe quoi : un sujet (« cartes »), une branche,
  * ou des mots quelconques. Ce qui part dans la télémétrie doit rester un NOM
  * court — une demande entière recopiée telle quelle ferait entrer du texte de
  * travail dans une table de mesures, exactement ce qu'on s'interdit. On garde

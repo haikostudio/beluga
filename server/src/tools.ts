@@ -33,7 +33,7 @@ import {
   heritageAnalyseDeProposition,
   repriseAutorisee,
   reglagesDeLaProposition,
-  composerDescription,
+  descriptionAJuger,
   jugerDescription,
   jugerSynthese,
   jugerTitre,
@@ -144,6 +144,8 @@ import {
   BIBLIOTHEQUES_DE_COMPOSITION,
   couleursDOption,
   REGLE_DES_EXEMPLES,
+  optionsDeValidation,
+  validationLue,
   NATURES_D_EXEMPLE,
   MAX_PISTES_D_EXEMPLE,
   aliasDe as aliasDeLaPiece,
@@ -251,6 +253,7 @@ import { enregistrerSite, essayerLaRecette, essayerLesAcces, lireSite } from './
 import { enregistrerSurveillance, jouerRecette, lireSurveillance, rattacherLeProjetDuSite } from './surveillance.js';
 import { accueilDeLaProposition } from './proposition-de-site.js';
 import { estAgentAttitre } from './agent-attitre.js';
+import { nommerLaTache, peutNommerSaTache } from './nom-de-la-tache.js';
 import { estAgentPerso } from './agents-personnalises.js';
 import {
   adresseDeBeluga,
@@ -578,7 +581,7 @@ function descriptionDuProposant(args: any, ctx: Pick<ToolContext, 'role' | 'agen
   const exigence = exigenceDuRole(ctx);
   const sansTexte =
     !(typeof args?.description === 'string' && args.description.trim()) &&
-    !['intro', 'constat', 'attendu', 'limites', 'verification'].some((cle) => typeof args?.[cle] === 'string' && args[cle].trim());
+    !['constat', 'attendu', 'limites', 'verification'].some((cle) => typeof args?.[cle] === 'string' && args[cle].trim());
   if (sansTexte && estAssistantGlobal(ctx) && typeof args?.contexte === 'string' && args.contexte.trim()) {
     return descriptionDeProposition({ ...args, description: args.contexte }, exigence);
   }
@@ -695,10 +698,8 @@ function descriptionDeProposition(
     limites: typeof args.limites === 'string' ? args.limites : '',
     verification: typeof args.verification === 'string' ? args.verification : '',
   };
-  const composee = composerDescription(parties);
-  const libre = typeof args.description === 'string' ? args.description.trim() : '';
-  // Les champs séparés l'emportent : c'est Beluga Build qui met alors en forme.
-  const description = composee || libre;
+  // Les champs séparés l'emportent ; sans eux, l'intro précède le texte libre.
+  const description = descriptionAJuger(parties, typeof args.description === 'string' ? args.description : '');
 
   /*
    * Une carte du chef d'orchestre est jugée « courte » : il ne lit plus le
@@ -868,7 +869,7 @@ export const TOOL_DEFS: ToolDef[] = [
         relativePath: {
           type: 'string',
           description:
-            `Chemin dans le projet, ex. « docs/memoire/cartes.md » ou « README.md ». ` +
+            `Chemin dans le projet, ex. « README.md ». ` +
             `Un nom sans dossier est rangé d'office dans ${DOSSIER_PLANS}/.`,
         },
         content: { type: 'string', description: "Le contenu ENTIER du document (inutile pour « supprimer »)" },
@@ -1048,6 +1049,20 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['question'],
       properties: {
         question: { type: 'string', description: 'La question, en une phrase claire' },
+        validation: {
+          type: 'object',
+          description:
+            'Facultatif — UN GESTE IMPORTANT QUE TU FERAS TOI-MÊME après « Valider » (publier, enregistrer une donnée publique, envoyer, payer, supprimer) : la bulle devient l’encart de validation (captures de la donnée en grand, « Valider » / « Refuser ») ; « options » et « kind » sont alors ignorés. À « Valider », fais le geste toi-même aussitôt — ne demande jamais à la personne de cliquer à ta place',
+          required: ['geste'],
+          properties: {
+            geste: { type: 'string', description: 'Ce que tu feras à « Valider », en une phrase (« Cliquer “Enregistrer” dans les deux onglets LinkedIn »)' },
+            captures: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Les identifiants des captures (pièces jointes image) de la donnée telle qu’elle partira — 1 à 4',
+            },
+          },
+        },
         description: {
           type: 'string',
           description:
@@ -1980,9 +1995,9 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'agent_fiche',
     description:
-      "TA FICHE D'AGENT PERSONNALISÉ (onglet « Agents » du projet) : « lire » la rend ; « ecrire » inscrit UNE rubrique, dès que l'utilisateur l'a acceptée — la configuration se remplit sous ses yeux. " +
-      "Rubriques : nom (texte court) ; mission (une ou deux phrases) ; quand (liste de déclencheurs : {genre:'manuel'} | {genre:'horaire', rythme:'jour'|'semaine'|'mois', heure:'08:00', jours?:[1,3] (dimanche=0), jourDuMois?:1, joursExclus?:[0,6], report?:true} | {genre:'evenement', source:'messagerie.demande'|'surveillance.panne'|'publication.terminee'|'referencement.audit'|'backup.echec'|'securite.alerte'} | {genre:'veille', description:'…'}) ; " +
-      "seul (liste : ce qu'il fait sans demander) ; demande (liste : ce qu'il prépare puis soumet à l'accord ; [] = rien) ; jamais (liste : ce qu'il s'interdit en plus des gestes verrouillés ; [] = rien de plus) ; " +
+      "TA FICHE D'AGENT PERSONNALISÉ (onglet « Agents » du projet) : « lire » la rend ; « ecrire » inscrit UNE rubrique — le nom dès ta première réponse, les autres dès que l'utilisateur a accepté ton plan — et la configuration se remplit sous ses yeux. " +
+      "Rubriques : nom (deux à cinq mots qui disent ton action) ; mission (l'objectif chiffré, son échéance et le plan, en quelques lignes) ; quand (liste de déclencheurs : {genre:'manuel'} | {genre:'horaire', rythme:'jour'|'semaine'|'mois', heure:'08:00', jours?:[1,3] (dimanche=0), jourDuMois?:1, joursExclus?:[0,6], report?:true} | {genre:'evenement', source:'messagerie.demande'|'surveillance.panne'|'publication.terminee'|'referencement.audit'|'backup.echec'|'securite.alerte'} | {genre:'veille', description:'…'}) ; " +
+      "seul (liste : ce qu'il fait sans demander) ; demande (liste : ce qu'il prépare puis soumet à l'accord ; [] = rien) ; jamais (liste : ce qu'il s'interdit en plus des gestes par carte ; [] = rien de plus) ; " +
       "emporte ({competences:[…], acces:[noms de fiches du coffre-fort, JAMAIS une valeur], memoire:true|false}) ; limite ({passages:3, periode:'jour'|'semaine'|'mois'} ou 'aucune'). " +
       "GESTES VERROUILLÉS, refusés dans « seul » même si l'utilisateur les demande : publier, mettre en ligne ou en production, envoyer à un client, payer, lancer une tâche, modifier le code, supprimer.",
     inputSchema: {
@@ -1993,6 +2008,17 @@ export const TOOL_DEFS: ToolDef[] = [
         valeur: { description: 'La valeur de la rubrique (texte, liste ou objet selon la rubrique)' },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: 'nommer_la_tache',
+    description:
+      "LE NOM DE TA TÂCHE, tel qu'il paraît dans la colonne « En cours » et dans le fil d'Ariane : trois à six mots qui disent ce que tu fais en ce moment (« Calendrier de publication de décembre », « Recette de sauvegarde du site »), jamais le seul nom du service. " +
+      "Pose-le DÈS TA PREMIÈRE RÉPONSE, avant le reste, et renomme-le quand ton travail change de sujet.",
+    inputSchema: {
+      type: 'object',
+      properties: { titre: { type: 'string', description: 'Trois à six mots, 80 signes au plus' } },
+      required: ['titre'],
     },
   },
   {
@@ -2437,6 +2463,9 @@ export function outilServiA(nom: string, agentId: string): boolean {
    */
   /* LA FICHE D'UN AGENT PERSONNALISÉ : le seul agent qui la porte (`agents-personnalises.ts`), jamais un autre. */
   if (nom === 'agent_fiche') return estAgentPerso(agentId);
+  /* LE NOM DE LA TÂCHE (26/11/2026) : les agents des services sans fiche (Marketing, Charte, surveillance, sauvegardes,
+     sécurité, configuration d'une publication…), jamais un agent de carte ordinaire (`nom-de-la-tache.ts`). */
+  if (nom === 'nommer_la_tache') return peutNommerSaTache(agentId);
   if (nom === 'veille_poser') {
     const agent = store.getAgent(agentId);
     return !!agent && agent.role === 'task' && !!agent.cardId && !agent.assistantGlobal;
@@ -3616,8 +3645,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ? args.description.trim().slice(0, 1200)
           : undefined;
 
+      /* UN GESTE IMPORTANT À VALIDER (26/11/2026) : deux issues fixes, les captures de la donnée, aucune saisie —
+         l'agent le fera lui-même à « Valider » (`shared/src/validation-de-geste.ts`). Ni prix ni exemples à vérifier. */
+      const validation = validationLue(args.validation, (id) => imageDOption(id) ?? null);
+
       /* UN AGENT CRÉATIF NE PROPOSE PAS UNE GÉNÉRATION SANS SON PRIX (demande du 31/10/2026). */
-      if (ctx.cardId && store.getCard(ctx.cardId)?.parcours?.realisationSouhaitee) {
+      if (!validation && ctx.cardId && store.getCard(ctx.cardId)?.parcours?.realisationSouhaitee) {
         const refus = refusDeQuestionSansPrix({ question: libelle, ...(eclairage ? { description: eclairage } : {}), options });
         if (refus) return { ok: false, text: refus };
       }
@@ -3628,7 +3661,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
          — l'utilisateur voyait quatre images dans le fil et deux cases vides
          dans la question. Le refus repart au moteur sans poser d'attente. */
       const { lotDExemplesEnAttente, oublierLeLot } = await import('./exemples-de-choix.js');
-      const lot = lotDExemplesEnAttente(ctx.agentId);
+      const lot = validation ? null : lotDExemplesEnAttente(ctx.agentId);
       if (lot) {
         const verdict = verdictDuLot(lot.pieces, options);
         if (verdict.etat === 'incomplet') return { ok: false, text: refusDExemplesOublies(verdict.oublies, lot.champ, 8) };
@@ -3643,14 +3676,26 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         }
       }
 
-      const question = AgentQuestion.parse({
-        id: store.newId(),
-        question: libelle,
-        ...(eclairage ? { description: eclairage } : {}),
-        kind: options.length ? kind : 'text',
-        options,
-        allowFreeText: true,
-      });
+      const question = AgentQuestion.parse(
+        validation
+          ? {
+              id: store.newId(),
+              question: libelle,
+              ...(eclairage ? { description: eclairage } : {}),
+              kind: 'single',
+              options: optionsDeValidation(),
+              allowFreeText: false,
+              validation,
+            }
+          : {
+              id: store.newId(),
+              question: libelle,
+              ...(eclairage ? { description: eclairage } : {}),
+              kind: options.length ? kind : 'text',
+              options,
+              allowFreeText: true,
+            },
+      );
       /*
        * L'APPEL D'OUTIL NE REND PAS LA MAIN ICI. Le texte ci-dessous n'est
        * qu'un repli : il ne part au moteur que si l'attente n'a pas pu être
@@ -4477,6 +4522,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (args.action !== 'ecrire') return { ok: false, text: 'Action : « lire » ou « ecrire » (avec « rubrique » et « valeur »).' };
       const ecrite = perso.ecrireRubriqueDeLAgent(ctx.agentId, String(args.rubrique ?? ''), args.valeur);
       return { ok: ecrite.ok, text: ecrite.texte };
+    }
+
+    case 'nommer_la_tache': {
+      const nommee = nommerLaTache(ctx.agentId, args.titre);
+      return { ok: nommee.ok, text: nommee.texte };
     }
 
     case 'veille_poser': {

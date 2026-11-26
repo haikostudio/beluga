@@ -4760,9 +4760,27 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: refuserUneLiaison(cmd.jeton) };
     }
     case 'relaisMac.code': {
-      const { emettreUnCodeDuRelais } = await import('./relais-mac.js');
-      /* L'adresse publique de l'onglet qui clique « Lier » : sans code lisible, le même réseau relie Beluga Connect. */
-      return emettreUnCodeDuRelais(compte.id, Date.now(), cmd.ordinateurId ?? null, (canal && adresseDuCanal.get(canal)) || null);
+      const { emettreUnCodeDuRelais, noterAuParcours, ouvrirLeParcours, parcoursDuCompte } = await import('./relais-mac.js');
+      /* LE CODE DU TÉLÉCHARGEMENT ne relie plus rien (26/11/2026) : il reconnaît le parcours quand Beluga Connect se lance.
+         Le parcours, tenu par le démon, note que le fichier est téléchargé : « Lier » ne le refera plus. */
+      const code = emettreUnCodeDuRelais(compte.id, Date.now(), cmd.ordinateurId ?? null, (canal && adresseDuCanal.get(canal)) || null);
+      if (cmd.systeme) {
+        if (!parcoursDuCompte(compte.id)) ouvrirLeParcours(compte.id, cmd.systeme);
+        noterAuParcours(compte.id, { telechargeLe: Date.now() });
+      }
+      return code;
+    }
+    case 'relaisMac.codeATaper': {
+      const { codeATaper } = await import('./relais-mac.js');
+      return codeATaper(compte.id, { renouveler: cmd.renouveler, ordinateurId: cmd.ordinateurId ?? null });
+    }
+    case 'relaisMac.parcours': {
+      const { fermerLeParcours, ouvrirLeParcours, parcoursDuCompte } = await import('./relais-mac.js');
+      if (cmd.geste === 'fermer') {
+        fermerLeParcours(compte.id);
+        return { parcours: null };
+      }
+      return { parcours: parcoursDuCompte(compte.id) ?? ouvrirLeParcours(compte.id, cmd.systeme ?? 'mac') };
     }
     case 'relaisMac.reglage': {
       const { ouvrirUnReglageDuMac } = await import('./relais-mac.js');

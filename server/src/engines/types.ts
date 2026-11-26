@@ -1,4 +1,4 @@
-import { EngineId, RoleDAgent, ThinkingLevel, TodoItem, nomAfficheDOutil } from '@beluga/shared';
+import { EngineId, RoleDAgent, ThinkingLevel, TodoItem, nomAfficheDOutil, noteDeRubrique } from '@beluga/shared';
 
 export interface EngineEvent {
   kind: 'session' | 'text' | 'step' | 'todo' | 'usage' | 'context' | 'compaction' | 'ratelimit' | 'error' | 'done';
@@ -370,6 +370,11 @@ export function humanStep(
             label: quoi ? `Base de connaissances : ${verbe} « ${quoi.slice(0, 60)} »` : 'Base de connaissances',
             detail: quoi,
           };
+        }
+        // LA FICHE D'UN AGENT PERSONNALISÉ SE LIT EN CLAIR (26/11/2026) : « Nom noté : … », jamais « Fiche de l'agent ».
+        if (short === 'agent_fiche' && val('action') === 'ecrire') {
+          const note = noteDeRubrique(input?.rubrique, input?.valeur);
+          if (note) return { label: note, detail: note };
         }
         // Une capture jointe à la réponse est, elle aussi, une image regardée :
         // le déroulé la montre au même titre qu'un PNG relu depuis le disque.

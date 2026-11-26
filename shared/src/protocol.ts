@@ -1325,7 +1325,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('extension.ouvrirReglages'), chromeId: z.string() }),
   z.object({ type: z.literal('extension.code'), ordinateurId: z.string().optional(), nom: z.string().max(80).optional() }),
   z.object({ type: z.literal('relaisMac.etat') }),
-  z.object({ type: z.literal('relaisMac.code'), ordinateurId: z.string().optional() }),
+  /** « Lier » : le code du téléchargement (il reconnaît le parcours, ne relie rien) ; `systeme` ouvre le parcours tenu par le démon. */
+  z.object({ type: z.literal('relaisMac.code'), ordinateurId: z.string().optional(), systeme: z.enum(['mac', 'windows', 'linux']).optional() }),
+  /** LE CODE À TAPER DANS BELUGA CONNECT (26/11/2026) : six chiffres, dix minutes ; `renouveler` = « Nouveau code ». */
+  z.object({ type: z.literal('relaisMac.codeATaper'), renouveler: z.boolean().optional(), ordinateurId: z.string().optional() }),
+  /** Le parcours « Ajouter cet ordinateur » : `ouvrir` (clic « Lier », parcours neuf) ou `fermer` (fin, retour à la liste). */
+  z.object({ type: z.literal('relaisMac.parcours'), geste: z.enum(['ouvrir', 'fermer']), systeme: z.enum(['mac', 'windows', 'linux']).optional() }),
   z.object({ type: z.literal('relaisMac.delier'), ordinateurId: z.string().optional() }),
   /** « Relier ce Mac ? » (21/11/2026) : la page lit la demande de liaison posée par Beluga Connect, puis la tranche. */
   z.object({ type: z.literal('relaisMac.liaison.lire'), jeton: z.string().max(200) }),
@@ -2558,6 +2563,16 @@ export const ServerEvent = z.discriminatedUnion('type', [
     nom: z.string(),
     systeme: z.enum(['mac', 'windows', 'linux']),
     expireLe: z.number(),
+  }),
+  /**
+   * BELUGA CONNECT S'EST LANCÉ (26/11/2026) : il s'est annoncé avec le code de son téléchargement. Les onglets de CE
+   * compte (`pour`) rouvrent Réglages › Ordinateurs sur l'étape du code à taper dans l'application.
+   */
+  z.object({
+    type: z.literal('relaisMac.connectLance'),
+    pour: z.string(),
+    nom: z.string(),
+    systeme: z.enum(['mac', 'windows', 'linux']),
   }),
   /**
    * Projets qui attendent une réponse : le compte par projet, ET l'endroit où

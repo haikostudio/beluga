@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   adresseDeControleAEcrire,
   Agent,
+  agentDeConfigurationTombe,
   CiblePublication,
   DEBUT_PROCESSUS,
   EtatDeProcedure,
@@ -106,6 +107,57 @@ export function agentDeConfigurationDuProjet(projectId: string, cible: CiblePubl
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
   return agent;
+}
+
+/**
+ * L'AGENT RETENU DE CETTE ÉTAPE EST-IL TOMBÉ ? (règle pure `agentDeConfigurationTombe`) — tour coupé, sans
+ * question ouverte, sans procédure écrite, et plus au travail.
+ */
+export function agentRetenuTombe(agent: Agent, cible: CiblePublication): boolean {
+  const projet = store.getProject(agent.projectId);
+  if (!projet) return false;
+  const dernier = store
+    .listMessages(agent.id, 30)
+    .filter((m) => m.role === 'assistant')
+    .at(-1);
+  return agentDeConfigurationTombe({
+    statut: agent.status,
+    auTravail: agentsActifs().includes(agent.id),
+    questionOuverte: !!questionDeLAgent(agent.id),
+    procedureEcrite: !!projet[champDeLEtape(cible)]?.processus,
+    dernierTourEnErreur: !!(dernier?.error || dernier?.erreurDeTour),
+  });
+}
+
+/**
+ * UN AGENT NEUF À LA PLACE D'UN AGENT TOMBÉ (décision de l'utilisateur du 25/11/2026) : il est retenu sur le
+ * projet à la place de l'ancien, le reste du réglage de l'étape gardé. L'ancien agent N'EST PAS supprimé : il est
+ * seulement détaché, sa conversation reste en base.
+ */
+function remplacerLAgentTombe(projectId: string, cible: CiblePublication, ancien: Agent): Agent | null {
+  const projet = store.getProject(projectId);
+  if (!projet) return null;
+  const champ = champDeLEtape(cible);
+  const agent = createAgent({ projectId, role: 'deploy', title: titreDeLAgent(cible) });
+  const enregistre = store.saveProject({
+    ...projet,
+    [champ]: { ...(projet[champ] ?? {}), agentId: agent.id },
+  });
+  bus.emit({ type: 'project.upsert', project: enregistre });
+  log.info(
+    `agent de configuration (${cible}) de « ${projet.name} » tombé (${ancien.id}, ${ancien.status}) : un agent neuf repart (${agent.id})`,
+  );
+  return agent;
+}
+
+/**
+ * L'AGENT À QUI PARLE LE CLIC « INITIALISER » : l'agent retenu, ou un agent neuf à sa place s'il est tombé.
+ * Appelé de façon synchrone avant que le tour soit posé « en cours » : deux clics simultanés ne créent qu'un agent.
+ */
+export function agentDuClicInitialiser(projectId: string, cible: CiblePublication): Agent | null {
+  const agent = agentDeConfigurationDuProjet(projectId, cible);
+  if (!agent || !agentRetenuTombe(agent, cible)) return agent;
+  return remplacerLAgentTombe(projectId, cible, agent);
 }
 
 /** L'étape que configure cet agent, ou `null` s'il n'est l'agent de configuration d'aucune. */
@@ -417,7 +469,14 @@ export function tourDeProcedure(input: {
    * poursuit donc d'une ouverture à l'autre, au lieu de repartir d'un agent
    * neuf qui relirait tout le projet.
    */
-  const agent = agentDeConfigurationDuProjet(input.projectId, input.cible);
+  /*
+   * …SAUF S'IL EST TOMBÉ (25/11/2026) : le clic « Initialiser » (aucun message) sur un agent dont le tour s'est
+   * coupé repart d'un agent NEUF — l'ancien est mis de côté. Sans cela, sa conversation morte se rouvrait et rien
+   * ne repartait. Un message écrit, lui, continue toujours le même agent.
+   */
+  const agent = reponse
+    ? agentDeConfigurationDuProjet(input.projectId, input.cible)
+    : agentDuClicInitialiser(input.projectId, input.cible);
   if (!agent) return { ...vide, raison: 'Projet introuvable.' };
   if (agentsActifs().includes(agent.id)) {
     /* Déjà au travail (un message écrit dans la conversation) : on ne double
@@ -467,7 +526,12 @@ async function mener(depart: EtatDeProcedure, prompt: string): Promise<void> {
   const messages = store.listMessages(agentId, 50).filter((m) => m.role === 'assistant');
   const dernier = messages[messages.length - 1];
   const agent = store.getAgent(agentId);
-  const issue = issueDuTour({ contenu: dernier?.content, statut: agent?.status, erreur: erreur ?? dernier?.error });
+  const issue = issueDuTour({
+    contenu: dernier?.content,
+    statut: agent?.status,
+    erreur: erreur ?? dernier?.error,
+    questionAnnulee: !!dernier && dernier.questions.some((q) => q.cancelled) && !questionDuMessage(dernier),
+  });
   const courant = dialogues.get(cleDuDialogue(depart.projectId, depart.cible)) ?? depart;
   const fini = { ...courant, enCours: false, question: undefined, attendDepuis: undefined };
 

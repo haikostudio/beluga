@@ -148,10 +148,10 @@ test('jamais l’ordinateur d’un autre compte, même par son nom exact', async
 test('plusieurs Mac par compte : chaque programme sur son ordinateur, le vrai nom remplace un nom par défaut', async () => {
   compte('a3');
   const premier = ordinateurs.creerUnOrdinateur('a3', 'Mac');
-  const c1 = relais.emettreUnCodeDuRelais('a3', Date.now(), premier.id);
+  const c1 = relais.emettreUnCodeDuRelais('a3', Date.now(), premier.id, null, 'saisie');
   const l1 = relais.relierUnMac({ code: c1.code, nom: 'Mac mini de Haiko' }, '10.0.0.1');
   assert.ok(l1.ok);
-  const c2 = relais.emettreUnCodeDuRelais('a3');
+  const c2 = relais.emettreUnCodeDuRelais('a3', Date.now(), null, null, 'saisie');
   const l2 = relais.relierUnMac({ code: c2.code, nom: 'MacBook Air' }, '10.0.0.1');
   assert.ok(l2.ok);
   const liste = await ordinateurs.ordinateursDuCompte('a3');

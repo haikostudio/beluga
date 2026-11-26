@@ -723,7 +723,7 @@ CE QUI EST DEMANDÉ DANS UNE CARTE SE FAIT DANS CETTE CARTE, même un sujet vois
  * cadrage est `board_update_card` portant le champ `title` — seul, ou
  * accompagné de la synthèse de la demande (`resumeDemande`), qui se rédige
  * depuis la même phrase et voyage donc dans le même appel. Tout le reste —
- * `project_memory`, `competences`, `ask_user`, `rendre_comprehension`, les
+ * `memoire`, `competences`, `ask_user`, `rendre_comprehension`, les
  * autres écritures de carte — est refusé, avec la phrase qui dit quoi faire à
  * la place.
  *

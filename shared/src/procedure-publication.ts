@@ -22,6 +22,7 @@ import type { CiblePublication } from './etapes-publication.js';
 import { agentSystemeTermine } from './cartes-systeme.js';
 import { BANDE_GARDE_UN_FINI_MS } from './en-route.js';
 import { agentTientSonTour } from './travail-en-cours.js';
+import { sortieDErreurUtile } from './avertissements-du-moteur.js';
 import {
   aUnProcessus,
   lireProcessusRendu,
@@ -93,6 +94,28 @@ export function etatDuBoutonDeConfiguration(entree: {
  */
 export function leClicLanceLAgent(etat: EtatDuBoutonDeConfiguration): boolean {
   return etat === 'initialiser' || etat === 'reconfigurer';
+}
+
+/**
+ * L'AGENT DE CONFIGURATION RETENU EST-IL TOMBÉ ? (25/11/2026, décision de l'utilisateur après iMiel)
+ *
+ * Son tour s'est coupé — statut `failed`, ou dernier message porteur d'une erreur — sans qu'il travaille encore,
+ * sans question ouverte et sans procédure écrite pour son étape. Le clic « Initialiser » rouvrait alors sa
+ * conversation morte, et rien ne repartait (« un agent qui a déjà parlé ne se relance jamais sans un message »).
+ * Un agent tombé est désormais REMPLACÉ par un agent neuf à ce clic ; l'ancien est mis de côté, jamais effacé.
+ *
+ * Ne le sont JAMAIS : un agent au travail, un agent arrêté sur sa question (il attend une réponse), un agent dont
+ * la procédure est écrite — rien ne se repaie deux fois, et une conversation vivante ne se perd pas.
+ */
+export function agentDeConfigurationTombe(entree: {
+  statut?: string;
+  auTravail: boolean;
+  questionOuverte: boolean;
+  procedureEcrite: boolean;
+  dernierTourEnErreur: boolean;
+}): boolean {
+  if (entree.auTravail || entree.questionOuverte || entree.procedureEcrite) return false;
+  return entree.statut === 'failed' || entree.dernierTourEnErreur;
 }
 
 /**
@@ -483,9 +506,22 @@ export type IssueDuTour =
  * texte rendu est une question — l'agent devrait passer par ask_user, mais un
  * texte n'est jamais perdu. Un bloc illisible est dit, pas avalé.
  */
-export function issueDuTour(input: { contenu?: string; statut?: string; erreur?: string }): IssueDuTour {
-  const erreur = (input.erreur ?? '').trim();
+export function issueDuTour(input: {
+  contenu?: string;
+  statut?: string;
+  erreur?: string;
+  /** Le dernier message portait une question, annulée par la coupure du tour. */
+  questionAnnulee?: boolean;
+}): IssueDuTour {
+  /* Un avertissement anodin du moteur n'est jamais LA raison : il est écarté (`sortieDErreurUtile`). */
+  const erreur = sortieDErreurUtile(input.erreur ?? '');
+  if (input.questionAnnulee && (erreur || (input.statut && input.statut !== 'done'))) {
+    return {
+      raison: `Le tour de l’agent s’est coupé pendant sa question, avant votre réponse${erreur ? ` (${erreur})` : ''}. Cliquez sur « Initialiser » pour repartir d’un agent neuf.`,
+    };
+  }
   if (erreur) return { raison: `Le tour de l’agent s’est arrêté : ${erreur}` };
+  if ((input.erreur ?? '').trim()) return { raison: 'Le tour de l’agent s’est arrêté sans donner de raison.' };
   if (input.statut && input.statut !== 'done') {
     return { raison: `Le tour de l’agent s’est terminé en « ${input.statut} », sans réponse.` };
   }

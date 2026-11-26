@@ -43,10 +43,13 @@ import {
   navigateursInstallesValables,
   type MarqueDeNavigateur,
   type NavigateurInstalle,
+  DUREE_DU_CODE_A_TAPER_MS,
+  parcoursVivant,
+  type ParcoursDAjout,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
-import { creerUnOrdinateur, ligneDOrdinateur, navigateursChoisisDe, proposerLeVraiNom } from './ordinateurs.js';
+import { creerUnOrdinateur, ligneDOrdinateur, navigateursChoisisDe, noterLaMachine, ordinateurDeLaMachine, proposerLeVraiNom } from './ordinateurs.js';
 import { echecDeLiaisonSignale, secretDeLAppareil, signer } from './extension-chrome.js';
 import { log } from './logger.js';
 import { ecransOuvertsDuCompte } from './ecrans-ouverts.js';
@@ -105,6 +108,12 @@ interface CodeDuRelais {
   utiliseLe?: number;
   /** L'adresse réseau (IP publique) de l'onglet qui a cliqué « Lier » : l'appariement par le même réseau s'en sert. */
   adresse?: string;
+  /**
+   * LE GENRE DU CODE (26/11/2026, décision « toujours un code tapé dans Beluga Connect ») : `telechargement` voyage
+   * dans l'adresse du fichier et ne fait que RECONNAÎTRE le parcours (jamais relier) ; `saisie` s'affiche dans les
+   * réglages et se TAPE dans Beluga Connect — le seul qui relie. Absent : un code d'avant, qui ne relie plus.
+   */
+  genre?: 'telechargement' | 'saisie';
 }
 
 function lesCodes(): CodeDuRelais[] {
@@ -121,27 +130,34 @@ function rangerLesCodes(liste: CodeDuRelais[], maintenant: number): void {
 const empreinte = (texte: string) => crypto.createHash('sha256').update(texte).digest('hex');
 const codeVivant = (c: CodeDuRelais, maintenant: number) => !c.utiliseLe && c.expireLe >= maintenant;
 
-/** Un code neuf, à six chiffres, valable vingt-quatre heures jusqu'à son premier usage ; les autres codes du compte vivent. */
+/**
+ * Un code neuf, à six chiffres. `telechargement` (défaut) : vingt-quatre heures, porté par le fichier, il reconnaît le
+ * parcours. `saisie` : dix minutes, affiché dans les réglages et tapé dans Beluga Connect. Les autres codes du compte vivent.
+ */
 export function emettreUnCodeDuRelais(
   compteId: string,
   maintenant = Date.now(),
   ordinateurId: string | null = null,
   adresse: string | null = null,
+  genre: 'telechargement' | 'saisie' = 'telechargement',
 ): { code: string; expireLe: number } {
   const liste = lesCodes();
-  const vivants = liste.filter((c) => c.compteId === compteId && codeVivant(c, maintenant)).sort((a, b) => a.emisLe - b.emisLe);
+  const vivants = liste
+    .filter((c) => c.compteId === compteId && codeVivant(c, maintenant) && (c.genre ?? 'telechargement') === genre)
+    .sort((a, b) => a.emisLe - b.emisLe);
   /* Six vivants au plus : le plus ancien est marqué servi (il reste connu pour le repli, mais ne relie plus). */
   for (const vieux of vivants.slice(0, Math.max(0, vivants.length - CODES_VIVANTS_PAR_COMPTE + 1))) vieux.utiliseLe = maintenant;
   let code = '';
   do code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   while (liste.some((c) => c.empreinte === empreinte(code) && codeVivant(c, maintenant)));
-  const expireLe = maintenant + DUREE_CODE_DU_TELECHARGEMENT_MS;
+  const expireLe = maintenant + (genre === 'saisie' ? DUREE_DU_CODE_A_TAPER_MS : DUREE_CODE_DU_TELECHARGEMENT_MS);
   liste.push({
     empreinte: empreinte(code),
     compteId,
     ordinateurId: ligneDOrdinateur(compteId, ordinateurId)?.id ?? null,
     emisLe: maintenant,
     expireLe,
+    genre,
     ...(adresse ? { adresse: adresseDuReseau(adresse) } : {}),
   });
   rangerLesCodes(liste, maintenant);
@@ -177,24 +193,9 @@ function codeConnu(code: unknown, maintenant: number): { compteId: string; ordin
   return trouve ? { compteId: trouve.compteId, ordinateurId: trouve.ordinateurId } : null;
 }
 
-/**
- * LE MÊME RÉSEAU (carte « Beluga Connect : liaison sans fenêtre », 22/11/2026) : sans code lisible, Beluga Connect est
- * relié au compte qui vient de cliquer « Lier » DEPUIS LA MÊME ADRESSE PUBLIQUE — à une condition, décidée avec
- * l'utilisateur : qu'UN SEUL compte ait un « Lier » vivant de moins de dix minutes sur ce réseau. Zéro ou plusieurs
- * (bureau partagé, 4G derrière une même sortie) : on ne devine jamais, c'est le code de secours.
- */
-export const APPARIEMENT_PAR_RESEAU_MS = 10 * 60_000;
 /** Une adresse IPv4 vue en IPv6 (« ::ffff:1.2.3.4 ») est la même que l'IPv4 seule. */
 export function adresseDuReseau(adresse: string): string {
   return adresse.trim().replace(/^::ffff:/i, '').toLowerCase();
-}
-function codeDuMemeReseau(adresse: string, maintenant: number): CodeDuRelais | null {
-  const ici = adresseDuReseau(adresse);
-  if (!ici || ici === 'inconnu') return null;
-  const recents = lesCodes().filter((c) => c.adresse === ici && !c.utiliseLe && c.emisLe + APPARIEMENT_PAR_RESEAU_MS > maintenant);
-  const comptes = new Set(recents.map((c) => c.compteId));
-  if (comptes.size !== 1) return null;
-  return recents.sort((a, b) => b.emisLe - a.emisLe)[0] ?? null;
 }
 /** Les comptes qui ont cliqué « Lier » il y a peu (n'importe quel réseau) : leur onglet ouvert attend peut-être le code de secours. */
 function comptesQuiAttendentUnOrdinateur(maintenant: number): string[] {
@@ -215,16 +216,136 @@ export type ResultatDeLiaisonDuRelais = { ok: true; identifiant: string; secret:
  * Le relais échange le code contre sa clé. Il se rattache à l'ordinateur visé par le code (le programme d'avant sur cet
  * ordinateur est remplacé), sinon à un ordinateur neuf au vrai nom du Mac. Le vrai nom remplace un nom par défaut.
  */
-export function relierUnMac(demande: { code?: unknown; nom?: unknown; systeme?: unknown; ancien?: unknown }, adresse: string, maintenant = Date.now()): ResultatDeLiaisonDuRelais {
+export function relierUnMac(
+  demande: { code?: unknown; nom?: unknown; systeme?: unknown; ancien?: unknown; machine?: unknown },
+  adresse: string,
+  maintenant = Date.now(),
+): ResultatDeLiaisonDuRelais {
   if (tropDEssais(adresse, maintenant)) return { ok: false, raison: 'Trop d’essais : patientez une minute.' };
-  const code = String(demande.code ?? '').replace(/\s+/g, '');
+  const code = String(demande.code ?? '').replace(/[\s-]+/g, '');
   if (!codeDeLiaisonValide(code)) return { ok: false, raison: 'Le code a six chiffres.' };
   const liste = lesCodes();
-  const trouve = liste.find((c) => c.empreinte === empreinte(code) && codeVivant(c, maintenant));
-  if (!trouve) return { ok: false, raison: 'Code inconnu, déjà servi ou expiré : Beluga vous demandera de relier cet ordinateur.' };
+  /* SEUL LE CODE À TAPER RELIE (26/11/2026) : le code du téléchargement ne fait que reconnaître le parcours. */
+  const trouve = liste.find((c) => c.empreinte === empreinte(code) && codeVivant(c, maintenant) && c.genre === 'saisie');
+  if (!trouve) return { ok: false, raison: 'Code inconnu, déjà servi ou expiré : demandez un nouveau code dans Beluga, Réglages › Ordinateurs.' };
   trouve.utiliseLe = maintenant;
   rangerLesCodes(liste, maintenant);
-  return lierPourLeCompte(trouve.compteId, trouve.ordinateurId, demande, maintenant);
+  codesATaper.delete(trouve.compteId);
+  const { ordinateurId, ...issue } = lierPourLeCompte(trouve.compteId, trouve.ordinateurId, demande, maintenant);
+  noterAuParcours(trouve.compteId, { relieLe: maintenant, ordinateurId }, maintenant);
+  return issue;
+}
+
+/* ------------------------------------------------------------------ */
+/* LE CODE À TAPER DANS BELUGA CONNECT (26/11/2026)                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Le code vit HACHÉ dans `relais-mac.codes` (genre `saisie`) ; sa valeur en clair ne reste qu'EN MÉMOIRE, le temps
+ * d'être réaffichée quand on rouvre les réglages pendant ses dix minutes. Un redémarrage du démon l'oublie : la page
+ * en demande alors un nouveau.
+ */
+const codesATaper = new Map<string, { code: string; expireLe: number }>();
+
+/** Le code à taper du compte : le vivant, sinon un neuf (« Nouveau code » force un neuf et retire l'ancien). */
+export function codeATaper(
+  compteId: string,
+  options: { renouveler?: boolean; ordinateurId?: string | null } = {},
+  maintenant = Date.now(),
+): { code: string; expireLe: number } {
+  const vivant = codesATaper.get(compteId);
+  if (vivant && vivant.expireLe > maintenant + 15_000 && !options.renouveler) return vivant;
+  if (vivant) {
+    const liste = lesCodes();
+    const ancien = liste.find((c) => c.empreinte === empreinte(vivant.code) && c.compteId === compteId && c.genre === 'saisie' && !c.utiliseLe);
+    if (ancien) {
+      ancien.utiliseLe = maintenant;
+      rangerLesCodes(liste, maintenant);
+    }
+  }
+  const neuf = emettreUnCodeDuRelais(compteId, maintenant, options.ordinateurId ?? null, null, 'saisie');
+  codesATaper.set(compteId, neuf);
+  return neuf;
+}
+
+/* ------------------------------------------------------------------ */
+/* LE PARCOURS « AJOUTER CET ORDINATEUR », TENU PAR LE DÉMON (26/11/2026) */
+/* ------------------------------------------------------------------ */
+
+const CLE_PARCOURS = 'relais-mac.parcours';
+
+function lesParcours(): Record<string, ParcoursDAjout> {
+  try {
+    const brut = JSON.parse(getMeta(CLE_PARCOURS) ?? '{}');
+    return brut && typeof brut === 'object' && !Array.isArray(brut) ? brut : {};
+  } catch {
+    return {};
+  }
+}
+
+function rangerLesParcours(tous: Record<string, ParcoursDAjout>, maintenant: number): void {
+  setMeta(CLE_PARCOURS, JSON.stringify(Object.fromEntries(Object.entries(tous).filter(([, p]) => parcoursVivant(p, maintenant)))));
+}
+
+/** Le parcours vivant du compte, ou rien. */
+export function parcoursDuCompte(compteId: string, maintenant = Date.now()): ParcoursDAjout | null {
+  const p = lesParcours()[compteId];
+  return parcoursVivant(p, maintenant) ? p : null;
+}
+
+/** Le clic « Lier » : un parcours s'ouvre (ou repart de zéro s'il était fini). */
+export function ouvrirLeParcours(compteId: string, systeme: SystemeDOrdinateur, maintenant = Date.now()): ParcoursDAjout {
+  const tous = lesParcours();
+  const p: ParcoursDAjout = { debut: maintenant, systeme };
+  tous[compteId] = p;
+  rangerLesParcours(tous, maintenant);
+  bus.emit({ type: 'extension.change' });
+  return p;
+}
+
+/** Une étape franchie (téléchargé, Beluga Connect lancé, relié) ; sans parcours vivant, rien. */
+export function noterAuParcours(compteId: string, patch: Partial<ParcoursDAjout>, maintenant = Date.now()): ParcoursDAjout | null {
+  const tous = lesParcours();
+  const p = tous[compteId];
+  if (!parcoursVivant(p, maintenant)) return null;
+  tous[compteId] = { ...p, ...patch };
+  rangerLesParcours(tous, maintenant);
+  bus.emit({ type: 'extension.change' });
+  return tous[compteId];
+}
+
+/** « Fermer » à la fin du parcours, ou « Revenir à la liste » : le parcours est oublié. */
+export function fermerLeParcours(compteId: string, maintenant = Date.now()): void {
+  const tous = lesParcours();
+  if (!(compteId in tous)) return;
+  delete tous[compteId];
+  rangerLesParcours(tous, maintenant);
+  codesATaper.delete(compteId);
+  bus.emit({ type: 'extension.change' });
+}
+
+/**
+ * BELUGA CONNECT S'ANNONCE (1.7.0) : lancé sans clé, il donne le code de son téléchargement. Ce code ne relie RIEN ; il
+ * dit seulement à quel compte appartient le parcours, qui passe à l'étape du code et rouvre les réglages dans les
+ * onglets de CE compte (`relaisMac.connectLance`). La réponse ne dit jamais rien du compte.
+ */
+export function annoncerConnect(demande: { code?: unknown; nom?: unknown; systeme?: unknown }, adresse: string, maintenant = Date.now()): { ok: true } | { ok: false; raison: string } {
+  if (tropDEssais(adresse, maintenant)) return { ok: false, raison: 'Trop d’essais : patientez une minute.' };
+  const connu = codeConnu(demande.code, maintenant);
+  if (connu) {
+    const systeme = systemeValable(demande.systeme) ?? 'mac';
+    const nom = String(demande.nom ?? '').trim().slice(0, 60) || (systeme === 'mac' ? 'Mac' : systeme === 'windows' ? 'PC' : 'Linux');
+    signalerConnectLance(connu.compteId, nom, systeme, maintenant);
+  }
+  return { ok: true };
+}
+
+function signalerConnectLance(compteId: string, nom: string, systeme: SystemeDOrdinateur, maintenant: number): void {
+  if (!parcoursDuCompte(compteId, maintenant)) ouvrirLeParcours(compteId, systeme, maintenant);
+  const p = parcoursDuCompte(compteId, maintenant);
+  if (p && !p.connectVuLe) noterAuParcours(compteId, { connectVuLe: maintenant, telechargeLe: p.telechargeLe ?? maintenant }, maintenant);
+  bus.emit({ type: 'relaisMac.connectLance', pour: compteId, nom, systeme });
+  log.info(`Beluga Connect lancé (${nom}, ${systeme}) : le code à taper attend dans les réglages`);
 }
 
 /**
@@ -234,9 +355,9 @@ export function relierUnMac(demande: { code?: unknown; nom?: unknown; systeme?: 
 function lierPourLeCompte(
   compteId: string,
   ordinateurVise: string | null,
-  demande: { nom?: unknown; systeme?: unknown; ancien?: unknown },
+  demande: { nom?: unknown; systeme?: unknown; ancien?: unknown; machine?: unknown },
   maintenant: number,
-): { ok: true; identifiant: string; secret: string; nom: string } {
+): { ok: true; identifiant: string; secret: string; nom: string; ordinateurId: string } {
   const id = crypto.randomBytes(9).toString('base64url');
   const nonce = crypto.randomBytes(12).toString('base64url');
   const systeme = systemeValable(demande.systeme) ?? 'mac';
@@ -245,10 +366,14 @@ function lierPourLeCompte(
      ordinateur visé par le code, il reprend SON ordinateur au lieu d'en créer un second. */
   const ancienne = lireIdentifiantDAppareil(demande.ancien);
   const precedent = ancienne ? relais().find((x) => x.id === ancienne.id && x.nonce === ancienne.nonce && x.compteId === compteId) : undefined;
+  /* UNE SEULE FICHE PAR ORDINATEUR (26/11/2026) : la même machine, reliée de nouveau au même compte, reprend sa fiche
+     ACTIVE (nom, droits, navigateurs) au lieu d'en créer une seconde. Une fiche supprimée ne se reprend jamais. */
   const ordinateurId =
     ligneDOrdinateur(compteId, ordinateurVise)?.id ??
     (precedent?.ordinateurId ? ligneDOrdinateur(compteId, precedent.ordinateurId)?.id : undefined) ??
+    ordinateurDeLaMachine(compteId, demande.machine)?.id ??
     creerUnOrdinateur(compteId, nom, maintenant).id;
+  noterLaMachine(compteId, ordinateurId, demande.machine);
   proposerLeVraiNom(compteId, ordinateurId, nom);
   rattacherLesOrphelins();
   enregistrer([
@@ -258,7 +383,7 @@ function lierPourLeCompte(
   const cle = { compteId, id, nonce };
   log.info(`Beluga Connect relié (${nom}, ${systeme})`);
   bus.emit({ type: 'extension.change' });
-  return { ok: true, identifiant: identifiantDAppareil(cle), secret: secretDeLAppareil(cle), nom };
+  return { ok: true, identifiant: identifiantDAppareil(cle), secret: secretDeLAppareil(cle), nom, ordinateurId };
 }
 
 /* ------------------------------------------------------------------ */
@@ -319,17 +444,12 @@ function reveiller(cle: string): void {
 }
 
 /**
- * L'APPLICATION DEMANDE UNE LIAISON, ET ELLE EST RELIÉE TOUTE SEULE (carte « Beluga Connect : liaison sans fenêtre »,
- * 22/11/2026 — plus aucun « Relier ce Mac ? » à cliquer, plus aucune page ouverte par Beluga Connect) :
- *   1. le code du téléchargement est connu (même servi ou expiré, quarante-huit heures) → relié AU COMPTE qui a cliqué
- *      « Lier », tout de suite : ce clic vaut l'accord ;
- *   2. sinon, UN SEUL compte a cliqué « Lier » depuis la même adresse publique depuis moins de dix minutes → relié à
- *      celui-là ;
- *   3. sinon (aucun, ou plusieurs) → on ne devine pas : un CODE DE SECOURS à six chiffres est rendu à Beluga Connect,
- *      qui l'affiche en grand, et les onglets des comptes qui viennent de cliquer « Lier » sont prévenus
- *      (`relaisMac.codeAttendu`) : on le tape dans l'onglet (`accepterParCodeDeSecours`).
- * Relié tout de suite, la réponse porte la clé (`etat: 'reliee'`) ; elle garde AUSSI le jeton et la clé de retrait :
- * un Beluga Connect d'avant (≤ 1.4) les attend, et sa première attente rend « acceptee » aussitôt.
+ * L'APPLICATION D'AVANT (Beluga Connect ≤ 1.6) DEMANDE UNE LIAISON. Elle n'est plus jamais reliée toute seule
+ * (décision du 26/11/2026, « toujours un code à taper ») : elle reçoit un CODE DE SECOURS à six chiffres, qu'elle
+ * affiche en grand, et les onglets des comptes concernés — celui du code de son téléchargement, ceux qui viennent de
+ * cliquer « Lier », celui de son ancienne clé — sont prévenus (`relaisMac.codeAttendu`) : on le tape dans l'onglet
+ * (`accepterParCodeDeSecours`). Beluga Connect 1.7 ne passe plus par ici : il s'annonce (`annoncerConnect`) puis
+ * demande le code affiché dans les réglages (`relierUnMac`).
  */
 export function demanderUneLiaison(
   demande: { nom?: unknown; systeme?: unknown; ancien?: unknown; code?: unknown },
@@ -366,32 +486,23 @@ export function demanderUneLiaison(
   const d: DemandeDeLiaison = { jeton: empreinte(jeton), retrait: empreinte(retrait), adresse, nom, systeme, ancien, expireLe };
   demandesDeLiaison.set(d.jeton, d);
 
-  /* 1 et 2 : le compte est CERTAIN — relié sans rien demander. */
+  /*
+   * PLUS AUCUNE LIAISON TOUTE SEULE (décision de l'utilisateur, 26/11/2026 : « toujours un code à taper ») — ni par le
+   * code du téléchargement, ni par le même réseau. C'est elle qui reliait de nouveau, deux secondes après, la fiche
+   * qu'on venait de supprimer (constaté le 26/11/2026 sur « Chris - MacBook Pro ») : une suppression est désormais
+   * définitive. Un Beluga Connect d'avant (≤ 1.6, sans champ pour taper un code) reçoit le CODE DE SECOURS, qu'il
+   * affiche et qu'on tape dans l'onglet ; le code de son téléchargement sert seulement à prévenir le bon compte.
+   */
   const parCode = codeConnu(demande.code, maintenant);
-  const parReseau = parCode ? null : codeDuMemeReseau(adresse, maintenant);
-  const certain = parCode ?? (parReseau ? { compteId: parReseau.compteId, ordinateurId: parReseau.ordinateurId } : null);
-  if (certain) {
-    if (parReseau) {
-      const liste = lesCodes();
-      const vu = liste.find((c) => c.empreinte === parReseau.empreinte);
-      if (vu) vu.utiliseLe = maintenant;
-      rangerLesCodes(liste, maintenant);
-    }
-    const issue = lierPourLeCompte(certain.compteId, certain.ordinateurId, { nom, systeme, ancien }, maintenant);
-    d.compteId = certain.compteId;
-    d.issue = issue;
-    d.expireLe = Math.min(d.expireLe, maintenant + 2 * 60_000);
-    log.info(`Beluga Connect relié tout seul (${nom}) ${parCode ? 'par le code du téléchargement' : 'par le même réseau'}`);
-    return { ok: true, jeton, retrait, expireLe, prevenus: 0, etat: 'reliee', identifiant: issue.identifiant, secret: issue.secret, nom: issue.nom };
-  }
+  if (parCode) signalerConnectLance(parCode.compteId, nom, systeme, maintenant);
 
-  /* 3 : on ne devine pas — le code de secours. */
+  /* Le code de secours. */
   let codeDeSecours = '';
   do codeDeSecours = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   while ([...demandesDeLiaison.values()].some((x) => x.secours === empreinte(codeDeSecours) && !x.issue));
   d.secours = empreinte(codeDeSecours);
   const ancienCompte = compteDeLAncienneCle(demande.ancien);
-  const prevenir = [...new Set([...comptesQuiAttendentUnOrdinateur(maintenant), ...(ancienCompte ? [ancienCompte] : [])])];
+  const prevenir = [...new Set([...(parCode ? [parCode.compteId] : []), ...comptesQuiAttendentUnOrdinateur(maintenant), ...(ancienCompte ? [ancienCompte] : [])])];
   d.prevenus = prevenir;
   let prevenus = 0;
   for (const compte of prevenir) {
@@ -1473,8 +1584,14 @@ export async function preparerSafari(compteId: string, r: RelaisRelie, force: bo
     );
     return relie ? { ok: true, texte: 'Safari est relié à Beluga.' } : { ok: false, texte: 'Safari ne s’est pas relié à Beluga tout seul.' };
   } catch (e) {
-    poserSafari(ordinateurId, { etat: 'echec', installee: lesSafaris().get(ordinateurId)?.installee ?? false, activee: null, message: String((e as Error)?.message ?? e), depuis });
-    return { ok: false, texte: String((e as Error)?.message ?? e) };
+    /* LE MAC SANS RÉPONSE SE DIT EN CLAIR (26/11/2026) : « le relais du Mac n'a pas répondu à temps » ne disait ni
+       pourquoi ni quoi faire ; l'application et la page affichent la même raison, avec « Réessayer ». */
+    const brut = String((e as Error)?.message ?? e);
+    const message = /pas répondu à temps/.test(brut)
+      ? 'Le Mac n’a pas répondu pendant l’installation de Safari (six minutes) : il était peut-être en veille, ou Safari bloqué sur une fenêtre. « Réessayer » relance l’installation.'
+      : brut;
+    poserSafari(ordinateurId, { etat: 'echec', installee: lesSafaris().get(ordinateurId)?.installee ?? false, activee: null, message, depuis });
+    return { ok: false, texte: message };
   } finally {
     safariEnCours.delete(ordinateurId);
   }

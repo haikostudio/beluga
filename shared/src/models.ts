@@ -2034,6 +2034,19 @@ export const AgentQuestion = z.object({
    * démon avec les droits de celui qui clique, sans réveiller l'agent
    * (`server/src/services-des-agents.ts`).
    */
+  /**
+   * UN GESTE IMPORTANT QUE L'AGENT FERA LUI-MÊME, APRÈS UN « VALIDER » (26/11/2026, capture #6b90 : l'agent
+   * demandait à l'utilisateur de cliquer lui-même « Enregistrer » sur LinkedIn). La bulle devient l'encart de
+   * validation : la phrase du geste, la ou les CAPTURES de la donnée telle qu'elle partira, puis « Valider »
+   * (première option) et « Refuser » (seconde). La réponse revient à l'agent, qui fait le geste lui-même.
+   * Jamais tranchée par Auto (`CHAMPS_HORS_AUTO`).
+   */
+  validation: z
+    .object({
+      geste: z.string(),
+      captures: z.array(z.string()).default([]),
+    })
+    .optional(),
   gesteAValider: z
     .object({
       genre: z.enum(['programmer', 'repondre_demande', 'envoyer_fil']),
@@ -2212,7 +2225,7 @@ export type PassageRetrouve = z.infer<typeof PassageRetrouve>;
  * Une recherche de contexte faite par l'agent pendant un tour.
  *
  * La mémoire initiale fait partie du prompt. Les recherches suivantes arrivent
- * par `project_memory` ou par le catalogue des compétences, APRÈS cet envoi :
+ * par l'outil `memoire` ou par le catalogue des compétences, APRÈS cet envoi :
  * il faut donc les garder à part, dans l'ordre, avec le texte exact rendu.
  */
 export const ConsultationMemoire = z.object({
@@ -2375,6 +2388,18 @@ export const Message = z.object({
    * « Compréhension » (`shared/src/parcours-en-points.ts`).
    */
   poursuiteDe: z.string().optional(),
+  /**
+   * CE TOUR EST UN PASSAGE AUTOMATIQUE d'un agent personnalisé (décision du 26/11/2026) : déclenché à la main par
+   * « Lancer maintenant », à l'heure prévue, par un événement d'un service ou par une veille. Le fil le dit sous une
+   * tête « Passage automatique · … » et l'écrit EN JAUNE, pour distinguer ce que l'agent a fait de lui-même de ce qui
+   * vient de la conversation (`web/src/components/message-view.tsx`).
+   */
+  passageAutomatique: z
+    .object({
+      genre: z.enum(['manuel', 'horaire', 'evenement', 'veille']),
+      source: z.string().optional(),
+    })
+    .optional(),
   /** Ce tour a été coupé net par une erreur : relancer, ignorer, ou arrêter ? */
   erreurDeTour: ErreurDeTour.optional(),
   /**

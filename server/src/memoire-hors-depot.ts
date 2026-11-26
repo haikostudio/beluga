@@ -7,9 +7,9 @@
  * Le `.gitignore` du projet EST ce réglage : aucun nom de projet n'est écrit ici,
  * et un projet qui suit sa mémoire (Beluga Build lui-même) ne voit rien changer.
  *
- * La mémoire se lit et s'écrit déjà dans le dossier du PROJET (`remember`,
- * `project_memory`) : elle reste donc lisible. Trois endroits, en revanche,
- * supposaient qu'elle voyage par git, et les voici :
+ * La mémoire elle-même ne dépend pas de git : elle vit dans la base de
+ * connaissances (`remember`, outil `memoire`). Trois endroits, en revanche,
+ * supposent que les fichiers voyagent par git, et les voici :
  *
  *  1. la copie de travail d'une carte NAÎT de git : elle n'aurait pas son
  *     fichier d'instructions — on l'y DÉPOSE à l'ouverture, sans l'enregistrer ;

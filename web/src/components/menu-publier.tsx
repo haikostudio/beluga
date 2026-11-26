@@ -398,7 +398,9 @@ function SuiviDansLeMenu({ projectId, onFini }: { projectId: string; onFini: () 
 /**
  * « INITIALISER LE DÉPLOIEMENT / LA MISE EN PRODUCTION » (maquette #ad2d) : une phrase, un bouton violet. Le clic
  * LANCE l'agent de configuration EN SILENCE — aucun tiroir : sa préparation se suit dans ce même menu. Un agent qui a
- * déjà une conversation ne se relance jamais seul (DEC-256) : son fil s'ouvre alors, pour lui répondre.
+ * déjà une conversation VIVANTE ne se relance jamais seul (DEC-256) : son fil s'ouvre alors, pour lui répondre. Un
+ * agent TOMBÉ (tour coupé, 25/11/2026) est remplacé par le serveur par un agent neuf, qui part en silence comme un
+ * premier : c'est le serveur qui juge, l'écran suit l'agent qu'il rend.
  */
 function InitialiserLEtape({ projectId, cible, onFini }: { projectId: string; cible: CiblePublication; onFini: () => void }) {
   const state = useApp();
@@ -406,18 +408,20 @@ function InitialiserLEtape({ projectId, cible, onFini }: { projectId: string; ci
   const agentId = agentDeConfiguration(projet, cible);
   const enCours = !!state.procedures[`${projectId}:${cible}`]?.enCours;
   const [envoi, setEnvoi] = React.useState(false);
+  const ouvrirLeFil = () => {
+    onFini();
+    ouvrirAgentDeConfiguration(projectId, cible);
+  };
   const lancer = () => {
-    if (agentId) {
-      onFini();
-      ouvrirAgentDeConfiguration(projectId, cible);
-      return;
-    }
+    if (agentId && enCours) return ouvrirLeFil();
     if (enCours || envoi) return;
     setEnvoi(true);
     void client
       .call<{ etat?: EtatProcedure }>({ type: 'procedure.tour', projectId, cible })
       .then((res) => {
         if (res?.etat) client.majProcedure(projectId, cible, res.etat);
+        /* Le MÊME agent rendu sans tour lancé : sa conversation est vivante, on l'ouvre pour lui répondre. */
+        if (agentId && res?.etat?.agentId === agentId && !res.etat.enCours) return ouvrirLeFil();
         if (res?.etat?.raison && !res.etat.enCours) client.pushToast('error', res.etat.raison);
       })
       .catch((err: unknown) => client.pushToast('error', err instanceof Error ? err.message : String(err)))

@@ -28,7 +28,7 @@ export const ETATS_FICHE = ['a_valider', 'active', 'depreciee', 'archivee'] as c
 export type EtatFicheClasseur = (typeof ETATS_FICHE)[number];
 
 export interface ProvenanceFiche {
-  /** Le fichier d'origine, relatif à sa racine (`docs/regles/cartes.md`), ou « outil », « écran ». */
+  /** Le fichier d'origine, relatif à sa racine (`docs/instructions-en-attente.md`), ou « outil », « écran ». */
   source: string;
   /** La section d'origine dans ce fichier, quand il en a. */
   section?: string;
@@ -281,8 +281,8 @@ function empreinte(texte: string): string {
 }
 
 /**
- * LES RÈGLES D'UN FICHIER `docs/regles/<sujet>.md` : une puce en gras = une
- * règle = une fiche. Le « pourquoi » n'est pas extrait de force : il reste dans
+ * LES RÈGLES D'UN TEXTE DE SUJET (le rangement de nuit des instructions) : une
+ * puce en gras = une règle = une fiche. Le « pourquoi » n'est pas extrait de force : il reste dans
  * le corps, où la règle l'a écrit.
  */
 export function fichesDeRegles(texte: string, theme: string, source: string, racine: string): FicheReprise[] {

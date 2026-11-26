@@ -73,6 +73,7 @@ const LIBELLES: Record<string, string> = {
   historique_du_service: 'Historique du service',
   veille_poser: 'Veille posée',
   agent_fiche: 'Fiche de l’agent',
+  nommer_la_tache: 'Nom de la tâche',
   cahier_des_charges: 'Cahier des charges',
   capture: 'Capture d’écran',
   iphone: 'iPhone d’essai',

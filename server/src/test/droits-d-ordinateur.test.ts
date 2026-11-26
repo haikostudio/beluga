@@ -127,7 +127,7 @@ getDb()
   .prepare("INSERT OR IGNORE INTO users (id, identifiant, role, nom_affiche, salt, hash, actif, cree_le) VALUES ('c1', 'c1', 'admin', 'c1', 's', 'h', 1, 0)")
   .run();
 const mac = ordinateurs.creerUnOrdinateur('c1', 'MacBook Pro');
-const liaison = relais.relierUnMac({ code: relais.emettreUnCodeDuRelais('c1', Date.now(), mac.id).code, nom: 'MacBook Pro' }, '10.0.0.9');
+const liaison = relais.relierUnMac({ code: relais.emettreUnCodeDuRelais('c1', Date.now(), mac.id, null, 'saisie').code, nom: 'MacBook Pro' }, '10.0.0.9');
 assert.ok(liaison.ok);
 /* L'identifiant INTERNE du programme (celui des gestes), pas la clé signée remise au Mac. */
 const appareil = (await ordinateurs.ordinateursDuCompte('c1'))[0]!.programme!.id;

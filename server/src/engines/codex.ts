@@ -373,11 +373,11 @@ export function surchargesDuPontBeluga(
   /*
    * LES OUTILS DU PROJET SONT LES SEULS DANS LA PIÈCE. Un autre serveur
    * branché dans la configuration de Codex propose souvent sa propre
-   * mémoire : le modèle l'appelle À LA PLACE de `project_memory`, annonce
+   * mémoire : le modèle l'appelle À LA PLACE de l'outil `memoire`, annonce
    * « mémoire consultée » et énonce des faits qu'il n'est jamais allé
    * chercher (constaté sur les tours du 4 août : `chercher_memoire` appelé à
-   * chaque fois, `project_memory` jamais). On les éteint LE TEMPS D'UN TOUR
-   * d'agent — la configuration de l'utilisateur n'est pas touchée.
+   * chaque fois, l'outil de mémoire du projet jamais). On les éteint LE TEMPS
+   * D'UN TOUR d'agent — la configuration de l'utilisateur n'est pas touchée.
    */
   /* Les serveurs de plus de CE tour (REA, pour l'agent d'un clonage). */
   for (const [nom, serveur] of Object.entries(options.mcpServeursEnPlus ?? {})) {
@@ -394,7 +394,7 @@ export function surchargesDuPontBeluga(
    * Même raison pour la mémoire PROPRE de Codex (son dossier `memories`) :
    * elle est commune à tous les projets, Beluga Build n'y écrit rien, et elle
    * suffit au modèle pour se croire renseigné. La mémoire d'un projet vit
-   * par sujet dans `docs/memoire/`, et se lit avec `project_memory`.
+   * dans la base de connaissances, et se lit avec l'outil `memoire`.
    */
   args.push('-c', 'features.memories=false');
   /*

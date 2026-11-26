@@ -16,7 +16,7 @@ import { EVENEMENT_MESURE_DU_CLAVIER } from '@/lib/ecriture-au-clavier';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { ContexteCarteDuFil, MenuDuMediaDuFil } from '@/components/menu-du-media';
 import { CarrouselDuChoix } from '@/components/carrousel-du-choix';
-import { ImageDePiece, PastilleDeFichier } from '@/components/pastille-de-fichier';
+import { ImageDePiece, PastilleDeFichier, adresseDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -136,6 +136,8 @@ export interface OptionDeQuestion {
 export interface QuestionAAfficher {
   /** La voix finale ou le personnage 3D proposés dans le fil : le même encart à prix qu'un lot. */
   depenseDuFil?: { genre: string; plafond: number | null };
+  /** Un geste important que l'agent fera lui-même après « Valider » : sa phrase et les captures de la donnée. */
+  validation?: { geste: string; captures: string[] };
   /** Le texte de la question. Vide quand l'entête le dit déjà. */
   question?: string;
   /** Ce qu'il faut savoir pour répondre, lu sous la question et avant les choix. */
@@ -187,6 +189,9 @@ export interface QuestionAAfficher {
 
 export function BulleQuestion(props: ProprietesDeLaBulle) {
   const telephone = useTelephone();
+  /* UN GESTE IMPORTANT À VALIDER (26/11/2026) : la donnée en capture, « Valider » / « Refuser », et l'agent le fait
+     lui-même. Même encart que toute validation, sur ordinateur comme sur téléphone : ni champ, ni Joindre. */
+  if (props.question.validation) return <ValidationDuGeste {...props} validation={props.question.validation} />;
   /* UNE VALIDATION DE DÉPENSE (« Valider · prix ») N'EST PAS UNE QUESTION À
      RÉDIGER : titre, une ligne, deux boutons (`ValidationAvecCout`). Ni champ
      de réponse, ni Joindre, ni Annuler. */
@@ -229,6 +234,74 @@ export function BulleQuestion(props: ProprietesDeLaBulle) {
   const reponsePossible = !!formulaire || props.question.options.length > 0 || !!props.question.allowFreeText;
   if (!telephone || !reponsePossible) return formulaire ? <BulleFormulaire {...props} formulaire={formulaire} /> : <BulleQuestionComplete {...props} />;
   return <BulleQuestionCompacte {...props} />;
+}
+
+/**
+ * LA VALIDATION D'UN GESTE QUE L'AGENT FERA LUI-MÊME (26/11/2026, capture #6b90 : « il te reste deux clics sur
+ * “Enregistrer” »). L'encart commun des validations (`ValidationAvecCout`) : la question, le geste en une phrase,
+ * les CAPTURES de la donnée en grand — empilées pleine largeur, un clic les ouvre en grand —, puis « Valider » et
+ * « Refuser ». Chaque bouton répond par le libellé de son option (première = valider, seconde = refuser) : l'encadré
+ * du fil retrouve ainsi le choix retenu, et une confirmation du pilote de Chrome (« Oui, le faire ») passe aussi.
+ */
+function ValidationDuGeste(props: ProprietesDeLaBulle & { validation: { geste: string; captures: string[] } }) {
+  const { validation, question, projectId } = props;
+  const state = useApp();
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const connues = projectId ? (state.attachments[projectId] ?? []) : [];
+  React.useEffect(() => {
+    if (projectId && validation.captures.length && !state.attachments[projectId]) client.send({ type: 'attachments.list', projectId });
+  }, [projectId, validation.captures.length]);
+  const pieces = validation.captures.map((id) => connues.find((p) => p.id === id)).filter(Boolean) as Attachment[];
+  const valider = question.options[0]?.label ?? 'Valider';
+  const refuser = question.options[1]?.label ?? 'Refuser';
+  return (
+    <>
+      <ValidationAvecCout
+        titre={question.question ?? ''}
+        ligne={
+          <p className="text-[13px] leading-snug text-text" data-validation-geste="">
+            {validation.geste}
+            <span className="text-faint"> — {t('L’agent le fera lui-même dès que vous validez.')}</span>
+          </p>
+        }
+        note={question.description}
+        contenu={
+          validation.captures.length ? (
+            <div className="flex flex-col gap-2" data-validation-captures={validation.captures.length}>
+              {validation.captures.map((id) => {
+                const piece = pieces.find((p) => p.id === id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    data-validation-capture={id}
+                    title={t('Capture de la donnée à valider')}
+                    onClick={() => piece && setApercu(piece)}
+                    className="relative block w-full overflow-hidden rounded-md bg-raised"
+                  >
+                    <img
+                      src={adresseDePiece(id, false, 1200)}
+                      alt={t('Capture de la donnée à valider')}
+                      loading="lazy"
+                      decoding="async"
+                      className="mx-auto block max-h-[360px] w-full object-contain"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          ) : null
+        }
+        libelleEnVol={t('Validé : l’agent s’en charge…')}
+        entete={props.entete}
+        variante={props.variante}
+        repere={{ ...(props.repere ?? {}), 'data-bulle-question': props.variante ?? 'neutre', 'data-validation-de-geste': '' }}
+        onValider={() => props.onRepondre(valider, [])}
+        onRefuser={() => props.onRepondre(refuser, [])}
+      />
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={pieces} onNaviguer={setApercu} />
+    </>
+  );
 }
 
 /**

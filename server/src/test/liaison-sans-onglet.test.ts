@@ -5,10 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 /*
- * BELUGA CONNECT : LIAISON SANS ONGLET (carte « Beluga Connect : liaison et suivi », 22/11/2026). Le code du
- * téléchargement survit aux redémarrages du démon, vit vingt-quatre heures jusqu'à son premier usage et n'est plus
- * effacé par un nouveau clic « Lier » ; quand il ne relie plus, la demande de repli est POUSSÉE aux onglets ouverts du
- * compte — Beluga Connect n'ouvre jamais de page.
+ * BELUGA CONNECT : LIAISON SANS ONGLET (carte « Beluga Connect : liaison et suivi », 22/11/2026). Les codes survivent
+ * aux redémarrages du démon ; le code du téléchargement vit vingt-quatre heures et n'est plus effacé par un nouveau clic
+ * « Lier ». DEPUIS LE 26/11/2026 il ne relie plus rien : il reconnaît le parcours, et seul le code à taper relie —
+ * Beluga Connect n'ouvre jamais de page.
  */
 const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'beluga-liaison-sans-onglet-'));
 process.env.BELUGA_DATA = bacASable;
@@ -21,8 +21,8 @@ getDb();
 
 const racine = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
 
-test('le code du téléchargement est rangé haché : un démon qui redémarre le retrouve', async () => {
-  const { code } = relais.emettreUnCodeDuRelais('compte-redemarre', Date.now(), null);
+test('les codes sont rangés hachés : un démon qui redémarre retrouve le code à taper', async () => {
+  const { code } = relais.emettreUnCodeDuRelais('compte-redemarre', Date.now(), null, null, 'saisie');
   const { getMeta } = await import('../db.js');
   const brut = getMeta('relais-mac.codes') ?? '';
   assert.ok(brut.length > 0, 'les codes vivent dans la base, plus en mémoire');
@@ -33,46 +33,44 @@ test('le code du téléchargement est rangé haché : un démon qui redémarre l
   assert.ok(r.ok, 'le code survit au redémarrage');
 });
 
-test('le code vit vingt-quatre heures, pas dix minutes', () => {
-  const { code } = relais.emettreUnCodeDuRelais('compte-patient', Date.now() - 3 * 60 * 60_000, null);
-  assert.ok(relais.relierUnMac({ code, nom: 'Mac lent' }, '10.1.0.2').ok, 'trois heures après le clic, il relie encore');
-  const vieux = relais.emettreUnCodeDuRelais('compte-patient', Date.now() - 25 * 60 * 60_000, null);
-  assert.equal(relais.relierUnMac({ code: vieux.code, nom: 'Mac' }, '10.1.0.3').ok, false, 'au-delà de vingt-quatre heures : refusé');
+test('le code du téléchargement reconnaît le parcours vingt-quatre heures ; un nouveau clic « Lier » ne le tue pas', () => {
+  const recus: any[] = [];
+  const stop = bus.subscribe((e: any) => {
+    if (e.type === 'relaisMac.connectLance') recus.push(e);
+  });
+  const ancien = relais.emettreUnCodeDuRelais('compte-patient', Date.now() - 3 * 60 * 60_000, null);
+  relais.emettreUnCodeDuRelais('compte-patient', Date.now(), null);
+  relais.emettreUnCodeDuRelais('compte-patient', Date.now(), null);
+  relais.annoncerConnect({ code: ancien.code, nom: 'Mac lent' }, '10.1.0.2');
+  const vieux = relais.emettreUnCodeDuRelais('compte-perime', Date.now() - 49 * 60 * 60_000, null);
+  relais.annoncerConnect({ code: vieux.code, nom: 'Mac' }, '10.1.0.3');
+  stop();
+  assert.deepEqual(recus.map((e) => e.pour), ['compte-patient'], 'trois heures après le clic, il reconnaît encore le parcours ; périmé, rien');
 });
 
-test('un nouveau clic « Lier » ne tue plus le code emporté par l’image disque', () => {
-  const premier = relais.emettreUnCodeDuRelais('compte-deux-clics', Date.now(), null);
-  relais.emettreUnCodeDuRelais('compte-deux-clics', Date.now(), null);
-  relais.emettreUnCodeDuRelais('compte-deux-clics', Date.now(), null);
-  assert.ok(relais.relierUnMac({ code: premier.code, nom: 'Mac' }, '10.1.0.4').ok);
-});
-
-test('six codes vivants au plus par compte : le plus ancien cesse de relier', () => {
+test('six codes à taper vivants au plus par compte : le plus ancien cesse de relier', () => {
   const t0 = Date.now() - 60_000;
-  const codes = Array.from({ length: 7 }, (_, i) => relais.emettreUnCodeDuRelais('compte-plafond', t0 + i, null).code);
+  const codes = Array.from({ length: 7 }, (_, i) => relais.emettreUnCodeDuRelais('compte-plafond', t0 + i, null, null, 'saisie').code);
   assert.equal(relais.relierUnMac({ code: codes[0], nom: 'Mac' }, '10.1.0.5').ok, false);
   assert.ok(relais.relierUnMac({ code: codes[6], nom: 'Mac' }, '10.1.0.6').ok);
 });
 
-test('code déjà servi : Beluga Connect est relié TOUT SEUL au compte du code, sans « Relier ce Mac ? » à cliquer', async () => {
+test('un Beluga Connect d’avant qui demande sa liaison avec le code de son téléchargement n’est JAMAIS relié tout seul : son compte est prévenu (26/11/2026)', () => {
   const { code } = relais.emettreUnCodeDuRelais('compte-repli', Date.now(), null);
-  assert.ok(relais.relierUnMac({ code, nom: 'Premier Mac' }, '10.1.0.7').ok);
+  relais.ouvrirLeParcours('compte-repli', 'mac');
   const recus: any[] = [];
   const stop = bus.subscribe((e: any) => {
-    if (e.type === 'relaisMac.demande' || e.type === 'relaisMac.codeAttendu') recus.push(e);
+    if (e.type === 'relaisMac.codeAttendu' || e.type === 'relaisMac.connectLance') recus.push(e);
   });
   const d = relais.demanderUneLiaison({ nom: 'MacBook Pro', systeme: 'mac', code }, '10.1.0.8');
   stop();
   assert.ok(d.ok);
   if (!d.ok) return;
-  assert.equal(d.etat, 'reliee', 'le clic « Lier » qui a émis le code vaut l’accord');
-  assert.ok(d.identifiant && d.secret, 'la clé est rendue tout de suite');
-  assert.equal(recus.length, 0, 'aucun onglet n’a rien à cliquer');
-  assert.deepEqual(relais.demandesEnAttenteDuCompte('compte-repli'), []);
-  /* Un Beluga Connect d'avant (1.4) attend avec sa clé de retrait : il reçoit « acceptee » aussitôt. */
-  const issue = await relais.attendreLaLiaison(d.retrait, 0);
-  assert.equal(issue.etat, 'acceptee');
-  assert.equal(relais.relaisDuCompte('compte-repli').etat !== undefined, true);
+  assert.equal(d.etat, 'code', 'plus de liaison toute seule : un code de secours');
+  assert.equal(d.identifiant, undefined, 'aucune clé sans code tapé');
+  assert.ok(recus.some((e) => e.type === 'relaisMac.codeAttendu' && e.pour === 'compte-repli'), 'le compte du code est prévenu');
+  assert.ok(recus.some((e) => e.type === 'relaisMac.connectLance' && e.pour === 'compte-repli'), 'les réglages du compte se rouvrent');
+  assert.ok(relais.parcoursDuCompte('compte-repli')?.connectVuLe, 'le parcours passe à l’étape du code');
 });
 
 test('aucun code lisible et aucun « Lier » sur ce réseau : un code de secours, et on ne devine aucun compte', () => {
@@ -98,7 +96,7 @@ test('Beluga Connect (Mac et Go) n’ouvre plus jamais Beluga de lui-même', () 
 });
 
 test('un ordinateur délié qui redemande sa liaison n’est PAS relié de nouveau tout seul : son compte est prévenu du code de secours', async () => {
-  const { code } = relais.emettreUnCodeDuRelais('compte-delie', Date.now(), null);
+  const { code } = relais.emettreUnCodeDuRelais('compte-delie', Date.now(), null, null, 'saisie');
   const r = relais.relierUnMac({ code, nom: 'Mac délié' }, '10.1.0.12');
   assert.ok(r.ok);
   if (!r.ok) return;

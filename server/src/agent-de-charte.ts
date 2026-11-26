@@ -22,6 +22,7 @@ import {
   serviceDeLAgentDeCharte,
 } from '@beluga/shared';
 import * as store from './store.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { bus } from './bus.js';
 import { getDb } from './db.js';
 import { log } from './logger.js';
@@ -44,7 +45,7 @@ async function creerLAgent(p: Plaquette): Promise<Agent> {
   if (!projet) throw new Error('projet du document introuvable');
   const { catalogueMoteurs } = await import('./catalogue-moteurs.js');
   const claude = (await catalogueMoteurs()).find((m) => m.id === 'claude');
-  const r = claude ? reglagesDuNiveau(claude, 'standard') : { model: undefined, thinking: 'none' };
+  const r = reglageDeConversation(claude);
   const agent = store.saveAgent({
     ...Agent.parse({
       id: store.newId(),
@@ -52,7 +53,7 @@ async function creerLAgent(p: Plaquette): Promise<Agent> {
       role: 'task',
       title: `Charte — ${p.titre}`.slice(0, 120),
       workdir: projet.path,
-      run: { engine: 'claude', model: r.model, thinking: r.thinking },
+      run: { engine: 'claude', model: r.model, thinking: r.thinking, ...(r.niveau ? { niveau: r.niveau } : {}) },
       status: 'idle',
       createdAt: store.now(),
       updatedAt: store.now(),

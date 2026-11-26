@@ -292,6 +292,18 @@ export function composerDescription(parties: PartiesCarte): string {
 }
 
 /**
+ * La description à juger, quand le moteur peut donner les parties séparées OU
+ * un texte libre. Dès qu'une des quatre parties est remplie, les champs séparés
+ * l'emportent. Sinon l'intro n'est qu'une tête de carte : le texte libre la
+ * suit, il n'est jamais effacé par elle.
+ */
+export function descriptionAJuger(parties: PartiesCarte, libre = ''): string {
+  const separees = PARTIES_DESCRIPTION.some((partie) => String(parties[partie] ?? '').trim());
+  if (separees) return composerDescription(parties);
+  return [String(parties.intro ?? '').trim(), libre.trim()].filter(Boolean).join('\n\n');
+}
+
+/**
  * La consigne posée dans le briefing du chef. Elle est UNIQUE : les deux
  * moteurs reçoivent mot pour mot le même texte.
  */

@@ -47,7 +47,7 @@ function signe(identifiant: string, secret: string, corps: string, ts = Math.flo
 }
 
 test('un faux relais se relie, signe, reçoit un geste et le rend', async () => {
-  const { code } = relais.emettreUnCodeDuRelais('compte-1');
+  const { code } = relais.emettreUnCodeDuRelais('compte-1', Date.now(), null, null, 'saisie');
   const lie = relais.relierUnMac({ code, nom: 'Mac de test' }, '127.0.0.1');
   assert.equal(lie.ok, true);
   if (!lie.ok) return;
@@ -97,7 +97,7 @@ test('« Beluga Relais » : une application nommée, et ses autorisations rappor
   assert.match(installateur, /Privacy_Accessibility/);
   assert.match(relais.scriptDuRelais() ?? '', /AXIsProcessTrusted/);
 
-  const { code } = relais.emettreUnCodeDuRelais('compte-2');
+  const { code } = relais.emettreUnCodeDuRelais('compte-2', Date.now(), null, null, 'saisie');
   const lie = relais.relierUnMac({ code, nom: 'Mac des autorisations' }, '127.0.0.2');
   assert.equal(lie.ok, true);
   if (!lie.ok) return;

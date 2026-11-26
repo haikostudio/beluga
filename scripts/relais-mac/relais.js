@@ -68,7 +68,7 @@ const MARGE_HAUTE = 28;
 const MARGE_BORD = 2;
 const BUNDLE_RECOPIE = 'com.apple.ScreenContinuity';
 /** Lu par le démon dans ce fichier : un relais plus ancien que celui servi se met à jour seul (s'il a le lanceur). */
-const VERSION_DU_RELAIS = 9;
+const VERSION_DU_RELAIS = 10;
 /** La version de Beluga Connect qui joue ce relais (vide : ancien « Beluga Relais »). */
 const VERSION_CONNECT = (() => {
   const v = $.NSProcessInfo.processInfo.environment.objectForKey('BELUGA_CONNECT_VERSION');
@@ -1046,6 +1046,11 @@ function installerSafari(config, a) {
   if (!/^[0-9a-f]{64}$/.test(String(a.empreinte || ''))) throw new Error('empreinte du paquet Safari absente');
   if (String(a.chemin || '') !== '/api/relais-mac/extension-safari.zip') throw new Error('adresse du paquet Safari refusée');
   if (!/^\d{6}$/.test(String(a.code || ''))) throw new Error('code de liaison absent');
+  /* LE GESTE RÉPOND TOUJOURS À TEMPS (26/11/2026) : Beluga attend six minutes ; au-delà, il ne savait que « le relais
+     du Mac n'a pas répondu à temps » (deux fois le 26/11 sur le MacBook) et l'application restait sur « en cours ». Les
+     essais de réglage s'arrêtent à quatre minutes et chaque étape s'écrit au journal du Mac. */
+  const finDuGeste = Date.now() + 240000;
+  journal('Safari : téléchargement de l’application « Beluga »');
   /* 1. L'application. */
   const travail = `${DOSSIER}/safari-neuf`;
   sh(`rm -rf ${q(travail)} && mkdir -p ${q(travail)}`);
@@ -1075,7 +1080,7 @@ function installerSafari(config, a) {
   sh(`/usr/bin/pkill -x Beluga || true`);
   journal(`extension Safari posée dans ${cible}`);
   /* 4. Cochée dans Safari : la case elle-même fait foi (pluginkit ne reflète pas toujours le choix fait dans Safari). */
-  const r = cocherDansSafariAvecReprises();
+  const r = cocherDansSafariAvecReprises(finDuGeste);
   return { installee: true, activee: r.activee, sites: r.sites, detail: r.detail, dossier: cible };
 }
 
@@ -1091,11 +1096,16 @@ function safariTourne() {
  * plus (jamais quitté de force quand il tourne : les onglets de la personne restent), puis on attend qu'il réponde.
  * Le message final dit ce qui a été tenté.
  */
-function cocherDansSafariAvecReprises() {
+function cocherDansSafariAvecReprises(finDuGeste) {
   const ESSAIS = 3;
   let relance = false;
   let detail = '';
   for (let essai = 1; essai <= ESSAIS; essai++) {
+    if (finDuGeste && essai > 1 && Date.now() > finDuGeste) {
+      detail = `${detail || 'réglage trop long'} — arrêté après ${essai - 1} essai(s) pour répondre à temps`;
+      break;
+    }
+    journal(`Safari : réglage de l’extension, essai ${essai} sur ${ESSAIS}`);
     try {
       if (essai > 1) {
         if (!safariTourne()) {
@@ -1156,6 +1166,7 @@ function cocherDansSafari() {
         fenetres = proc.windows();
       } catch (e) {}
       for (const f of fenetres) {
+        if (Date.now() > fin) break;
         onglet = chercherDansFenetre(f, ['AXButton', 'AXRadioButton'], LIBELLES_SAFARI.extensions, 2);
         if (onglet) {
           reglages = f;

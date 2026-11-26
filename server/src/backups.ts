@@ -392,9 +392,23 @@ export function projetsSansFiche(): { id: string; nom: string; chemin: string }[
 
 /** Les sites dont un backup tourne EN CE MOMENT : on ne le double jamais. */
 const enCours = new Set<string>();
+/**
+ * Parmi eux, ceux de la TOURNÉE AUTOMATIQUE (`passageDesBackups('automatique')`). Rangés À CÔTÉ du verrou, jamais à
+ * sa place : `enCours` reste le seul juge de « un backup tourne déjà ». Décision de l'utilisateur (25/11/2026) : la
+ * colonne de gauche ne montre que le ponctuel, jamais le récurrent.
+ */
+const enCoursAutomatique = new Set<string>();
 
 export function backupsEnCours(): string[] {
   return [...enCours];
+}
+
+/**
+ * Ce que la colonne de gauche montre : les sauvegardes lancées à la main et les restaurations (avec leur filet), sans
+ * celles de la tournée automatique.
+ */
+export function backupsEnCoursVisibles(): string[] {
+  return [...enCours].filter((id) => !enCoursAutomatique.has(id));
 }
 
 /**
@@ -629,6 +643,7 @@ export async function prendreUnBackup(
 
   if (enCours.has(siteId)) return { ok: false, raison: `un backup de « ${site.nom} » tourne déjà` };
   enCours.add(siteId);
+  if (origine === 'automatique') enCoursAutomatique.add(siteId);
 
   const debut = Date.now();
   try {
@@ -667,6 +682,7 @@ export async function prendreUnBackup(
     return { ok: false, raison };
   } finally {
     enCours.delete(siteId);
+    enCoursAutomatique.delete(siteId);
   }
 }
 

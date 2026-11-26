@@ -19,6 +19,7 @@
  */
 import type { EntreeJournal } from './journal-carte.js';
 import { nomAfficheDOutil } from './noms-outils.js';
+import { estUneNoteDeFiche } from './agents-personnalises.js';
 import {
   estDePlomberie,
   estUneNoteDAgent,
@@ -139,6 +140,14 @@ export function fluxDesEntrees(entrees: readonly EntreeJournal[]): ElementDuFlux
   };
   for (const entree of entrees) {
     if (estDePlomberie(entree)) continue;
+    /* UNE NOTE DE FICHE D'AGENT PERSONNALISÉ (« Nom noté : … », 26/11/2026) SE LIT EN CLAIR, comme une phrase de
+       l'agent : jamais repliée dans un groupe « Outil « Fiche de l'agent » ». Son texte est son libellé. */
+    const recit = recitDeLEntree(entree);
+    if (recit.outil === 'agent_fiche' && recit.ditParLAgent && estUneNoteDeFiche(recit.ditParLAgent)) {
+      fermer();
+      flux.push({ sorte: 'note', cle: entree.id, entree: { ...entree, resultat: recit.ditParLAgent } });
+      continue;
+    }
     if (estUneNoteDAgent(entree)) {
       fermer();
       flux.push({ sorte: 'note', cle: entree.id, entree });

@@ -1438,6 +1438,18 @@ export function createHttpServer(): http.Server {
           const r = relaisMac.relierUnMac(demande, clientIp(req));
           return json(res, r.ok ? 200 : 400, r);
         }
+        /* BELUGA CONNECT 1.7 S'ANNONCE (26/11/2026) : sans session, avec le code de son téléchargement — rien n'est relié,
+           les réglages du compte se rouvrent sur le code à taper dans l'application. */
+        if (route === '/api/relais-mac/annonce' && req.method === 'POST') {
+          let demande: Record<string, unknown> = {};
+          try {
+            demande = JSON.parse((await readBody(req, 4096)).toString() || '{}');
+          } catch {
+            return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+          }
+          const r = relaisMac.annoncerConnect(demande, clientIp(req));
+          return json(res, r.ok ? 200 : 429, r);
+        }
         /* « RELIER CE MAC ? » (21/11/2026) : l'application demande une liaison SANS session, puis attend qu'on l'accepte
            dans Beluga. La clé de retrait voyage dans le CORPS, jamais dans l'adresse. */
         if (route === '/api/relais-mac/demande-de-liaison' && req.method === 'POST') {

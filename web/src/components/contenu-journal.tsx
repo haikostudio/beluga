@@ -33,6 +33,7 @@ import {
   commandesEnPastilles,
 } from '@beluga/shared';
 import { PiecesJointes } from '@/components/bulle-question';
+import { ImageDePiece } from '@/components/pastille-de-fichier';
 import {
   BlocReplie,
   ChampsNommes,
@@ -114,12 +115,15 @@ export function EncadreQuestion({
   choix,
   options,
   reponse,
+  captures,
 }: {
   question: string;
   description?: string;
   choix?: 'single' | 'multiple' | 'text';
   options: readonly OptionDeLEntree[];
   reponse?: string;
+  /** Les captures d'une validation de geste : la donnée validée (ou refusée) reste visible sous la question. */
+  captures?: readonly string[];
 }) {
   const genre =
     choix === 'multiple' ? t('Plusieurs choix') : choix === 'text' ? t('Réponse libre') : options.length ? t('Un seul choix') : undefined;
@@ -143,6 +147,17 @@ export function EncadreQuestion({
         <p className="whitespace-pre-line break-words text-[13px] leading-relaxed text-muted texte-copiable" data-encadre-question-description>
           {description}
         </p>
+      ) : null}
+
+      {/* LA DONNÉE VALIDÉE RESTE SOUS LA QUESTION (26/11/2026) : on revoit ce qui a été accepté ou refusé. */}
+      {captures?.length ? (
+        <div className="flex flex-col gap-1.5" data-encadre-question-captures={captures.length}>
+          {captures.map((id) => (
+            <span key={id} className="relative block max-w-full self-start overflow-hidden rounded-md bg-raised">
+              <ImageDePiece id={id} alt={t('Capture de la donnée à valider')} className="block max-h-48 w-auto max-w-full object-contain" />
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {options.length ? (
@@ -200,6 +215,7 @@ function VueQuestion({ vue }: { vue: Extract<VueDEntree, { sorte: 'question' }> 
       choix={vue.choix}
       options={vue.options}
       reponse={vue.reponse}
+      captures={vue.captures}
     />
   );
 }

@@ -49,6 +49,8 @@ export function reponseConseillee(question: QuestionPourAuto): string {
  */
 export const CHAMPS_HORS_AUTO = [
   'gesteAValider',
+  /* Un geste important que l'agent fera lui-même : seul le « Valider » de la personne le fait partir. */
+  'validation',
   'devis',
   'depenseDuFil',
   'relaiDe',

@@ -105,7 +105,7 @@ export function extensionDe(nom: string): string {
  * LE CHEMIN D'UN DOCUMENT DU CHEF, tel qu'on l'écrira vraiment.
  *
  * On accepte les trois façons de le demander — « refonte », « refonte.md »,
- * « docs/regles/cartes.md » — et on rend le chemin RÉEL, relatif à la racine du
+ * « docs/mecaniques/menu-du-bas.md » — et on rend le chemin RÉEL, relatif à la racine du
  * projet. Un nom NU sans fichier connu à la racine part dans `docs/plans/` : le
  * dossier des plans reste le rangement par défaut.
  *

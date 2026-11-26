@@ -1,10 +1,11 @@
 /**
  * La mémoire du projet, côté RÈGLES.
  *
- * Les règles vivent PAR SUJET dans `docs/regles/<sujet>.md`, sous les MÊMES
- * sujets que les faits (`SUJETS_MEMOIRE`, `memoire.ts`). Ce module ne touche ni
- * au disque ni à la base : il découpe un fichier de règles et en lit les TITRES.
- * Il est donc lisible et testable seul.
+ * Les règles vivent PAR SUJET dans la base de connaissances (outil `memoire`).
+ * Ce module découpe le texte d'un sujet en puces de règles et en lit les TITRES :
+ * il sert au rangement de nuit des instructions (`fichesDeRegles`,
+ * `classeurs.ts`). Il ne touche ni au disque ni à la base, il est donc lisible
+ * et testable seul.
  */
 
 import { SUJETS_MEMOIRE, type SujetMemoire } from './memoire.js';

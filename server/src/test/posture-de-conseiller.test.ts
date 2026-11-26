@@ -9,6 +9,8 @@ process.env.BELUGA_DATA = bacASable;
 
 const {
   CONSIGNE_DE_CONSEILLER,
+  CONSIGNE_MENER_A_UN_RESULTAT,
+  CONSIGNE_MENER_A_UN_RESULTAT_COURTE,
   REGLE_DU_NOMBRE_DE_QUESTIONS,
   consigneDeDemandeComplexe,
   consigneDePlanDansLeMemeTour,
@@ -65,4 +67,24 @@ test('plus aucun plafond chiffré de questions dans les consignes de plan et de 
   const complexe = consigneDeDemandeComplexe({ complexe: true, raisons: ['5 souhaits exprimés'] });
   assert.doesNotMatch(complexe, /deux à cinq/);
   assert.ok(complexe.includes(REGLE_DU_NOMBRE_DE_QUESTIONS));
+});
+
+test('les agents des services mènent l’échange jusqu’à un résultat, même sous un accueil minimal (26/11/2026)', () => {
+  assert.match(CONSIGNE_MENER_A_UN_RESULTAT, /ENQUÊTE avec tes outils/);
+  assert.match(CONSIGNE_MENER_A_UN_RESULTAT, /DIAGNOSTIC/);
+  assert.match(CONSIGNE_MENER_A_UN_RESULTAT, /ÉTAPE SUIVANTE/);
+  for (const motif of ['configuration-marketing', 'directeur-marketing', 'chef-de-marque', 'chef-de-projet', 'chef-de-campagne'] as const) {
+    const consigne = rolePrompt('task', false, 'claude', 'minimal', motif);
+    assert.equal(consigne.split(CONSIGNE_MENER_A_UN_RESULTAT).length, 2, motif);
+    assert.equal(consigne, rolePrompt('task', false, 'claude', 'minimal', motif), motif);
+  }
+  for (const motif of ['configuration-backup', 'configuration-surveillance'] as const) {
+    const consigne = rolePrompt('task', false, 'claude', 'minimal', motif);
+    assert.ok(consigne.includes(CONSIGNE_MENER_A_UN_RESULTAT_COURTE), motif);
+    assert.ok(!consigne.includes(CONSIGNE_MENER_A_UN_RESULTAT), motif);
+  }
+  // Un agent de tâche ordinaire, un dépannage : rien de plus.
+  assert.ok(!rolePrompt('task', false, 'claude').includes(CONSIGNE_MENER_A_UN_RESULTAT));
+  assert.ok(!rolePrompt('deploy', false, 'claude', 'minimal', 'depannage-manuel').includes(CONSIGNE_MENER_A_UN_RESULTAT_COURTE));
+  assert.ok(CONSIGNE_MENER_A_UN_RESULTAT.length < 1_000, `${CONSIGNE_MENER_A_UN_RESULTAT.length} signes`);
 });

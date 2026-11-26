@@ -267,6 +267,7 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   historique_du_service: { un: 'Je relis l’historique de nos échanges.' },
   veille_poser: { un: 'Je pose une veille qui me relancera.' },
   agent_fiche: { un: 'Je complète ma fiche.' },
+  nommer_la_tache: { un: 'Je nomme ma tâche.' },
   cahier_des_charges: { un: 'Je mets le cahier des charges à jour.' },
 
   /* Les écrans, les appareils et les services de Beluga */

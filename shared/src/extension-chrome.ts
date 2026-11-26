@@ -14,6 +14,7 @@
  *  - LES CORRESPONDANCES d'adresse : fiche du coffre-fort, projet reconnu.
  */
 
+import type { ParcoursDAjout } from './parcours-d-ajout.js';
 import type { GenreDeNavigateur, Ordinateur } from './ordinateurs.js';
 import type { MarqueDeNavigateur } from './navigateurs-de-l-ordinateur.js';
 
@@ -496,6 +497,8 @@ export interface EtatDeLExtension {
   safari: { disponible: boolean; version: string | null };
   sites: SiteDuChrome[];
   routines: RoutineChrome[];
+  /** Le parcours « Ajouter cet ordinateur » en cours, tenu par le démon (`shared/src/parcours-d-ajout.ts`) ; absent : aucun. */
+  parcours?: ParcoursDAjout | null;
 }
 
 /* ------------------------------------------------------------------ */

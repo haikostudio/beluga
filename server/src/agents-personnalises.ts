@@ -51,6 +51,7 @@ import {
   type SourceDEvenement,
 } from '@beluga/shared';
 import { bus } from './bus.js';
+import { reglageDeConversation } from './puissance-des-agents.js';
 import { getDb } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -310,7 +311,7 @@ async function assurerLaConversation(id: string): Promise<string> {
   ]);
   const catalogue = await catalogueMoteurs().catch(() => []);
   const claude = catalogue.find((moteur) => moteur.id === 'claude');
-  const reglages = claude ? reglagesDuNiveau(claude, 'standard') : { model: undefined, thinking: 'none' };
+  const reglages = reglageDeConversation(claude);
   const relue = ligneAgent(id);
   if (relue?.agent_id && store.getAgent(relue.agent_id)) return relue.agent_id;
   const nom = ficheDeLigne(l).nom;
@@ -320,7 +321,7 @@ async function assurerLaConversation(id: string): Promise<string> {
     description: `Un agent personnalisé de « ${projet.name} » (onglet « Agents ») : sa fiche se remplit dans sa conversation, il travaille seul une fois allumé.`,
     labels: [LABEL_AGENT_PERSO],
     role: 'task',
-    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any },
+    run: { engine: 'claude', model: reglages.model, thinking: reglages.thinking as any, ...(reglages.niveau ? { niveau: reglages.niveau } : {}) },
   });
   rangerCarteDAgent(card.id, agentId, 'archived', null);
   getDb().prepare('UPDATE agents_perso SET agent_id = ?, card_id = ? WHERE id = ?').run(agentId, card.id, id);
@@ -452,7 +453,12 @@ export type IssueDuDeclenchement = 'parti' | 'fusionne' | 'ecarte' | 'eteint' | 
 type Envoi = (
   agentId: string,
   texte: string,
-  options: { context: string; onComplete: (texte: string, ok: boolean, mesure: { usage?: { inputTokens?: number; outputTokens?: number } }, fin?: { arretDemande?: boolean }) => void },
+  options: {
+    context: string;
+    /** Le déclencheur du passage : la réponse le porte, et le fil l'écrit en jaune (26/11/2026). */
+    passage?: { genre: 'manuel' | 'horaire' | 'evenement' | 'veille'; source?: string };
+    onComplete: (texte: string, ok: boolean, mesure: { usage?: { inputTokens?: number; outputTokens?: number } }, fin?: { arretDemande?: boolean }) => void;
+  },
 ) => Promise<void>;
 let envoi: Envoi = async (agentId, texte, options) => {
   const { sendPrompt } = await import('./runtime.js');
@@ -463,6 +469,7 @@ let envoi: Envoi = async (agentId, texte, options) => {
     demandeur: 'humain',
     template: 'none',
     context: options.context,
+    ...(options.passage ? { passageAutomatique: options.passage } : {}),
     onComplete: options.onComplete as any,
   });
 };
@@ -586,8 +593,11 @@ async function lancerLePassage(
     }
   };
   try {
-    await envoi(agentId, `${phraseDuPassage(declencheur.genre, declencheur.source)} Fais ta mission dans ton cadre, puis termine par ta phrase de compte rendu.`, {
+    await envoi(agentId, `${phraseDuPassage(declencheur.genre, declencheur.source)} Fais ta mission dans ton cadre, dis où en est ton objectif et la prochaine étape que tu proposes, puis termine par ta phrase de compte rendu.`, {
       context: contexteDeLAgentPersoDuTour(agentId) ?? '',
+      ...(declencheur.genre === 'manuel' || declencheur.genre === 'horaire' || declencheur.genre === 'evenement' || declencheur.genre === 'veille'
+        ? { passage: { genre: declencheur.genre, ...(declencheur.source ? { source: declencheur.source } : {}) } }
+        : {}),
       onComplete: (texte, ok, mesure, fin) => {
         const usage = mesure?.usage;
         terminer(texte, ok && !fin?.arretDemande, usage ? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) : undefined, fin?.arretDemande);

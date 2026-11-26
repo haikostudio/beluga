@@ -14,6 +14,7 @@
  */
 import {
   marquerLesTravauxVus,
+  sansLesTravauxRecurrents,
   signatureDesTravaux,
   suivreLesTravaux,
   type IssueDuTravail,
@@ -138,7 +139,8 @@ const sourceStudio: SourceDeTravaux = {
 const sourceBackups: SourceDeTravaux = {
   service: 'backups',
   enCours() {
-    /* Import tardif : le module des sauvegardes tire la base et ses recettes, inutile tant que rien ne tourne. */
+    /* Import tardif : le module des sauvegardes tire la base et ses recettes, inutile tant que rien ne tourne.
+       La tournée AUTOMATIQUE n'y est pas : la colonne ne montre que le ponctuel (décision du 25/11/2026). */
     const ids = backupsEnCoursConnus();
     if (!ids.length) return [];
     const lignes = getDb()
@@ -168,6 +170,28 @@ const sourceBackups: SourceDeTravaux = {
 
 let backupsEnCoursConnus: () => string[] = () => [];
 
+/**
+ * LES LIGNES DE LA TOURNÉE AUTOMATIQUE DÉJÀ GARDÉES SORTENT. Avant le 25/11/2026, chaque sauvegarde de la tournée
+ * de nuit laissait sa ligne (gardée une semaine) ; la source ne les relève plus, celles déjà en base se retirent ici.
+ * Seule une ligne dont le point retrouvé (même site, début ≥ début du travail − 60 s, le plus récent) est d'origine
+ * automatique sort — un point sans origine écrite est automatique, comme à sa lecture (`pointDepuisLigne`). Sans
+ * point retrouvé, la ligne reste au jugement habituel de sa source. Sans effet la seconde fois.
+ */
+export function retirerLesSauvegardesAutomatiques(): number {
+  const avant = lireLesSuivis();
+  const pointDuTravail = getDb().prepare(
+    "SELECT json_extract(data, '$.origine') AS origine FROM backup_points WHERE site_id = ? AND debut >= ? ORDER BY debut DESC LIMIT 1",
+  );
+  const suite = sansLesTravauxRecurrents(avant, (t) => {
+    if (t.service !== 'backups') return false;
+    const point = pointDuTravail.get(t.id.slice('backups:'.length), t.debut - 60_000) as { origine: string | null } | undefined;
+    return !!point && point.origine !== 'manuel';
+  });
+  if (!suite) return 0;
+  retenir(suite);
+  return avant.length - suite.length;
+}
+
 let minuterie: NodeJS.Timeout | null = null;
 
 /** Le relevé périodique, posé au démarrage du démon. Les travaux restés « en cours » d'avant sont jugés au premier relevé. */
@@ -176,9 +200,15 @@ export function demarrerLeReleveDesTravaux(): NodeJS.Timeout {
   inscrireUneSourceDeTravaux(sourceBackups);
   void import('./backups.js')
     .then((m) => {
-      backupsEnCoursConnus = m.backupsEnCours;
+      backupsEnCoursConnus = m.backupsEnCoursVisibles;
     })
     .catch((err) => log.warn('travaux des services : sauvegardes non suivies', String(err?.message ?? err)));
+  try {
+    const retirees = retirerLesSauvegardesAutomatiques();
+    if (retirees) log.info(`travaux des services : ${retirees} ligne(s) de la tournée automatique des sauvegardes retirée(s)`);
+  } catch (err) {
+    log.warn('travaux des services : lignes des sauvegardes automatiques non retirées', String((err as Error)?.message ?? err));
+  }
   if (minuterie) clearInterval(minuterie);
   minuterie = setInterval(() => {
     try {

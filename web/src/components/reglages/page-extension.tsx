@@ -11,6 +11,8 @@ import {
   etapesDeLaPreparation,
   ordinateurVuLe,
   travailEnCoursSurUnOrdinateur,
+  lierTelecharge,
+  parcoursVivant,
   type EtatDeLExtension,
   type DroitDOrdinateur,
   type ModeDeSite,
@@ -109,6 +111,29 @@ export function PageOrdinateurs() {
   const [vue, setVue] = React.useState<VueDesOrdinateurs>(() => (arriveeDepuisConnect() ? { genre: 'parcours', depart: { n: 1, mode: 'relier' } } : { genre: 'liste' }));
   const departs = React.useRef(1);
   const systemeIci = React.useMemo(systemeDeCetAppareil, []);
+  /*
+   * LE PARCOURS NE SE PERD PLUS (26/11/2026) : tenu par le démon, il se reprend à l'ouverture de la page — une fois —,
+   * et quand Beluga Connect s'annonce (`relaisMac.connectLance`), sur l'étape du code. Jamais de retéléchargement.
+   */
+  const repris = React.useRef(false);
+  React.useEffect(() => {
+    if (!etat || repris.current) return;
+    repris.current = true;
+    if (vue.genre === 'liste' && systemeIci && parcoursVivant(etat.parcours, Date.now())) {
+      departs.current += 1;
+      setVue({ genre: 'parcours', depart: { n: departs.current, mode: 'reprendre' } });
+    }
+  }, [etat, vue.genre, systemeIci]);
+  React.useEffect(
+    () =>
+      client.onConnectLance(() => {
+        if (!systemeIci) return;
+        departs.current += 1;
+        setVue((v) => (v.genre === 'parcours' ? v : { genre: 'parcours', depart: { n: departs.current, mode: 'reprendre' } }));
+        void lire();
+      }),
+    [systemeIci, lire],
+  );
 
   const ici = etat ? ordinateurReconnu(etat.ordinateurs, { navigateurId }) : null;
   const ordinateurOuvert = vue.genre === 'ordinateur' && etat ? etat.ordinateurs.find((o) => o.id === vue.id) ?? null : null;
@@ -121,7 +146,8 @@ export function PageOrdinateurs() {
   }
   const lier = () => {
     departs.current += 1;
-    setVue({ genre: 'parcours', depart: { n: departs.current, mode: 'telecharger' } });
+    /* « Lier » reprend un parcours déjà téléchargé au lieu de relancer le téléchargement. */
+    setVue({ genre: 'parcours', depart: { n: departs.current, mode: etat && !lierTelecharge(etat.parcours, Date.now()) ? 'reprendre' : 'telecharger' } });
   };
   /* « AJOUTER CET ORDINATEUR » : seulement depuis un ordinateur (un téléphone ne se relie pas) que rien ne reconnaît. */
   const ajouter = !!etat && !ici && !!systemeIci;
@@ -278,9 +304,21 @@ function PageDuParcours({ etat, depart, onRetour, onVoir }: { etat: EtatDeLExten
         <h3 className={cn('text-[17px] font-semibold text-text', accueillie && 'max-sm:hidden')} data-titre-parcours>
           {titre}
         </h3>
-        <p className="text-[13px] text-muted">{t('Environ deux minutes. Restez sur cette page : elle avance toute seule.')}</p>
+        <p className="text-[13px] text-muted">{t('Vous pouvez fermer cette fenêtre : elle se rouvre ici dès que {v0} démarre sur cet ordinateur.', { v0: CONNECT })}</p>
       </div>
-      <ParcoursDeConnexion etat={etat} depart={depart} onFermer={onRetour} onVoir={onVoir} />
+      <ParcoursDeConnexion
+        etat={etat}
+        depart={depart}
+        /* La fin du parcours le referme chez le démon : il ne se reprendra plus. */
+        onFermer={() => {
+          void client.call({ type: 'relaisMac.parcours', geste: 'fermer' }).catch(() => undefined);
+          onRetour();
+        }}
+        onVoir={(id) => {
+          void client.call({ type: 'relaisMac.parcours', geste: 'fermer' }).catch(() => undefined);
+          onVoir(id);
+        }}
+      />
     </div>
   );
 }
